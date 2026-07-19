@@ -141,6 +141,38 @@ end
     @inbounds scores[ox, oy, k] = den > 0 ? num / (sqrt(den) * tnorm[k]) : -2.0f0
 end
 
+# parabolic sub-pixel offset from three samples around a peak (device-safe)
+@inline function subpixoffset(sm1, s0, sp1)
+    d = sm1 - 2s0 + sp1
+    d >= 0.0f0 ? 0.0f0 : clamp(0.5f0 * (sm1 - sp1) / d, -0.5f0, 0.5f0)
+end
+
+# GPU version of `peakmargin`: one thread per patch reduces its S×S score slab
+# (S = 2R+1, stored in the top-left of the maxradius-sized `scores`) to
+# out[:,k] = (dx, dy, peak, margin). Lets `matchpatches!` read back only 4×K
+# floats instead of the whole score volume (the GPU→CPU copy dominated).
+@kernel function peakmargin_kernel!(out, @Const(scores), R::Int32, excl::Int32)
+    k = @index(Global)
+    S = 2R + 1
+    bx = Int32(1); by = Int32(1); best = -2.0f0
+    @inbounds for oy in Int32(1):S, ox in Int32(1):S
+        s = scores[ox, oy, k]
+        if s > best; best = s; bx = ox; by = oy; end
+    end
+    side = -2.0f0
+    @inbounds for oy in Int32(1):S, ox in Int32(1):S
+        if abs(ox - bx) > excl || abs(oy - by) > excl
+            s = scores[ox, oy, k]; s > side && (side = s)
+        end
+    end
+    fx = (1 < bx < S) ? subpixoffset(scores[bx-1, by, k], scores[bx, by, k], scores[bx+1, by, k]) : 0.0f0
+    fy = (1 < by < S) ? subpixoffset(scores[bx, by-1, k], scores[bx, by, k], scores[bx, by+1, k]) : 0.0f0
+    @inbounds out[1, k] = bx - R - 1 + fx
+    @inbounds out[2, k] = by - R - 1 + fy
+    @inbounds out[3, k] = best
+    @inbounds out[4, k] = best - side
+end
+
 """
     PatchTracker(backend, gray1, centers; window=96, maxradius=48, minstd=0.02,
                  centerweight=false)
@@ -167,6 +199,8 @@ struct PatchTracker{A2, A3, V, VI}
     regions::A3                       # (w+2maxradius)² × K scratch (device)
     scores::A3                        # (2maxradius+1)² × K scratch (device)
     hostscores::Array{Float32, 3}
+    peakout::A2                       # 4 × K device: (dx, dy, peak, margin) per patch
+    hostpeak::Matrix{Float32}         # 4 × K host readback (tiny — no full-volume copy)
     gray::A2                          # W × H frame buffer (device)
 end
 
@@ -221,9 +255,10 @@ function PatchTracker(backend, gray1::AbstractMatrix{Float32},
     copyto!(cy, Int32[c[2] for c in kept])
     regions = KA.allocate(backend, Float32, (w + 2R, w + 2R, K))
     scores = KA.allocate(backend, Float32, (S, S, K))
+    peakout = KA.allocate(backend, Float32, (4, K))
     gray = KA.allocate(backend, Float32, (W, H))
     return PatchTracker(w, R, kept, cx, cy, tmpls, weights, wsum, tnorm, regions, scores,
-                        Array{Float32, 3}(undef, S, S, K), gray)
+                        Array{Float32, 3}(undef, S, S, K), peakout, Matrix{Float32}(undef, 4, K), gray)
 end
 
 """
@@ -251,12 +286,13 @@ function matchpatches!(tracker::PatchTracker, gray::AbstractMatrix{Float32}, M::
     nccscores_kernel!(backend)(tracker.scores, tracker.regions, tracker.tmpls,
                                tracker.weights, tracker.wsum, tracker.tnorm,
                                Int32(w), Int32(R); ndrange = (S, S, K))
+    # reduce every patch's score slab to (dx, dy, peak, margin) ON the device, then
+    # read back only 4×K floats — the full score-volume copy was ~85% of the per-frame cost
+    peakmargin_kernel!(backend)(tracker.peakout, tracker.scores, Int32(R), Int32(excl); ndrange = K)
     KA.synchronize(backend)
-    copyto!(tracker.hostscores, tracker.scores)  # scratch is maxradius-sized; slice below
-    return [begin
-                dx, dy, s, m = peakmargin(view(tracker.hostscores, 1:S, 1:S, k); excl)
-                (x = tracker.centers[k][1], y = tracker.centers[k][2],
-                 dx = dx, dy = dy, score = s, margin = m)
-            end
+    copyto!(tracker.hostpeak, tracker.peakout)
+    hp = tracker.hostpeak
+    return [(x = tracker.centers[k][1], y = tracker.centers[k][2],
+             dx = hp[1, k], dy = hp[2, k], score = hp[3, k], margin = hp[4, k])
             for k in 1:K]
 end
