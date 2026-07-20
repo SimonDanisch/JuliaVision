@@ -27,6 +27,7 @@ export grayscale!, gradients!, opticalflow!, flowwarp!, bilinearresize!, fitaffi
 export samplewindow!, nccpeak, peakmargin, PatchTracker, matchpatches!
 export goodfeatures
 export lucaskanade!
+export nv12torgb!
 
 "Convert any RGB pixel to Float32 components for in-kernel math."
 @inline tofloat(c::AbstractRGB) = RGB{Float32}(Float32(red(c)), Float32(green(c)), Float32(blue(c)))
@@ -57,5 +58,6 @@ include("flow.jl")
 include("template.jl")
 include("features.jl")
 include("lucaskanade.jl")
+include("nv12.jl")
 
 end
