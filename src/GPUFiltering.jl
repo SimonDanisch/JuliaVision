@@ -29,6 +29,8 @@ export goodfeatures
 export lucaskanade!
 export nv12torgb!
 export blend!
+export pointwise!, stencil!
+export tofloat, topixel
 
 "Convert any RGB pixel to Float32 components for in-kernel math."
 @inline tofloat(c::AbstractRGB) = RGB{Float32}(Float32(red(c)), Float32(green(c)), Float32(blue(c)))
@@ -61,5 +63,6 @@ include("features.jl")
 include("lucaskanade.jl")
 include("nv12.jl")
 include("blend.jl")
+include("fxmap.jl")
 
 end
