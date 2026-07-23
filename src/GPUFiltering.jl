@@ -21,13 +21,13 @@ import Statistics: median
 export coloradjust!, gaussianblur!, unsharpmask!, warp!
 export channellinear!, channelstats
 export ColorAdjustments
-export cropmatrix, translationmatrix
+export cropmatrix, translationmatrix, areadownscale!
 export grayscale!, gradients!, opticalflow!, flowwarp!, bilinearresize!, fitaffine,
        fitsimilarity, ransacsimilarity, ransactranslation, fithomography, FlowWorkspace
 export samplewindow!, nccpeak, peakmargin, PatchTracker, matchpatches!
 export goodfeatures
 export lucaskanade!
-export nv12torgb!
+export nv12torgb!, lumatogray!
 export blend!
 export pointwise!, stencil!
 export tofloat, topixel

@@ -82,18 +82,17 @@ end
 """
     channelstats(img) -> (mean::Vec3f, std::Vec3f)
 
-Per-channel mean and standard deviation (host-side reduction).
+Per-channel mean and standard deviation — one fused reduction that runs
+wherever `img` lives: a host loop for a CPU array, a device `mapreduce`
+for a GPU array (only 6 floats cross the bus).
 """
 function channelstats(img::AbstractMatrix{<:AbstractRGB})
-    n = length(img)
-    s = zero(Vec3f)
-    s2 = zero(Vec3f)
-    for c in img
-        v = Vec3f(Float32(red(c)), Float32(green(c)), Float32(blue(c)))
-        s += v
-        s2 += v .* v
+    acc = mapreduce(+, img; init = zero(Vec{6, Float32})) do c
+        r = Float32(red(c)); g = Float32(green(c)); b = Float32(blue(c))
+        Vec{6, Float32}(r, g, b, r * r, g * g, b * b)
     end
-    μ = s ./ n
-    σ = sqrt.(max.(s2 ./ n .- μ .* μ, 0.0f0))
+    n = Float32(length(img))
+    μ = Vec3f(acc[1], acc[2], acc[3]) ./ n
+    σ = sqrt.(max.(Vec3f(acc[4], acc[5], acc[6]) ./ n .- μ .* μ, 0.0f0))
     return μ, σ
 end

@@ -52,3 +52,22 @@ function nv12torgb!(out::AbstractMatrix{<:AbstractRGB},
     nv12torgb_kernel!(KA.get_backend(out))(out, y, uv, bt601; ndrange = size(out))
     return out
 end
+
+@kernel function lumatogray_kernel!(out, @Const(y))
+    I = @index(Global, Cartesian)
+    @inbounds out[I] = clamp((Float32(y[I]) - 16.0f0) * (1.0f0 / 219.0f0), 0.0f0, 1.0f0)
+end
+
+"""
+    lumatogray!(out, y) -> out
+
+Limited-range luma plane (`y`: W×H UInt8, 16..235) to full-range Float32 grayscale
+`out` (0..1) on the GPU — the analysis passes track on luma, so a decoded NV12
+frame feeds them without any chroma upsampling or RGB round-trip.
+"""
+function lumatogray!(out::AbstractMatrix{Float32}, y::AbstractMatrix{UInt8})
+    size(out) == size(y) || throw(DimensionMismatch("out $(size(out)) vs luma $(size(y))"))
+    lumatogray_kernel!(KA.get_backend(out))(out, y; ndrange = size(out))
+    KA.synchronize(KA.get_backend(out))
+    return out
+end
