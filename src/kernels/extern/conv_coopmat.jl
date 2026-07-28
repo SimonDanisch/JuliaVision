@@ -63,8 +63,21 @@ function conv_coopmat_applicable(out, x, w)
     #
     # The size cap is the same judgement from the other side: that 35 MB is also
     # what makes the workspace OOM when anything else is on the card.
-    Cout >= 2 * Lava.GEMM_TILE || return false
-    padtile(size(out, 4) * size(out, 2) * size(out, 1)) * CRS * sizeof(Float16) <= 32 << 20 ||
+    # Both bounds used to exclude the full-resolution layers, on the estimate that
+    # the implicit-GEMM fallback was cheaper for them than im2col's 35 MB of
+    # traffic. Measured in situ (`OPDOUBLEFILTER` + capture/replay) that estimate
+    # was inverted: `3x3 64->16 @240x128` alone cost **1.411 ms at 0.40 TFLOP/s**,
+    # 21% of the step's entire convolution budget, while coopmat reaches 5.1-5.6
+    # TFLOP/s on `@120x64` shapes that have 4x LESS tile parallelism.
+    #
+    # Admitting them: that convolution drops to **0.442 ms** (3.2x) and the step
+    # goes **11.08 -> 9.78 ms, 90.2 -> 102.3 steps/s**. Cout=16 is a legal single
+    # N-tile; the cap only needed to clear the 35 MB those layers ask for.
+    #
+    # The lesson worth keeping is that the old bounds were never wrong in
+    # reasoning, only in their input — nobody had measured the fallback.
+    Cout >= Lava.GEMM_TILE || return false
+    padtile(size(out, 4) * size(out, 2) * size(out, 1)) * CRS * sizeof(Float16) <= 48 << 20 ||
         return false
     Lava.coopmat_gemm_available()
 end
