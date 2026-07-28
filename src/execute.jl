@@ -397,6 +397,27 @@ step only buys ~3 ms of 46, i.e. the dispatches barely overlap anyway.
 """
 const OPTIMES = Ref{Any}(nothing)
 
+"""
+    OPDOUBLEFILTER :: Ref{Any}
+
+Narrow `OPDOUBLE` to a subset of an op family: `(ctx, op) -> Bool`, or `nothing`
+for all of them.
+
+Attribution has to happen *in situ*. Standalone convolution microbenchmarks on
+this setup are unusable — identical code timed one shape at 16 us and 116 us in
+consecutive runs — while doubling an op inside a captured, replayed step has been
+stable all along, because the measurement is a whole step and the perturbation is
+the only thing that changes. This makes that technique reach a single shape
+instead of a whole family, which is what per-shape convolution cost needs.
+"""
+const OPDOUBLEFILTER = Ref{Any}(nothing)
+
+@inline function opdoublewanted(ctx::Ctx, op::Op)
+    f = OPDOUBLEFILTER[]
+    f === nothing && return true
+    return f(ctx, op)::Bool
+end
+
 @inline function timeop!(ctx::Ctx, op::Op)
     t = OPTIMES[]
     if t !== nothing
@@ -409,7 +430,7 @@ const OPTIMES = Ref{Any}(nothing)
         return r
     end
     # `isempty` first: the string compare is not free 640 times a step.
-    if !isempty(OPDOUBLE[]) && op.aten == OPDOUBLE[]
+    if !isempty(OPDOUBLE[]) && op.aten == OPDOUBLE[] && opdoublewanted(ctx, op)
         runop!(ctx, op, op.tag)
     end
     runop!(ctx, op, op.tag)
