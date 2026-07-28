@@ -61,6 +61,24 @@ read by a fusable op of the same declared dtype.
 const EMPTY = Set{String}()
 
 """
+Let a value with more than one consumer stay lazy, recomputing it per reader.
+
+**Off, because it was measured worth nothing.** Interleaved A/B on the captured
+step: 1019 dispatches at 11.060 ms against 1013 at 11.076 ms. The depth-1 guard
+below is what limits it — of 67 twice-read elementwise ops, only 6 have fully
+materialised operands, and 6 dispatches out of 1019 is under the noise floor.
+
+Kept because the mechanism is right and correct (suite 61/61, e2e unchanged at
+2.9077e-4 / 2.7702e-4), and real group codegen needs exactly this — recomputing
+a shared subexpression inside each consumer's kernel. It is the guard that has
+to go, and that only pays once whole groups are emitted as one kernel rather
+than folded pairwise.
+"""
+const DUPLICATE_FUSION = Ref{Bool}(false)
+"""Most consumers a duplicated value may have."""
+const DUPLICATE_MAX = Ref{Int}(2)
+
+"""
     finalconsumer(g, readers, id) -> Op | nothing
 
 The op that ultimately reads `id`, looking through any chain of shape-only
@@ -104,6 +122,11 @@ function fusableset(g::Graph)
     end
 
     out = Set{String}()
+    # Second pass below adds values read *twice*. Inductor does the same thing —
+    # it recomputes rather than materialising — and the trade is favourable here
+    # for the same reason fusion is at all: what a dispatch costs is being a
+    # dispatch, so evaluating a small expression twice inside two kernels beats
+    # evaluating it once and paying a launch plus a barrier to hand it over.
     for op in g.ops
         op.aten in FUSABLE || continue
         c = finalconsumer(g, readers, op.out)
@@ -124,6 +147,28 @@ function fusableset(g::Graph)
             (c.out in get(mates, op.out, EMPTY)) || continue
         end
         push!(out, op.out)
+    end
+
+    # Duplication pass, strictly depth-1: only ops whose own operands are all
+    # materialised may be read twice. Without that guard a chain of duplicated
+    # values would fan out exponentially — each extra consumer multiplying the
+    # work of everything upstream — and the win here is bounded (one dispatch and
+    # one barrier per value) while the blowup would not be.
+    if DUPLICATE_FUSION[]
+        for op in g.ops
+            op.aten in FUSABLE || continue
+            op.out in out && continue
+            any(i -> resolvealias(g, i) in out, op.ins) && continue   # depth-1 only
+            rs = get(readers, op.out, nothing)
+            rs === nothing && continue
+            2 <= length(rs) <= DUPLICATE_MAX[] || continue
+            all(r -> r[1] === :op && r[2].aten in FUSABLE && !haskey(r[2].attrs, "act"), rs) || continue
+            pb = get(g.buffers, op.out, nothing)
+            pb === nothing && continue
+            all(r -> (cb = get(g.buffers, r[2].out, nothing);
+                      cb !== nothing && cb.dtype === pb.dtype), rs) || continue
+            push!(out, op.out)
+        end
     end
     out
 end
