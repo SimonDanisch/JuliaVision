@@ -1,0 +1,558 @@
+"""
+ATen op methods.
+
+Each is one `runop!` method keyed on the op name. Elementwise work is
+broadcasting - `Lava.LavaArray <: AbstractGPUArray`, so that is already a fused
+device kernel - and reductions come from `AcceleratedKernels`. Only convolution,
+pooling and resampling reach a `launch!`.
+
+`arg1` on a binary op means the second operand was a scalar and torch folded it
+into the schema; `alpha` scales the second operand (`add.Tensor(a, b, alpha=k)`
+is `a + k*b`).
+"""
+
+"""
+Operands of a binary op.
+
+torch folds a scalar operand into the schema, so it arrives in `attrs` under
+its positional slot rather than in `ins`. Either side can be the scalar -
+`1 - sigmoid(x)` exports as `sub.Tensor(ins=[sigmoid], arg0=1)` - so both
+positions fall back to attrs and `ins` is consumed in order.
+"""
+function operand(ctx::Ctx, op::Op, pos::Int)
+    key = "arg$(pos-1)"
+    haskey(op.attrs, key) && return scalar(op.attrs[key])
+    # the pos'th operand is a tensor: count how many earlier positions were scalars
+    idx = pos - count(p -> haskey(op.attrs, "arg$(p-1)"), 1:(pos - 1))
+    idx <= length(op.ins) ||
+        error("$(op.aten) ($(op.id)) has no operand at position $pos")
+    value(ctx, op.ins[idx])
+end
+
+lhs(ctx::Ctx, op::Op) = operand(ctx, op, 1)
+rhs(ctx::Ctx, op::Op, i::Int=2) = operand(ctx, op, i)
+alpha(op::Op) = get(op.attrs, "alpha", 1)
+
+"""Non-finite scalars are serialised as strings; see export_graphs.const."""
+scalar(v) = v
+scalar(v::AbstractString) = v == "-inf" ? -Inf32 : v == "inf" ? Inf32 :
+                            v == "nan" ? NaN32 : v
+
+"""
+    intlist(ctx, v) -> Vector{Int}
+
+An attr list whose elements may be constants or `"\$buffer"` references to host
+scalars (see export_graphs: mixed lists keep their order in the attr).
+"""
+intlist(ctx::Ctx, v) = Int[el isa AbstractString && startswith(el, "\$") ?
+                           Int(value(ctx, el[2:end])) : Int(el) for el in v]
+
+# ---------------------------------------------------------------- elementwise
+
+for (name, f) in (("relu.default", :relu_), ("sigmoid.default", :sigmoid_),
+                  ("tanh.default", :tanh), ("log.default", :log),
+                  ("exp.default", :exp), ("sqrt.default", :sqrt),
+                  ("rsqrt.default", :(x -> inv(sqrt(x)))), ("neg.default", :(-)),
+                  ("abs.default", :abs), ("reciprocal.default", :inv),
+                  ("bitwise_not.default", :(!)), ("logical_not.default", :(!)),
+                  ("sin.default", :sin), ("cos.default", :cos),
+                  ("erf.default", :erf), ("floor.default", :floor))
+    # Writes into the op's planned slab slot instead of returning a fresh array;
+    # `opdest` falls back to allocating when the buffer was not planned.
+    @eval function runop!(ctx::Ctx, op::Op, ::Val{Symbol($name)})
+        emit(ctx, Base.broadcasted($f, lhs(ctx, op)))
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("add.Tensor")})
+    a, b, k = lhs(ctx, op), rhs(ctx, op), alpha(op)
+    sum_ = k == 1 ? Base.broadcasted(+, a, b) :
+                    Base.broadcasted(+, a, Base.broadcasted(*, k, b))
+    # `act` comes from `foldrelu`; the relu op it replaced is gone and its buffer
+    # aliases this one. Folded into the same broadcast, so it is free.
+    if Symbol(get(op.attrs, "act", "none")) === :relu
+        T = dtypeof(ctx, op.out)
+        return emit(ctx, Base.broadcasted(max, sum_, zero(T)))
+    end
+    emit(ctx, sum_)
+end
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("sub.Tensor")})
+    a, b, k = lhs(ctx, op), rhs(ctx, op), alpha(op)
+    emit(ctx, k == 1 ? Base.broadcasted(-, a, b) :
+                       Base.broadcasted(-, a, Base.broadcasted(*, k, b)))
+end
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("mul.Tensor")}) =
+    emit(ctx, Base.broadcasted(*, lhs(ctx, op), rhs(ctx, op)))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("div.Tensor")}) =
+    emit(ctx, Base.broadcasted(/, lhs(ctx, op), rhs(ctx, op)))
+"""
+Exponentiation by squaring.
+
+`x^n` with a *runtime* integer `n` converts to a float exponent and lowers to
+the device `pow()`, which is NaN for a negative base - while Julia's CPU `^`
+special-cases integral exponents and returns the right answer. A literal `x^2`
+also folds to `x*x` and hides the difference. `key_proj` squares a conv output
+that is mostly negative (big_modules.py KeyProjection), so on GPU the whole
+shrinkage term came back NaN.
+
+Written without recursion: SPIR-V rejects an entry point whose call graph has a
+cycle, so `inv(intpow(x, -n))` fails to validate rather than to run.
+"""
+@inline function intpow(x::T, n::Integer) where {T}
+    k = n < 0 ? -n : n
+    r = one(T)
+    b = x
+    while k > 0
+        (k & 1) == 1 && (r *= b)
+        b *= b
+        k >>= 1
+    end
+    n < 0 ? inv(r) : r
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("pow.Tensor_Scalar")})
+    a = lhs(ctx, op)
+    e = rhs(ctx, op)
+    (e isa Integer || (e isa Real && isinteger(e))) && return intpow.(a, Int(e))
+    a .^ e
+end
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Tensor")}) = lhs(ctx, op) .>= rhs(ctx, op)
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Scalar")}) = lhs(ctx, op) .>= rhs(ctx, op)
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("eq.Scalar")}) = lhs(ctx, op) .== rhs(ctx, op)
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("bitwise_and.Tensor")}) = lhs(ctx, op) .& rhs(ctx, op)
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("logical_and.default")}) = lhs(ctx, op) .& rhs(ctx, op)
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("where.self")}) =
+    ifelse.(lhs(ctx, op), value(ctx, op.ins[2]), value(ctx, op.ins[3]))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")}) =
+    (lo = get(op.attrs, "arg1", nothing); hi = get(op.attrs, "arg2", nothing);
+     clamp.(lhs(ctx, op), lo === nothing ? -Inf32 : Float32(lo),
+            hi === nothing ? Inf32 : Float32(hi)))
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
+    a = lhs(ctx, op)
+    d = alloc(ctx, op.out, size(a)...)
+    d .= a
+    d
+end
+
+# autocast's dtype boundaries. Writing into the op's planned slot rather than
+# `copy(...)`: `copy` calls `similar`, so all 118 of these a step allocated a
+# fresh device buffer outside the static plan — and then `coerce` converted the
+# result in a *second* pass. `opdest` is typed by the graph's declared dtype, so
+# the conversion happens inside this broadcast and `coerce` becomes a no-op.
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_to_copy.default")})
+    a = lhs(ctx, op)
+    d = opdest(ctx, a)
+    d .= a
+    d
+end
+
+# aten::copy is functional: it returns src broadcast to dst's shape and must
+# NOT write into dst. dst is usually a view, so an in-place `.=` would scribble
+# through it into the parent buffer and silently corrupt an earlier value.
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("copy.default")})
+    dst = lhs(ctx, op)
+    src = value(ctx, op.ins[2])
+    out = similar(dst, eltype(dst), size(dst))
+    out .= src
+    out
+end
+
+# --------------------------------------------------------------- constructors
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("full.default")})
+    sz = evalshape(shapeof(ctx, op.out), ctx.dims)
+    fill!(alloc(ctx, op.out, sz...), convert(dtypeof(ctx, op.out), scalar(op.attrs["arg1"])))
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("full_like.default")})
+    a = lhs(ctx, op)
+    T = dtypeof(ctx, op.out)
+    fill!(alloc(ctx, T, size(a)...), convert(T, scalar(op.attrs["arg1"])))
+end
+
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("scalar_tensor.default")}) =
+    fill!(alloc(ctx, op.out), convert(dtypeof(ctx, op.out), scalar(op.attrs["arg0"])))
+
+@inline arange_body(I, start, step) = start + (I[1] - 1) * step
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("arange.start_step")})
+    start = something(get(op.attrs, "arg0", nothing), 0)
+    stop = length(op.ins) >= 1 ? value(ctx, op.ins[1]) : op.attrs["arg1"]
+    step = something(get(op.attrs, "arg2", nothing), 1)
+    T = dtypeof(ctx, op.out)
+    n = length(T(start):T(step):T(stop - step))
+    launch!(arange_body, alloc(ctx, op.out, n), T(start), T(step))
+end
+
+shapeof(ctx::Ctx, id) = ctx.graph.buffers[id].shape
+dtypeof(ctx::Ctx, id) = ctx.graph.buffers[id].dtype
+
+# ------------------------------------------------------------------ reductions
+
+torchdims(op::Op, n) = [jdim(d, n) for d in ints(op.attrs["arg1"])]
+keepdim(op::Op) = get(op.attrs, "arg2", false) === true
+
+function reduced(a, d, keep)
+    keep && return a
+    dropdims(a; dims=Tuple(d))
+end
+
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("sum.dim_IntList")}) =
+    (a = lhs(ctx, op); d = torchdims(op, ndims(a)); reduced(sum(a; dims=Tuple(d)), d, keepdim(op)))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("mean.dim")}) =
+    (a = lhs(ctx, op); d = torchdims(op, ndims(a)); reduced(sum(a; dims=Tuple(d)) ./ prod(size(a, i) for i in d), d, keepdim(op)))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("prod.dim_int")}) =
+    (a = lhs(ctx, op); d = [jdim(Int(op.attrs["arg1"]), ndims(a))];
+     reduced(prod(a; dims=Tuple(d)), d, keepdim(op)))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("any.dim")}) =
+    (a = lhs(ctx, op); d = [jdim(Int(op.attrs["arg1"]), ndims(a))];
+     reduced(any(a; dims=Tuple(d)), d, keepdim(op)))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("all.dim")}) =
+    (a = lhs(ctx, op); d = [jdim(Int(op.attrs["arg1"]), ndims(a))];
+     reduced(all(a; dims=Tuple(d)), d, keepdim(op)))
+
+# aten::max.dim returns (values, indices). Base's argmax hands back
+# CartesianIndex objects, which is host-shaped; scanning the axis explicitly
+# keeps both results on the execution backend.
+@inline function maxdim_body(I, a, ::Val{D}, ::Val{WANTIDX}) where {D,WANTIDX}
+    @inbounds begin
+        J = ntuple(k -> k == D ? 1 : I[k], Val(length(I)))
+        best = a[CartesianIndex(J)]
+        bi = 1
+        for i in 2:size(a, D)
+            v = a[CartesianIndex(ntuple(k -> k == D ? i : I[k], Val(length(I))))]
+            if v > best
+                best = v
+                bi = i
+            end
+        end
+        WANTIDX ? oftype(best, bi - 1) : best
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max.dim")})
+    a = lhs(ctx, op)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    sz = ntuple(k -> k == d ? 1 : size(a, k), ndims(a))
+    vals = launch!(maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(false))
+    inds = launch!(maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(true))
+    keepdim(op) ? (vals, inds) : (dropdims(vals; dims=d), dropdims(inds; dims=d))
+end
+
+"""
+One workgroup per softmax slice: max, sum and normalise in a single dispatch.
+
+The three-pass version (`maximum(a; dims)`, `exp.(a .- m)`, `./ sum(e; dims)`)
+is four kernels and three allocations, and its two partial reductions go through
+`AcceleratedKernels` — which is built for reducing *large* extents, while
+attention here softmaxes 16 or 32 elements at a time. Three of these cost
+3.9 ms a step that way. Fused, the whole reduction lives in shared memory.
+
+`SOFTMAX_WG` threads cooperate per slice; the reduced axis can be any length.
+"""
+const SOFTMAX_WG = 64
+
+@kernel function softmax_kernel!(out, @Const(a), ::Val{WG}, pre, n) where {WG}
+    lt, = @index(Local, NTuple)
+    grp, = @index(Group, NTuple)
+    @uniform T = eltype(out)
+    sh = @localmem Float32 (WG,)
+    # Values that have to survive a `@synchronize` need `@private` storage —
+    # a plain local is not guaranteed to on the CPU backend.
+    keep = @private Float32 (2,)
+
+    # `base` — the first element of slice `grp-1` in the (pre, n, post) view of
+    # `a`, with `pre` elements between consecutive entries along the reduced
+    # axis — is recomputed in every phase rather than kept in a local. A plain
+    # local does not survive a `@synchronize` on the CPU backend, which splits
+    # the kernel into one loop per barrier-free region, so the binding is simply
+    # not in scope in the next one (`UndefVarError: base not defined`). Three
+    # integer ops is cheaper than a `@private` slot.
+    @inbounds begin
+        base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+        acc = -Inf32
+        i = lt
+        while i <= n
+            acc = max(acc, Float32(a[base + pre * (i - 1) + 1]))
+            i += WG
+        end
+        sh[lt] = acc
+    end
+    @synchronize
+    @inbounds if lt == 1
+        m = sh[1]
+        for k in 2:WG
+            m = max(m, sh[k])
+        end
+        sh[1] = m
+    end
+    @synchronize
+    @inbounds keep[1] = sh[1]
+    @synchronize                       # every thread has read `m` before sh[1] is reused
+
+    @inbounds begin
+        base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+        s = 0f0
+        i = lt
+        while i <= n
+            s += exp(Float32(a[base + pre * (i - 1) + 1]) - keep[1])
+            i += WG
+        end
+        sh[lt] = s
+    end
+    @synchronize
+    @inbounds if lt == 1
+        s = sh[1]
+        for k in 2:WG
+            s += sh[k]
+        end
+        sh[1] = s
+    end
+    @synchronize
+
+    @inbounds begin
+        base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+        denom = sh[1]
+        i = lt
+        while i <= n
+            j = base + pre * (i - 1) + 1
+            out[j] = T(exp(Float32(a[j]) - keep[1]) / denom)
+            i += WG
+        end
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_softmax.default")})
+    a = lhs(ctx, op)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    # The kernel indexes `a` linearly over the (pre, n, post) view, so a wrapper
+    # whose linear order is not a dense array's has to be collapsed first.
+    a isa Union{SubArray,PermutedDimsArray,Base.ReshapedArray} && (a = materialize(a))
+    pre = prod(ntuple(k -> size(a, k), d - 1); init=1)
+    n = size(a, d)
+    post = length(a) ÷ (pre * n)
+    out = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
+    softmax_kernel!(ctx.backend, SOFTMAX_WG)(out, a, Val(SOFTMAX_WG), pre, n;
+                                             ndrange = SOFTMAX_WG * pre * post)
+    out
+end
+
+# aten::native_layer_norm returns (out, mean, rstd); normalized over the
+# trailing torch dims, i.e. the leading Julia dims
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
+    a = lhs(ctx, op)
+    nshape = ints(op.attrs["arg1"])
+    d = Tuple(1:length(nshape))
+    eps = Float32(op.attrs["arg4"])
+    μ = sum(a; dims=d) ./ prod(size(a, i) for i in d)
+    v = sum(abs2, a .- μ; dims=d) ./ prod(size(a, i) for i in d)
+    r = 1 ./ sqrt.(v .+ eps)
+    y = (a .- μ) .* r
+    if length(op.ins) >= 2
+        γ = value(ctx, op.ins[2])
+        y = y .* γ
+    end
+    if length(op.ins) >= 3
+        β = value(ctx, op.ins[3])
+        y = y .+ β
+    end
+    (y, μ, r)
+end
+
+# ------------------------------------------------------------------- structural
+
+# Left allocating on purpose. Writing the parts into a planned destination
+# removes one allocation but costs one kernel launch *per part* instead of the
+# single fused `cat`; measured, that is a net loss (43.9 -> 39.5 steps/s) because
+# this workload is launch-bound, not allocation-bound.
+"""
+Concatenation, written into the op's planned slot.
+
+`Base.cat` allocates its own result — so this op escaped the static plan
+entirely — and reaches it through `cat_t`/`__cat`, whose per-part `copyto!` on a
+GPU array goes the long way round. Writing each part into a view of the
+destination is the same number of dispatches with none of that: 21 `cat`s a step
+cost 5.2 ms before and a fifth of that after.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("cat.default")})
+    parts = [value(ctx, i) for i in op.ins]
+    n = ndims(parts[1])
+    d = jdim(Int(get(op.attrs, "arg1", 0)), n)
+    total = sum(size(p, d) for p in parts)
+    dims = ntuple(k -> k == d ? total : size(parts[1], k), n)
+    out = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, dims...)
+    off = 0
+    for p in parts
+        len = size(p, d)
+        len == 0 && continue
+        view(out, ntuple(k -> k == d ? ((off + 1):(off + len)) : Colon(), n)...) .= p
+        off += len
+    end
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("repeat.default")})
+    a = lhs(ctx, op)
+    reps = reverse(ints(op.attrs["arg1"]))
+    # torch prepends singleton dims when the repeat spec is longer than the rank
+    while ndims(a) < length(reps)
+        a = reshape(a, size(a)..., 1)
+    end
+    repeat(a; inner=ntuple(_ -> 1, ndims(a)), outer=Tuple(reps))
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("constant_pad_nd.default")})
+    a = value(ctx, op.ins[1])
+    pad = intlist(ctx, op.attrs["arg1"])  # (lo, hi) per torch dim from the last
+    v = convert(eltype(a), get(op.attrs, "arg2", 0))
+    dims = collect(size(a))
+    los = zeros(Int, ndims(a))
+    for k in 1:(length(pad) ÷ 2)
+        lo, hi = pad[2k - 1], pad[2k]     # torch dim -k, i.e. Julia dim k
+        dims[k] += lo + hi
+        los[k] = lo
+    end
+    out = fill!(similar(a, Tuple(dims)), v)
+    idx = ntuple(k -> (los[k] + 1):(los[k] + size(a, k)), ndims(a))
+    out[idx...] = a
+    out
+end
+
+# `copy` here allocated a fresh device buffer on every call, outside the static
+# plan — with the pool near its limit that was 64 MiB of churn per step and an
+# OOM-reclaim (a full device flush plus a GC) to go with it. The planned slot
+# holds exactly this buffer; seeding it from the source is the same one pass the
+# copy was.
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("slice_scatter.default")})
+    a = lhs(ctx, op)
+    dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
+    dst .= a
+    src = value(ctx, op.ins[2])
+    n = ndims(dst)
+    d = jdim(Int(get(op.attrs, "arg2", 0)), n)
+    lo = Int(get(op.attrs, "arg3", 0))
+    hi = get(op.attrs, "arg4", nothing)
+    hi = hi === nothing ? size(dst, d) : min(Int(hi), size(dst, d))
+    idx = ntuple(i -> i == d ? ((lo + 1):hi) : Colon(), n)
+    dst[idx...] = src
+    dst
+end
+
+# --------------------------------------------------------------------- extern
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
+    x = lhs(ctx, op)
+    w = value(ctx, op.ins[2])
+    bias = length(op.ins) >= 3 ? value(ctx, op.ins[3]) : nothing
+    stride = reverse(ints(op.attrs["arg3"]))
+    pad = reverse(ints(op.attrs["arg4"]))
+    dil = reverse(ints(op.attrs["arg5"]))
+    groups = Int(op.attrs["arg8"])
+    # `act` is set by `foldrelu`, which deletes the relu op and aliases its
+    # buffer onto this convolution's output. Every path below has to honour it —
+    # dropping it silently would be a wrong answer, not a slow one.
+    act = Symbol(get(op.attrs, "act", "none"))
+    ox = convsize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1])
+    if length(stride) == 1                       # aten::convolution covers 1-D too
+        out = alloc(ctx, eltype(x), ox, size(w, 3), size(x, 3))
+        convolution1d!(out, x, w, bias, stride, pad, dil, groups)
+        # No epilogue to fold into here; correctness first, and the 1-D
+        # convolutions are the 9 channel-attention layers, not a hot path.
+        act === :relu && (out .= max.(out, zero(eltype(out))))
+    else
+        oy = convsize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2])
+        out = alloc(ctx, eltype(x), ox, oy, size(w, 4), size(x, 4))
+        convolution!(out, x, w, bias, stride, pad, dil, groups; ws=ctx.ws, act)
+    end
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_native_batch_norm_legit_no_training.default")})
+    x = lhs(ctx, op)
+    γ, β = value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    μ, v = value(ctx, op.ins[4]), value(ctx, op.ins[5])
+    eps = Float32(op.attrs["arg6"])
+    c = ndims(x) - 1                      # torch channel dim 1 -> Julia dim n-1
+    rs = ntuple(i -> i == c ? length(γ) : 1, ndims(x))
+    s = reshape(γ ./ sqrt.(v .+ eps), rs)
+    b = reshape(β, rs) .- reshape(μ, rs) .* s
+    (x .* s .+ b, similar(x, 0), similar(x, 0))
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_adaptive_avg_pool2d.default")})
+    x = lhs(ctx, op)
+    oy = Int(value(ctx, op.ins[2]))       # torch (H, W) -> Julia (y, x)
+    ox = Int(value(ctx, op.ins[3]))
+    out = alloc(ctx, eltype(x), ox, oy, size(x, 3), size(x, 4))
+    adaptive_avg_pool2d!(out, x)
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("upsample_bilinear2d.vec")})
+    x = lhs(ctx, op)
+    target = evalshape(shapeof(ctx, op.out), ctx.dims)
+    out = alloc(ctx, eltype(x), target...)
+    upsample_bilinear2d!(out, x)
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default")})
+    x = lhs(ctx, op)
+    k = reverse(ints(op.attrs["arg1"]))
+    s = haskey(op.attrs, "arg2") ? reverse(ints(op.attrs["arg2"])) : k
+    p = haskey(op.attrs, "arg3") ? reverse(ints(op.attrs["arg3"])) : [0, 0]
+    ox = (size(x, 1) + 2p[1] - k[1]) ÷ s[1] + 1
+    oy = (size(x, 2) + 2p[2] - k[2]) ÷ s[2] + 1
+    out = alloc(ctx, eltype(x), ox, oy, size(x, 3), size(x, 4))
+    maxpool2d!(out, x, k, s, p)
+    (out, similar(out, Int64, 0))
+end
+
+# addmm(bias, a, b) = bias + a*b ; bmm is batched over the leading torch dim.
+# Reversed layout swaps the operands: torch (m,k)x(k,n) is Julia (n,k)x(k,m).
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("addmm.default")})
+    bias = lhs(ctx, op)
+    a, b = value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    out = alloc(ctx, op.out, size(b, 1), size(a, 2))
+    matmul!(out, b, a, bias; ws=ctx.ws)
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("mm.default")})
+    a, b = lhs(ctx, op), value(ctx, op.ins[2])
+    out = alloc(ctx, op.out, size(b, 1), size(a, 2))
+    matmul!(out, b, a; ws=ctx.ws)
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_scaled_dot_product_efficient_attention.default")})
+    q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    bias = length(op.ins) >= 4 ? value(ctx, op.ins[4]) : nothing
+    s = get(op.attrs, "scale", nothing)
+    scale = s === nothing ? inv(sqrt(size(q, 1))) : Float64(s)
+    out = sdpa(q, k, v, bias, scale; backend=ctx.backend, ws=ctx.ws)
+    # (output, logsumexp, philox_seed, philox_offset); only the first is read
+    (out, similar(out, 0), similar(out, 0), similar(out, 0))
+end
+
+# PyTorch picks the backend, and under autocast it picks flash for the unmasked
+# attentions and mem-efficient for the masked ones, so both ATen ops appear in
+# the same graph. Flash takes no attn_bias and carries an explicit scale.
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_scaled_dot_product_flash_attention.default")})
+    q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    s = get(op.attrs, "scale", nothing)
+    scale = s === nothing ? inv(sqrt(size(q, 1))) : Float64(s)
+    out = sdpa(q, k, v, nothing, scale; backend=ctx.backend, ws=ctx.ws)
+    e = similar(out, 0)
+    # (output, logsumexp, cum_seq_q, cum_seq_k, max_q, max_k,
+    #  philox_seed, philox_offset, debug_attn_mask)
+    (out, e, e, e, e, e, e, e, e)
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("bmm.default")})
+    a, b = lhs(ctx, op), value(ctx, op.ins[2])
+    # a: torch (B,m,k) -> Julia (k,m,B); b: torch (B,k,n) -> Julia (n,k,B)
+    out = alloc(ctx, op.out, size(b, 1), size(a, 2), size(a, 3))
+    batchedmatmul!(out, b, a)
+    out
+end

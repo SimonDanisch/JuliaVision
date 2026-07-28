@@ -1,0 +1,124 @@
+"""
+One generic kernel, so op bodies are plain functions.
+
+Everything elementwise or reducing is already provided for any
+`AbstractGPUArray` - and `Lava.LavaArray <: GPUArraysCore.AbstractGPUArray` -
+by broadcasting, `fill!`, and `AcceleratedKernels`' backend-agnostic
+`sum`/`prod`/`maximum`/`any`/`all`/`sort`. None of that is reimplemented here.
+
+What is left is the genuinely index-shaped work: convolution, pooling,
+resampling, the memory read. Those launch through `launch!`, which supplies the
+`@index` boilerplate once so a kernel body is an ordinary `@inline` function of
+`(I, args...)` returning the value at `I`. Arguments are passed explicitly
+rather than captured, which keeps the bodies concatenable when emit_kernels
+fuses a chain.
+"""
+
+"""
+    materialize(v)
+
+Detach a view into a fresh dense array on its own backend.
+"""
+function materialize(v::AbstractArray)
+    d = similar(v)
+    d .= v
+    d
+end
+
+"""
+    bidx(a, I)
+
+Index `a` at the output index `I`, collapsing its extent-1 axes. PyTorch aligns
+trailing dimensions when broadcasting and these arrays carry the reversed shape,
+so trailing becomes leading and this only has to handle the size-1 axes.
+"""
+@inline function bidx(a, I::CartesianIndex)
+    sz = size(a)
+    CartesianIndex(ntuple(d -> @inbounds(sz[d] == 1 ? 1 : I[d]), Val(length(sz))))
+end
+
+@kernel function ndmap!(f::F, out, args::Vararg{Any,N}) where {F,N}
+    I = @index(Global, NTuple)
+    @inbounds out[I...] = f(I, args...)
+end
+
+"""
+    launch!(f, out, args...; backend=get_backend(out))
+
+Evaluate `f(I, args...)` at every index `I` of `out`. N-D dispatch by
+construction, so no kernel body divides a runtime value to recover its
+coordinates.
+
+Flattening this to a 1-D `ndrange` with the coordinates recovered from a
+`CartesianIndices` was tried and reverted: it was **wrong** (the model's matte
+went from 2.8e-4 to 0.27 against PyTorch) *and* slower, 31.7 -> 34.6 ms. It
+looked promising because the same flattening is worth 6x in Lava's broadcast,
+but that win came from removing the per-element div/mod that
+`getindex(::Broadcasted, ::Integer)` performs on an N-D tree — not from the
+launch geometry, which on its own was only 54 -> 103 GB/s of the 54 -> 332
+total. These kernels already take an N-D index and do no such division, so
+flattening buys nothing and costs a `CartesianIndices` lookup.
+"""
+# Flat variant of `ndmap!`; see `LAUNCH_FLAT`.
+@kernel function ndmap_flat!(f::F, out, cis, n, args::Vararg{Any,N}) where {F,N}
+    lin = @index(Global, Linear)
+    if lin <= n
+        @inbounds out[lin] = f(Tuple(cis[lin]), args...)
+    end
+end
+
+"""
+    LAUNCH_FLAT[] :: Bool
+
+Launch `launch!` kernels over a flat range instead of `size(out)`.
+
+**Off, because for these kernels it is 10% slower** — 31.69 ms against 28.83,
+interleaved A/B in one session. It is *correct* (all 8 graphs verify, and the
+end-to-end matte is 2.754e-4 against 2.768e-4), so this is a performance
+decision, not a correctness one.
+
+Worth understanding, because the same flattening is worth ~3 ms elsewhere — the
+convolution epilogue, im2col and both GEMM epilogues all gained from it. The
+difference is what the decomposition costs:
+
+  * Those kernels needed only one or two divisions, hand-written for their
+    access pattern (`conv_epilogue_kernel!` recovers pixel/channel/image with
+    two), and their fast `ndrange` dimension was shorter than a warp — a
+    15-wide `OW` means a warp spans 15 contiguous outputs and then jumps.
+  * `ndmap!` hands `f` a full Cartesian index, so flattening costs a complete
+    `CartesianIndices` lookup — N-1 divisions — and `f` then re-derives its own
+    offsets from it. That exceeds the coalescing it buys.
+
+So the rule is not "always flatten": flatten when the index arithmetic you need
+is cheaper than the fragmentation you are paying for.
+"""
+const LAUNCH_FLAT = Ref(false)
+
+function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)) where {F}
+    if LAUNCH_FLAT[] && ndims(out) > 1 && IndexStyle(out) === IndexLinear()
+        n = length(out)
+        ndmap_flat!(backend)(f, out, CartesianIndices(out), n, args...; ndrange=n)
+    else
+        ndmap!(backend)(f, out, args...; ndrange=size(out))
+    end
+    out
+end
+
+"""
+    launched!(f, out, args...)
+
+`launch!` followed by a synchronize. Only for the verification path; the
+recorded command stream never synchronizes between passes.
+"""
+function launched!(f::F, out, args...) where {F}
+    backend = KernelAbstractions.get_backend(out)
+    launch!(f, out, args...; backend)
+    KernelAbstractions.synchronize(backend)
+    out
+end
+
+# Scalar bodies. Shared with the fused kernels, which are literally these
+# concatenated with SSA renaming.
+@inline relu_(x) = max(x, zero(x))
+@inline sigmoid_(x) = one(x) / (one(x) + exp(-x))
+@inline hardsigmoid_(x) = clamp(x / 6 + oftype(x, 0.5), zero(x), one(x))
