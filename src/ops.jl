@@ -49,6 +49,26 @@ intlist(ctx::Ctx, v) = Int[el isa AbstractString && startswith(el, "\$") ?
 
 # ---------------------------------------------------------------- elementwise
 
+"""
+    erf(x)
+
+Abramowitz & Stegun 7.1.26, max error ~1.5e-7 — comfortably inside fp32.
+
+`erf.default` has been in the elementwise table all along but the function it
+names was never defined: neither MatAnyone nor BasicVSR++ contains an `erf`, so
+the op would have thrown `UndefVarError` the first time one did. Wan's `gelu` is
+that first time. Written as a rational approximation rather than pulled from
+SpecialFunctions because it has to compile into a GPU kernel.
+"""
+@inline function erf(x)
+    T = typeof(float(x))
+    a = abs(x)
+    t = one(T) / (one(T) + T(0.3275911) * a)
+    y = one(T) - (((((T(1.061405429) * t - T(1.453152027)) * t) + T(1.421413741)) * t -
+                   T(0.284496736)) * t + T(0.254829592)) * t * exp(-a * a)
+    return x < zero(x) ? -y : y
+end
+
 for (name, f) in (("relu.default", :relu_), ("sigmoid.default", :sigmoid_),
                   ("tanh.default", :tanh), ("log.default", :log),
                   ("exp.default", :exp), ("sqrt.default", :sqrt),
@@ -703,4 +723,45 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
         idx[jd] = vec(Int.(collect(iv))) .+ 1      # torch indices are 0-based
     end
     materialize(view(x, idx...))
+end
+
+"""
+`gelu` with torch's default (exact) formulation: `x/2 * (1 + erf(x/sqrt(2)))`.
+`arg1 = "tanh"` selects the approximation, which differs by ~1e-3 and is a
+different function, not a faster one — so it is dispatched, not assumed.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("gelu.default")})
+    x = lhs(ctx, op)
+    if String(get(op.attrs, "arg1", "none")) == "tanh"
+        c = eltype(x)(0.7978845608028654)     # sqrt(2/pi)
+        emit(ctx, Base.broadcasted(v -> 0.5f0 * v * (1 + tanh(c * (v + eltype(x)(0.044715) * v^3))), x))
+    else
+        emit(ctx, Base.broadcasted(v -> 0.5f0 * v * (1 + erf(v / sqrt(eltype(x)(2)))), x))
+    end
+end
+
+"""
+`view_as_complex` / `view_as_real` are the rotary embedding's pair-packing.
+
+Torch stores the real/imaginary pair in the *last* axis, so after the reversal
+this layout uses it becomes the *first* — which is exactly the layout
+`reinterpret(reshape, ...)` converts without copying: a `(2, dims...)` real array
+and a `(dims...)` complex one share memory.
+
+The pair axis has to be first for that to hold. It always is here, because it is
+torch's last, but a graph that permuted it would silently reinterpret the wrong
+elements, so it is checked.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("view_as_complex.default")})
+    x = lhs(ctx, op)
+    size(x, 1) == 2 ||
+        error("view_as_complex expects the real/imaginary pair on the first (reversed) axis, got size $(size(x))")
+    materialize(reinterpret(reshape, Complex{eltype(x)}, x))
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("view_as_real.default")})
+    z = lhs(ctx, op)
+    eltype(z) <: Complex ||
+        error("view_as_real expects a complex input, got $(eltype(z))")
+    materialize(reinterpret(reshape, real(eltype(z)), z))
 end

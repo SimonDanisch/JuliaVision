@@ -88,8 +88,12 @@ function Buffer(o)
            attrs)
 end
 
+# `complex64`/`complex128` are torch's names for a *pair* of floats — the rotary
+# embedding packs its sin/cos that way (`view_as_complex`), so a graph carrying
+# RoPE fails to load without them.
 const DTYPE_NAMES = Dict("float32" => Float32, "float64" => Float64, "float16" => Float16,
-                         "int64" => Int64, "int32" => Int32, "bool" => Bool, "uint8" => UInt8)
+                         "int64" => Int64, "int32" => Int32, "bool" => Bool, "uint8" => UInt8,
+                         "complex64" => ComplexF32, "complex128" => ComplexF64)
 
 function Op(o)
     Op(String(o.id), String(o.aten), String[String(x) for x in o.ins_],
