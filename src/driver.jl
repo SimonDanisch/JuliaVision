@@ -143,7 +143,17 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
     if firstframe
         s.ti = 0
         s.lastmemti = 0
-        ismem = needseg = true
+        ismem = true
+        # NOT `needseg = true`. A supplied mask already *is* the segmentation —
+        # the `mask !== nothing` branch below overwrites `prob` outright — so
+        # segmenting first is wasted work, and on a fresh state it is a crash:
+        # `s.ti == 0` sends `s.lastmskvalue` into `pixel_fusion`, and `initstate`
+        # leaves that `nothing`, which reaches `lava_broadcast_flat!` as a
+        # `LavaRefValue{Nothing}` and fails to compile
+        # ("call to jl_f_throw_methoderror") rather than erroring in Julia.
+        # Keeping the mask authoritative makes `step!(…; mask, firstframe = true)`
+        # both legal and cheaper — it is the natural way to seed a clip.
+        needseg = mask === nothing
     end
 
     f16, f8, f4, f2, f1, pixfeat = call(m, "encode_image", image; dims)
