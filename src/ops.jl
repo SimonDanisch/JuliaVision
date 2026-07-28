@@ -492,7 +492,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("upsample_bilinear2d.vec")})
     x = lhs(ctx, op)
     target = evalshape(shapeof(ctx, op.out), ctx.dims)
     out = alloc(ctx, eltype(x), target...)
-    upsample_bilinear2d!(out, x)
+    # arg2 is align_corners; the graphs use both conventions
+    upsample_bilinear2d!(out, x; align_corners = Bool(something(get(op.attrs, "arg2", nothing), false)))
     out
 end
 
@@ -555,4 +556,80 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("bmm.default")})
     out = alloc(ctx, op.out, size(b, 1), size(a, 2), size(a, 3))
     batchedmatmul!(out, b, a)
     out
+end
+
+# ------------------------------------------------------------ BasicVSR++ ops
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("leaky_relu.default")})
+    x = lhs(ctx, op)
+    s = eltype(x)(something(get(op.attrs, "arg1", nothing), 0.01))
+    emit(ctx, Base.broadcasted(v -> v >= zero(v) ? v : s * v, x))
+end
+
+"""
+`flip` reverses whole axes, so it is a permutation of indices rather than
+arithmetic — `reverse` on the resolved Julia dimensions, materialised because
+the result feeds ops that want real storage.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("flip.default")})
+    x = lhs(ctx, op)
+    dims = ints(op.attrs["arg1"])
+    jd = Tuple(jdim(d, ndims(x)) for d in (dims isa Integer ? [dims] : dims))
+    materialize(reverse(x; dims = jd))
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("avg_pool2d.default")})
+    x = lhs(ctx, op)
+    k = ints(op.attrs["arg1"])
+    kk = k isa Integer ? (k, k) : Tuple(k)
+    s = ints(get(op.attrs, "arg2", collect(kk)))
+    ss = isempty(s) ? kk : (s isa Integer ? (s, s) : Tuple(s))
+    p = ints(get(op.attrs, "arg3", [0, 0]))
+    pp = p isa Integer ? (p, p) : Tuple(p)
+    # torch orders these (H, W); Julia's first axis is W
+    kw, kh = kk[end], kk[1]
+    sw, sh = ss[end], ss[1]
+    pw, ph = pp[end], pp[1]
+    ow = (size(x, 1) + 2pw - kw) ÷ sw + 1
+    oh = (size(x, 2) + 2ph - kh) ÷ sh + 1
+    out = alloc(ctx, eltype(x), ow, oh, size(x, 3), size(x, 4))
+    avg_pool2d!(out, x, kw, kh, sw, sh, pw, ph)
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("grid_sampler_2d.default")})
+    x = value(ctx, op.ins[1])
+    grid = value(ctx, op.ins[2])
+    align = Bool(something(get(op.attrs, "arg4", nothing), true))
+    # arg3 is torch's padding_mode enum: 0 = zeros, 1 = border, 2 = reflection.
+    # BasicVSR++ uses both 0 and 1; treating border as zeros leaves a dark rim
+    # that the next warp amplifies.
+    pad = Int(something(get(op.attrs, "arg3", nothing), 0)) == 1 ? :border : :zeros
+    # grid is (2, W, H, N) after reversal — coordinates first
+    out = alloc(ctx, eltype(x), size(grid, 2), size(grid, 3), size(x, 3), size(x, 4))
+    grid_sample2d!(out, x, grid; align_corners = align, padding = pad)
+end
+
+"""
+torchvision's op, not an ATen one — it survives `run_decompositions` intact
+because it is a registered custom operator, which is exactly what we want: one
+graph node instead of a scatter of index arithmetic to re-fuse.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("torchvision.deform_conv2d.default")})
+    x      = value(ctx, op.ins[1])
+    w      = value(ctx, op.ins[2])
+    offset = value(ctx, op.ins[3])
+    mask   = length(op.ins) >= 4 ? value(ctx, op.ins[4]) : nothing
+    bias   = length(op.ins) >= 5 ? value(ctx, op.ins[5]) : nothing
+    a(k, d) = Int(something(get(op.attrs, k, nothing), d))
+    sw, sh = a("arg5", 1), a("arg6", 1)          # torch: stride_h, stride_w
+    pw, ph = a("arg7", 0), a("arg8", 0)
+    dw, dh = a("arg9", 1), a("arg10", 1)
+    groups = a("arg11", 1)
+    dgroups = a("arg12", 1)
+    ow = (size(x, 1) + 2pw - (size(w, 1) - 1) * dw - 1) ÷ sw + 1
+    oh = (size(x, 2) + 2ph - (size(w, 2) - 1) * dh - 1) ÷ sh + 1
+    out = alloc(ctx, eltype(x), ow, oh, size(w, 4), size(x, 4))
+    deform_conv2d!(out, x, offset, mask, w, bias;
+                   stride = (sw, sh), padding = (pw, ph), dilation = (dw, dh),
+                   groups = groups, deform_groups = dgroups)
 end
