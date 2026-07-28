@@ -287,3 +287,70 @@ function flip!(out, x, dims::Tuple)
     KernelAbstractions.synchronize(backend)
     return out
 end
+
+# ------------------------------------------------------------- Wan VAE kernels
+
+"""
+    convolution3d!(out, x, w, bias, stride, pad, dil, groups)
+
+Direct 3-D convolution. `aten::convolution` covers 1-D, 2-D and 3-D and the rank
+is only visible in the length of its stride/padding tuples, so a 3-D call that
+falls into the 2-D branch is silently wrong rather than an error — which is why
+`runop!` dispatches on that length.
+
+Layouts are the reversed (Julia) order the graphs use: `x` `(W,H,D,Cin,N)`,
+`w` `(KW,KH,KD,Cin/groups,Cout)`, `out` `(OW,OH,OD,Cout,N)`.
+
+No im2col here. The Wan VAE's 3-D convolutions are 116 of its 1825 nodes and
+mostly small in the depth axis, and an im2col matrix gains a whole extra
+dimension — this is the correctness-first path, to be revisited when the VAE is
+actually on a hot loop.
+"""
+@kernel function conv3d_kernel!(out, @Const(x), @Const(w), @Const(bias),
+                                sx::Int32, sy::Int32, sz::Int32,
+                                px::Int32, py::Int32, pz::Int32,
+                                dx::Int32, dy::Int32, dz::Int32, groups::Int32,
+                                ::Val{ACT}) where {ACT}
+    i, j, k, co, n = @index(Global, NTuple)
+    @inbounds begin
+        W, H, D, Cin = size(x, 1), size(x, 2), size(x, 3), size(x, 4)
+        KW, KH, KD, Cpg = size(w, 1), size(w, 2), size(w, 3), size(w, 4)
+        Cout = size(w, 5)
+        g = Int32((co - 1) ÷ (Cout ÷ groups))
+        cbase = g * Int32(Cpg)
+        acc = bias === nothing ? zero(Float32) : Float32(bias[co])
+        x0 = (Int32(i) - Int32(1)) * sx - px
+        y0 = (Int32(j) - Int32(1)) * sy - py
+        z0 = (Int32(k) - Int32(1)) * sz - pz
+        for kd in Int32(1):Int32(KD)
+            zi = z0 + (kd - Int32(1)) * dz + Int32(1)
+            (zi < 1 || zi > D) && continue
+            for kh in Int32(1):Int32(KH)
+                yi = y0 + (kh - Int32(1)) * dy + Int32(1)
+                (yi < 1 || yi > H) && continue
+                for kw in Int32(1):Int32(KW)
+                    xi = x0 + (kw - Int32(1)) * dx + Int32(1)
+                    (xi < 1 || xi > W) && continue
+                    for ci in Int32(1):Int32(Cpg)
+                        acc += Float32(w[kw, kh, kd, ci, co]) *
+                               Float32(x[xi, yi, zi, cbase + ci, n])
+                    end
+                end
+            end
+        end
+        ACT === :relu && (acc = max(acc, 0.0f0))
+        out[i, j, k, co, n] = eltype(out)(acc)
+    end
+end
+
+function convolution3d!(out, x, w, bias, stride, pad, dil, groups::Integer;
+                        act::Symbol = :none)
+    backend = KernelAbstractions.get_backend(out)
+    conv3d_kernel!(backend)(out, x, w, bias === nothing ? w : bias,
+                            Int32(stride[1]), Int32(stride[2]), Int32(stride[3]),
+                            Int32(pad[1]), Int32(pad[2]), Int32(pad[3]),
+                            Int32(dil[1]), Int32(dil[2]), Int32(dil[3]),
+                            Int32(groups), Val(act); ndrange = size(out))
+    KernelAbstractions.synchronize(backend)
+    return out
+end

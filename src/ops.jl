@@ -142,7 +142,15 @@ end
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_to_copy.default")})
     a = lhs(ctx, op)
     d = opdest(ctx, a)
-    d .= a
+    # torch's float -> integer cast truncates toward zero; Julia's `convert`
+    # throws `InexactError` on anything with a fractional part. The Wan VAE hits
+    # this casting attention index arithmetic, where 0.25 is a legitimate input
+    # that torch turns into 0.
+    if eltype(d) <: Integer && !(eltype(a) <: Integer)
+        d .= trunc.(eltype(d), a)
+    else
+        d .= a
+    end
     d
 end
 
@@ -463,6 +471,11 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
         # No epilogue to fold into here; correctness first, and the 1-D
         # convolutions are the 9 channel-attention layers, not a hot path.
         act === :relu && (out .= max.(out, zero(eltype(out))))
+    elseif length(stride) == 3                   # and 3-D, for the Wan VAE
+        oy = convsize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2])
+        oz = convsize(size(x, 3), size(w, 3), stride[3], pad[3], dil[3])
+        out = alloc(ctx, eltype(x), ox, oy, oz, size(w, 5), size(x, 5))
+        convolution3d!(out, x, w, bias, stride, pad, dil, groups; act)
     else
         oy = convsize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2])
         out = alloc(ctx, eltype(x), ox, oy, size(w, 4), size(x, 4))
@@ -637,4 +650,57 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("torchvision.deform_conv2d.defaul
     deform_conv2d!(out, x, offset, mask, w, bias;
                    stride = (sw, sh), padding = (pw, ph), dilation = (dw, dh),
                    groups = groups, deform_groups = dgroups)
+end
+
+
+"""
+`linalg_vector_norm` is the reduction inside RMS norm — 90 of the Wan VAE's
+nodes. `arg1` is the order (2 everywhere here), `arg2` the dims, `arg3` keepdim.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("linalg_vector_norm.default")})
+    x = lhs(ctx, op)
+    ord = Float64(something(get(op.attrs, "arg1", nothing), 2))
+    dims = get(op.attrs, "arg2", nothing)
+    keep = Bool(something(get(op.attrs, "arg3", nothing), false))
+    jd = dims === nothing ? collect(1:ndims(x)) :
+         [jdim(d, ndims(x)) for d in ints(dims)]
+    sq = ord == 2 ? abs2.(x) : abs.(x) .^ ord
+    acc = sum(sq; dims = Tuple(jd))
+    r = ord == 2 ? sqrt.(acc) : acc .^ (1 / ord)
+    reduced(r, jd, keep)
+end
+
+"`_assert_tensor_metadata` is an export-time check with no runtime meaning."
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("_assert_tensor_metadata.default")}) =
+    lhs(ctx, op)
+
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("mul.Scalar")}) =
+    emit(ctx, Base.broadcasted(*, lhs(ctx, op), scalar(op.attrs["arg1"])))
+
+"""
+`index.Tensor` is torch's advanced indexing: `arg1` is one entry per dimension,
+`nothing` meaning "take the whole axis" and a name meaning "gather with this
+index tensor". The Wan VAE uses it for attention's row/column gather, where the
+leading axes are `nothing` and the trailing two carry broadcast index tensors.
+
+Torch indexes the un-reversed shape, so entry `k` of `arg1` addresses Julia
+dimension `ndims - k + 1`; the index values are 0-based and become 1-based here.
+Only the form the graphs actually use is supported — all-`nothing` prefixes then
+index tensors — and anything else errors rather than quietly gathering the wrong
+axis.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
+    x = lhs(ctx, op)
+    spec = op.attrs["arg1"]
+    n = ndims(x)
+    idx = Vector{Any}(undef, n)
+    fill!(idx, Colon())
+    for (k, e) in enumerate(spec)
+        e === nothing && continue
+        jd = n - k + 1
+        1 <= jd <= n || error("index.Tensor: dim $k out of range for $(n)-d input")
+        iv = value(ctx, String(e)[2:end])          # attrs store "$name"
+        idx[jd] = vec(Int.(collect(iv))) .+ 1      # torch indices are 0-based
+    end
+    materialize(view(x, idx...))
 end

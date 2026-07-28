@@ -242,7 +242,12 @@ function makeview(ctx::Ctx, b::Buffer)
         n = ndims(parent)
         d = jdim(Int(get(a, "arg1", 0)), n)
         lo = Int(get(a, "arg2", 0))
-        lo = lo < 0 ? size(parent, d) + lo : lo
+        # torch clamps a negative start into range rather than wrapping past the
+        # front: `x[-2:]` on a length-1 axis is the whole axis, not index -1.
+        # Without the clamp this indexes `0:0` and throws a BoundsError several
+        # ops later, where the slice is no longer visible.
+        lo = lo < 0 ? clamp(size(parent, d) + lo, 0, size(parent, d)) :
+                      min(lo, size(parent, d))
         len = evalshape(b.shape, ctx.dims)[d]
         idx = ntuple(i -> i == d ? ((lo + 1):(lo + len)) : Colon(), n)
         return view(parent, idx...)
