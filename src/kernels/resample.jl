@@ -262,3 +262,28 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
     KernelAbstractions.synchronize(backend)
     return out
 end
+
+"""
+    flip!(out, x, dims)
+
+Reverse `x` along `dims` on whatever backend it lives on.
+
+`Base.reverse` allocates and then *scalar-indexes* to fill, which a device array
+refuses ("scalar iteration is disallowed"), so the host fallback is not an
+option here. The reversed dimensions are a `Val` so the index arithmetic
+specialises and the kernel stays branch-free.
+"""
+@kernel function flip_kernel!(out, @Const(x), ::Val{DIMS}) where {DIMS}
+    I = @index(Global, NTuple)
+    @inbounds begin
+        J = ntuple(k -> (k in DIMS) ? size(x, k) - I[k] + 1 : I[k], length(I))
+        out[I...] = x[J...]
+    end
+end
+
+function flip!(out, x, dims::Tuple)
+    backend = KernelAbstractions.get_backend(out)
+    flip_kernel!(backend)(out, x, Val(dims); ndrange = size(x))
+    KernelAbstractions.synchronize(backend)
+    return out
+end

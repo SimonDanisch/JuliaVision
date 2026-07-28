@@ -375,7 +375,11 @@ destination is the same number of dispatches with none of that: 21 `cat`s a step
 cost 5.2 ms before and a fifth of that after.
 """
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("cat.default")})
-    parts = [value(ctx, i) for i in op.ins]
+    # A strided `SubArray` source (e.g. `select` on a middle axis of a 5-D
+    # tensor) has no pointer for the device copy to start from, so the
+    # broadcast-assign below fails with "conversion to pointer not defined".
+    # Materialising just those keeps the dense inputs copy-free.
+    parts = [(v = value(ctx, i); v isa SubArray ? materialize(v) : v) for i in op.ins]
     n = ndims(parts[1])
     d = jdim(Int(get(op.attrs, "arg1", 0)), n)
     total = sum(size(p, d) for p in parts)
@@ -575,7 +579,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("flip.default")})
     x = lhs(ctx, op)
     dims = ints(op.attrs["arg1"])
     jd = Tuple(jdim(d, ndims(x)) for d in (dims isa Integer ? [dims] : dims))
-    materialize(reverse(x; dims = jd))
+    out = alloc(ctx, eltype(x), size(x)...)
+    flip!(out, x, jd)
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("avg_pool2d.default")})
