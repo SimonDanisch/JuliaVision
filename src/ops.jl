@@ -765,3 +765,18 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("view_as_real.default")})
         error("view_as_real expects a complex input, got $(eltype(z))")
     materialize(reinterpret(reshape, real(eltype(z)), z))
 end
+
+"""
+`pow.Scalar` is `base ^ tensor` — the scalar is the *base*, not the exponent
+(that is `pow.Tensor_Scalar`). Wan's sinusoidal time embedding is
+`10000 ^ (-arange/half)`, which is this one.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("pow.Scalar")})
+    # Position 1 is the scalar and position 2 the tensor — `operand` already
+    # resolves that from the attrs, which is exactly why it exists. Reaching for
+    # `attrs["arg0"]` *and* `lhs` asks for position 1 twice: the base comes back
+    # correctly and the "tensor" is the base again, so the result is 0-d and then
+    # broadcasts silently against everything downstream.
+    b = operand(ctx, op, 1)
+    emit(ctx, Base.broadcasted(v -> b^v, operand(ctx, op, 2)))
+end
