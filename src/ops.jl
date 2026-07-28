@@ -33,6 +33,14 @@ lhs(ctx::Ctx, op::Op) = operand(ctx, op, 1)
 rhs(ctx::Ctx, op::Op, i::Int=2) = operand(ctx, op, i)
 alpha(op::Op) = get(op.attrs, "alpha", 1)
 
+"""Float -> integer the way torch does it: saturate on infinities, NaN to zero."""
+@inline function safetrunc(::Type{T}, v) where {T<:Integer}
+    isnan(v) && return zero(T)
+    v >= typemax(T) && return typemax(T)
+    v <= typemin(T) && return typemin(T)
+    return trunc(T, v)
+end
+
 """Non-finite scalars are serialised as strings; see export_graphs.const."""
 scalar(v) = v
 scalar(v::AbstractString) = v == "-inf" ? -Inf32 : v == "inf" ? Inf32 :
@@ -167,7 +175,10 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_to_copy.default")})
     # this casting attention index arithmetic, where 0.25 is a legitimate input
     # that torch turns into 0.
     if eltype(d) <: Integer && !(eltype(a) <: Integer)
-        d .= trunc.(eltype(d), a)
+        # Saturating, not just truncating: torch turns +/-Inf into the integer
+        # extremes and NaN into 0, while Julia's `trunc` throws `InexactError`.
+        # T5's attention mask carries -Inf into exactly this cast.
+        d .= safetrunc.(eltype(d), a)
     else
         d .= a
     end
@@ -779,4 +790,44 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("pow.Scalar")})
     # broadcasts silently against everything downstream.
     b = operand(ctx, op, 1)
     emit(ctx, Base.broadcasted(v -> b^v, operand(ctx, op, 2)))
+end
+
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("gt.Scalar")}) =
+    emit(ctx, Base.broadcasted(>, lhs(ctx, op), scalar(op.attrs["arg1"])))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("lt.Scalar")}) =
+    emit(ctx, Base.broadcasted(<, lhs(ctx, op), scalar(op.attrs["arg1"])))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("minimum.default")}) =
+    emit(ctx, Base.broadcasted(min, lhs(ctx, op), rhs(ctx, op)))
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("maximum.default")}) =
+    emit(ctx, Base.broadcasted(max, lhs(ctx, op), rhs(ctx, op)))
+
+"""
+    embedding(weight, indices)
+
+Token embedding: gather rows of `weight` by `indices`.
+
+Reversed layout puts the embedding dimension first — `weight` is
+`(dim, vocab)` and the result is `(dim, indices...)` — so this is a column
+gather, and the indices are torch's 0-based ones.
+"""
+@kernel function embedding_kernel!(out, @Const(w), @Const(idx), n::Int32)
+    k = @index(Global, Linear)
+    @inbounds if k <= n
+        d = size(out, 1)
+        col = (Int32(k) - Int32(1)) ÷ Int32(d)          # which token
+        row = (Int32(k) - Int32(1)) % Int32(d) + Int32(1)
+        out[k] = w[row, Int32(idx[col + Int32(1)]) + Int32(1)]
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("embedding.default")})
+    w = value(ctx, op.ins[1])
+    idx = value(ctx, op.ins[2])
+    d = size(w, 1)
+    out = alloc(ctx, eltype(w), d, size(idx)...)
+    backend = KernelAbstractions.get_backend(out)
+    n = length(out)
+    embedding_kernel!(backend)(out, w, reshape(idx, length(idx)), Int32(n); ndrange = n)
+    KernelAbstractions.synchronize(backend)
+    out
 end
