@@ -11,31 +11,41 @@
             0.5f0 * t3 - 0.5f0 * t2)
 end
 
-@kernel function warp_kernel!(out, @Const(img), M::Mat3f)
+@kernel function warp_kernel!(out, @Const(img), M::Mat3f, skipoutside::Bool)
     I = @index(Global, Cartesian)
     p = M * Vec3f(Float32(I[1]), Float32(I[2]), 1.0f0)
     x = p[1] / p[3]
     y = p[2] / p[3]
     w = Int32(size(img, 1))
     h = Int32(size(img, 2))
-    xb = floor(Int32, x)
-    yb = floor(Int32, y)
-    wx = catmullrom(clamp(x - Float32(xb), 0.0f0, 1.0f0))
-    wy = catmullrom(clamp(y - Float32(yb), 0.0f0, 1.0f0))
-    r = 0.0f0; g = 0.0f0; b = 0.0f0
-    @inbounds for j in Int32(0):Int32(3)
-        yj = clamp(yb - Int32(1) + j, Int32(1), h)   # replicate borders
-        wyj = wy[j + 1]
-        for i in Int32(0):Int32(3)
-            xi = clamp(xb - Int32(1) + i, Int32(1), w)
-            c = tofloat(img[xi, yj])
-            wgt = wx[i + 1] * wyj
-            r += c.r * wgt; g += c.g * wgt; b += c.b * wgt
+    # `skipoutside`: an output pixel the source doesn't reach is LEFT ALONE
+    # rather than filled with a replicated border pixel. That is what makes
+    # letterboxing one rule instead of two — the caller decides what shows
+    # through by what it put there (black for the base layer, the canvas so far
+    # for a layer stacked over one, which is how upper-layer bars stay clear).
+    # Written as a branch, not an early return: KA kernels forbid `return`.
+    covered = (x >= 0.5f0) & (x <= Float32(w) + 0.5f0) &
+              (y >= 0.5f0) & (y <= Float32(h) + 0.5f0)
+    if covered | !skipoutside
+        xb = floor(Int32, x)
+        yb = floor(Int32, y)
+        wx = catmullrom(clamp(x - Float32(xb), 0.0f0, 1.0f0))
+        wy = catmullrom(clamp(y - Float32(yb), 0.0f0, 1.0f0))
+        r = 0.0f0; g = 0.0f0; b = 0.0f0
+        @inbounds for j in Int32(0):Int32(3)
+            yj = clamp(yb - Int32(1) + j, Int32(1), h)   # replicate borders
+            wyj = wy[j + 1]
+            for i in Int32(0):Int32(3)
+                xi = clamp(xb - Int32(1) + i, Int32(1), w)
+                c = tofloat(img[xi, yj])
+                wgt = wx[i + 1] * wyj
+                r += c.r * wgt; g += c.g * wgt; b += c.b * wgt
+            end
         end
+        # Catmull-Rom overshoots at hard edges — clamp back into gamut
+        out[I] = topixel(eltype(out), clamp(r, 0.0f0, 1.0f0), clamp(g, 0.0f0, 1.0f0),
+                         clamp(b, 0.0f0, 1.0f0))
     end
-    # Catmull-Rom overshoots at hard edges — clamp back into gamut
-    out[I] = topixel(eltype(out), clamp(r, 0.0f0, 1.0f0), clamp(g, 0.0f0, 1.0f0),
-                     clamp(b, 0.0f0, 1.0f0))
 end
 
 """
@@ -46,14 +56,19 @@ Bicubic (Catmull-Rom) projective warp: each output pixel `(i, j)` samples
 crop, scale, rotation and stabilization warps. `out` and `img` may have
 different sizes.
 
+`skipoutside = true` leaves output pixels the source doesn't cover UNTOUCHED
+instead of replicating an edge pixel into them — see [`fitmatrix`](@ref), where
+those pixels are the letterbox bars.
+
     warp!(out, img, crop::NTuple{4})
 
 Convenience: sample the normalized crop rect `(x, y, w, h)` of `img`
 (measured from the top-left) into all of `out` — crop + resize in one pass.
 """
-function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f) where {T <: AbstractRGB, S <: AbstractRGB}
+function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
+               skipoutside::Bool = false) where {T <: AbstractRGB, S <: AbstractRGB}
     backend = KA.get_backend(img)
-    warp_kernel!(backend)(out, img, M; ndrange = size(out))
+    warp_kernel!(backend)(out, img, M, skipoutside; ndrange = size(out))
     return out
 end
 
@@ -68,6 +83,38 @@ function cropmatrix(crop::NTuple{4, <:Real}, insize::Tuple{Int, Int}, outsize::T
     return Mat3f(sx, 0, 0,
                  0, sy, 0,
                  x * W + 0.5f0 - 0.5f0 * sx, y * H + 0.5f0 - 0.5f0 * sy, 1)
+end
+
+"""
+    fitmatrix(crop, insize, outsize; scale = 1, position = (0, 0)) -> Mat3f
+
+Sampling matrix that places the normalized `crop` rect of an `insize` image into
+an `outsize` canvas **without distorting it**: the rect is scaled by
+`min(fitx, fity)` so it fits entirely, and centred. Output pixels it doesn't
+reach fall outside the source and become letterbox bars — pair this with
+`warp!(…; skipoutside = true)`, which leaves them alone.
+
+`scale` zooms about the centre (1 = fit, >1 fills past the edges, cropping) and
+`position` shifts it, both as fractions of the canvas — the manual reframe on
+top of the automatic fit.
+
+Identical to [`cropmatrix`](@ref) whenever the rect already has the canvas'
+aspect and the reframe is neutral, which is every single-format edit: fitting
+must not resample material that already fits.
+"""
+function fitmatrix(crop::NTuple{4, <:Real}, insize::Tuple{Int, Int}, outsize::Tuple{Int, Int};
+                   scale::Real = 1, position::Tuple{<:Real, <:Real} = (0, 0))
+    x, y, w, h = Float32.(crop)
+    W, H = insize
+    ow, oh = outsize
+    cw, ch = w * W, h * H                      # the visible rect, in source pixels
+    s = min(ow / cw, oh / ch) * Float32(scale) # canvas pixels per source pixel
+    inv = 1.0f0 / s
+    ox = 0.5f0 * (ow - cw * s) + Float32(position[1]) * ow
+    oy = 0.5f0 * (oh - ch * s) + Float32(position[2]) * oh
+    return Mat3f(inv, 0, 0,
+                 0, inv, 0,
+                 x * W + 0.5f0 - inv * (ox + 0.5f0), y * H + 0.5f0 - inv * (oy + 0.5f0), 1)
 end
 
 "Pure translation sampling matrix: shifts content by `(dx, dy)` pixels."
