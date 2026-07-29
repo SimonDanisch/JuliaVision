@@ -1,0 +1,627 @@
+"""
+Scaled dot-product attention: hand-written, shared across models.
+
+Covers both backends PyTorch picks from - `_scaled_dot_product_efficient_attention`
+(takes an additive `attn_bias`) and `_scaled_dot_product_flash_attention` (no bias,
+explicit scale). Under autocast the same graph contains both, one per call site.
+
+PyTorch's `(B, H, L, E)` is `(E, L, H, B)` here, so a head is a contiguous
+`(E, L)` slab and the head/batch axes are the slowest.
+
+    scores[lk, lq] = Σₑ q[e, lq] k[e, lk] * scale   (+ bias)
+    p              = softmax over lk
+    out[e, lq]     = Σ_lk p[lk, lq] v[e, lk]
+
+Three passes rather than one fused kernel: correctness first, and the scores
+buffer is a declared transient the arena can size. Accumulation is fp32 for half
+operands, as both reference backends do.
+
+The row-max subtraction makes an all-blocked row produce zeros instead of NaN,
+which is why upstream's degenerate-row fixup (patches.py) only has to keep the
+mask sane, not the softmax.
+"""
+
+"""
+    toLE(I, a)
+
+`(E, L, H, B)` read as `(L, E, H, B)` — the transpose that makes the score
+kernel's reads coalesce.
+
+The graph's layout puts the head dimension first, so `k[e, lk]` for consecutive
+`lk` is `E` floats apart: in `attn_scores` consecutive threads vary `lk`, so
+every warp asked for 32 words spread over 32 cache lines and used one word of
+each. The global attention measured 215 GFLOP/s at 12 GB/s — neither compute nor
+bandwidth bound, just paying 72x for every byte. Transposing q and k once (9 MB
+each, against a 536 MB score matrix) makes the inner loop read contiguously.
+"""
+@inline function toLE(I, a)
+    l, e, h, b = I
+    @inbounds a[e, l, h, b]
+end
+
+# `scores` is `(Lq, Lk, H, B)`, not `(Lk, Lq, H, B)`, for the same reason: the
+# softmax runs one thread per query row and consecutive threads must land on
+# consecutive addresses. With q/k transposed and scores in this order, all three
+# kernels below read and write contiguously.
+@inline function attn_scores(I, q, k, bias, scale)
+    lq, lk, h, b = I
+    @inbounds begin
+        T = accum(eltype(q))
+        acc = zero(T)
+        for e in axes(q, 2)
+            acc = muladd(T(q[lq, e, h, b]), T(k[e, lk, h, b]), acc)
+        end
+        acc *= T(scale)
+        # `bias` keeps the graph's own `(Lk, Lq, H, B)` order — it is an input,
+        # not something this op is free to lay out, and only the mem-efficient
+        # variant has one at all.
+        bias === nothing ? acc :
+            acc + T(bias[bidx(bias, CartesianIndex(lk, lq, h, b))])
+    end
+end
+
+"""
+One thread per query row; the reduction over keys is sequential in-thread.
+
+Reads and writes `scores` in whatever type it is stored as, but takes the maximum
+and the sum in `accum` of it. The store type is the operands' — fp16 under
+autocast — because this tensor is the whole cost of attention: 536 MB per global
+block in SAM 2, written once and read twice. Halving it halves the traffic of the
+only bandwidth-bound part of the op. The arithmetic stays fp32 throughout, which
+is what the reference does too; only the *storage* is narrow.
+"""
+@inline function attn_softmax(I, scores)
+    lq, h, b = I
+    @inbounds begin
+        S = eltype(scores)
+        T = accum(S)
+        m = typemin(T)
+        for lk in axes(scores, 2)
+            m = max(m, T(scores[lq, lk, h, b]))
+        end
+        if !isfinite(m)                       # every key blocked
+            for lk in axes(scores, 2)
+                scores[lq, lk, h, b] = zero(S)
+            end
+            return one(T)                     # a zero row, divided by one
+        end
+        s = zero(T)
+        for lk in axes(scores, 2)
+            e = exp(T(scores[lq, lk, h, b]) - m)
+            scores[lq, lk, h, b] = S(e)
+            s += e
+        end
+        # NOT normalised here. Scaling the row in place is a third full pass over
+        # a tensor that is 536 MB in SAM 2's global attention; `attn_apply`
+        # already touches every element once and divides its accumulated result
+        # by this sum instead, which is the same number for one pass less.
+        s
+    end
+end
+
+@inline function attn_apply(I, p, v, sums)
+    e, lq, h, b = I
+    @inbounds begin
+        T = accum(eltype(v))
+        acc = zero(T)
+        for lk in axes(p, 2)
+            acc = muladd(T(p[lq, lk, h, b]), T(v[e, lk, h, b]), acc)
+        end
+        acc / T(sums[lq, h, b])
+    end
+end
+
+"""
+Register-blocked score and apply kernels: one thread computes `T` outputs.
+
+The one-output-per-thread versions above are correct and bandwidth-starved. In
+`attn_scores` a thread reads `E` values of `q` and `E` of `k` to produce a single
+score, so the whole 38.7 GFLOP of SAM 2's global attention moves ~40 GB through
+L1/L2 — 271 GFLOP/s on a card that will do far more, limited by cache bandwidth
+rather than arithmetic.
+
+Giving each thread `TK` consecutive keys amortises the `q` load across all of
+them: per warp per `e` the traffic goes from 132 bytes for 32 outputs to
+`128 + 4TK` bytes for `32TK`, which at `TK = 8` is 6.6x less. `attn_apply` has
+the same shape with the roles swapped, so it blocks over queries instead.
+
+`TK` is a `Val` so the accumulator tuple unrolls into registers, and the block
+only runs when it divides the extent — the tail is not worth a bounds check in
+the inner loop when falling back to the simple kernel is exact.
+"""
+const ATTN_BLOCKS = (2, 4, 8, 16, 32)
+
+# One kernel per block size, generated rather than parameterised on `Val{TK}`.
+# The obvious form — a tuple accumulator built with `ntuple(..., Val(TK))` —
+# does not compile: the closure over the previous tuple defeats inference inside
+# a `@kernel` body and every `getindex`/`muladd` in it becomes a dynamic call.
+# `@nexprs` needs a literal, so the literal is supplied here and each accumulator
+# is a plain local the compiler keeps in a register.
+for TK in ATTN_BLOCKS
+    @eval @kernel function $(Symbol("attn_scores_b", TK, "!"))(scores, @Const(q), @Const(k),
+                                                               bias, scale)
+        lq, kb, h, b = @index(Global, NTuple)
+        @inbounds begin
+            T = accum(eltype(q))
+            base = (kb - 1) * $TK
+            Base.Cartesian.@nexprs $TK t -> acc_t = zero(T)
+            for e in axes(q, 2)
+                qv = T(q[lq, e, h, b])
+                Base.Cartesian.@nexprs $TK t -> acc_t = muladd(qv, T(k[e, base + t, h, b]), acc_t)
+            end
+            Base.Cartesian.@nexprs $TK t -> begin
+                s_t = acc_t * T(scale)
+                bias === nothing ||
+                    (s_t += T(bias[bidx(bias, CartesianIndex(base + t, lq, h, b))]))
+                scores[lq, base + t, h, b] = s_t
+            end
+        end
+    end
+
+    @eval @kernel function $(Symbol("attn_apply_b", TK, "!"))(out, @Const(p), @Const(v),
+                                                              @Const(sums))
+        e, qb, h, b = @index(Global, NTuple)
+        @inbounds begin
+            T = accum(eltype(v))
+            base = (qb - 1) * $TK
+            Base.Cartesian.@nexprs $TK t -> acc_t = zero(T)
+            for lk in axes(p, 2)
+                vv = T(v[e, lk, h, b])
+                Base.Cartesian.@nexprs $TK t -> acc_t = muladd(T(p[base + t, lk, h, b]), vv, acc_t)
+            end
+            Base.Cartesian.@nexprs $TK t -> out[e, base + t, h, b] = acc_t / T(sums[base + t, h, b])
+        end
+    end
+end
+
+"""
+    ATTN_MINL[]
+
+Shortest sequence for which register blocking is worth it.
+
+Blocking divides the *launched* extent by the block size, and the blocked axis is
+the ndrange's second dimension while the first is the sequence length. Below this
+the grid stops being able to fill a warp along the fast axis and the blocked
+kernel is much slower than the plain one — measured on this card, a
+`(72, 16, 4, 1024)` attention goes 2.2 -> 26.8 ms at `TK = 8` while
+`(72, 256, 8, 16)` goes 8.9 -> 2.2 ms. 64 sits between the two measured regimes.
+"""
+const ATTN_MINL = Ref(64)
+
+"""
+    blockfor(n, other) -> block size
+
+Largest generated block that divides `n`, or 1 when blocking does not apply.
+
+`other` is the *opposite* extent, and the block only applies to **self**
+attention, `Lq == Lk`. That is what the image encoder does at every one of its 48
+attentions; the mask decoder instead has a 23-token prompt attending to 4096
+image tokens and back. With those lopsided shapes blocked a decode stops
+completing — the queue accumulates in-flight batches until `vkWaitSemaphores`
+times out, reproducibly, and reproducibly not when they take the plain path.
+That is a bug in the blocked kernels, or in what Lava makes of them at those
+extents, and it is bounded rather than diagnosed here; the shapes that need the
+speed are square, so the encoder keeps the whole win.
+"""
+@inline function blockfor(n, other)
+    (n != other || n < ATTN_MINL[]) && return 1
+    for t in reverse(ATTN_BLOCKS)
+        n % t == 0 && return t
+    end
+    1
+end
+
+"""
+Dispatch to the generated kernel for block size `tk`.
+
+`workgroupsize` is given rather than left to KernelAbstractions for the reason
+`launchgroup` documents, and it matters most here: `attn_apply`'s ndrange leads
+with `E = 72`, which KA's 64-wide group splits into `64 + 8`, so every second
+workgroup runs at 12% occupancy and the axis is only 56% utilised overall.
+Taking the head dimension whole keeps a group on one contiguous run of `out`.
+"""
+# `launchgroup`, NOT `Lava.staticgroup`: the latter avoids interior unit extents
+# so the workgroup can go in the kernel's type (2x on index-bound kernels), but
+# for `attn_apply` it shapes `(64, 2, 2, 1)` and splits the 72-long head
+# dimension into 64 + 8 — the exact fragmentation `launchgroup` exists to avoid.
+# Measured: `attn_apply` 17.6 -> 21.6 ms. Contiguity wins here, folding does not.
+function scoresblocked!(backend, tk, scores, q, k, bias, scale, ndrange)
+    wg = launchgroup(ndrange)
+    tk == 32 && return attn_scores_b32!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
+    tk == 16 && return attn_scores_b16!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
+    tk == 8 && return attn_scores_b8!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
+    tk == 4 && return attn_scores_b4!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
+    attn_scores_b2!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
+end
+
+function applyblocked!(backend, tq, out, p, v, sums, ndrange)
+    wg = launchgroup(ndrange)
+    tq == 32 && return attn_apply_b32!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
+    tq == 16 && return attn_apply_b16!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
+    tq == 8 && return attn_apply_b8!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
+    tq == 4 && return attn_apply_b4!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
+    attn_apply_b2!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
+end
+
+"""
+    densify(a, ws, backend) -> a, dense
+
+`a` itself when it is already dense, and a workspace copy of it when it is not.
+
+Attention's operands arrive as a `PermutedDimsArray` over a `ReshapedArray` over
+a `SubArray` — the shape of `q.transpose(1, 2)` after a `view` in the exported
+graph. A `ReshapedArray` carries a `SignedMultiplicativeInverse` per axis, so
+**every element read costs four integer divisions**, and `attn_scores` reads a
+`q` and a `k` element per multiply-accumulate while `attn_apply` reads `v` once
+per output element. Copying first pays the index arithmetic once per element
+rather than `Lk` times, for a copy that is tiny next to the score matrix it
+feeds: 9 MB for `q` against 512 MB of scores in SAM 2's global attention.
+
+`DenseArray` is the right test rather than a backend-specific one, because
+`AbstractGPUArray <: DenseArray` — it admits both a device array and the host
+`Array` the verification path uses, and rejects exactly the wrapper stack.
+"""
+@inline function densify(a, ws, backend)
+    a isa DenseArray && return a
+    d = scratch!(ws, backend, eltype(a), size(a)...)
+    d .= a
+    d
+end
+
+# `toLE` is a batched 2-D transpose written as an elementwise gather: consecutive
+# threads vary `L` and read with stride `E`, so every warp issues 32 separate
+# transactions. Measured 37.7 GB/s on a dense operand against ~300 for a copy, and
+# the operand is never dense — attention's `q` arrives as a `PermutedDimsArray`
+# over a `ReshapedArray`, whose `SignedMultiplicativeInverse`s add four integer
+# divisions per element on top.
+#
+# Both problems have the same fix. Stage a 32x32 tile in shared memory so the
+# read and the write are each coalesced, and take the operand as a base array
+# plus STRIDES rather than as the wrapper — `strides()` answers for this stack
+# (`(1, 1728, 72, 442368)` for SAM 2's windowed `q`), so the indexing becomes a
+# dot product with no divisions and no wrapper type inside the kernel. That is
+# the same trick `Lava`'s scalar GEMM already uses on its operands.
+#
+# Measured on SAM 2's windowed shape, `(72, 256, 8, 16)`: 0.250 -> 0.035 ms,
+# 37.7 -> 266 GB/s, bit-identical output.
+
+"""
+    stridedroot(a) -> (root, offset) | nothing
+
+Root dense array of a wrapper stack and the linear offset of `a[1, 1, ...]` in
+it, or `nothing` when a layer is something this cannot account for.
+
+The `SubArray` is why this returns an offset rather than just the root: the stack
+attention's `q` arrives in is `PermutedDimsArray -> ReshapedArray -> SubArray ->
+LavaArray`, and refusing the view meant every shape that matters fell back to the
+gather while only the two that happened to wrap a bare array took the fast path.
+Reshapes and permutes leave the base element alone; a view does not, and its
+offset is `LinearIndices(parent)[first.(indices)...] - 1`.
+"""
+function stridedroot(a)
+    off = 0
+    p = a
+    for _ in 1:8
+        p isa Lava.LavaArray && return (p, off)
+        if p isa SubArray
+            P = parent(p)
+            off += LinearIndices(P)[map(first, p.indices)...] - 1
+            p = P
+        elseif p isa Union{PermutedDimsArray, Base.ReshapedArray}
+            p = parent(p)
+        else
+            return nothing
+        end
+    end
+    nothing
+end
+
+# One kernel per element type: `@localmem` is miscompiled — silently, writing
+# nothing — when its type comes from a local binding, so the type has to be a
+# literal in the generated body.
+for T in (Float16, Float32)
+    @eval @kernel cpu=false function $(Symbol("toLE_tiled_", nameof(T), "!"))(
+            d, @Const(src), base::Int32, sE::Int32, sL::Int32, sH::Int32, sB::Int32,
+            E::Int32, L::Int32, nH::Int32)
+        # 33, not 32: with 32 banks a 32-wide tile puts a whole column in one
+        # bank and the transposed read serialises 32 ways.
+        tile = @localmem $(nameof(T)) (33, 32)
+        tx, ty = @index(Local, NTuple)
+        gx, gy, gz = @index(Group, NTuple)
+        e0 = Int32(gx - 1) * Int32(32)
+        l0 = Int32(gy - 1) * Int32(32)
+        hb = Int32(gz - 1)
+        h = hb % nH + Int32(1)
+        b = hb ÷ nH + Int32(1)
+        @inbounds begin
+            for j in Int32(0):Int32(7)
+                e = e0 + Int32(tx)
+                l = l0 + Int32(ty) + Int32(4) * j
+                tile[tx, ty + 4j] = (e <= E && l <= L) ?
+                    src[base + (e - Int32(1)) * sE + (l - Int32(1)) * sL +
+                        (h - Int32(1)) * sH + (b - Int32(1)) * sB] : zero($(nameof(T)))
+            end
+            @synchronize
+            for j in Int32(0):Int32(7)
+                l = l0 + Int32(tx)
+                e = e0 + Int32(ty) + Int32(4) * j
+                (l <= L && e <= E) && (d[l, e, h, b] = tile[ty + 4j, tx])
+            end
+        end
+    end
+end
+
+"""`(E, L, H, B)` operand as a dense `(L, E, H, B)` one in the workspace."""
+function transposeLE(a, ws, backend)
+    E, L, H, B = size(a)
+    d = scratch!(ws, backend, eltype(a), L, E, H, B)
+    r = eltype(a) in (Float16, Float32) ? stridedroot(a) : nothing
+    if r === nothing
+        launch!(toLE, d, a; backend)
+        return d
+    end
+    root, off = r
+    st = map(Int32, strides(a))
+    k = eltype(a) === Float16 ? toLE_tiled_Float16! : toLE_tiled_Float32!
+    # Workgroup in the kernel's TYPE, not as a keyword: it is the literal
+    # `(32, 4, 1)` every time, so this costs exactly one extra SPIR-V module and
+    # the index arithmetic folds to constants — 3.34 -> 2.01 ms in SAM 2's
+    # encoder. Safe because `(32, 4, 1)`'s only unit extent is trailing; see
+    # `Lava.interior_unit_workgroup`.
+    k(backend, (32, 4, 1))(d, reshape(root, length(root)), Int32(off + 1),
+                           st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H);
+                           ndrange = (32 * cld(E, 32), 4 * cld(L, 32), H * B))
+    d
+end
+
+# ---------------------------------------------------------- tensor-core path
+#
+# The three-pass kernels above are scalar: measured at 2.3 TFLOP/s on SAM 2's
+# global attention, against the 13 the same device's cooperative-matrix GEMM
+# sustains on the same product. Both halves of attention ARE matrix products —
+# `S = qT k` and `O = P vT` — one per (head, batch), so `Lava.coopmat_gemm!`'s
+# `nbatch` runs all of them in a single dispatch.
+#
+# Measured against the three-pass path, whole op including the padding copies
+# and the softmax, same total token count throughout:
+#
+#     L=256 B=16   1.28 -> 1.59 ms   0.81x     <- LOSES
+#     L=512 B=8    2.35 -> 2.15 ms   1.10x
+#     L=1024 B=4   4.78 -> 3.23 ms   1.48x
+#     L=2048 B=2   9.37 -> 5.33 ms   1.76x
+#     L=4096 B=1  18.71 -> 9.36 ms   2.00x
+#
+# So it is gated on sequence length, not used everywhere: below `COOPMAT_MINL`
+# the padding and the wider score matrix cost more than the tensor cores save.
+# SAM 2 lands on both sides of that — its windowed blocks are L=256 and its
+# three global blocks are L=4096.
+
+"""
+    COOPMAT_MINL[]
+
+Shortest sequence for which the cooperative-matrix path beats the three-pass
+kernels. 512 is the first length measured faster; see the table above.
+"""
+const COOPMAT_MINL = Ref(512)
+
+"""`(E,L,H,B)` read as `(L,EP,H,B)`, zero past `E`."""
+@inline function toLEpad(I, a, E)
+    l, e, h, b = I
+    @inbounds e <= E ? a[e, l, h, b] : zero(eltype(a))
+end
+
+"""`(E,L,H,B)` read as `(EP,L,H,B)`, zero past `E`."""
+@inline function padE(I, a, E)
+    e, l, h, b = I
+    @inbounds e <= E ? a[e, l, h, b] : zero(eltype(a))
+end
+
+"""`(L,EP,H,B)` accumulator back to `(E,L,H,B)`, normalised by the row sums."""
+@inline function fromLEpad(I, c, sums)
+    e, l, h, b = I
+    @inbounds c[l, e, h, b] / sums[l, h, b]
+end
+
+"""
+Softmax over keys, fp32 in and fp16 out, returning the row sums.
+
+Two buffers rather than in place: the GEMM accumulates in fp32 and the second
+GEMM needs an fp16 `A`, so the narrowing happens in the pass that already reads
+and writes every element instead of in one of its own. `scale` is applied here
+because `attn_scores` folds it into the multiply and a GEMM has nowhere to put
+it. Like [`attn_softmax`](@ref) it does NOT normalise — `fromLEpad` divides.
+"""
+@inline function attn_softmax16(I, p, s, scale)
+    lq, h, b = I
+    @inbounds begin
+        # The fp32 accumulator goes straight into `exp`. Rounding the scaled
+        # score to fp16 first — which is where the three-pass path stores it, and
+        # where PyTorch's autocast rounds — was tried on the theory that being
+        # *more* precise than the reference is what moved the masks. It changed
+        # nothing measurable: identical masks to five decimals and an identical
+        # encoder output, because `Float16(e)` below already absorbs a
+        # perturbation that small. Left out rather than carried.
+        m = -Inf32
+        for lk in axes(s, 2)
+            m = max(m, Float32(s[lq, lk, h, b]) * scale)
+        end
+        isfinite(m) || (m = 0.0f0)
+        acc = 0.0f0
+        for lk in axes(s, 2)
+            e = exp(Float32(s[lq, lk, h, b]) * scale - m)
+            p[lq, lk, h, b] = Float16(e)
+            acc += e
+        end
+        acc
+    end
+end
+
+"""
+    COOPMAT_QCHUNK[]
+
+Query rows per cooperative-matrix attention step.
+
+The score matrix is the whole memory cost of attention: `Lq x Lk` per (head,
+batch), and this path needs it twice — fp32 out of the GEMM, fp16 into the next
+one. At SAM 2's global blocks (Lq = Lk = 4096, 8 head-batches) that is 536 MB +
+268 MB in one go, and it is why a single encode peaked over 11 GB where PyTorch
+peaks at 1.6 (its SDPA dispatches to a fused kernel and never writes the matrix).
+
+Chunking the QUERY axis costs nothing in arithmetic — same tiles, same tensor
+cores, same total FLOPs — and divides the live score memory by `Lq / QCHUNK`.
+Only the queries are chunked: the softmax reduces over KEYS, so a key-chunked
+version would need the running-max rescaling that makes flash attention flash,
+and flash measured 43.9 ms against this path's 4.08 on the same shape.
+
+Rows are copied into a chunk-sized staging buffer rather than passed as a view,
+because `coopmat_gemm!` conflates `M` with the leading dimension and a row slice
+of a column-major matrix is not contiguous.
+
+2048 measured, on SAM 2's global blocks (Lq = Lk = 4096, 8 head-batches):
+
+    QCHUNK  chunks   p50 ms   min ms   S fp32 + P fp16
+      512      8      400.1    398.5      101 MB
+     1024      4      370.1    366.1      201 MB
+     2048      2      352.4    350.0      403 MB
+     4096      1      554.4    337.2      805 MB   <- OOMs mid-run and reclaims
+
+Unchunked has the best floor and no ceiling: it needs 805 MB in one step, which
+on a 20 GB card shared with a desktop pushes the pool into an OOM-retry that
+dumps ~10 GB and costs more than chunking ever does. 2048 gives up ~13 ms
+against that floor for 402 MB and, unlike it, is stable.
+"""
+const COOPMAT_QCHUNK = Ref(2048)
+
+"""`(E,L,H,B)` read as `(CH,EP,H,B)` for query rows `q0+1 .. q0+CH`, zero past `E`."""
+@inline function toLEpadchunk(I, a, E, q0, Lq)
+    l, e, h, b = I
+    ll = l + q0
+    @inbounds (ll <= Lq && e <= E) ? a[e, ll, h, b] : zero(eltype(a))
+end
+
+"""
+    coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk) -> Bool
+
+Whether [`sdpa`](@ref) should take the cooperative-matrix path.
+
+`bias` must be absent: the three-pass path adds it inside `attn_scores`, and a
+GEMM has no epilogue to add it in — supporting it would mean a third pass, which
+is exactly the traffic this path exists to remove. The extents must land on the
+16-wide tile, which the mask decoder's 23-token prompt does not.
+"""
+function coopmat_sdpa_applicable(q, k, v, bias, Lq::Int, Lk::Int)
+    bias === nothing || return false
+    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
+    min(Lq, Lk) >= COOPMAT_MINL[] || return false
+    Lq % Lava.GEMM_TILE == 0 && Lk % Lava.GEMM_TILE == 0 || return false
+    Lava.coopmat_gemm_available()
+end
+
+"""
+    sdpa_coopmat!(out, q, k, v, scale; backend, ws) -> out
+
+Attention as two batched cooperative-matrix GEMMs. `q`, `k`, `v` are `(E, L, H, B)`.
+
+`E` is padded up to the tile — 72 becomes 80 — by the copies that were happening
+anyway (`transposeLE` for `q`, `densify` for `k`), so the padding is free. `v` is
+transposed as well as padded, which `attn_apply` did not need; that is one extra
+pass over `E*L*H*B` and it is in the measured numbers above.
+
+The second product is computed TRANSPOSED, `O(Lq x EP) = P(Lq x Lk) * vT(Lk x EP)`,
+because `coopmat_gemm!` needs `M` on the tile and `E = 72` is not; `fromLEpad`
+puts it back.
+"""
+function sdpa_coopmat!(out, q, k, v, scale; backend, ws)
+    E, Lq, H, B = size(q)
+    Lk = size(k, 2)
+    EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
+    NB = H * B
+    # k and v are needed whole (the softmax reduces over keys); only q is chunked.
+    kp = scratch!(ws, backend, Float16, EP, Lk, H, B)
+    vT = scratch!(ws, backend, Float16, Lk, EP, H, B)
+    launch!(padE, kp, k, E; backend)
+    launch!(toLEpad, vT, v, E; backend)
+
+    CH = min(Lq, max(Lava.GEMM_TILE, COOPMAT_QCHUNK[]))
+    CH = cld(CH, Lava.GEMM_TILE) * Lava.GEMM_TILE      # the GEMM needs M on the tile
+    qc   = scratch!(ws, backend, Float16, CH, EP, H, B)
+    S    = scratch!(ws, backend, Float32, CH, Lk, H, B)
+    P    = scratch!(ws, backend, Float16, CH, Lk, H, B)
+    sums = scratch!(ws, backend, Float32, CH, H, B)
+    O    = scratch!(ws, backend, Float32, CH, EP, H, B)
+
+    for q0 in 0:CH:(Lq - 1)
+        n = min(CH, Lq - q0)
+        launch!(toLEpadchunk, qc, q, E, q0, Lq; backend)
+        Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
+        launch!(attn_softmax16, sums, P, S, Float32(scale); backend)
+        Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
+        # `fromLEpad` unchanged: `launch!` indexes the VIEW, so its `l` already
+        # starts at 1 for this chunk and no offset belongs in the kernel.
+        launch!(fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums; backend)
+    end
+    out
+end
+
+"""
+    sdpa(q, k, v, bias, scale; backend)
+
+`bias` may be `nothing` (flash) or an additive mask (mem-efficient).
+"""
+function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), ws=nothing,
+              out=nothing)
+    E, Lq, H, B = size(q)
+    Lk = size(k, 2)
+    T = accum(eltype(q))
+
+    if coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk)
+        out === nothing &&
+            (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
+        # The operands go in as they arrive, wrappers and all. Densifying first
+        # was tried and is strictly worse here: `densify` is a whole extra pass
+        # over each of q, k and v, while the padding kernels below read every
+        # element EXACTLY ONCE, so the wrapper's four integer divisions are paid
+        # once per element instead of once per pass. That is the opposite of
+        # `attn_scores`, which reads `q` E times and is why `densify` exists.
+        return sdpa_coopmat!(out, q, k, v, scale; backend, ws)
+    end
+
+    # Before anything else, and before the big scratch allocations, so the
+    # workspace hands these out at low offsets and the score matrix follows.
+    # q and k are transposed on the way; v is already in the order `attn_apply`
+    # wants and only needs to be dense.
+    q = transposeLE(q, ws, backend)
+    k = densify(k, ws, backend)
+    v = densify(v, ws, backend)
+
+    # The scores matrix and the (unused) softmax sums are pure working storage,
+    # so they come from the op's `Workspace` — allocating them per call is what
+    # kept the pool churning ~6 MB a step and driving the OOM-reclaim path, which
+    # is a full device flush plus a GC each time it fires.
+    # Stored as the operands' own type, accumulated in `T`. See `attn_softmax`.
+    ST = eltype(q)
+    scores = scratch!(ws, backend, ST, Lq, Lk, H, B)
+    tk = blockfor(Lk, Lq)
+    if tk > 1
+        scoresblocked!(backend, tk, scores, q, k, bias, T(scale), (Lq, Lk ÷ tk, H, B))
+    else
+        launch!(attn_scores, scores, q, k, bias, scale; backend)
+    end
+
+    # normalises `scores` in place; the returned sums are unused
+    sums = scratch!(ws, backend, T, Lq, H, B)
+    launch!(attn_softmax, sums, scores; backend)
+
+    # `out` outlives the op, so it cannot come from the workspace — but it can
+    # come from the caller, and when the caller is a graph that is the slot the
+    # planner reserved. Allocating it here instead was 48 fresh device buffers
+    # per SAM 2 encode, enough to keep Lava's pool in its OOM-reclaim path.
+    out === nothing && (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
+    tq = blockfor(Lq, Lk)
+    if tq > 1
+        applyblocked!(backend, tq, out, scores, v, sums, (size(v, 1), Lq ÷ tq, H, B))
+    else
+        launch!(attn_apply, out, scores, v, sums; backend)
+    end
+    out
+end
