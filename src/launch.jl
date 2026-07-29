@@ -16,11 +16,25 @@ fuses a chain.
 
 """
     materialize(v)
+    materialize(rec, backend, v)
 
-Detach a view into a fresh dense array on its own backend.
+Detach a view into a dense array on its own backend.
+
+The second form takes the destination from a `Recycler`, so the copy lands at the
+same address on every step. Views are materialised on the hot path — every `cat`
+operand that is a slice, the alpha and the mask `step!` carries into the next
+frame — and a fresh `similar` each time is exactly the drift that stops a
+recorded command sequence from being replayable.
 """
 function materialize(v::AbstractArray)
     d = similar(v)
+    d .= v
+    d
+end
+
+function materialize(rec, backend, v::AbstractArray)
+    rec === nothing && return materialize(v)
+    d = recycle!(rec, backend, eltype(v), size(v))
     d .= v
     d
 end
@@ -94,12 +108,36 @@ is cheaper than the fragmentation you are paying for.
 """
 const LAUNCH_FLAT = Ref(false)
 
+"""
+    LAUNCH_GROUP[] :: Int
+
+Threads per workgroup `launch!` asks for. 256 measured best; see `launchgroup`.
+"""
+const LAUNCH_GROUP = Ref(256)
+
+"""
+    launchgroup(sz) -> Dims
+
+`Lava.launchgroup`, re-exported so the launch sites here read the same as the
+ones in Lava. One definition: the rule about which axis a workgroup fills first
+is a property of the backend, and two copies of it would drift.
+
+Note in particular the warning it carries about `kernel(backend, wg)` versus the
+`workgroupsize` launch keyword — every launch in this package uses the keyword.
+"""
+@inline launchgroup(sz::Dims, target::Int = LAUNCH_GROUP[]) = Lava.launchgroup(sz, target)
+
 function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)) where {F}
     if LAUNCH_FLAT[] && ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
         ndmap_flat!(backend)(f, out, CartesianIndices(out), n, args...; ndrange=n)
     else
-        ndmap!(backend)(f, out, args...; ndrange=size(out))
+        sz = size(out)
+        # Workgroup in the kernel's TYPE, via `staticgroup` so it never trips
+        # `Lava.WORKGROUP_FALLBACK`. That keeps the index arithmetic
+        # compile-time constant, which is worth ~2x on these kernels. The cost is
+        # a separate SPIR-V module per (body, workgroup shape); measured below.
+        ndmap!(backend, Lava.staticgroup(sz))(f, out, args...; ndrange=sz)
     end
     out
 end

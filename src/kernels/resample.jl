@@ -67,6 +67,57 @@ function upsample_bilinear2d!(out, x; align_corners::Bool = false)
     launch!(upsample_bilinear, out, x, sx, sy, Val(align_corners))
 end
 
+"""
+`upsample_nearest2d`: source index `min(floor(dst * in/out), in - 1)`, which is
+what ATen's `nearest_neighbor_compute_source_index` computes.
+
+Note this is `nearest`, not `nearest-exact`: it floors `dst * scale` rather than
+`(dst + 0.5) * scale`, so on an even upscale it repeats the *top-left* sample
+instead of centring the window. The two differ by half an output pixel and
+torch exports them as separate ATen ops, so there is no ambiguity to resolve
+here — but they look identical on smooth data and only separate at edges, which
+is where the FPN's upsampled features carry their signal.
+"""
+@inline function upsample_nearest(I, x, sx::Float32, sy::Float32)
+    ox, oy, c, n = I
+    @inbounds begin
+        ix = min(floor(Int, (ox - 1) * sx), size(x, 1) - 1)
+        iy = min(floor(Int, (oy - 1) * sy), size(x, 2) - 1)
+        x[ix + 1, iy + 1, c, n]
+    end
+end
+
+# The scale is derived from the extents rather than read from the op's
+# `scale_factors`, and the two agree by construction: ATen uses `1/scale_factor`
+# when the factors are given and `in/out` when they are not, and the output
+# extent it records was computed from those same factors.
+upsample_nearest2d!(out, x) = launch!(upsample_nearest, out, x,
+                                      Float32(size(x, 1) / size(out, 1)),
+                                      Float32(size(x, 2) / size(out, 2)))
+
+"""
+`cumsum` along one axis, one thread per output element.
+
+Each thread walks the axis from its start, so the work is quadratic in the
+scanned extent rather than the linear cost of a proper parallel scan. That is
+deliberate: the only `cumsum` in any graph here builds SAM 2's dense positional
+encoding from a constant 64x64 tensor, where the whole op is 262k adds and runs
+once per decoder call. A work-efficient scan belongs here the moment something
+scans a long axis; until then it would be untested code on a path nothing
+exercises.
+"""
+@inline function cumsum_body(I, a, ::Val{D}) where {D}
+    @inbounds begin
+        acc = zero(eltype(a))
+        for k in 1:I[D]
+            acc += a[ntuple(j -> j == D ? k : I[j], Val(length(I)))...]
+        end
+        acc
+    end
+end
+
+cumsum_dim!(out, a, d::Integer) = launch!(cumsum_body, out, a, Val(Int(d)))
+
 @inline function maxpool(I, x, ::Val{KX}, ::Val{KY}, ::Val{SX}, ::Val{SY},
                          ::Val{PX}, ::Val{PY}) where {KX,KY,SX,SY,PX,PY}
     ox, oy, c, n = I
@@ -124,7 +175,7 @@ function avg_pool2d!(out, x, kw::Integer, kh::Integer, sx::Integer, sy::Integer,
                      px::Integer = 0, py::Integer = 0)
     backend = KernelAbstractions.get_backend(out)
     avg_pool2d_kernel!(backend)(out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
-                                Int32(px), Int32(py); ndrange = size(out))
+                                Int32(px), Int32(py); ndrange = size(out), workgroupsize = launchgroup(size(out)))
     KernelAbstractions.synchronize(backend)
     return out
 end
@@ -176,7 +227,7 @@ end
 function grid_sample2d!(out, x, grid; align_corners::Bool = true, padding::Symbol = :zeros)
     backend = KernelAbstractions.get_backend(out)
     grid_sample2d_kernel!(backend)(out, x, grid, Val(align_corners), Val(padding);
-                                   ndrange = size(out))
+                                   ndrange = size(out), workgroupsize = launchgroup(size(out)))
     KernelAbstractions.synchronize(backend)
     return out
 end
@@ -258,7 +309,8 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
                                    Int32(padding[1]), Int32(padding[2]),
                                    Int32(dilation[1]), Int32(dilation[2]),
                                    Int32(deform_groups), Int32(groups),
-                                   Val(mask !== nothing); ndrange = size(out))
+                                   Val(mask !== nothing); ndrange = size(out),
+                                   workgroupsize = launchgroup(size(out)))
     KernelAbstractions.synchronize(backend)
     return out
 end
@@ -283,7 +335,7 @@ end
 
 function flip!(out, x, dims::Tuple)
     backend = KernelAbstractions.get_backend(out)
-    flip_kernel!(backend)(out, x, Val(dims); ndrange = size(x))
+    flip_kernel!(backend)(out, x, Val(dims); ndrange = size(x), workgroupsize = launchgroup(size(x)))
     KernelAbstractions.synchronize(backend)
     return out
 end
@@ -350,7 +402,8 @@ function convolution3d!(out, x, w, bias, stride, pad, dil, groups::Integer;
                             Int32(stride[1]), Int32(stride[2]), Int32(stride[3]),
                             Int32(pad[1]), Int32(pad[2]), Int32(pad[3]),
                             Int32(dil[1]), Int32(dil[2]), Int32(dil[3]),
-                            Int32(groups), Val(act); ndrange = size(out))
+                            Int32(groups), Val(act); ndrange = size(out),
+                            workgroupsize = launchgroup(size(out)))
     KernelAbstractions.synchronize(backend)
     return out
 end
