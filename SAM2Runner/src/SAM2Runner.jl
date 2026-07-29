@@ -110,6 +110,35 @@ One centre click — the smallest complete call, and what the workload uses.
 runsam2(model::SAM2, image) = runsam2(model, image, [(0.5, 0.5)], [true])
 
 """
+    resizeto!(img, frame, res) -> img
+
+Nearest-neighbour resample of `frame` into the model's square `res × res × 3`
+input buffer.
+
+Its own function, and `img` concretely typed, because it is 3.1 million
+iterations and the buffer used to reach it through a `Ref{Any}`. Every
+`img[i, j, c, 1] = …` was then a dynamically dispatched, boxed `setindex!`:
+**~740 ms per call**, three times the encode it feeds. The same loop with a
+typed destination is 3.2 ms.
+
+That cost was invisible to every GPU profile — `Lava.with_dispatch_timing` says
+the encode is 98% GPU-bound and it is; this sits entirely outside it, in front.
+"""
+function resizeto!(img::Array{Float32,4}, frame::AbstractMatrix, res::Integer)
+    w, h = size(frame)
+    # SAM resizes to a *square*, so normalized coordinates map straight through
+    # and a click needs no aspect correction.
+    @inbounds for j in 1:res, i in 1:res
+        c = frame[clamp(round(Int, (i - 0.5) * w / res + 0.5), 1, w),
+                  clamp(round(Int, (j - 0.5) * h / res + 0.5), 1, h)]
+        img[i, j, 1, 1] = Float32(red(c))
+        img[i, j, 2, 1] = Float32(green(c))
+        img[i, j, 3, 1] = Float32(blue(c))
+    end
+    img
+end
+
+"""
     sam2segmenter(model; pick = :confident) -> f
 
 A segmenter matching `VideoEditor.registersegmenter!`'s contract:
@@ -134,22 +163,16 @@ available and remains exactly what PyTorch does.
 function sam2segmenter(model::SAM2; pick = :confident)
     cachekey = Ref{Any}(nothing)
     cachefeats = Ref{Any}(nothing)
-    host = Ref{Any}(nothing)
+    # Concretely typed, unlike the two above: this one is *indexed* three million
+    # times per call, and `Ref{Any}` made every one of those a dynamic dispatch.
+    # The other two are read once each, where `Any` costs nothing.
+    host = Ref{Array{Float32,4}}()
     res = model.res
     backend = model.model.backend
     return function (frame::AbstractMatrix, points; key = nothing)
         w, h = size(frame)
-        host[] === nothing && (host[] = zeros(Float32, res, res, 3, 1))
-        img = host[]
-        # SAM resizes to a *square*, so normalized coordinates map straight
-        # through and a click needs no aspect correction.
-        @inbounds for j in 1:res, i in 1:res
-            c = frame[clamp(round(Int, (i - 0.5) * w / res + 0.5), 1, w),
-                      clamp(round(Int, (j - 0.5) * h / res + 0.5), 1, h)]
-            img[i, j, 1, 1] = Float32(red(c))
-            img[i, j, 2, 1] = Float32(green(c))
-            img[i, j, 3, 1] = Float32(blue(c))
-        end
+        isassigned(host) || (host[] = zeros(Float32, res, res, 3, 1))
+        img = resizeto!(host[], frame, res)
         feats = if key !== nothing && cachekey[] == key && cachefeats[] !== nothing
             cachefeats[]
         else
