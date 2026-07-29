@@ -25,14 +25,72 @@ struct Ctx
     outid::Base.RefValue{String}  # output id of the op currently running
     ws::Any                       # Workspace for kernel-internal scratch, or nothing
     lazy::Any                     # Set of ids that may stay unmaterialised (fuse.jl)
+    rec::Any                      # Recycler for unplanned allocations, or nothing
 end
 
 Ctx(values, graph, dims, backend) =
-    Ctx(values, graph, dims, backend, nothing, nothing, Ref(""), nothing, nothing)
+    Ctx(values, graph, dims, backend, nothing, nothing, Ref(""), nothing, nothing, nothing)
 Ctx(values, graph, dims, backend, slab, plan, outid) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, nothing, nothing)
+    Ctx(values, graph, dims, backend, slab, plan, outid, nothing, nothing, nothing)
 Ctx(values, graph, dims, backend, slab, plan, outid, ws) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, nothing)
+    Ctx(values, graph, dims, backend, slab, plan, outid, ws, nothing, nothing)
+Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy) =
+    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, nothing)
+
+"""
+    Recycler
+
+Hands the same device buffers back to the same allocation sites on every step.
+
+The planner covers the transients, but what it skips — tuple-shaped outputs,
+values that escape into the next graph, an op body's own scratch — is allocated
+fresh per step, and Lava's pool is a bump allocator, so those addresses march
+upward and never repeat. Measured on MatAnyone2: twelve consecutive steps gave
+twelve distinct address tuples for `State`'s four arrays.
+
+That is what blocks `Lava.capture`/`replay!`. A replayed command buffer carries
+the device addresses it was recorded with, so replaying a step is only correct if
+every buffer it touches is at the address it had at capture. The recycler makes
+that true by construction rather than by hoping the pool's free lists hand back
+what they took: a call site asks for the *n*-th allocation of a graph call, and
+gets the same array object every step as long as the element type and shape
+match. They do, because the op sequence of a graph is fixed.
+
+`bank` alternates per step. A value produced in step `k` is read in step `k + 1`
+(`State.sensory`, `lastmask`, `lastpixfeat`, `lastmskvalue` all live exactly one
+step), so a single set of buffers would have step `k + 1` overwriting what it is
+still reading. Two banks give the write somewhere else to land; nothing here
+lives longer than one step, so two is enough.
+"""
+mutable struct Recycler
+    banks::NTuple{2,Vector{Any}}
+    bank::Int          # 1 or 2
+    n::Int             # allocation ordinal within the current graph call
+    misses::Int        # allocations the recycler could not serve, for diagnosis
+end
+
+Recycler() = Recycler((Any[], Any[]), 1, 0, 0)
+
+"""Start a graph call: ordinals restart, the bank stays as `flip!` left it."""
+startcall!(r::Recycler) = (r.n = 0; r)
+startcall!(::Nothing) = nothing
+
+"""Move to the other bank. Called once per step, not once per graph."""
+flip!(r::Recycler) = (r.bank = 3 - r.bank; r)
+flip!(::Nothing) = nothing
+
+function recycle!(r::Recycler, backend, ::Type{T}, dims::Dims) where {T}
+    v = r.banks[r.bank]
+    i = (r.n += 1)
+    if i <= length(v)
+        b = v[i]
+        b isa AbstractArray{T} && size(b) === dims && return b
+    end
+    r.misses += 1
+    b = KernelAbstractions.allocate(backend, T, dims...)
+    i <= length(v) ? (v[i] = b) : push!(v, b)
+    return b
+end
 
 """
     emit(ctx, bc) -> array | Broadcasted
@@ -84,7 +142,21 @@ yet, so the two can coexist while the conversion proceeds.
             return slabview(T, sl, dims, off)
         end
     end
-    KernelAbstractions.allocate(ctx.backend, T, dims...)
+    rawalloc(ctx, T, dims)
+end
+
+"""
+    rawalloc(ctx, T, dims) -> array
+
+Storage the planner did not place — the one place every unplanned allocation in a
+graph goes through. Served by the `Recycler` when one is attached, so the address
+repeats every step; a plain allocation otherwise. Named apart from `alloc`, which
+is the ops' entry point and goes through `dest` and the plan first.
+"""
+@inline function rawalloc(ctx::Ctx, ::Type{T}, dims::Dims) where {T}
+    r = ctx.rec
+    r === nothing && return KernelAbstractions.allocate(ctx.backend, T, dims...)
+    return recycle!(r, ctx.backend, T, dims)
 end
 
 """
@@ -299,6 +371,43 @@ alloc(ctx::Ctx, id::AbstractString, dims::Integer...) =
 alloc(ctx::Ctx, ::Type{T}, dims::Integer...) where {T} =
     dest(ctx, ctx.outid[], T, dims...)
 
+"""
+    tupledest(ctx, i, T, dims...) -> array
+
+Storage for element `i` (0-based) of the multi-output op currently running.
+
+`planslab` places those elements under `"<buffer>.<i>"` because the tuple itself
+has no single shape to reserve. A handler that allocates its result any other way
+— `KernelAbstractions.allocate`, or an ordinary broadcast that calls `similar` —
+gets a fresh device buffer on every call, which is what drove SAM 2's encoder to
+free and re-reserve ~9 GB per frame through Lava's OOM-reclaim path.
+"""
+@inline tupledest(ctx::Ctx, i::Integer, ::Type{T}, dims::Integer...) where {T} =
+    dest(ctx, string(ctx.outid[], '.', i), T, dims...)
+
+"""
+    tupledtype(ctx, i, default) -> Type
+
+The dtype the graph declares for element `i` (0-based) of the running op's tuple
+result, or `default` when it declares none.
+
+Asking matters because `dest` only hands out a planned slot when the request
+*fits* it, and the slot was reserved from the declared dtype. Under autocast
+these outputs are fp16 while the handlers naturally allocate in their
+accumulator type, fp32 — twice the bytes, so every one of them missed its slot
+and fell back to a fresh allocation. That is 48 attentions and 96 layer norms per
+encode landing outside the static plan, which is what put a gigabyte in the
+recycler and Lava's pool into its reclaim path. Writing in the declared type is
+also what the reference does: PyTorch's autocast returns fp16 from both.
+"""
+@inline function tupledtype(ctx::Ctx, i::Integer, default)
+    b = get(ctx.graph.buffers, ctx.outid[], nothing)
+    b === nothing && return default
+    dts = get(b.attrs, "dtypes", nothing)
+    (dts === nothing || length(dts) < i + 1 || dts[i + 1] === nothing) && return default
+    dts[i + 1]
+end
+
 sync(ctx::Ctx) = KernelAbstractions.synchronize(ctx.backend)
 
 """
@@ -309,7 +418,7 @@ this with offsets into one block once the intervals are packed.
 """
 function allocate!(ctx::Ctx, id::AbstractString)
     b = ctx.graph.buffers[id]
-    KernelAbstractions.allocate(ctx.backend, b.dtype, evalshape(b.shape, ctx.dims)...)
+    rawalloc(ctx, b.dtype, Dims(evalshape(b.shape, ctx.dims)))
 end
 
 """
@@ -344,8 +453,8 @@ diff any intermediate, not just the outputs.
 function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
                   dims, backend=KernelAbstractions.CPU(),
                   overrides::AbstractDict=Dict{String,Any}(),
-                  slab=nothing, plan=nothing, ws=nothing, lazy=nothing)
-    ctx = Ctx(Dict{String,Any}(), graph, dims, backend, slab, plan, Ref(""), ws, lazy)
+                  slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing)
+    ctx = Ctx(Dict{String,Any}(), graph, dims, backend, slab, plan, Ref(""), ws, lazy, rec)
     for id in graph.order
         b = graph.buffers[id]
         if b.kind === :weight

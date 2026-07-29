@@ -19,6 +19,25 @@ import Atomix
 import GPUArrays
 
 export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
+export KERNELS_VERSION
+
+"""
+    KERNELS_VERSION
+
+Generation of the frozen SPIR-V cache, shared by **every** model that runs on
+this runtime.
+
+One version for all of them, not one per model, because they share kernels: a
+broadcast over a `LavaArray`, `ndmap!`, AcceleratedKernels' reductions. Keyed per
+package those would be frozen once per package under different versions — the
+same bytes, several times, and a cache miss for whichever model ran second.
+Shared, the first workload to reach a kernel freezes it and the rest hit it.
+
+**Bump this after editing any kernel** any graph reaches, in LavaDNN or in Lava.
+Nothing detects a stale entry; see `Lava/src/runtime/frozen_cache.jl` for why
+that is deliberate.
+"""
+const KERNELS_VERSION = "1"
 
 include("safetensors.jl")
 include("graph.jl")
@@ -29,6 +48,7 @@ include("kernels/extern/conv_implicit.jl")
 include("kernels/extern/conv_coopmat.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")
+include("kernels/extern/flash.jl")
 include("kernels/resample.jl")
 include("execute.jl")
 include("ops.jl")
@@ -40,6 +60,8 @@ include("foldrelu.jl")
 include("dce.jl")
 include("fuse.jl")
 include("driver.jl")
+include("wan.jl")
+include("sam2.jl")
 include("verify.jl")
 
 end # module

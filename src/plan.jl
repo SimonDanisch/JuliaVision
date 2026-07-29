@@ -145,8 +145,25 @@ function planslab(graph::Graph, dims)
         b.kind === :transient || continue
         id in produced || continue
         id in esc && continue
-        isempty(b.shape) && continue
         haskey(lt, id) || continue
+        if isempty(b.shape)
+            # Multi-output op: place each element under `"<id>.<i>"`, which is the
+            # key its handler asks `dest` for. They share the tuple's lifetime,
+            # and that lifetime is already correct for them — `lifetimes` walks
+            # the view chain, so it ends at the last read of the `getitem` that
+            # extracts an element, not at the op that produced the tuple.
+            shapes = get(b.attrs, "shapes", nothing)
+            shapes === nothing && continue
+            dts = get(b.attrs, "dtypes", nothing)
+            for (i, s) in enumerate(shapes)
+                (s === nothing || isempty(s)) && continue
+                dts !== nothing && dts[i] === nothing && continue   # dtype we do not model
+                T = dts !== nothing ? dts[i] : b.dtype
+                n = alignup(prod(evalshape(s, dims)) * sizeof(T))
+                push!(items, ("$(id).$(i - 1)", n, lt[id][1], lt[id][2]))
+            end
+            continue
+        end
         n = alignup(prod(evalshape(b.shape, dims)) * sizeof(b.dtype))
         push!(items, (id, n, lt[id][1], lt[id][2]))
     end

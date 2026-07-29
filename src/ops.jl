@@ -149,8 +149,20 @@ runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Scalar")}) = lhs(ctx, op) .>= rhs(ctx,
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("eq.Scalar")}) = lhs(ctx, op) .== rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("bitwise_and.Tensor")}) = lhs(ctx, op) .& rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("logical_and.default")}) = lhs(ctx, op) .& rhs(ctx, op)
-runop!(ctx::Ctx, op::Op, ::Val{Symbol("where.self")}) =
-    ifelse.(lhs(ctx, op), value(ctx, op.ins[2]), value(ctx, op.ins[3]))
+# Converted to the declared dtype inside the broadcast, because `ifelse` does not
+# promote: `ifelse(::Bool, ::Float16, ::Float32)` infers `Union{Float16,Float32}`,
+# and a broadcast over an abstract eltype reaches Lava as a
+# `BrokenBroadcast{AbstractFloat}` that fails to compile — "method lookup failure"
+# hundreds of frames from the op that caused it. The two branches always had the
+# same dtype until autocast put a cast boundary between them.
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("where.self")})
+    c = lhs(ctx, op)
+    a, b = value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    # A zero *value*, not the type: a closure capturing `T` has a `Type{Float32}`
+    # field, which is not isbits, and a kernel cannot take a non-bitstype argument.
+    z = zero(dtypeof(ctx, op.out))
+    emit(ctx, Base.broadcasted((p, x, y) -> ifelse(p, oftype(z, x), oftype(z, y)), c, a, b))
+end
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")}) =
     (lo = get(op.attrs, "arg1", nothing); hi = get(op.attrs, "arg2", nothing);
      clamp.(lhs(ctx, op), lo === nothing ? -Inf32 : Float32(lo),
@@ -187,11 +199,13 @@ end
 
 # aten::copy is functional: it returns src broadcast to dst's shape and must
 # NOT write into dst. dst is usually a view, so an in-place `.=` would scribble
-# through it into the parent buffer and silently corrupt an earlier value.
+# through it into the parent buffer and silently corrupt an earlier value. The
+# op's *own* planned slot is a different buffer, so writing there is both safe
+# and free.
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("copy.default")})
     dst = lhs(ctx, op)
     src = value(ctx, op.ins[2])
-    out = similar(dst, eltype(dst), size(dst))
+    out = dest(ctx, eltype(dst), size(dst)...)
     out .= src
     out
 end
@@ -208,6 +222,20 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("full_like.default")})
     T = dtypeof(ctx, op.out)
     fill!(alloc(ctx, T, size(a)...), convert(T, scalar(op.attrs["arg1"])))
 end
+
+"""
+`empty.memory_format` allocates without initialising.
+
+Zero-filled rather than handed back as whatever the slab last held. torch leaves
+the contents undefined, so zeroing is a legal implementation of it and the only
+one under which a graph that (wrongly) reads the result fails the same way twice
+instead of intermittently. SAM 2's decoder uses it for a `(1, 0, 256)` tensor
+concatenated onto the sparse embeddings — the branch where there are no boxes —
+so here there is nothing to fill anyway.
+"""
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("empty.memory_format")}) =
+    fill!(alloc(ctx, op.out, evalshape(shapeof(ctx, op.out), ctx.dims)...),
+          zero(dtypeof(ctx, op.out)))
 
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("scalar_tensor.default")}) =
     fill!(alloc(ctx, op.out), convert(dtypeof(ctx, op.out), scalar(op.attrs["arg0"])))
@@ -366,7 +394,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_softmax.default")})
     d = jdim(Int(op.attrs["arg1"]), ndims(a))
     # The kernel indexes `a` linearly over the (pre, n, post) view, so a wrapper
     # whose linear order is not a dense array's has to be collapsed first.
-    a isa Union{SubArray,PermutedDimsArray,Base.ReshapedArray} && (a = materialize(a))
+    a isa Union{SubArray,PermutedDimsArray,Base.ReshapedArray} &&
+        (a = materialize(ctx.rec, ctx.backend, a))
     pre = prod(ntuple(k -> size(a, k), d - 1); init=1)
     n = size(a, d)
     post = length(a) ÷ (pre * n)
@@ -386,16 +415,20 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     μ = sum(a; dims=d) ./ prod(size(a, i) for i in d)
     v = sum(abs2, a .- μ; dims=d) ./ prod(size(a, i) for i in d)
     r = 1 ./ sqrt.(v .+ eps)
-    y = (a .- μ) .* r
-    if length(op.ins) >= 2
-        γ = value(ctx, op.ins[2])
-        y = y .* γ
-    end
-    if length(op.ins) >= 3
-        β = value(ctx, op.ins[3])
-        y = y .+ β
-    end
-    (y, μ, r)
+    # One broadcast, one write, into the slot the planner reserved.
+    #
+    # Written as four statements (`y = (a .- μ) .* r`, then `y = y .* γ`, then
+    # `y = y .+ β`) each one materialises: four passes over a tensor that is
+    # 216 MiB in SAM 2's first stage, and four allocations outside the plan.
+    # Kept lazy with `broadcasted` it is a single fused kernel, which is what
+    # writing the whole thing as one expression would have given — but the shape
+    # of the expression depends on whether the graph supplies γ and β.
+    y = Base.broadcasted(*, Base.broadcasted(-, a, μ), r)
+    length(op.ins) >= 2 && (y = Base.broadcasted(*, y, value(ctx, op.ins[2])))
+    length(op.ins) >= 3 && (y = Base.broadcasted(+, y, value(ctx, op.ins[3])))
+    out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
+    out .= y
+    (out, μ, r)
 end
 
 # ------------------------------------------------------------------- structural
@@ -418,7 +451,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("cat.default")})
     # tensor) has no pointer for the device copy to start from, so the
     # broadcast-assign below fails with "conversion to pointer not defined".
     # Materialising just those keeps the dense inputs copy-free.
-    parts = [(v = value(ctx, i); v isa SubArray ? materialize(v) : v) for i in op.ins]
+    parts = [(v = value(ctx, i); v isa SubArray ? materialize(ctx.rec, ctx.backend, v) : v)
+             for i in op.ins]
     n = ndims(parts[1])
     d = jdim(Int(get(op.attrs, "arg1", 0)), n)
     total = sum(size(p, d) for p in parts)
@@ -455,7 +489,11 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("constant_pad_nd.default")})
         dims[k] += lo + hi
         los[k] = lo
     end
-    out = fill!(similar(a, Tuple(dims)), v)
+    # Into the planned slot, not a fresh buffer. Wan's VAE decoder pads before
+    # each of its 116 3-D convolutions, and at 256x256x9 those temporaries are
+    # hundreds of MB apiece — allocating them outside the plan is what took the
+    # decode from a 1.2 GB slab to a 14.8 GB peak, i.e. from comfortable to OOM.
+    out = fill!(dest(ctx, eltype(a), Tuple(dims)...), v)
     idx = ntuple(k -> (los[k] + 1):(los[k] + size(a, k)), ndims(a))
     out[idx...] = a
     out
@@ -491,10 +529,32 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
     pad = reverse(ints(op.attrs["arg4"]))
     dil = reverse(ints(op.attrs["arg5"]))
     groups = Int(op.attrs["arg8"])
+    # `aten::convolution` is also the TRANSPOSED convolution: arg6 says so and
+    # arg7 carries its output padding. Reading neither means a `ConvTranspose2d`
+    # would run here as an ordinary convolution — a wrong picture, no error, and
+    # nothing in the numbers to point at it. SAM 2's mask decoder upsamples with
+    # exactly that layer, so this refuses instead of guessing until the
+    # transposed path exists (same reasoning as the 3-D convolution that silently
+    # took the 2-D branch during the Wan port).
     # `act` is set by `foldrelu`, which deletes the relu op and aliases its
     # buffer onto this convolution's output. Every path below has to honour it —
     # dropping it silently would be a wrong answer, not a slow one.
     act = Symbol(get(op.attrs, "act", "none"))
+    outpad = reverse(ints(get(op.attrs, "arg7", Int[])))
+    if get(op.attrs, "arg6", false) == true
+        # `aten::convolution` is also the TRANSPOSED convolution — arg6 says so.
+        # Reading neither this nor arg7 is how a `ConvTranspose2d` silently runs
+        # as an ordinary convolution: a wrong picture, no error, nothing in the
+        # numbers to point at. SAM 2's mask decoder upsamples with two of them.
+        length(stride) == 2 ||
+            error("transposed convolution is implemented for 2-D only (op $(op.id))")
+        ox = convtransposesize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1], outpad[1])
+        oy = convtransposesize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2], outpad[2])
+        out = alloc(ctx, eltype(x), ox, oy, size(w, 3), size(x, 4))
+        convolutiontranspose!(out, x, w, bias, stride, pad, dil, outpad, groups)
+        act === :relu && (out .= max.(out, zero(eltype(out))))
+        return out
+    end
     ox = convsize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1])
     if length(stride) == 1                       # aten::convolution covers 1-D too
         out = alloc(ctx, eltype(x), ox, size(w, 3), size(x, 3))
@@ -545,6 +605,21 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("upsample_bilinear2d.vec")})
     out
 end
 
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("upsample_nearest2d.vec")})
+    x = lhs(ctx, op)
+    target = evalshape(shapeof(ctx, op.out), ctx.dims)
+    out = alloc(ctx, eltype(x), target...)
+    upsample_nearest2d!(out, x)
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("cumsum.default")})
+    a = lhs(ctx, op)
+    out = alloc(ctx, op.out, size(a)...)
+    cumsum_dim!(out, a, jdim(Int(op.attrs["arg1"]), ndims(a)))
+    out
+end
+
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default")})
     x = lhs(ctx, op)
     k = reverse(ints(op.attrs["arg1"]))
@@ -579,7 +654,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_scaled_dot_product_efficient_at
     bias = length(op.ins) >= 4 ? value(ctx, op.ins[4]) : nothing
     s = get(op.attrs, "scale", nothing)
     scale = s === nothing ? inv(sqrt(size(q, 1))) : Float64(s)
-    out = sdpa(q, k, v, bias, scale; backend=ctx.backend, ws=ctx.ws)
+    out = sdpa(q, k, v, bias, scale; backend=ctx.backend, ws=ctx.ws,
+               out=tupledest(ctx, 0, tupledtype(ctx, 0, accum(eltype(q))),
+                             size(v, 1), size(q, 2), size(q, 3), size(q, 4)))
     # (output, logsumexp, philox_seed, philox_offset); only the first is read
     (out, similar(out, 0), similar(out, 0), similar(out, 0))
 end
@@ -591,7 +668,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_scaled_dot_product_flash_attent
     q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
     s = get(op.attrs, "scale", nothing)
     scale = s === nothing ? inv(sqrt(size(q, 1))) : Float64(s)
-    out = sdpa(q, k, v, nothing, scale; backend=ctx.backend, ws=ctx.ws)
+    out = sdpa(q, k, v, nothing, scale; backend=ctx.backend, ws=ctx.ws,
+               out=tupledest(ctx, 0, tupledtype(ctx, 0, accum(eltype(q))),
+                             size(v, 1), size(q, 2), size(q, 3), size(q, 4)))
     e = similar(out, 0)
     # (output, logsumexp, cum_seq_q, cum_seq_k, max_q, max_k,
     #  philox_seed, philox_offset, debug_attn_mask)
@@ -733,7 +812,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
         iv = value(ctx, String(e)[2:end])          # attrs store "$name"
         idx[jd] = vec(Int.(collect(iv))) .+ 1      # torch indices are 0-based
     end
-    materialize(view(x, idx...))
+    materialize(ctx.rec, ctx.backend, view(x, idx...))
 end
 
 """

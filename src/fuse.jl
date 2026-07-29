@@ -36,6 +36,23 @@ const FUSABLE = Set([
     "_to_copy.default",
 ])
 
+# `gelu.default`, `clamp.default` and `where.self` were added here and taken back
+# out, which is worth recording so nobody repeats it. Profiling SAM 2's encoder
+# with Vulkan timestamps put 50% of the time in elementwise work across ~1250
+# dispatches, and these three are pure broadcasts appearing 50, 34 and 7 times.
+# Fusing them removed 34 dispatches and changed the **GPU** time not at all —
+# 412 ms against 411 — because these are not the launch-bound tensors the pass
+# was written for; the 4% that showed up in wall clock was host-side launch
+# overhead. And it cost accuracy: SAM 2's masks went from IoU 1.00000/0.99972/
+# 0.97727 against PyTorch to 0.98750/0.99978/0.95556, because a fused chain
+# keeps intermediates in fp32 registers where the reference rounds to fp16 at
+# every step. That is the "same declared dtype" guard doing its job — it only
+# checks the endpoints of a fusion, not the rounding skipped inside one.
+#
+# So: fusion here is not the lever. The 50% is real, but it is spread over
+# tensors big enough that the kernels are bandwidth-bound rather than
+# launch-bound, and fusing them saves dispatches that were not the cost.
+
 """
     groupmates(graph) -> Dict{String,Set{String}}
 

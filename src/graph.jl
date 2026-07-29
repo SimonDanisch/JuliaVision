@@ -80,6 +80,24 @@ function Buffer(o)
     attrs = attrdict(o)
     # host scalars carry their symbolic size expression at the top level
     haskey(o, :expr) && (attrs["expr"] = o.expr)
+    # A multi-output op (`native_layer_norm`, `_scaled_dot_product_*`,
+    # `max_pool2d_with_indices`) declares `shapes`/`dtypes` instead of
+    # `shape`/`dtype`. Dropping them, as this did, left `planslab` unable to size
+    # those results, so every one of them allocated from the pool on every call —
+    # a handful of buffers in MatAnyone, but 151 of them in SAM 2's encoder,
+    # which is its whole transformer.
+    if haskey(o, :shapes)
+        attrs["shapes"] = Any[s === nothing ? nothing :
+                              Any[x isa Integer ? Int(x) : String(x) for x in s] for s in o.shapes]
+    end
+    if haskey(o, :dtypes)
+        # `get`, not indexing: a tuple element the runtime never reads can carry a
+        # dtype nothing else in the graph uses — sdpa's philox seed and offset are
+        # `uint64` — and an unrecognised one should mean "do not plan this
+        # element", not "refuse to load the graph".
+        attrs["dtypes"] = Any[d === nothing ? nothing :
+                              get(DTYPE_NAMES, String(d), nothing) for d in o.dtypes]
+    end
     Buffer(String(o.id), kind, shape, dtype,
            haskey(o, :key) ? String(o.key) : "",
            live,

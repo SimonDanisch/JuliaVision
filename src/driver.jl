@@ -32,11 +32,17 @@ Model(graphs, weights, backend, memevery, memframes, topk) =
     Model(graphs, weights, backend, memevery, memframes, topk, Dict{Any,Any}())
 
 """
-    scratchfor(m, dims) -> (slab, plans)
+    scratchfor(m, dims) -> (slab, plans, workspace, lazies, recyclers)
 
 One slab for every graph at this resolution, sized to the largest peak. The
 graphs run one after another inside a step, so they can share it; values that
 escape a graph are excluded from the plan (see `escaping`).
+
+The recyclers are *per graph*, unlike the slab and the workspace: their ordinals
+count allocations within one graph call, so sharing one across graphs would make
+a graph's ordinals depend on what ran before it in the step — and the step has
+two shapes (`encode_mask_deep` on every fifth frame, `encode_mask_shallow`
+otherwise), which would shift every ordinal after that point on alternate steps.
 """
 function scratchfor(m::Model, dims)
     get!(m.scratch, dims) do
@@ -46,27 +52,50 @@ function scratchfor(m::Model, dims)
         @debug "LavaDNN: static scratch slab $(round(nb/2^20, digits=2)) MB at $dims"
         # One workspace for every graph at this resolution: it is reset per op,
         # so the graphs cannot collide over it any more than two ops can.
-        (slab, plans, Workspace(m.backend), fusablesets(m.graphs))
+        # ... and one more for `step!` itself, which materialises the alpha and
+        # the mask it carries to the next frame outside of any graph.
+        (slab, plans, Workspace(m.backend), fusablesets(m.graphs),
+         Dict(n => Recycler() for n in keys(m.graphs)), Recycler())
     end
 end
 
 """
     toback(backend, a) -> array
 
-Move a host array onto the execution backend. A no-op on the CPU backend.
+Move a host array onto the execution backend. A no-op on the CPU backend, and a
+no-op for an array that already lives on `backend` — the sampler hands its latent
+straight back to the transformer, so without that check every step would download
+and re-upload it.
+
+Residency is judged by the *kind* of backend rather than by equality: KA's
+`get_backend` rebuilds the descriptor, so `get_backend(a) == backend` is false
+even for an array allocated on exactly that device.
 """
 toback(::KernelAbstractions.CPU, a::AbstractArray) = a isa Array ? a : collect(a)
 function toback(backend, a::AbstractArray)
     isempty(a) && return a
+    KernelAbstractions.get_backend(a) isa typeof(backend) && return a
     d = KernelAbstractions.allocate(backend, eltype(a), size(a)...)
     copyto!(d, collect(a))
     d
 end
 
+"""
+    Model(graphdir, weightpath; names, backend, ...)
+
+Load a graph set and its weights, and run every host-side preparation pass over
+them.
+
+`names` selects which graphs in `graphdir` to load; it defaults to MatAnyone's
+eight because that is what `step!` drives. Everything from here down is
+model-agnostic — the passes, the slab planner, `call` — so another model is a
+different `names` and its own driver, not another `Model`.
+"""
 function Model(graphdir::AbstractString, weightpath::AbstractString;
-               backend=KernelAbstractions.CPU(), memevery=5, memframes=5, topk=30)
-    names = ["encode_image", "transform_key", "encode_mask_deep", "encode_mask_shallow",
-             "pixel_fusion", "pred_uncertainty", "segment", "readout_query"]
+               backend=KernelAbstractions.CPU(), memevery=5, memframes=5, topk=30,
+               names = ["encode_image", "transform_key", "encode_mask_deep",
+                        "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
+                        "segment", "readout_query"])
     graphs = Dict(n => loadgraph(joinpath(graphdir, "$n.json")) for n in names)
     # Host-side graph preparation, in order. Folding runs *before* the casts are
     # hoisted so it sees the fp32 master weights through `weightsource` and
@@ -93,11 +122,16 @@ function call(m::Model, name::AbstractString, args...; dims)
     g = m.graphs[name]
     length(args) == length(g.inputs) ||
         error("$name expects $(length(g.inputs)) inputs, got $(length(args))")
-    slab, plans, ws, lazies = scratchfor(m, dims)
+    slab, plans, ws, lazies, recs, _ = scratchfor(m, dims)
+    rec = startcall!(recs[name])
     vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
                     dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
-                    lazy=lazies[name])
-    ctx = Ctx(vals, g, dims, m.backend)
+                    lazy=lazies[name], rec=rec)
+    # The same recycler resolves the outputs: an output that is a view gets
+    # materialised right here, and that copy needs a stable address as much as
+    # anything inside the graph did. Ordinals carry on from where `execute!` left
+    # them, which is deterministic because the op sequence is.
+    ctx = Ctx(vals, g, dims, m.backend, slab, plans[name], Ref(""), ws, lazies[name], rec)
     Tuple(value(ctx, o) for o in g.outputs)
 end
 
@@ -136,6 +170,11 @@ matte as `(W, H)`.
 function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
     dims = s.dims
     s.ti += 1
+    # One flip per step, before any graph runs: this step's outputs land in the
+    # other bank from the values it still has to read out of the last one.
+    recs, steprec = scratchfor(m, dims)[5:6]
+    foreach(flip!, values(recs))
+    startcall!(flip!(steprec))
 
     # inference_core.py:288-301
     ismem = ((s.ti - s.lastmemti >= m.memevery) || mask !== nothing)
@@ -189,7 +228,7 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
         prob = cat(1 .- a, a; dims=3)
     end
 
-    s.lastmask = materialize(view(prob, :, :, 2:2, :))
+    s.lastmask = materialize(steprec, m.backend, view(prob, :, :, 2:2, :))
     s.lastpixfeat = pixfeat
 
     if ismem
@@ -205,7 +244,7 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
         s.lastmskvalue = mv
     end
 
-    materialize(view(prob, :, :, 2, 1))
+    materialize(steprec, m.backend, view(prob, :, :, 2, 1))
 end
 
 """
@@ -214,14 +253,35 @@ end
 The full clip. `frames` is `(W, H, 3, T)` in [0,1], `mask` is `(W, H)` in
 [0,255]. Mirrors inference_matanyone2.py:90-104, including the warm-up that
 re-runs the first frame to settle the memory.
+
+Both ends of the loop reuse their device buffers, which is worth more than it
+sounds: `toback` per frame is an allocation *and* an upload at 1.50 ms against
+0.36 ms for a `copyto!` into a buffer that already exists, on a step of ~20 ms.
+The editor's own propagator has always done it this way.
+
+`chunk` frames of alpha are likewise held on the device and downloaded together,
+so the queue is not drained every step. The chunk bounds what that costs in VRAM,
+at `W*H*4` bytes a frame.
 """
-function matte(m::Model, frames, mask; warmup::Int=10)
+function matte(m::Model, frames, mask; warmup::Int=10, chunk::Int=16)
     W, H, _, nframes = size(frames)
-    s = initstate(m, W, H; T=eltype(frames))
-    out = Array{eltype(frames)}(undef, W, H, nframes)
+    T = eltype(frames)
+    s = initstate(m, W, H; T)
+    out = Array{T}(undef, W, H, nframes)
     gmask = toback(m.backend, collect(mask))
+    img = KernelAbstractions.allocate(m.backend, T, W, H, 3, 1)
+    hostimg = Array{T}(undef, W, H, 3, 1)
+    planes = [KernelAbstractions.allocate(m.backend, T, W, H) for _ in 1:chunk]
+    held = 0                                     # frames sitting in `planes`
+    function flush!(upto)
+        for k in 1:held
+            out[:, :, upto - held + k] = collect(planes[k])
+        end
+        held = 0
+    end
     for ti in 1:nframes
-        img = toback(m.backend, collect(view(frames, :, :, :, ti:ti)))
+        copyto!(hostimg, view(frames, :, :, :, ti:ti))
+        copyto!(img, hostimg)
         alpha = if ti == 1
             step!(m, s, img; mask=gmask)
             for _ in 1:warmup
@@ -231,7 +291,13 @@ function matte(m::Model, frames, mask; warmup::Int=10)
         else
             step!(m, s, img)
         end
-        out[:, :, ti] = alpha isa Array ? alpha : Array(alpha)
+        if alpha isa Array
+            out[:, :, ti] = alpha
+        else
+            copyto!(planes[held += 1], alpha)
+            held == chunk && flush!(ti)
+        end
     end
+    flush!(nframes)
     out
 end

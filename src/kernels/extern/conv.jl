@@ -84,6 +84,70 @@ function convolution!(out, x, w, bias, stride, padding, dilation, groups;
     out
 end
 
+@inline function convtranspose2d(I, x, w, bias,
+                                 ::Val{SX}, ::Val{SY}, ::Val{PX}, ::Val{PY},
+                                 ::Val{DX}, ::Val{DY}) where {SX,SY,PX,PY,DX,DY}
+    ox, oy, co, n = I
+    @inbounds begin
+        KX, KY = size(w, 1), size(w, 2)
+        A = accum(eltype(x))
+        acc = bias === nothing ? zero(A) : A(bias[co])
+        # Gather, not scatter: every output element is computed by ONE thread
+        # from the inputs that reach it. The scatter reading of a transposed
+        # convolution ("each input paints a kernel-sized patch") needs atomics
+        # and gives a nondeterministic sum; the condition that decides which
+        # inputs reach an output is just the stride divisibility below.
+        bx = (ox - 1) + PX
+        by = (oy - 1) + PY
+        for ci in 1:size(x, 3)
+            for ky in 1:KY
+                ty = by - (ky - 1) * DY
+                (ty < 0 || ty % SY != 0) && continue
+                iy = ty ÷ SY + 1
+                (iy < 1 || iy > size(x, 2)) && continue
+                for kx in 1:KX
+                    tx = bx - (kx - 1) * DX
+                    (tx < 0 || tx % SX != 0) && continue
+                    ix = tx ÷ SX + 1
+                    (ix < 1 || ix > size(x, 1)) && continue
+                    # torch stores a transposed weight as (C_in, C_out, kH, kW),
+                    # so reversed it is (kx, ky, co, ci) — the two channel axes
+                    # are the other way round from the ordinary convolution.
+                    acc = muladd(A(x[ix, iy, ci, n]), A(w[kx, ky, co, ci]), acc)
+                end
+            end
+        end
+        acc
+    end
+end
+
+"""
+    convtransposesize(in, k, stride, pad, dilation, outpad) -> Int
+
+Output extent of a transposed convolution: it undoes what the forward
+convolution's `convsize` did to that axis.
+"""
+convtransposesize(n, k, s, p, d, op) = (n - 1) * s - 2p + d * (k - 1) + op + 1
+
+"""
+    convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups)
+
+`aten::convolution` with `transposed = true` — SAM 2's mask decoder upsamples
+its 64x64 embedding to 256x256 with two of these.
+
+Grouped transposed convolutions are refused rather than guessed: the channel
+arithmetic differs from the ordinary grouped case (the weight's second axis is
+`C_out ÷ groups`), and nothing here exercises it, so it would be untested code
+that silently returns a picture.
+"""
+function convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups)
+    groups == 1 || error("grouped transposed convolution (groups = $groups) is not implemented")
+    all(==(0), outpad) || error("transposed convolution with output_padding = $outpad is not implemented")
+    launch!(convtranspose2d, out, x, w, bias,
+            Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
+            Val(dilation[1]), Val(dilation[2]))
+end
+
 """One thread per output element, no reuse. Kept for grouped convolutions and as
 the reference the implicit-GEMM kernel is checked against."""
 function convolution_direct!(out, x, w, bias, stride, padding, dilation, groups)
