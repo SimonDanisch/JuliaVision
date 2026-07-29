@@ -1,0 +1,12 @@
+# Development environment for the monorepo, Makie-style: `Pkg.activate(".")`
+# here and all four packages are dev'd from their subdirectories, so a change to
+# DNNKernels is visible to SAM2Runner without a resolve.
+#
+#     julia --project=. -e 'using Pkg; Pkg.instantiate()'
+#
+# Not a package itself — it has no `name`/`uuid`/`src`.
+[deps]
+DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
+GPUFiltering = "0d8d4a14-6fb1-4aec-8b08-0f10adea08ad"
+MatAnyoneRunner = "7c4d9e15-2b83-4f6a-a0d7-3e1b8f5c9a24"
+SAM2Runner = "3f5b1e8a-9d42-4c7e-b16a-2c9d0e4f7a51"
