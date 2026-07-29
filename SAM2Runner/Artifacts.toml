@@ -1,0 +1,16 @@
+# SAM 2.1's exported graphs, weights, and reference activations.
+#
+# Empty of bindings until `tools/publish_artifacts.jl` has packaged and uploaded
+# them; until then `assetdir()` falls back to a locally generated tree, which is
+# what a checkout that runs `tools/export_sam2.py` has anyway. See
+# `DNNKernels.assetpath` for the full resolution order.
+#
+# Two artifacts, not one, because they are wanted by different people:
+#
+#   sam2-large        the graphs and the 942 MB of weights — everything needed
+#                     to segment a picture.
+#   sam2-large-refs   1.2 GB of PyTorch reference activations, used only by the
+#                     layer-by-layer verification in the test suite. Nobody
+#                     running the model should download these.
+#
+# Both `lazy = true`: adding this package must not pull a gigabyte.

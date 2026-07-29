@@ -1,0 +1,7 @@
+# MatAnyone2's exported graphs and weights (135 MB).
+#
+# Empty of bindings until `tools/publish_artifacts.jl` has packaged and uploaded
+# them; `assetdir()` falls back to a locally generated tree meanwhile. See
+# `DNNKernels.assetpath`.
+#
+# `lazy = true`: adding this package must not pull the weights.

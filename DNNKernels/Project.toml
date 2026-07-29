@@ -3,6 +3,8 @@ uuid = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 version = "0.1.0"
 
 [deps]
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
 GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"

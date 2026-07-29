@@ -19,6 +19,7 @@ import Atomix
 import GPUArrays
 
 export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
+export findasset, assetpath
 export KERNELS_VERSION
 
 """
@@ -39,6 +40,7 @@ that is deliberate.
 """
 const KERNELS_VERSION = "1"
 
+include("assets.jl")
 include("safetensors.jl")
 include("graph.jl")
 include("workspace.jl")

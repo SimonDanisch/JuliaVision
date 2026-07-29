@@ -31,6 +31,9 @@ const N0f8 = ColorTypes.FixedPointNumbers.N0f8
 using Lava: @setup_workload, @compile_workload
 using DNNKernels: SAM2, encode, decode, segment, prompt, toback
 
+# `segment` is `DNNKernels.segment` with methods added here, not a new function:
+# same verb, different arguments, which is what dispatch is for.
+export segment, defaultmodel, unloadmodel!
 export SAM2Runner_VERSION, sam2model, runsam2, assetdir, sam2segmenter
 
 const KA = KernelAbstractions
@@ -46,14 +49,29 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where the exported graphs and weights live.
+Where the exported graphs and weights live: the `sam2-large` artifact, unless
+this checkout generates them itself or `JULIA_SAM2_ASSETS` says otherwise. See
+[`DNNKernels.assetpath`](@ref) for the order and why it is that order.
 
-Overridable with `JULIA_SAM2_ASSETS` because precompilation has to find them
-without a running program to ask, and a checkout somewhere else is the normal
-case rather than the exception.
+942 MB of weights, so an artifact rather than anything in git, and lazy so that
+installing this package does not download them.
 """
-assetdir() = get(ENV, "JULIA_SAM2_ASSETS",
-                 normpath(joinpath(@__DIR__, "..", "..", "..", "gen", "graphs", "sam2-large")))
+assetdir() = assetpath(; artifact = "sam2-large",
+                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
+                       generated = joinpath("gen", "graphs", "sam2-large"),
+                       env = "JULIA_SAM2_ASSETS", from = @__DIR__)
+
+"""
+    refsdir() -> String
+
+The PyTorch reference activations the test suite compares against — 1.2 GB, and
+*only* for tests, which is why they are a separate artifact from the weights. A
+caller that just wants to segment a picture should never fetch these.
+"""
+refsdir() = assetpath(; artifact = "sam2-large-refs",
+                      toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
+                      generated = joinpath("gen", "graphs", "sam2-large"),
+                      env = "JULIA_SAM2_REFS", from = @__DIR__)
 
 """
     sam2model(; backend, dir, res) -> SAM2
@@ -144,6 +162,121 @@ function sam2segmenter(model::SAM2; pick = :confident)
                             [p[3] for p in points]; pick)
         return maskatframe(Array(logits), w, h)
     end
+end
+
+# ─────────────────────────────────────────────────────────── the one-call form
+#
+# Everything above takes a model, or a backend, or a closure that owns an
+# embedding cache. That is the right shape for the editor, which holds a model
+# for the length of a session and knows which frame it is on. It is the wrong
+# shape for "I have a picture and a click".
+
+"""
+The default model, built on first use and kept.
+
+One `Ref`, not a registry: there is exactly one sensible default model and the
+alternative — a dict keyed by resolution or backend — would be a cache nobody
+asked for. Anything that wants a *different* model builds one with
+[`sam2model`](@ref) and passes it, which every method below accepts.
+
+Holding it is the point. Building the model reads a graph and ~900 MB of
+weights; on this card that is ~3 s, and paying it per call would make the
+convenience form useless for the thing it is for.
+"""
+const DEFAULT_MODEL = Ref{Any}(nothing)
+
+"""
+    defaultmodel(; backend = LavaBackend()) -> SAM2
+
+The shared model, built on first call. Throws with the path it looked in when
+the weights are not installed, rather than returning `nothing` for the caller to
+trip over later.
+"""
+function defaultmodel(; backend = LavaBackend())
+    m = DEFAULT_MODEL[]
+    m === nothing || return m::SAM2
+    dir = assetdir()
+    isfile(joinpath(dir, "weights.safetensors")) || throw(ArgumentError(
+        "SAM 2.1 weights not found at $dir. Set JULIA_SAM2_ASSETS, or generate " *
+        "them with `uv run tools/export_sam2.py && uv run tools/convert_weights.py`."))
+    m = sam2model(; backend, dir)
+    DEFAULT_MODEL[] = m
+    return m
+end
+
+"""
+    segment(image, points; …) -> Matrix{UInt8}
+
+Segment `image` from a few clicks. The whole API, for the case where you have a
+picture and want the object under the cursor:
+
+```julia
+using SAM2Runner
+mask = segment(img, [(0.5, 0.5)])              # one click, in the middle
+mask = segment(img, [(0.3, 0.4), (0.8, 0.9)])  # two things to include
+mask = segment(img, [(0.5, 0.5, true), (0.1, 0.1, false)])   # and one to exclude
+```
+
+`image` is any matrix of colours. `points` are **normalized** `(x, y)` in
+`0..1`, optionally with a third element: `true` for a point that is on the
+object (the default), `false` for one that is not. Returns a `UInt8` mask the
+same size as `image`, `0xff` inside the object and `0x00` outside.
+
+`key` identifies the picture so that repeated calls on the same one reuse its
+embedding — 0.9 s against 1.4 s here, and the gap widens with every extra
+click. Pass anything cheap that is equal for equal images; the frame number, in
+an editor. Leave it out and every call re-embeds, which is correct but slower.
+
+`model` takes a model other than the shared default, and `pick` chooses between
+SAM's own argmax (`:best`) and the tie-break this defaults to (`:confident`) —
+see [`sam2segmenter`](@ref) for why a matte seed wants the latter.
+
+The first call pays for building the model, ~3 s of reading weights. Every call
+after that is the network.
+"""
+function DNNKernels.segment(image::AbstractMatrix, points::AbstractVector;
+                            key = nothing, model::Union{Nothing,SAM2} = nothing,
+                            pick = :confident, backend = LavaBackend())
+    m = model === nothing ? defaultmodel(; backend) : model
+    seg = get!(SEGMENTERS, (objectid(m), pick)) do
+        sam2segmenter(m; pick)
+    end
+    return seg(image, normalizepoints(points); key)
+end
+
+"""
+    segment(image, x, y; …) -> Matrix{UInt8}
+
+One click, spelled as two numbers. `segment(img, 0.5, 0.5)`.
+"""
+DNNKernels.segment(image::AbstractMatrix, x::Real, y::Real; kw...) =
+    DNNKernels.segment(image, [(x, y)]; kw...)
+
+"""
+Segmenter closures by `(model, pick)`. They are not free — each owns the host
+staging buffer and the embedding cache that makes `key` work — so a caller that
+alternates between two pictures still gets the caching it came for.
+"""
+const SEGMENTERS = Dict{Tuple{UInt,Symbol},Any}()
+
+"""
+`(x, y)` and `(x, y, inside)` both accepted, because requiring the third element
+makes the common case — every point is on the object — read worse than it is.
+"""
+normalizepoints(points) = [(Float64(p[1]), Float64(p[2]),
+                            length(p) >= 3 ? Bool(p[3]) : true) for p in points]
+
+"""
+Forget the shared model and its segmenters, releasing the weights.
+
+For a long-running process that is done with SAM 2 — the editor closing a
+project, a script moving on — since the model holds ~900 MB of VRAM and the
+`Ref` is what keeps it reachable.
+"""
+function unloadmodel!()
+    DEFAULT_MODEL[] = nothing
+    empty!(SEGMENTERS)
+    return nothing
 end
 
 """

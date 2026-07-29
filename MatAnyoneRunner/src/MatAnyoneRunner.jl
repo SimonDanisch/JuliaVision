@@ -40,14 +40,27 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where MatAnyone2's exported graphs live.
+Where MatAnyone2's exported graphs live: the `matanyone` artifact, unless this
+checkout generates them itself or `JULIA_MATANYONE_ASSETS` says otherwise. See
+[`DNNKernels.assetpath`](@ref) for the order and why it is that order.
 """
-assetdir() = get(ENV, "JULIA_MATANYONE_ASSETS",
-                 normpath(joinpath(@__DIR__, "..", "..", "..", "gen", "graphs", "aten-autocast")))
+assetdir() = assetpath(; artifact = "matanyone",
+                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
+                       generated = joinpath("gen", "graphs", "aten-autocast"),
+                       env = "JULIA_MATANYONE_ASSETS", from = @__DIR__)
 
-"""Path to the weights, which sit beside the graph directory rather than in it."""
-weightpath() = get(ENV, "JULIA_MATANYONE_WEIGHTS",
-                   normpath(joinpath(@__DIR__, "..", "..", "..", "gen", "weights.safetensors")))
+"""
+Path to the weights, which sit beside the graph directory in a generated tree
+but *inside* the artifact, since an artifact is one directory.
+"""
+function weightpath()
+    p = get(ENV, "JULIA_MATANYONE_WEIGHTS", "")
+    isempty(p) || return p
+    dir = assetdir()
+    inside = joinpath(dir, "weights.safetensors")
+    isfile(inside) && return inside
+    return findasset(joinpath("gen", "weights.safetensors"); from = @__DIR__)
+end
 
 """
     matanyonemodel(; backend, dir, weights) -> Model
@@ -105,9 +118,10 @@ A propagator matching `VideoEditor.registermatte!`'s contract:
 precompiled.** Measured through the editor's seam, the first propagation cost
 94.3 s, 74.4 s of it Julia inferring this function and everything it reaches —
 with every kernel already frozen. Code in a script cannot be in a package image.
-`VideoEditorRunner`'s workload drives it, which is the level that matters: the
-inference has to be cached on the far side of `VideoEditor` being loaded, or
-loading the editor invalidates it again.
+`VideoEditor`'s own precompile workload drives it, which is the level that
+matters: the inference has to be cached on the far side of `VideoEditor` being
+loaded, or loading the editor invalidates it again — and since the editor
+depends on this package directly, the editor is that far side.
 """
 function matanyonepropagator(;
         graphdir::AbstractString = assetdir(),
