@@ -57,7 +57,7 @@ function scratchfor(m::Model, dims)
         plans = Dict(n => planslab(g, dims) for (n, g) in m.graphs)
         nb = maximum(p -> p.bytes, values(plans); init = 0)
         slab = KernelAbstractions.allocate(m.backend, UInt8, max(nb, 1))
-        @debug "LavaDNN: static scratch slab $(round(nb/2^20, digits=2)) MB at $dims"
+        @debug "DNNKernels: static scratch slab $(round(nb/2^20, digits=2)) MB at $dims"
         # One workspace for every graph at this resolution: it is reset per op,
         # so the graphs cannot collide over it any more than two ops can.
         # ... and one more for `step!` itself, which materialises the alpha and
@@ -129,7 +129,7 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     live = livekeys(graphs)
     dropped = length(host) - count(k -> k in live, keys(host))
     host = Dict{String,Any}(k => v for (k, v) in host if k in live)
-    @debug "LavaDNN: folded $nfold batch-norms and $nact relus, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops and $dropped orphaned weights"
+    @debug "DNNKernels: folded $nfold batch-norms and $nact relus, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops and $dropped orphaned weights"
     weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in host)
     Model(graphs, weights, backend, memevery, memframes, topk)
 end

@@ -1,5 +1,5 @@
 """
-    LavaDNN
+    DNNKernels
 
 Runtime and kernel sources for running exported ATen graphs in the same
 execution graph as graphics passes. See lava-dnn.md.
@@ -8,7 +8,7 @@ Holds no SPIR-V and no per-model instantiation list: kernel *sources* live
 here and are shared across models, while kernel *instantiations* live in the
 generated model package.
 """
-module LavaDNN
+module DNNKernels
 
 using JSON3
 using KernelAbstractions
@@ -33,7 +33,7 @@ package those would be frozen once per package under different versions — the
 same bytes, several times, and a cache miss for whichever model ran second.
 Shared, the first workload to reach a kernel freezes it and the rest hit it.
 
-**Bump this after editing any kernel** any graph reaches, in LavaDNN or in Lava.
+**Bump this after editing any kernel** any graph reaches, in DNNKernels or in Lava.
 Nothing detects a stale entry; see `Lava/src/runtime/frozen_cache.jl` for why
 that is deliberate.
 """

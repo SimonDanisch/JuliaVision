@@ -1,7 +1,7 @@
 """
 Wan 2.2 text-to-video: the loop around the three graphs.
 
-The models themselves are ordinary LavaDNN graphs — `umt5_encoder`, `wan_dit`,
+The models themselves are ordinary DNNKernels graphs — `umt5_encoder`, `wan_dit`,
 `wanvae_decoder`. What is *not* a graph is the sampler: a flow-matching ODE
 solved by stepping a schedule, with two model evaluations per step. That lives
 here, in plain Julia, because it is scheduler arithmetic over a handful of
@@ -115,7 +115,7 @@ call and so cannot be hoisted anywhere.
 function prepare(g::Graph, host::AbstractDict)
     w = Dict{String,Any}(host)
     g, n = hoistpermutes(g, w)
-    @debug "LavaDNN: $(g.name) hoisted $n permuted weights"
+    @debug "DNNKernels: $(g.name) hoisted $n permuted weights"
     return (g, w)
 end
 
@@ -211,7 +211,7 @@ function scratchfor(pipe::WanPipeline, name::AbstractString, g::Graph)
     get!(pipe.scratch, name) do
         plan = planslab(g, (;))
         slab = KernelAbstractions.allocate(pipe.backend, UInt8, max(plan.bytes, 1))
-        @debug "LavaDNN: $name slab $(round(plan.bytes / 2^20, digits = 1)) MB"
+        @debug "DNNKernels: $name slab $(round(plan.bytes / 2^20, digits = 1)) MB"
         (slab, plan, Workspace(pipe.backend), fusableset(g))
     end
 end

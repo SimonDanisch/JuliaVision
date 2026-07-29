@@ -18,10 +18,10 @@ On SAM 2's encoder that is -28.5 ms of a 338.5 ms GPU total: `attn_scores`
 in the padding copies.
 """
 
-using Test, Lava, LavaDNN, KernelAbstractions
-using LavaDNN: sdpa, coopmat_sdpa_applicable, COOPMAT_MINL, Workspace
+using Test, Lava, DNNKernels, KernelAbstractions
+using DNNKernels: sdpa, coopmat_sdpa_applicable, COOPMAT_MINL, Workspace
 const KA = KernelAbstractions
-const LD = LavaDNN
+const LD = DNNKernels
 
 "Run `sdpa` with the coopmat path forced on and forced off, and compare."
 function bothpaths(E, L, H, B)

@@ -5,7 +5,7 @@ The same treatment as `SAM2Runner`, for the propagator half of the matte: run a
 real propagation during precompilation so both the Julia specialisation and the
 SPIR-V are paid once, at `Pkg.precompile`.
 
-Deliberately sharing `LavaDNN.KERNELS_VERSION` with every other model on this
+Deliberately sharing `DNNKernels.KERNELS_VERSION` with every other model on this
 runtime. The two networks overlap heavily — every elementwise op is the same
 `Lava` broadcast kernel, every reduction the same AcceleratedKernels one — so a
 kernel frozen by whichever workload runs first is a hit for the other. Versioned
@@ -20,11 +20,11 @@ at ~33 s per uncached kernel is the whole problem back again.
 """
 module MatAnyoneRunner
 
-using Lava, LavaDNN, KernelAbstractions
+using Lava, DNNKernels, KernelAbstractions
 # The propagator reads the editor's frames, which are `Matrix{RGB{N0f8}}`.
 using ColorTypes: red, green, blue
 using Lava: @setup_workload, @compile_workload
-using LavaDNN: Model, initstate, step!, toback
+using DNNKernels: Model, initstate, step!, toback
 
 export matanyonemodel, runmatanyone, matanyonepropagator
 
@@ -33,9 +33,9 @@ const KA = KernelAbstractions
 """
     KERNELS_VERSION
 
-`LavaDNN.KERNELS_VERSION`, shared with every other model. Bump it there.
+`DNNKernels.KERNELS_VERSION`, shared with every other model. Bump it there.
 """
-const KERNELS_VERSION = LavaDNN.KERNELS_VERSION
+const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
     assetdir() -> String
@@ -114,7 +114,7 @@ function matanyonepropagator(;
         weights::AbstractString = weightpath(),
         backend = LavaBackend(),
         # Re-runs of a seeded frame, settling the memory bank before its own matte
-        # is read. `inference_matanyone2.py` uses 10 and `LavaDNN.matte` matches
+        # is read. `inference_matanyone2.py` uses 10 and `DNNKernels.matte` matches
         # it; it is also what makes a single-frame call (the live preview while
         # marking) return a matte rather than the seed.
         warmup::Int = 10)
@@ -192,7 +192,7 @@ function matanyonepropagator(;
                 # `prob` with the supplied selection outright, so taking it would
                 # hand the user's rough box back as the matte — on exactly the
                 # frame they are looking at after marking. Re-run the frame to get
-                # a segmented one, which is what `LavaDNN.matte` does for its own
+                # a segmented one, which is what `DNNKernels.matte` does for its own
                 # first frame and the reason its result looks nothing like this
                 # one did.
                 a = nothing

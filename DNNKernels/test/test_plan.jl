@@ -7,12 +7,12 @@ crash, and the error surfaces as a slightly wrong mask several graphs later. So
 the invariant is asserted here rather than trusted.
 
 Run standalone:
-    julia --project=. dev/LavaDNN/test/test_plan.jl
+    julia --project=. dev/JuliaVision/DNNKernels/test/test_plan.jl
 """
 
 using Test
-using LavaDNN
-using LavaDNN: loadgraph, planslab, checkslab, lifetimes, fusableset, evalshape, alignup
+using DNNKernels
+using DNNKernels: loadgraph, planslab, checkslab, lifetimes, fusableset, evalshape, alignup
 
 const GEN = normpath(joinpath(@__DIR__, "..", "..", "..", "gen"))
 

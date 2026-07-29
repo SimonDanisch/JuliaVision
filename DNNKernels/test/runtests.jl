@@ -15,7 +15,7 @@ Two precisions, because they answer different questions:
             ~1e-6 instead of ~1e-3, so a real bug stands out by orders of
             magnitude. This is the one that localises a fault.
 
-    julia --project=. dev/LavaDNN/test/runtests.jl
+    julia --project=. dev/JuliaVision/DNNKernels/test/runtests.jl
 
 Regenerate with:
     uv run tools/export_graphs.py --precision autocast
@@ -26,10 +26,10 @@ Regenerate with:
 """
 
 using Test
-using LavaDNN
+using DNNKernels
 using KernelAbstractions
 
-const JSON3 = LavaDNN.JSON3   # not a direct dep of the driving project
+const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 
 const GEN = normpath(joinpath(@__DIR__, "..", "..", "..", "gen"))
 const NAMES = ["encode_image", "transform_key", "encode_mask_deep", "encode_mask_shallow",
@@ -41,7 +41,7 @@ const PRECISIONS = filter(p -> isfile(joinpath(GEN, "refs-$p.safetensors")),
 
 weights = readsafetensors(joinpath(GEN, "weights.safetensors"))
 
-@testset "LavaDNN vs PyTorch, layer by layer" begin
+@testset "DNNKernels vs PyTorch, layer by layer" begin
     @testset "$precision" for precision in PRECISIONS
         manifest = JSON3.read(read(joinpath(GEN, "refs_manifest-$precision.json"), String))
         H, W_ = manifest.resolution
@@ -51,7 +51,7 @@ weights = readsafetensors(joinpath(GEN, "weights.safetensors"))
 
         @testset "$name" for name in NAMES
             path = joinpath(graphs, "$name.json")
-            impl, missing_ops = LavaDNN.coverage(path)
+            impl, missing_ops = DNNKernels.coverage(path)
             @test isempty(missing_ops)
 
             ok, diffs, ties = verifygraph(path, refs, weights; dims)

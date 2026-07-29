@@ -26,8 +26,8 @@ is one interpolated string per dispatch on a 0.6 s run.
 using Test, SAM2Runner
 
 const SUBPROCESS = """
-using SAM2Runner, Lava, LavaDNN, KernelAbstractions, Printf
-using LavaDNN: readsafetensors, toback
+using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
+using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions
 
 # See the module docstring: this exists so a rare hang names its kernel.

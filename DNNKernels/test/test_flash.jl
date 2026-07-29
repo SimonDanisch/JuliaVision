@@ -7,7 +7,7 @@ so this exists to keep it honest for whoever picks the optimisation back up. A
 kernel that is wrong and unused is worse than no kernel: it looks available.
 """
 
-using Test, LavaDNN, Lava, KernelAbstractions
+using Test, DNNKernels, Lava, KernelAbstractions
 const KA = KernelAbstractions
 
 function attnref(qh, kh, vh, scale)
@@ -31,10 +31,10 @@ end
             qh = randn(Float32,E,L,H,B) .* 0.2f0
             kh = randn(Float32,E,L,H,B) .* 0.2f0
             vh = randn(Float32,E,L,H,B) .* 0.2f0
-            q = LavaDNN.toback(back,qh); k = LavaDNN.toback(back,kh); v = LavaDNN.toback(back,vh)
+            q = DNNKernels.toback(back,qh); k = DNNKernels.toback(back,kh); v = DNNKernels.toback(back,vh)
             o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
             scale = Float32(1/sqrt(E))
-            @test LavaDNN.sdpaflash!(o, q, k, v, scale; backend = back)
+            @test DNNKernels.sdpaflash!(o, q, k, v, scale; backend = back)
             KA.synchronize(back)
             got = Array(o)
             # A kernel that writes nothing also "matches" a zero reference, so
@@ -47,15 +47,15 @@ end
 
     @testset "refuses what it cannot compute" begin
         # Shared memory over budget: this tiling launches and writes zeros.
-        @test !LavaDNN.flashfits(72, 64, 64, 256)
-        @test LavaDNN.flashshared(72, 64, 64) > LavaDNN.FLASH_SHARED_BUDGET[]
+        @test !DNNKernels.flashfits(72, 64, 64, 256)
+        @test DNNKernels.flashshared(72, 64, 64) > DNNKernels.FLASH_SHARED_BUDGET[]
         # The validated one fits, in both senses.
-        @test LavaDNN.flashfits(72, 64, 32, 256)
-        @test LavaDNN.flashshared(72, 64, 32) <= LavaDNN.FLASH_SHARED_BUDGET[]
+        @test DNNKernels.flashfits(72, 64, 32, 256)
+        @test DNNKernels.flashshared(72, 64, 32) <= DNNKernels.FLASH_SHARED_BUDGET[]
         # An odd accumulator-slot count computes wrong results and is refused;
         # the same BQ at a thread count that makes it even is accepted.
-        @test !LavaDNN.flashfits(72, 32, 32, 256)      # BQ*E/NT = 9
-        @test LavaDNN.flashfits(72, 32, 32, 128)       # BQ*E/NT = 18
+        @test !DNNKernels.flashfits(72, 32, 32, 256)      # BQ*E/NT = 9
+        @test DNNKernels.flashfits(72, 32, 32, 128)       # BQ*E/NT = 18
         @test iseven(div(32 * 72, 128)) && isodd(div(32 * 72, 256))
         # …and a sequence the tiling does not divide falls back.
         E, L, H, B = 72, 100, 1, 1              # 100 % 64 != 0
@@ -63,7 +63,7 @@ end
         k = KA.allocate(back, Float32, E,L,H,B); fill!(k, 0.01f0)
         v = KA.allocate(back, Float32, E,L,H,B); fill!(v, 0.01f0)
         o = KA.allocate(back, Float32, E,L,H,B)
-        @test !LavaDNN.sdpaflash!(o, q, k, v, 0.1f0; backend = back)
+        @test !DNNKernels.sdpaflash!(o, q, k, v, 0.1f0; backend = back)
         q = k = v = o = nothing; GC.gc()
     end
 end

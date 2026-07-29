@@ -10,8 +10,8 @@ kernels this model has in common with SAM 2 must be hits, not a second copy.
 using Test, MatAnyoneRunner
 
 const SUBPROCESS = """
-using MatAnyoneRunner, Lava, LavaDNN, KernelAbstractions
-using LavaDNN: toback
+using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
+using DNNKernels: toback
 const KA = KernelAbstractions
 backend = LavaBackend()
 model = MatAnyoneRunner.matanyonemodel(; backend)
@@ -49,6 +49,6 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
         @test r.hits > 0
         @test r.compile < 5.0
         @test r.wall < 20.0
-        @test r.version == LavaDNN.KERNELS_VERSION  # the shared generation
+        @test r.version == DNNKernels.KERNELS_VERSION  # the shared generation
     end
 end

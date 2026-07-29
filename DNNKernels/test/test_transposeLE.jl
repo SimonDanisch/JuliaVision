@@ -16,8 +16,8 @@ matters fall back silently — correct, and none of the win — while accepting 
 without accounting for its offset would read the wrong elements just as silently.
 """
 
-using Test, Lava, LavaDNN, KernelAbstractions
-using LavaDNN: transposeLE, stridedroot, Workspace
+using Test, Lava, DNNKernels, KernelAbstractions
+using DNNKernels: transposeLE, stridedroot, Workspace
 const KA = KernelAbstractions
 
 "`transposeLE(a)` against `permutedims(host, (2,1,3,4))`."

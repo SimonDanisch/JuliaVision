@@ -1,7 +1,7 @@
 """
 SAM 2.1 with no first-call latency.
 
-A thin package around `LavaDNN.SAM2` whose only job is the workload: it runs a
+A thin package around `DNNKernels.SAM2` whose only job is the workload: it runs a
 real segmentation during its own precompilation, so that both halves of the
 cold-start cost are paid once, at `Pkg.precompile`, instead of by whoever clicks
 first.
@@ -23,13 +23,13 @@ does not detect that for you — by design; see `Lava/src/runtime/frozen_cache.j
 """
 module SAM2Runner
 
-using Lava, LavaDNN, KernelAbstractions, ColorTypes
+using Lava, DNNKernels, KernelAbstractions, ColorTypes
 using ColorTypes: RGB, red, green, blue
 # Through ColorTypes rather than as a direct dependency: the workload needs the
 # editor's exact frame element type and nothing else from FixedPointNumbers.
 const N0f8 = ColorTypes.FixedPointNumbers.N0f8
 using Lava: @setup_workload, @compile_workload
-using LavaDNN: SAM2, encode, decode, segment, prompt, toback
+using DNNKernels: SAM2, encode, decode, segment, prompt, toback
 
 export SAM2Runner_VERSION, sam2model, runsam2, assetdir, sam2segmenter
 
@@ -38,10 +38,10 @@ const KA = KernelAbstractions
 """
     KERNELS_VERSION
 
-`LavaDNN.KERNELS_VERSION`, shared with every other model on this runtime so a
+`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
 kernel frozen by one is a hit for the rest. Bump it there, not here.
 """
-const KERNELS_VERSION = LavaDNN.KERNELS_VERSION
+const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
     assetdir() -> String
@@ -108,7 +108,7 @@ rather than once per click — 0.9 s against 1.4 s here, and the difference grow
 with every point the user adds.
 
 `pick` defaults to `:confident` rather than SAM's own `:best`, because what this
-produces is a matte *seed*: `LavaDNN.segment` documents the measurement, but in
+produces is a matte *seed*: `DNNKernels.segment` documents the measurement, but in
 short, argmax over a predicted score will hand back a mask that sits at the
 threshold and speckles when it is resampled to frame resolution. `:best` remains
 available and remains exactly what PyTorch does.
