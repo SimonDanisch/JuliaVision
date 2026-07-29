@@ -1,7 +1,7 @@
-# MatAnyone2's exported graphs and weights (135 MB).
-#
-# Empty of bindings until `tools/publish_artifacts.jl` has packaged and uploaded
-# them; `assetdir()` falls back to a locally generated tree meanwhile. See
-# `DNNKernels.assetpath`.
-#
-# `lazy = true`: adding this package must not pull the weights.
+[matanyone]
+git-tree-sha1 = "9369a61552c2e3141ac5f515e2f5475df2df4abc"
+lazy = true
+
+    [[matanyone.download]]
+    sha256 = "1b1dfd64eeffdea0c44f22ee873e1e755bfce632cbe434dbe93bdc7a060c9f9a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/matanyone.tar.gz"

@@ -1,16 +1,15 @@
-# SAM 2.1's exported graphs, weights, and reference activations.
-#
-# Empty of bindings until `tools/publish_artifacts.jl` has packaged and uploaded
-# them; until then `assetdir()` falls back to a locally generated tree, which is
-# what a checkout that runs `tools/export_sam2.py` has anyway. See
-# `DNNKernels.assetpath` for the full resolution order.
-#
-# Two artifacts, not one, because they are wanted by different people:
-#
-#   sam2-large        the graphs and the 942 MB of weights — everything needed
-#                     to segment a picture.
-#   sam2-large-refs   1.2 GB of PyTorch reference activations, used only by the
-#                     layer-by-layer verification in the test suite. Nobody
-#                     running the model should download these.
-#
-# Both `lazy = true`: adding this package must not pull a gigabyte.
+[sam2-large]
+git-tree-sha1 = "495f67add8178497d11163d71e9d5929138b470b"
+lazy = true
+
+    [[sam2-large.download]]
+    sha256 = "1bcd6b66cd1800317563379886633e5a68a50c7e7886a223acc757a252b8d243"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/sam2-large.tar.gz"
+
+[sam2-large-refs]
+git-tree-sha1 = "7aec917b4fa6b48863b574896e0b4ede2068dd7d"
+lazy = true
+
+    [[sam2-large-refs.download]]
+    sha256 = "864e32a04c86d1aadb07b9186999e672356262e253e93a413666d833fcc7285d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/sam2-large-refs.tar.gz"
