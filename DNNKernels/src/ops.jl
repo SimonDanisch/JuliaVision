@@ -413,6 +413,24 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     d = Tuple(1:length(nshape))
     eps = Float32(op.attrs["arg4"])
     n = prod(size(a, i) for i in d)
+    γ = length(op.ins) >= 2 ? value(ctx, op.ins[2]) : nothing
+    β = length(op.ins) >= 3 ? value(ctx, op.ins[3]) : nothing
+    # One kernel instead of six passes, where the layout allows it: `a` dense
+    # with the normalised axis fastest, which is what the reversed layout gives
+    # (torch normalises over trailing dims, we see them leading). 0.341 -> see
+    # `kernels/layernorm.jl` for the measurement and why two reduction passes
+    # rather than one.
+    # `LavaArray` rather than `AbstractArray`: dense and contiguous by
+    # construction, which is what the kernel indexes on, and it keeps a lazy
+    # `Broadcasted` or a permuted view out of a path that cannot take them.
+    if LN_FUSED[] && a isa Lava.LavaArray && d == Tuple(1:length(d)) && length(a) % n == 0
+        out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
+        groups = length(a) ÷ n
+        μ = tupledest(ctx, 1, Float32, groups)
+        r = tupledest(ctx, 2, Float32, groups)
+        layernorm!(out, μ, r, a, γ, β, n, eps; backend = ctx.backend)
+        return (out, μ, r)
+    end
     μ = sum(a; dims=d) ./ n
     # The centred tensor goes to workspace scratch, not to a fresh allocation.
     # Written the obvious way — `sum(abs2, a .- μ; dims=d)` — the dot syntax

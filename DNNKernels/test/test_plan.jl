@@ -14,7 +14,10 @@ using Test
 using DNNKernels
 using DNNKernels: loadgraph, planslab, checkslab, lifetimes, fusableset, evalshape, alignup
 
-const GEN = normpath(joinpath(@__DIR__, "..", "..", "..", "gen"))
+# Walked up from here rather than a fixed `../../../gen`: this package moved into
+# a monorepo and the fixed form silently pointed at `dev/gen`. Same reasoning as
+# `DNNKernels.findasset`, which this is.
+const GEN = DNNKernels.findasset("gen"; from = @__DIR__)
 
 """Every graph we can find, with the dims it is planned at.
 

@@ -31,7 +31,10 @@ using KernelAbstractions
 
 const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 
-const GEN = normpath(joinpath(@__DIR__, "..", "..", "..", "gen"))
+# Walked up from here rather than a fixed `../../../gen`: this package moved into
+# a monorepo and the fixed form silently pointed at `dev/gen`. Same reasoning as
+# `DNNKernels.findasset`, which this is.
+const GEN = DNNKernels.findasset("gen"; from = @__DIR__)
 const NAMES = ["encode_image", "transform_key", "encode_mask_deep", "encode_mask_shallow",
                "pixel_fusion", "pred_uncertainty", "segment", "readout_query"]
 
