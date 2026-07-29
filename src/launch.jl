@@ -40,6 +40,29 @@ function materialize(rec, backend, v::AbstractArray)
 end
 
 """
+    materialize(ctx, v)
+
+Into the slot the planner reserved for the op currently running.
+
+For an op *output* this is what the two forms above should have been: the
+transient is already in the plan, so taking it from the `Recycler` instead
+allocates memory that is reserved and then never used. `index.Tensor` did
+exactly that, and its 16 gathers were **604 MB** of SAM 2's encoder — the
+single largest thing left outside the plan once the fused values and the
+`contiguous` copies were in it. Writing them into the reservation costs no
+slab at all, because it was already sized for them.
+
+The `(rec, backend, v)` form stays for the callers that have no op id to place
+under: a view chain resolved inside `makeview`, and the two slices `step!`
+carries between frames.
+"""
+function materialize(ctx, v::AbstractArray)
+    d = dest(ctx, eltype(v), size(v)...)
+    d .= v
+    d
+end
+
+"""
     bidx(a, I)
 
 Index `a` at the output index `I`, collapsing its extent-1 axes. PyTorch aligns

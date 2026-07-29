@@ -15,12 +15,21 @@ Reading a slice out into a fresh array goes through `materialize`, never
 `getindex`; see its docstring.
 """
 
-struct Ctx
+# Parameterised on the backend AND the slab type — see the note on `Model` in
+# driver.jl. The slab matters as much as the backend: `slabview` has two methods,
+# and the `::Vector{UInt8}` one returns a HOST array. With `slab::Any` both are
+# live, so `dest` hands back something untyped, `get_backend(out)` in `launch!`
+# cannot be resolved, and inference explores `Kernel{CPU}` — which is how 3 948
+# CPU kernel specialisations (`cpu_ndmap!`, `cpu_conv2d_igemm!`, …) ended up in
+# SAM 2's package image despite nothing here ever running on the CPU. Their
+# `__run` takes every argument as `Any`, so their call edges span whole method
+# tables and any newly loaded package throws them away.
+struct Ctx{B,S}
     values::Dict{String,Any}
     graph::Graph
     dims::NamedTuple
-    backend::Any
-    slab::Any                     # UInt8 scratch slab, or nothing
+    backend::B
+    slab::S                       # UInt8 scratch slab, or nothing
     plan::Any                     # Slab (plan.jl), or nothing
     outid::Base.RefValue{String}  # output id of the op currently running
     ws::Any                       # Workspace for kernel-internal scratch, or nothing
@@ -79,15 +88,36 @@ startcall!(::Nothing) = nothing
 flip!(r::Recycler) = (r.bank = 3 - r.bank; r)
 flip!(::Nothing) = nothing
 
-function recycle!(r::Recycler, backend, ::Type{T}, dims::Dims) where {T}
+"""
+    arraytype(backend, T, Val(N)) -> Type
+
+The array type `KernelAbstractions.allocate(backend, T, dims...)` returns.
+
+Exists so `recycle!` can hand back a CONCRETE type. Its banks are `Vector{Any}`,
+so the cache-hit path infers as `AbstractArray{T}`; unioned with the allocate
+path that widens `rawalloc`, then `dest`, and then `launch!`'s default
+`backend = get_backend(out)` infers as `Union{Any, CPU, …, LavaBackend}`. Once
+`CPU` is in that union, inference explores `Kernel{CPU}` and `KA.__run` — whose
+arguments are all `Any` — and those land in the package image. Their call edges
+span whole method tables, so loading any package throws them away along with
+everything inferred through them. That was 3 948 CPU kernel specialisations in
+SAM 2's image for a model that never runs on the CPU.
+
+The fallback stays abstract, so a backend without a method still works.
+"""
+arraytype(backend, ::Type{T}, ::Val{N}) where {T,N} = AbstractArray{T,N}
+arraytype(::Lava.LavaBackend, ::Type{T}, ::Val{N}) where {T,N} = Lava.LavaArray{T,N}
+
+function recycle!(r::Recycler, backend, ::Type{T}, dims::Dims{N}) where {T,N}
+    A = arraytype(backend, T, Val(N))
     v = r.banks[r.bank]
     i = (r.n += 1)
     if i <= length(v)
         b = v[i]
-        b isa AbstractArray{T} && size(b) === dims && return b
+        b isa A && size(b) === dims && return b::A
     end
     r.misses += 1
-    b = KernelAbstractions.allocate(backend, T, dims...)
+    b = KernelAbstractions.allocate(backend, T, dims...)::A
     i <= length(v) ? (v[i] = b) : push!(v, b)
     return b
 end
@@ -142,7 +172,39 @@ yet, so the two can coexist while the conversion proceeds.
             return slabview(T, sl, dims, off)
         end
     end
+    m = PLAN_MISSES[]
+    if m !== nothing
+        c, b = get(m, id, (0, 0))
+        m[id] = (c + 1, b + prod(dims) * sizeof(T))
+    end
     rawalloc(ctx, T, dims)
+end
+
+"""
+    PLAN_MISSES[] :: Union{Nothing,Dict{String,Tuple{Int,Int}}}
+
+Set to a dict to record every id `dest` could not place, as
+`id => (count, bytes)`. Off by default and free when off.
+
+The counterpart to Lava's allocation trace, which sees only what reaches the
+pool and is therefore blind to a `Recycler` hit — memory that is just as
+resident. This answers the question that one cannot: *which op* is still
+allocating outside the plan, and how much. Getting SAM 2's encoder from 1 649 MB
+of unplanned allocation per call to 106 MB was four rounds of reading this and
+`Lava.dump_alloc_trace()` together.
+
+A miss is not automatically a bug: a tuple output the planner skips, or a
+handler asking for a dtype the reservation was not sized for, both land here
+legitimately. It is a list of candidates, not of faults.
+"""
+const PLAN_MISSES = Ref{Any}(nothing)
+
+"""Ids `dest` could not place, largest first."""
+function planmisses()
+    m = PLAN_MISSES[]
+    m === nothing && return NamedTuple[]
+    [(; id, count = v[1], bytes = v[2]) for (id, v) in
+     sort(collect(m); by = x -> -x[2][2])]
 end
 
 """
@@ -240,6 +302,24 @@ contiguous(a) = a
 contiguous(a::PermutedDimsArray{T,N,perm}) where {T,N,perm} =
     permutedims(parent(a), perm)
 
+"""
+    contiguous(ctx, id, a)
+
+`contiguous` into the slot the planner reserved for view `id`.
+
+These copies are the largest thing left outside the plan — 51 of them, 290 MB,
+on every SAM 2 encode — and they were invisible to `planslab` because a view is
+not an op output. `materialisedview` names them, so `dest` has a slot to give;
+where it has not (`plan === nothing`, or a shape the reservation does not cover)
+this falls back to allocating exactly as before.
+"""
+contiguous(ctx::Ctx, id::AbstractString, a) = contiguous(a)
+function contiguous(ctx::Ctx, id::AbstractString, a::PermutedDimsArray{T,N,perm}) where {T,N,perm}
+    d = dest(ctx, id, T, size(a)...)
+    permutedims!(d, parent(a), perm)
+    d
+end
+
 """View ops that only reinterpret the shape, leaving the element order alone."""
 const SHAPEONLY = ("view.default", "_unsafe_view.default", "unsqueeze.default",
                    "squeeze.dims", "squeeze.dim")
@@ -291,7 +371,7 @@ function makeview(ctx::Ctx, b::Buffer)
             r === nothing || return r
             parent = Base.materialize(parent)
         end
-        return reshape(contiguous(parent), shp)
+        return reshape(contiguous(ctx, b.id, parent), shp)
     elseif op == "permute.default"
         perm = ints(a["arg1"])
         n = length(perm)

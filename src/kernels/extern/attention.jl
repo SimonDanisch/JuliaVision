@@ -457,6 +457,49 @@ it. Like [`attn_softmax`](@ref) it does NOT normalise — `fromLEpad` divides.
 end
 
 """
+    COOPMAT_QCHUNK[]
+
+Query rows per cooperative-matrix attention step.
+
+The score matrix is the whole memory cost of attention: `Lq x Lk` per (head,
+batch), and this path needs it twice — fp32 out of the GEMM, fp16 into the next
+one. At SAM 2's global blocks (Lq = Lk = 4096, 8 head-batches) that is 536 MB +
+268 MB in one go, and it is why a single encode peaked over 11 GB where PyTorch
+peaks at 1.6 (its SDPA dispatches to a fused kernel and never writes the matrix).
+
+Chunking the QUERY axis costs nothing in arithmetic — same tiles, same tensor
+cores, same total FLOPs — and divides the live score memory by `Lq / QCHUNK`.
+Only the queries are chunked: the softmax reduces over KEYS, so a key-chunked
+version would need the running-max rescaling that makes flash attention flash,
+and flash measured 43.9 ms against this path's 4.08 on the same shape.
+
+Rows are copied into a chunk-sized staging buffer rather than passed as a view,
+because `coopmat_gemm!` conflates `M` with the leading dimension and a row slice
+of a column-major matrix is not contiguous.
+
+2048 measured, on SAM 2's global blocks (Lq = Lk = 4096, 8 head-batches):
+
+    QCHUNK  chunks   p50 ms   min ms   S fp32 + P fp16
+      512      8      400.1    398.5      101 MB
+     1024      4      370.1    366.1      201 MB
+     2048      2      352.4    350.0      403 MB
+     4096      1      554.4    337.2      805 MB   <- OOMs mid-run and reclaims
+
+Unchunked has the best floor and no ceiling: it needs 805 MB in one step, which
+on a 20 GB card shared with a desktop pushes the pool into an OOM-retry that
+dumps ~10 GB and costs more than chunking ever does. 2048 gives up ~13 ms
+against that floor for 402 MB and, unlike it, is stable.
+"""
+const COOPMAT_QCHUNK = Ref(2048)
+
+"""`(E,L,H,B)` read as `(CH,EP,H,B)` for query rows `q0+1 .. q0+CH`, zero past `E`."""
+@inline function toLEpadchunk(I, a, E, q0, Lq)
+    l, e, h, b = I
+    ll = l + q0
+    @inbounds (ll <= Lq && e <= E) ? a[e, ll, h, b] : zero(eltype(a))
+end
+
+"""
     coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk) -> Bool
 
 Whether [`sdpa`](@ref) should take the cooperative-matrix path.
@@ -493,23 +536,30 @@ function sdpa_coopmat!(out, q, k, v, scale; backend, ws)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
     NB = H * B
-    qT = scratch!(ws, backend, Float16, Lq, EP, H, B)
+    # k and v are needed whole (the softmax reduces over keys); only q is chunked.
     kp = scratch!(ws, backend, Float16, EP, Lk, H, B)
     vT = scratch!(ws, backend, Float16, Lk, EP, H, B)
-    launch!(toLEpad, qT, q, E; backend)
     launch!(padE, kp, k, E; backend)
     launch!(toLEpad, vT, v, E; backend)
 
-    S = scratch!(ws, backend, Float32, Lq, Lk, H, B)
-    Lava.coopmat_gemm!(S, qT, kp, Lq, Lk, EP; nbatch = NB)
+    CH = min(Lq, max(Lava.GEMM_TILE, COOPMAT_QCHUNK[]))
+    CH = cld(CH, Lava.GEMM_TILE) * Lava.GEMM_TILE      # the GEMM needs M on the tile
+    qc   = scratch!(ws, backend, Float16, CH, EP, H, B)
+    S    = scratch!(ws, backend, Float32, CH, Lk, H, B)
+    P    = scratch!(ws, backend, Float16, CH, Lk, H, B)
+    sums = scratch!(ws, backend, Float32, CH, H, B)
+    O    = scratch!(ws, backend, Float32, CH, EP, H, B)
 
-    P = scratch!(ws, backend, Float16, Lq, Lk, H, B)
-    sums = scratch!(ws, backend, Float32, Lq, H, B)
-    launch!(attn_softmax16, sums, P, S, Float32(scale); backend)
-
-    O = scratch!(ws, backend, Float32, Lq, EP, H, B)
-    Lava.coopmat_gemm!(O, P, vT, Lq, EP, Lk; nbatch = NB)
-    launch!(fromLEpad, out, O, sums; backend)
+    for q0 in 0:CH:(Lq - 1)
+        n = min(CH, Lq - q0)
+        launch!(toLEpadchunk, qc, q, E, q0, Lq; backend)
+        Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
+        launch!(attn_softmax16, sums, P, S, Float32(scale); backend)
+        Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
+        # `fromLEpad` unchanged: `launch!` indexes the VIEW, so its `l` already
+        # starts at 1 for this chunk and no offset belongs in the kernel.
+        launch!(fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums; backend)
+    end
     out
 end
 

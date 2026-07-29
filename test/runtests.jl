@@ -70,3 +70,7 @@ weights = readsafetensors(joinpath(GEN, "weights.safetensors"))
         end
     end
 end
+
+# Host-only, so it belongs in stage 1 with the rest of this file: what the
+# static slab may contain, and that nothing overlaps inside it.
+include(joinpath(@__DIR__, "test_plan.jl"))

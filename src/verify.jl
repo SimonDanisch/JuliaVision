@@ -70,7 +70,12 @@ function verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::Abs
         inputs[name] = refs[k]
     end
 
-    values = execute!(g, inputs, weights; dims, backend)
+    # With a workspace, so this checks the path that actually runs. Op bodies
+    # branch on `ctx.ws === nothing` — `native_layer_norm` centres into scratch
+    # when it has one and allocates when it does not — and verifying only the
+    # allocating branch leaves the shipped one unverified.
+    ws = Workspace(backend)
+    values = execute!(g, inputs, weights; dims, backend, ws)
 
     # A flipped predicate changes the graph's behaviour discontinuously, so
     # everything after it diverges for a reason that is not a bug. Pin the tie
@@ -86,7 +91,7 @@ function verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::Abs
         n = count(got .!= refs[k])
         n > 0 && (pinned[op.out] = refs[k]; flips[op.out] = n)
     end
-    isempty(pinned) || (values = execute!(g, inputs, weights; dims, backend, overrides=pinned))
+    isempty(pinned) || (values = execute!(g, inputs, weights; dims, backend, ws, overrides=pinned))
 
     err = Dict{String,Float64}()          # per-buffer error carried so far
     # fp16 precision is transitive: once a value has passed through an fp16

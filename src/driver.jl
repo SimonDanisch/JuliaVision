@@ -16,10 +16,18 @@ Four variants, matching the trace:
   v3  memory frame     full memory read, encode_mask(deep), bank update
 """
 
-struct Model
+# Parameterised on the BACKEND TYPE, not `::Any`. With `backend::Any` every
+# `ctx.backend` launch is a dynamic dispatch, so inference has to consider every
+# `KA.Kernel{B}` method — including `Kernel{CPU}` and `KA.__run`, whose arguments
+# are all `Any`. Those land in the package image even though nothing here ever
+# runs on the CPU, and their call edges cover whole method tables, so loading any
+# package that adds methods throws them away and everything inferred through them
+# with it. Measured: `KA.__run` alone was 4 062 of the 20 200 extra CodeInstances
+# rejected when SAM 2's image loads after VideoEditor.
+struct Model{B}
     graphs::Dict{String,Graph}
     weights::Dict{String,Any}
-    backend::Any
+    backend::B
     memevery::Int
     memframes::Int
     topk::Int
@@ -112,10 +120,36 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     graphs, host, nperm = hoistpermutes(graphs, host)
     graphs, host, nconst = hoistconstants(graphs, host)
     graphs, ndead = dropdead(graphs)
-    @debug "LavaDNN: folded $nfold batch-norms and $nact relus, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops"
+    # Upload only the weights the surviving graphs still name. `dropdead` prunes
+    # dead *ops*; without this the host dict keeps every orphan those passes
+    # created — above all the fp32 masters whose `_to_copy` `hoistcasts` turned
+    # into a plain fp16 weight. Uploading them anyway cost 849 MB of VRAM on
+    # SAM 2 (1852 MB of weights resident against 1003 MB of parameters), for
+    # tensors no op reads.
+    live = livekeys(graphs)
+    dropped = length(host) - count(k -> k in live, keys(host))
+    host = Dict{String,Any}(k => v for (k, v) in host if k in live)
+    @debug "LavaDNN: folded $nfold batch-norms and $nact relus, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops and $dropped orphaned weights"
     weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in host)
     Model(graphs, weights, backend, memevery, memframes, topk)
 end
+
+"""
+    livekeys(graphs) -> Set{String}
+
+Host-weight keys still named in a graph's `order` after `dropdead`. Everything
+else in the weight dict is an orphan of the rewrite passes — above all the fp32
+masters whose `_to_copy` `hoistcasts` replaced — and must not be uploaded.
+"""
+function livekeys(graphs)
+    live = Set{String}()
+    for g in values(graphs), id in g.order
+        b = get(g.buffers, id, nothing)
+        b !== nothing && b.kind === :weight && !isempty(b.key) && push!(live, b.key)
+    end
+    live
+end
+
 
 """Run one graph and return its outputs in declaration order."""
 function call(m::Model, name::AbstractString, args...; dims)

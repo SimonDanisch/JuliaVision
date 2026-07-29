@@ -412,8 +412,28 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     nshape = ints(op.attrs["arg1"])
     d = Tuple(1:length(nshape))
     eps = Float32(op.attrs["arg4"])
-    μ = sum(a; dims=d) ./ prod(size(a, i) for i in d)
-    v = sum(abs2, a .- μ; dims=d) ./ prod(size(a, i) for i in d)
+    n = prod(size(a, i) for i in d)
+    μ = sum(a; dims=d) ./ n
+    # The centred tensor goes to workspace scratch, not to a fresh allocation.
+    # Written the obvious way — `sum(abs2, a .- μ; dims=d)` — the dot syntax
+    # materialises a full-size temporary per layer norm, and on SAM 2's image
+    # encoder those were **1 131 MB of the 1 649 MB the graph asks the pool for
+    # on every call**: the single largest source, ahead of everything else by 4x.
+    # The workspace is reset per op, so all 96 layer norms share one buffer
+    # instead of taking 96 distinct ones — the same reuse the convolution and
+    # attention kernels already rely on.
+    #
+    # Not rewritten as E[x²] - μ², which needs no temporary at all: that form
+    # cancels catastrophically when the mean dominates the variance, and mask
+    # parity with PyTorch to five decimals is not worth trading for an
+    # allocation.
+    v = if ctx.ws === nothing
+        sum(abs2, a .- μ; dims=d) ./ n         # verification path, no workspace
+    else
+        t = scratch!(ctx.ws, ctx.backend, eltype(a), size(a)...)
+        t .= Base.broadcasted(-, a, μ)
+        sum(abs2, t; dims=d) ./ n
+    end
     r = 1 ./ sqrt.(v .+ eps)
     # One broadcast, one write, into the slot the planner reserved.
     #
@@ -468,6 +488,16 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("cat.default")})
     out
 end
 
+"""Element of an outer repetition: the source tiles, so index it modulo its own size."""
+@inline repeatouter(I, a, sz::NTuple{N,Int}) where {N} =
+    @inbounds a[ntuple(k -> mod1(I[k], sz[k]), Val(N))...]
+
+# One gather into the planned slot. `repeat(a; inner=all-ones, outer=reps)` is
+# two allocations and two passes: Julia runs the inner phase first, which with
+# every `inner` at 1 copies the array to produce exactly the array it was given,
+# and then allocates the outer result. Both land outside the plan — 88 MB and
+# 126 MB per call on SAM 2's encoder — for an op that reads each source element
+# and writes it `prod(reps)` times.
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("repeat.default")})
     a = lhs(ctx, op)
     reps = reverse(ints(op.attrs["arg1"]))
@@ -475,7 +505,11 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("repeat.default")})
     while ndims(a) < length(reps)
         a = reshape(a, size(a)..., 1)
     end
-    repeat(a; inner=ntuple(_ -> 1, ndims(a)), outer=Tuple(reps))
+    sz = size(a)
+    r = ntuple(k -> k <= length(reps) ? Int(reps[k]) : 1, length(sz))
+    out = dest(ctx, eltype(a), map(*, sz, r)...)
+    launch!(repeatouter, out, a, sz)
+    out
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("constant_pad_nd.default")})
@@ -627,7 +661,11 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default"
     p = haskey(op.attrs, "arg3") ? reverse(ints(op.attrs["arg3"])) : [0, 0]
     ox = (size(x, 1) + 2p[1] - k[1]) ÷ s[1] + 1
     oy = (size(x, 2) + 2p[2] - k[2]) ÷ s[2] + 1
-    out = alloc(ctx, eltype(x), ox, oy, size(x, 3), size(x, 4))
+    # `tupledest`, not `alloc`: this op's result is a tuple, so the planner
+    # reserved it under `"<id>.0"` and asking under the bare id finds nothing.
+    # Six of these missed their reservations for 32.9 MB per encode — allocated
+    # fresh while the slab held space for them the whole time.
+    out = tupledest(ctx, 0, eltype(x), ox, oy, size(x, 3), size(x, 4))
     maxpool2d!(out, x, k, s, p)
     (out, similar(out, Int64, 0))
 end
@@ -812,7 +850,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
         iv = value(ctx, String(e)[2:end])          # attrs store "$name"
         idx[jd] = vec(Int.(collect(iv))) .+ 1      # torch indices are 0-based
     end
-    materialize(ctx.rec, ctx.backend, view(x, idx...))
+    materialize(ctx, view(x, idx...))
 end
 
 """

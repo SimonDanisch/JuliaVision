@@ -122,6 +122,42 @@ function lifetimes(graph::Graph, lazy = fusableset(graph))
 end
 
 """
+    rootbuffer(graph, id) -> id
+
+Follow a view chain to the buffer that owns the storage. `lifetimes` keys its
+ranges by this, since a view has no lifetime of its own.
+"""
+function rootbuffer(graph::Graph, id::AbstractString, depth::Int = 0)
+    depth > 64 && return String(id)
+    b = get(graph.buffers, id, nothing)
+    (b === nothing || isempty(b.of)) ? String(id) : rootbuffer(graph, b.of, depth + 1)
+end
+
+"""View ops that only reinterpret the shape — the same list `makeview` uses."""
+const SHAPEONLY_VIEWS = ("view.default", "_unsafe_view.default", "unsqueeze.default",
+                         "squeeze.dims", "squeeze.dim")
+
+"""
+    materialisedview(graph, b) -> Bool
+
+Whether reading view `b` will force a copy.
+
+`makeview` reshapes a shape-only view of its parent, and Julia cannot reshape a
+`PermutedDimsArray` without collapsing it first — so a shape-only view *of a
+permute* is materialised by `contiguous`, and every other view stays lazy. That
+is decidable from the graph, which is what makes these plannable: on SAM 2's
+encoder the predicate names exactly the 51 buffers, totalling 290.2 MB, that the
+allocation trace shows `contiguous` allocating at run time.
+"""
+function materialisedview(graph::Graph, b::Buffer)
+    b.kind === :view || return false
+    b.viewop in SHAPEONLY_VIEWS || return false
+    p = get(graph.buffers, b.of, nothing)
+    p === nothing && return false
+    p.viewop == "permute.default"
+end
+
+"""
     planslab(graph, dims) -> Slab
 
 Lay every transient of `graph` into one slab, reusing memory across
@@ -135,16 +171,52 @@ cost of computing it does not matter.
 Buffers with a tuple shape (`max_pool2d_with_indices`, `native_layer_norm`, …)
 carry no single shape and are skipped — those still allocate. So do buffers that
 no op produces, which is how a folded-away batch-norm's output looks.
+
+**Fused values get no slab space.** A value `fuse.jl` marks fusable is returned
+by `emit` as the `Broadcasted` itself, before `dest` is ever consulted, so it
+has no storage to plan; reserving bytes for it reserves them for something that
+does not exist. This is not a rounding error — on SAM 2's image encoder it was
+**1 334 MB of a 2 020 MB slab**, and dropping it takes the peak to 698 MB
+against PyTorch's ~655 MB of activations. It shows up so large because a fused
+run reads as a *staircase*: 84 buffers all live at once at the point the chain
+finally materialises, each still holding a full 37.7 MB reservation.
+
+Safe in the direction that matters: `lifetimes` still walks the fusion chain, so
+the real operands the expression reads stay reserved for as long as it can be
+evaluated, and a value that unexpectedly *is* materialised finds no offset and
+falls back to `rawalloc` — an allocation, not a corruption.
 """
 function planslab(graph::Graph, dims)
     produced = Set(o.out for o in graph.ops)
     esc = escaping(graph)
-    lt = lifetimes(graph)
+    lazy = fusableset(graph)
+    lt = lifetimes(graph, lazy)
     items = Tuple{String,Int,Int,Int}[]
+    # Copies forced by `contiguous`. They are not op outputs, so nothing below
+    # would place them and they allocated per call for the life of the model —
+    # 290 MB of pool on every SAM 2 encode. They cost nothing to place: given
+    # the root's lifetime they slot into holes the greedy already leaves, and
+    # the slab does not grow by a byte.
+    #
+    # The root's lifetime rather than their own is what makes this safe in both
+    # directions. It cannot be too short — reading the view is what extends the
+    # root's last use, so the root outlives the copy — and it stops the copy
+    # from ever being placed on top of the buffer it is a copy *of*, which is
+    # the one overlap `permutedims!` cannot survive.
+    for (id, b) in graph.buffers
+        materialisedview(graph, b) || continue
+        id in esc && continue
+        r = rootbuffer(graph, id)
+        haskey(lt, r) || continue
+        isempty(b.shape) && continue
+        n = alignup(prod(evalshape(b.shape, dims)) * sizeof(b.dtype))
+        push!(items, (id, n, lt[r][1], lt[r][2]))
+    end
     for (id, b) in graph.buffers
         b.kind === :transient || continue
         id in produced || continue
         id in esc && continue
+        id in lazy && continue
         haskey(lt, id) || continue
         if isempty(b.shape)
             # Multi-output op: place each element under `"<id>.<i>"`, which is the
@@ -202,19 +274,32 @@ end
     checkslab(graph, dims, slab) -> (nplanned, nconflicts)
 
 Assert the invariant the plan rests on: no two buffers that are alive at the
-same time may share a byte. Cheap enough to run at load time.
+same time may share a byte.
+
+Checked against [`lifetimes`], the same ranges `planslab` placed by, and *not*
+against `Buffer.live`. The exporter's annotation describes torch's evaluation,
+which is shorter than ours wherever a value stays lazy — so a plan that reuses
+memory a fused expression can still read looks perfectly legal under `live` and
+is exactly the corruption this exists to catch.
+
+Sizes come from `slab.sizes` rather than being recomputed from the shape,
+because a multi-output op is planned under `"<id>.<i>"` keys that name no buffer
+at all.
 """
 function checkslab(graph::Graph, dims, slab::Slab)
     ids = collect(keys(slab.offsets))
-    sz = Dict(id => alignup(prod(evalshape(graph.buffers[id].shape, dims)) *
-                            sizeof(graph.buffers[id].dtype)) for id in ids)
+    lt = lifetimes(graph, fusableset(graph))
+    # `"native_layer_norm_46.2"` is element 2 of the tuple `native_layer_norm_46`,
+    # and it is the tuple that carries the lifetime.
+    root(id) = (i = findlast('.', id); i === nothing ? id : id[1:(i - 1)])
     bad = 0
     for i in eachindex(ids), j in (i + 1):length(ids)
         a, b = ids[i], ids[j]
-        la, lb = graph.buffers[a].live, graph.buffers[b].live
+        la = get(lt, root(a), nothing); lb = get(lt, root(b), nothing)
+        (la === nothing || lb === nothing) && continue
         (la[2] < lb[1] || la[1] > lb[2]) && continue
         oa, ob = slab.offsets[a], slab.offsets[b]
-        (oa + sz[a] <= ob || oa >= ob + sz[b]) || (bad += 1)
+        (oa + slab.sizes[a] <= ob || oa >= ob + slab.sizes[b]) || (bad += 1)
     end
     (length(ids), bad)
 end

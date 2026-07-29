@@ -25,8 +25,26 @@ end
 
 Workspace(backend) = Workspace(nothing, 0, backend, Any[])
 
-"""Start a fresh op: everything handed out before is free again."""
-reset!(ws::Workspace) = (ws.used = 0; ws)
+"""
+Start a fresh op: everything handed out before is free again.
+
+Also drops the buffers a *previous* op retired. Retention is only needed within
+the op that grew the workspace — a convolution takes `col`, then `C`, then the
+split planes, and a grow on the second call would strand the first. By the time
+the next op starts, every dispatch that could reference the old buffer has been
+recorded, and `pin_leaves!` has pinned it into the batch, so the batch holds it
+alive until the GPU is done with it.
+
+Never clearing this was expensive: growth is geometric (1.5x), so going from
+1 MB to ~1 GB is ~18 reallocations and the retained set sums to roughly *twice*
+the final size. On SAM 2's encoder that was gigabytes of dead buffers held for
+the lifetime of the model.
+"""
+function reset!(ws::Workspace)
+    isempty(ws.retired) || empty!(ws.retired)
+    ws.used = 0
+    ws
+end
 reset!(::Nothing) = nothing
 
 """
