@@ -456,6 +456,125 @@ it. Like [`attn_softmax`](@ref) it does NOT normalise — `fromLEpad` divides.
     end
 end
 
+# ── the same softmax, with the reduction spread across threads ───────────────
+#
+# `attn_softmax16` above gives one thread the whole `Lk` reduction for its query
+# row. That is coalesced — `lq` is the fast axis, so a warp reads 32 consecutive
+# scores — but there are only `CH * H * B` rows, and on SAM 2's global attention
+# that is 16 384 threads: **64 workgroups, ~22% of this card's thread slots**.
+# Measured with `Lava.with_dispatch_timing`, those six dispatches were
+# **18.08 ms, 3.0 ms each — the second-largest kernel family in the whole
+# encode** — for a pass that only reads 268 MB and writes 134 MB.
+#
+# So keep the layout and split the reduction: a workgroup covers `SM_LQ`
+# consecutive query rows × `SM_CH` chunks of the key axis, each thread reducing
+# its own chunk, then two shared-memory reductions across the chunk index. Reads
+# stay coalesced because `lq` still varies fastest within a warp, and the thread
+# count goes up by `SM_CH`.
+const ATTN_SM_LQ = 32          # query rows per workgroup — one warp's worth, coalesced
+const ATTN_SM_CH = 8           # key-axis chunks per row; 32 × 8 = 256 threads
+
+"""
+    ATTN_SOFTMAX_ROWS[]
+
+Use the chunked softmax rather than one thread per query row. Switchable so the
+two can be compared for both speed *and* bits in one session — they differ only
+in the order the row maximum and sum are reduced, so any difference between them
+is floating-point associativity and should be tiny.
+"""
+const ATTN_SOFTMAX_ROWS = Ref(true)
+
+"""
+    attn_softmax_rows!(p, sums, s, scale, nlk)
+
+Softmax over the key axis of `s :: (Lq, Lk, HB)`, writing `exp` to `p` in fp16
+and the row sums to `sums :: (Lq, HB)`. Does not normalise — `fromLEpad`
+divides, exactly as [`attn_softmax16`](@ref) leaves it.
+
+Two passes over `s`, as before: the maximum has to be known before any `exp`.
+Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
+"""
+@kernel cpu=false function attn_softmax_rows!(p, sums, @Const(s), scale::Float32,
+                                              nlk::Int32)
+    red = @localmem Float32 (ATTN_SM_LQ * ATTN_SM_CH,)
+    t = @index(Local, Linear) - 1
+    blk = @index(Group, Linear) - 1
+    li = t % ATTN_SM_LQ                    # query row within the tile
+    ci = t ÷ ATTN_SM_LQ                    # which chunk of the key axis
+    ntile = size(s, 1) ÷ ATTN_SM_LQ
+    lq = (blk % ntile) * ATTN_SM_LQ + li
+    hb = blk ÷ ntile
+
+    # ── pass 1: the row maximum
+    m = -Inf32
+    lk = ci
+    @inbounds while lk < nlk
+        m = max(m, Float32(s[lq + 1, lk + 1, hb + 1]) * scale)
+        lk += ATTN_SM_CH
+    end
+    @inbounds red[t + 1] = m
+    @synchronize
+    # Reduce along the chunk index only: for a fixed `li` the partial results sit
+    # `ATTN_SM_LQ` apart. The barrier is outside the branch, as it must be.
+    stride = ATTN_SM_CH ÷ 2
+    while stride > 0
+        @inbounds if ci < stride
+            red[t + 1] = max(red[t + 1], red[t + 1 + stride * ATTN_SM_LQ])
+        end
+        @synchronize
+        stride ÷= 2
+    end
+    @inbounds mx = red[li + 1]
+    isfinite(mx) || (mx = 0.0f0)
+    @synchronize
+
+    # ── pass 2: exp into `p`, and the row sum
+    acc = 0.0f0
+    lk = ci
+    @inbounds while lk < nlk
+        e = exp(Float32(s[lq + 1, lk + 1, hb + 1]) * scale - mx)
+        p[lq + 1, lk + 1, hb + 1] = Float16(e)
+        acc += e
+        lk += ATTN_SM_CH
+    end
+    @inbounds red[t + 1] = acc
+    @synchronize
+    stride = ATTN_SM_CH ÷ 2
+    while stride > 0
+        @inbounds if ci < stride
+            red[t + 1] += red[t + 1 + stride * ATTN_SM_LQ]
+        end
+        @synchronize
+        stride ÷= 2
+    end
+    @inbounds if ci == 0
+        sums[lq + 1, hb + 1] = red[li + 1]
+    end
+end
+
+"""
+    attnsoftmax!(sums, p, s, scale) -> sums
+
+Launch [`attn_softmax_rows!`](@ref) over `s :: (Lq, Lk, H, B)`, flattening
+`(H, B)` so the kernel indexes three dimensions instead of four. Falls back to
+the one-thread-per-row form when `Lq` is not a multiple of `ATTN_SM_LQ`, which
+the tiling has no masking for.
+"""
+function attnsoftmax!(sums, p, s, scale; backend = KernelAbstractions.get_backend(s))
+    Lq, Lk, H, B = size(s)
+    if !ATTN_SOFTMAX_ROWS[] || Lq % ATTN_SM_LQ != 0
+        launch!(attn_softmax16, sums, p, s, Float32(scale); backend)
+        return sums
+    end
+    s3 = reshape(s, Lq, Lk, H * B)
+    p3 = reshape(p, Lq, Lk, H * B)
+    sm = reshape(sums, Lq, H * B)
+    attn_softmax_rows!(backend, ATTN_SM_LQ * ATTN_SM_CH)(
+        p3, sm, s3, Float32(scale), Int32(Lk);
+        ndrange = (Lq ÷ ATTN_SM_LQ) * H * B * ATTN_SM_LQ * ATTN_SM_CH)
+    sums
+end
+
 """
     COOPMAT_QCHUNK[]
 
@@ -554,7 +673,7 @@ function sdpa_coopmat!(out, q, k, v, scale; backend, ws)
         n = min(CH, Lq - q0)
         launch!(toLEpadchunk, qc, q, E, q0, Lq; backend)
         Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
-        launch!(attn_softmax16, sums, P, S, Float32(scale); backend)
+        attnsoftmax!(sums, P, S, scale; backend)
         Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
         # `fromLEpad` unchanged: `launch!` indexes the VIEW, so its `l` already
         # starts at 1 for this chunk and no offset belongs in the kernel.

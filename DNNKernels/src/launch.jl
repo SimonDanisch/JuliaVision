@@ -150,7 +150,28 @@ Note in particular the warning it carries about `kernel(backend, wg)` versus the
 """
 @inline launchgroup(sz::Dims, target::Int = LAUNCH_GROUP[]) = Lava.launchgroup(sz, target)
 
+"""
+    LAUNCH_PROBE[] :: Union{Nothing,Dict}
+
+Set to a dict to record every `launch!` as `(ndrange, workgroup) => (count, groups)`.
+Off by default and free when off.
+
+For finding launches that do not fill the device. A grid of 64 workgroups on a
+48-SM card leaves most of it idle however good the kernel is, and that is
+invisible in a per-op timing table — it shows up only as one op being
+inexplicably slow. `Lava.with_dispatch_timing` says *which dispatch*; this says
+*which launch site and what shape*.
+"""
+const LAUNCH_PROBE = Ref{Any}(nothing)
+
 function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)) where {F}
+    p = LAUNCH_PROBE[]
+    if p !== nothing && !(LAUNCH_FLAT[] && ndims(out) > 1)
+        sz = size(out); wg = Lava.staticgroup(sz)
+        grp = ntuple(i -> cld(sz[i], wg[i]), length(sz))
+        c, _ = get(p, (sz, wg), (0, grp))
+        p[(sz, wg)] = (c + 1, grp)
+    end
     if LAUNCH_FLAT[] && ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
         ndmap_flat!(backend)(f, out, CartesianIndices(out), n, args...; ndrange=n)
