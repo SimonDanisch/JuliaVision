@@ -15,3 +15,8 @@ KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 
 [compat]
 julia = "1.10"
+# Lava is not in the General registry, so a fresh clone cannot resolve without
+# being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
+# fetches it from the URL below instead of failing with "package not found".
+[sources]
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}

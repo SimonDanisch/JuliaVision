@@ -10,3 +10,14 @@ DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 GPUFiltering = "0d8d4a14-6fb1-4aec-8b08-0f10adea08ad"
 MatAnyoneRunner = "7c4d9e15-2b83-4f6a-a0d7-3e1b8f5c9a24"
 SAM2Runner = "3f5b1e8a-9d42-4c7e-b16a-2c9d0e4f7a51"
+
+# Lava is not in the General registry, so a fresh clone cannot resolve without
+# being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
+# fetches it from the URL below instead of failing with "package not found".
+# The four packages here are dev'd by path, which `[sources]` also expresses.
+[sources]
+DNNKernels = {path = "DNNKernels"}
+GPUFiltering = {path = "GPUFiltering"}
+MatAnyoneRunner = {path = "MatAnyoneRunner"}
+SAM2Runner = {path = "SAM2Runner"}
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
