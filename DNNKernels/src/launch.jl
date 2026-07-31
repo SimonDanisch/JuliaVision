@@ -97,10 +97,16 @@ total. These kernels already take an N-D index and do no such division, so
 flattening buys nothing and costs a `CartesianIndices` lookup.
 """
 # Flat variant of `ndmap!`; see `LAUNCH_FLAT`.
-@kernel function ndmap_flat!(f::F, out, cis, n, args::Vararg{Any,N}) where {F,N}
+#
+# The decomposition is `Lava.cart32` over `Lava.FastDiv32` extents, not
+# `CartesianIndices`, and that is the whole reason this variant is worth
+# re-measuring: it used to cost N-1 real integer divisions, which is exactly what
+# `LAUNCH_FLAT` was switched off for. A magic-number multiply is ~5 cycles where
+# the divide was ~25.
+@kernel function ndmap_flat!(f::F, out, sz, n, args::Vararg{Any,N}) where {F,N}
     lin = @index(Global, Linear)
     if lin <= n
-        @inbounds out[lin] = f(Tuple(cis[lin]), args...)
+        @inbounds out[lin] = f(Lava.cart32(UInt32(lin) - UInt32(1), sz), args...)
     end
 end
 
@@ -109,27 +115,29 @@ end
 
 Launch `launch!` kernels over a flat range instead of `size(out)`.
 
-**Off, because for these kernels it is 10% slower** — 31.69 ms against 28.83,
-interleaved A/B in one session. It is *correct* (all 8 graphs verify, and the
-end-to-end matte is 2.754e-4 against 2.768e-4), so this is a performance
-decision, not a correctness one.
+**On.** It was off, for a good reason that stopped being true.
 
-Worth understanding, because the same flattening is worth ~3 ms elsewhere — the
-convolution epilogue, im2col and both GEMM epilogues all gained from it. The
-difference is what the decomposition costs:
+The rule is: flatten when the index arithmetic you need is cheaper than the
+fragmentation you are paying for. An N-D `ndrange` gets an N-D workgroup, so
+consecutive lanes stop walking consecutive memory; flattening fixes that but
+`ndmap!` hands `f` a full Cartesian index, so it has to rebuild one — N-1
+divisions where the N-D launch needed none.
 
-  * Those kernels needed only one or two divisions, hand-written for their
-    access pattern (`conv_epilogue_kernel!` recovers pixel/channel/image with
-    two), and their fast `ndrange` dimension was shorter than a warp — a
-    15-wide `OW` means a warp spans 15 contiguous outputs and then jumps.
-  * `ndmap!` hands `f` a full Cartesian index, so flattening costs a complete
-    `CartesianIndices` lookup — N-1 divisions — and `f` then re-derives its own
-    offsets from it. That exceeds the coalescing it buys.
+Measured that way it lost, 31.69 ms against 28.83. Then `Lava.FastDiv32` made a
+decomposition a magic-number multiply instead of a division (~5 cycles against
+~25) and the same A/B, interleaved in one session on SAM 2's encoder, reverses:
 
-So the rule is not "always flatten": flatten when the index arithmetic you need
-is cheaper than the fragmentation you are paying for.
+    LAUNCH_FLAT = false    p50 264.79 ms
+    LAUNCH_FLAT = true     p50 253.41 ms      11.38 ms, 4.3%
+
+Encoder outputs are bit-identical between the two, and correctness was never the
+question — all 8 graphs verified on this path when it was written, and the
+end-to-end matte was 2.754e-4 against 2.768e-4.
+
+Keep the switch. The balance depends on the cost of a division, and that has now
+moved once.
 """
-const LAUNCH_FLAT = Ref(false)
+const LAUNCH_FLAT = Ref(true)
 
 """
     LAUNCH_GROUP[] :: Int
@@ -174,7 +182,7 @@ function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)
     end
     if LAUNCH_FLAT[] && ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
-        ndmap_flat!(backend)(f, out, CartesianIndices(out), n, args...; ndrange=n)
+        ndmap_flat!(backend)(f, out, map(Lava.FastDiv32, size(out)), n, args...; ndrange=n)
     else
         sz = size(out)
         # Workgroup in the kernel's TYPE, via `staticgroup` so it never trips
