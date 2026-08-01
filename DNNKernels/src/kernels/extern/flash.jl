@@ -1,6 +1,18 @@
 """
 Fused attention: one kernel, no score matrix.
 
+**Two kernels live here.** `attn_flash_cm!` at the bottom is the one `sdpa` runs:
+it does both products on the tensor cores and is 1.9x the two-GEMM path on the
+encoder's dominant shapes. `attn_flash!` immediately below is the scalar form,
+kept and still tested but not routed to.
+
+Everything from here to `attn_flash!` is about the scalar form. Its conclusion —
+"this shape cannot win here" — is correct **for that arrangement** and was read
+for a while as a fact about flash attention on this device, which it is not: the
+occupancy wall it hits comes from staging q, k and v as fp32 and from needing the
+score tile in shared memory for a scalar reduction to reach it. Neither is true
+once the products go through `OpCooperativeMatrixMulAddKHR`.
+
 The three-pass form in `attention.jl` is correct and bandwidth-bound. It writes
 `Lq x Lk x H x B` scores, reads them back for the softmax, and reads them a third
 time to apply — 268 MB written and read twice for one of SAM 2's global blocks,
@@ -261,5 +273,376 @@ function sdpaflash!(out, q, k, v, scale; backend = KernelAbstractions.get_backen
     attn_flash!(backend, NT)(out, q, k, v, Float32(scale),
                              Val(BQ), Val(BK), Val(E), Val(NT), Int32(Lk);
                              ndrange = (NT * div(Lq, BQ), H, B))
+    return true
+end
+
+# ── the cooperative-matrix form ──────────────────────────────────────────────
+#
+# The scalar kernel above loses because it does the two products by hand, at
+# 0.8 TFLOP/s against the 35 the same card's tensor cores sustain. Its occupancy
+# analysis is real but it is an analysis of *that* shape: the tile is large
+# because q, k and v are staged as fp32 and because the score tile has to live in
+# shared memory for a scalar reduction to reach it.
+#
+# `flash_attn_cm1.comp` is a different arrangement. Both products go through
+# `OpCooperativeMatrixMulAddKHR`, the operands stay fp16, and the score tile is
+# a coopmat accumulator — registers — until the softmax needs it.
+#
+# **Our memory order makes this simpler than the reference's.** `q`, `k` and `v`
+# are `(E, L, H, B)` with `E` contiguous, so:
+#
+#     S = Q·Kᵀ    A = Q  RowMajor    stride E     (r, e) at r*E + e
+#                 B = Kᵀ ColumnMajor stride E     (e, c) at c*E + e
+#     O += P·V    A = P  RowMajor    stride Bc
+#                 B = V  RowMajor    stride E     (c, e) at c*E + e
+#
+# Every operand loads straight out of that layout with no transpose and no
+# permutation — where the reference computes `S` transposed (`K·Qᵀ`) purely so
+# that an implementation offering only `16x8` tiles can still run it. We have
+# `16x16`, so the plain orientation is available and it is the one that matches
+# our arrays. That is why this is ~200 lines and not 650.
+#
+# The one thing that cannot be a coopmat is `O`. It has to be rescaled by
+# `exp(m_old - m_new)` after every key block and there is no elementwise
+# operation on a cooperative matrix. The reference keeps it in plain registers
+# and round-trips each `P·V` tile through shared memory to add it. We keep `O` in
+# shared instead and load it *as the accumulator's initial value*, so the add is
+# the tensor core's own accumulate and the round trip disappears.
+
+"""Bytes of `@localmem` the cooperative-matrix kernel needs."""
+@inline flashcmshared(EP, BR, BC) =
+    2 * EP * BR + 2 * EP * BC + 4 * BR * BC + 2 * BC * BR + 4 * BR * EP + 12 * BR
+
+"""
+Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run.
+
+`BR` must not exceed the workgroup, because the softmax gives one thread a whole
+query row — a row's max and sum reduce over keys, and keeping that in one thread
+is what avoids a cross-lane reduction per block.
+"""
+@inline function flashcmfits(EP::Int, BR::Int, BC::Int, NT::Int)
+    BR % Lava.GEMM_TILE == 0 && BC % Lava.GEMM_TILE == 0 && EP % Lava.GEMM_TILE == 0 || return false
+    BR <= NT || return false
+    (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
+    flashcmshared(EP, BR, BC) <= FLASH_SHARED_BUDGET[]
+end
+
+"""
+    attn_flash_cm!(out, q, k, v, scale, Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Lk)
+
+One workgroup owns `BR` queries and walks the keys in blocks of `BC`.
+
+`EP` is `E` rounded up to the tile — 72 becomes 80 — and the staging loops write
+zero past `E`. That padding is free in the arithmetic (`0 * 0` contributes
+nothing to `S`, and `O`'s columns past `E` are never read out) and it is what
+lets every cooperative-matrix load be full-width.
+
+`Lava.splitidx` for every staging index, not `%`/`÷`: `EP = 80` and `E = 72` are
+not powers of two, and a real `OpUDiv` in a shared-memory store address drops
+stores on this driver whenever a `muladd` is in scope. That is the bug this
+kernel would otherwise walk straight into — see `test_shared_index_division.jl`.
+"""
+@kernel cpu=false unsafe_indices=true function attn_flash_cm!(
+        out, @Const(q), @Const(k), @Const(v), scale,
+        ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO},
+        Lk::Int32) where {BR,BC,E,EP,NW,REGO}
+    NT = NW * 32
+    qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
+    kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
+    ss  = @localmem Float32 (BR * BC,)      # (r, c) at c*BR + r
+    ps  = @localmem Float16 (BC * BR,)      # (r, c) at r*BC + c
+    # `REGO == false`: this is `O`, and it persists across key blocks.
+    # `REGO == true`:  this is one key block's `P·V`, and `O` lives in `acco`.
+    pvs = @localmem Float32 (BR * EP,)      # (r, e) at e*BR + r
+    ms  = @localmem Float32 (BR,)
+    ls  = @localmem Float32 (BR,)
+    cs  = @localmem Float32 (BR,)
+
+    # `O` in registers: `BR*EP/NT` floats per thread, 20 for the shipped tiling.
+    # Written out as `Float32` rather than through a local `T`, because Lava
+    # miscompiles a `@private` whose element type comes from a local binding and
+    # does it silently — the kernel runs and writes nothing. `NW * 32` spelled
+    # out rather than the local `NT` below for the same reason: the size has to
+    # come from the type parameters.
+    acco = @private Float32 (div(BR * EP, NW * 32),)
+
+    RT = BR ÷ Lava.GEMM_TILE
+    CT = BC ÷ Lava.GEMM_TILE
+    ET = EP ÷ Lava.GEMM_TILE
+
+    tid = @index(Local, Linear) - 1
+    grp = @index(Group, NTuple)
+    qb, h, b = grp[1], grp[2], grp[3]
+    w = tid ÷ 32                            # subgroup within the workgroup
+
+    @inbounds begin
+        q0 = (qb - 1) * BR
+
+        # Q for this block, once, and it stays in shared for every key block.
+        for r in 0:(div(BR * EP, NT) - 1)
+            idx = tid + r * NT
+            e, lq = Lava.splitidx(idx, Val(EP))
+            qs[1 + idx] = e < E ? q[1 + e, 1 + q0 + lq, h, b] : zero(Float16)
+        end
+        if REGO
+            for s in 1:div(BR * EP, NT)
+                acco[s] = 0.0f0
+            end
+        else
+            for r in 0:(div(BR * EP, NT) - 1)
+                pvs[1 + tid + r * NT] = 0.0f0
+            end
+        end
+        if tid < BR
+            ms[1 + tid] = -Inf32
+            ls[1 + tid] = 0.0f0
+        end
+        @synchronize
+
+        for kb in 0:(div(Lk, BC) - 1)
+            k0 = kb * BC
+            for r in 0:(div(BC * EP, NT) - 1)
+                idx = tid + r * NT
+                e, lk = Lava.splitidx(idx, Val(EP))
+                kvs[1 + idx] = e < E ? k[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
+            end
+            @synchronize
+
+            # S = Q·Kᵀ. RT*CT tiles handed round the subgroups; the trip count is
+            # uniform within a subgroup, which is what a coopmat op requires.
+            for t in w:NW:(RT * CT - 1)
+                rt = t % RT
+                ct = t ÷ RT
+                acc = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
+                for et in 0:(ET - 1)
+                    a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
+                            qs, 1 + rt * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
+                    bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
+                            kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(false))
+                    acc = muladd(a, bm, acc)
+                end
+                copyto!(ss, 1 + rt * Lava.GEMM_TILE + ct * Lava.GEMM_TILE * BR, BR, acc)
+            end
+            @synchronize
+
+            # Online softmax, one thread per query row: the reduction is over
+            # keys and a row lives entirely in this thread, so no lane talks to
+            # another. `scale` is applied here rather than folded into `qs`,
+            # which keeps `q` bit-exact in fp16 on the way in.
+            if tid < BR
+                mo = ms[1 + tid]
+                mb = -Inf32
+                for ci in 0:(BC - 1)
+                    mb = max(mb, ss[1 + tid + ci * BR] * scale)
+                end
+                mn = max(mo, mb)
+                # A row that has seen nothing finite must not make NaN out of
+                # exp(-Inf - -Inf); it stays at zero weight.
+                cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
+                sm = 0.0f0
+                for ci in 0:(BC - 1)
+                    p = exp(ss[1 + tid + ci * BR] * scale - mn)
+                    ps[1 + ci + tid * BC] = Float16(p)
+                    sm += p
+                end
+                ms[1 + tid] = mn
+                ls[1 + tid] = ls[1 + tid] * cr + sm
+                cs[1 + tid] = cr
+            end
+            @synchronize
+
+            # Refill the staging buffer with V, and — when `O` lives in shared —
+            # apply this block's rescale to it. Both sit between the same pair of
+            # barriers because the score product is the last thing that read
+            # `kvs`, and `pvs` is not touched again until below.
+            if !REGO
+                for r in 0:(div(BR * EP, NT) - 1)
+                    idx = tid + r * NT
+                    lq, _ = Lava.splitidx(idx, Val(BR))
+                    pvs[1 + idx] *= cs[1 + lq]
+                end
+            end
+            for r in 0:(div(BC * EP, NT) - 1)
+                idx = tid + r * NT
+                e, lk = Lava.splitidx(idx, Val(EP))
+                kvs[1 + idx] = e < E ? v[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
+            end
+            @synchronize
+
+            for t in w:NW:(RT * ET - 1)
+                rt = t % RT
+                et = t ÷ RT
+                off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BR
+                # Starting from `O` itself means the accumulate is the tensor
+                # core's own; starting from zero means the registers below do it.
+                acc = REGO ?
+                    zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}) :
+                    Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
+                        pvs, off, BR, Val(false))
+                for ct in 0:(CT - 1)
+                    a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
+                            ps, 1 + rt * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
+                    bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
+                            kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
+                    acc = muladd(a, bm, acc)
+                end
+                copyto!(pvs, off, BR, acc)
+            end
+            @synchronize
+
+            if REGO
+                # `O = O*c + PV` in registers. `pvs` has the same `(BR, EP)`
+                # shape the accumulator stored into, so this is a flat index
+                # with no tile arithmetic.
+                for s in 1:div(BR * EP, NT)
+                    idx = tid + (s - 1) * NT
+                    lq, _ = Lava.splitidx(idx, Val(BR))
+                    acco[s] = acco[s] * cs[1 + lq] + pvs[1 + idx]
+                end
+                @synchronize
+            end
+        end
+
+        # Slots `1 : BR*E/NT` are exactly the ones whose `e` is inside the real
+        # head dimension: `idx = tid + (s-1)*NT` and `NT` divides `BR*E`, so the
+        # padded columns are all in the slots past that and never written out.
+        for s in 1:div(BR * E, NT)
+            idx = tid + (s - 1) * NT
+            lq, e = Lava.splitidx(idx, Val(BR))
+            l = ls[1 + lq]
+            o = REGO ? acco[s] : pvs[1 + idx]
+            out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
+        end
+    end
+end
+
+"""
+    FLASHCM[]
+
+Whether `sdpa` may take the cooperative-matrix fused path.
+
+A `Ref` rather than a constant because it is the only way to measure the two
+paths **inside one session**, which is the only measurement this project trusts.
+"""
+const FLASHCM = Ref(true)
+
+"""
+    FLASHCM_REGO[]
+
+Where `O` lives across key blocks: `true` puts it in registers, `false` in
+shared memory as the value product's accumulator.
+
+**`false`, and that is the opposite of the reference.** `flash_attn_cm1.comp`
+keeps `O` in registers and round-trips each `P·V` tile through shared memory to
+add it. The shared form does twice the shared traffic on paper — a rescale pass
+that reads and writes `BR x EP`, plus an accumulator load on top of the store,
+80 KB a key block against 40 — and loses anyway. See the measurement in
+`FLASHCM_TILINGS`.
+
+Kept as a switch rather than deleted, because the paper argument for registers is
+sound and the reason it loses here is a property of *this* compiler. Interleaved,
+one session, both forms of the same kernel:
+
+    tiling      floats/thread    shared      registers
+    64x32/8w         20          5.032 ms     6.347 ms     <- shipped
+    64x32/8w         20          0.457        0.537
+    32x32/8w         10          7.284        6.696
+    32x32/8w         10          0.567        0.560
+
+**The register form wins at `32x32` and loses at `64x32`, and the crossing point
+is where `BR*EP/NT` goes from 10 floats a thread to 20.** That is register
+pressure, not the traffic argument — the block that halves the shared traffic is
+the one that spills. So this is not "the reference is wrong", it is "the
+reference's `O` fits its register budget and does not fit ours at the block size
+this device wants", and if the block ever shrinks the switch should be flipped
+back.
+"""
+const FLASHCM_REGO = Ref(false)
+
+"""
+    FLASHCM_TILINGS
+
+`(BR, BC, NW)`, fastest first. `NW` is subgroups, so the workgroup is `32*NW`.
+
+Measured on SAM 2's two dominant attention shapes, clock warmed, interleaved,
+against the two-GEMM cooperative-matrix path:
+
+    tiling        4096x4096      256x256
+    coopmat        9.50 ms       0.883 ms     (the path this replaces)
+    64x32/8w       5.09          0.468        <- shipped default
+    32x16/8w       5.87          0.471
+    64x16/8w       5.85          0.499
+    32x32/8w       7.36          0.567
+    64x16/4w       7.34          0.633
+    32x64/2w      24.71          1.717
+
+**Subgroups dominate every other parameter.** The same `64x32` block goes 7.34 ->
+5.09 on four warps against eight, and `32x64` at two warps is the worst thing
+measured — five times the best. That is the same result the GEMM tuning reached
+from the other direction, where widening the warp *grid* won and widening the
+warp *tile* lost: what this device wants is warps in flight.
+
+`64x64` at any width wants 66 KB and is refused; `64x32` asks 48 896 bytes of the
+48 KB budget, with 256 to spare.
+"""
+const FLASHCM_TILINGS = [(64, 32, 8), (32, 32, 8), (64, 16, 8), (32, 16, 8),
+                         (32, 32, 4), (16, 32, 4)]
+
+"""
+    flashcm_tiling(E, Lq, Lk) -> (BR, BC, NW) | nothing
+
+The first tiling in [`FLASHCM_TILINGS`](@ref) that divides this shape and fits.
+`nothing` means the caller keeps whatever path it would otherwise have used.
+"""
+function flashcm_tiling(E::Int, Lq::Int, Lk::Int)
+    EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
+    for (BR, BC, NW) in FLASHCM_TILINGS
+        NT = NW * 32
+        NT <= Lava.WORKGROUP_LIMIT[] || continue
+        Lq % BR == 0 && Lk % BC == 0 || continue
+        flashcmfits(EP, BR, BC, NT) && (BR * E) % NT == 0 && return (BR, BC, NW)
+    end
+    nothing
+end
+
+"""
+    flashcm_applicable(q, k, v, bias, Lq, Lk) -> Bool
+
+Whether [`sdpa`](@ref) may fuse this call.
+
+`bias` must be absent for the same reason the two-GEMM path refuses it: the mask
+would have to be added between the score product and the softmax, and here that
+is inside a cooperative-matrix accumulator.
+"""
+function flashcm_applicable(q, k, v, bias, Lq::Int, Lk::Int)
+    FLASHCM[] || return false
+    bias === nothing || return false
+    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
+    Lava.coopmat_gemm_available() || return false
+    flashcm_tiling(size(q, 1), Lq, Lk) !== nothing
+end
+
+"""
+    sdpaflashcm!(out, q, k, v, scale; backend, BR, BC, NW) -> Bool
+
+Run the cooperative-matrix fused kernel, or return `false` when the shape or the
+device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
+"""
+function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
+                      BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[])
+    E, Lq, H, B = size(q)
+    Lk = size(k, 2)
+    EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
+    NT = NW * 32
+    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
+    Lava.coopmat_gemm_available() || return false
+    (Lq % BR == 0 && Lk % BC == 0 && flashcmfits(EP, BR, BC, NT)) || return false
+    # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
+    # because it does not see the unpadded head dimension.
+    (BR * E) % NT == 0 || return false
+    attn_flash_cm!(backend, NT)(out, q, k, v, Float32(scale),
+                                Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Val(rego),
+                                Int32(Lk);
+                                ndrange = (NT * div(Lq, BR), H, B))
     return true
 end

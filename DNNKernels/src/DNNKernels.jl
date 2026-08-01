@@ -43,7 +43,7 @@ that is deliberate.
 # Lava's emitter that alter the SPIR-V of *every* kernel — `NonPrivatePointer` on
 # workgroup accesses, and plain `Workgroup` variables where no type needs an
 # explicit layout.
-const KERNELS_VERSION = "2"
+const KERNELS_VERSION = "3"
 
 include("assets.jl")
 include("safetensors.jl")

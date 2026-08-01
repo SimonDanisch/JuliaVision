@@ -717,6 +717,26 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
     Lk = size(k, 2)
     T = accum(eltype(q))
 
+    # The fused kernel first: it computes the same thing without ever writing the
+    # score matrix, which is what both other paths spend most of their time on.
+    # `sdpa_coopmat!`'s own stage breakdown on the global blocks was softmax 5.1,
+    # second GEMM 4.0, first GEMM 2.2 — the two passes over `Lq x Lk` cost more
+    # than the arithmetic — and on the windowed blocks the padding kernels alone
+    # were half the op.
+    if flashcm_applicable(q, k, v, bias, Lq, Lk)
+        out === nothing &&
+            (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
+        # Densified, unlike the two-GEMM path below, and for the opposite reason.
+        # Flash re-reads the whole of `k` and `v` once per query block — 64 times
+        # over for a 4096-query global block — so a `PermutedDimsArray`'s four
+        # integer divisions per element get paid 64 times instead of once.
+        BR, BC, NW = flashcm_tiling(E, Lq, Lk)
+        qd = densify(q, ws, backend)
+        kd = densify(k, ws, backend)
+        vd = densify(v, ws, backend)
+        sdpaflashcm!(out, qd, kd, vd, scale; backend, BR, BC, NW) && return out
+    end
+
     if coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk)
         out === nothing &&
             (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))

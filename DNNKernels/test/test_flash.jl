@@ -95,4 +95,79 @@ end
         @test !DNNKernels.sdpaflash!(o, q, k, v, 0.1f0; backend = back)
         q = k = v = o = nothing; GC.gc()
     end
+
+    # ── the cooperative-matrix form, which IS on the `sdpa` path ─────────────
+    if !Lava.coopmat_gemm_available()
+        @info "no cooperative-matrix support on this device; skipping the fused path"
+    else
+        @testset "cooperative-matrix flash: exact at every shipped tiling" begin
+            # fp16 operands, because that is what the path requires and what the
+            # encoder runs — the tolerance below is the format's, not the
+            # algorithm's. Varied inputs for the reason recorded above: the
+            # `OpUDiv` failure this kernel's staging indices would otherwise hit
+            # is EXACT for constant inputs, so constants prove nothing.
+            E, L, H, B = 72, 128, 2, 2
+            qh = randn(Float32,E,L,H,B) .* 0.2f0
+            kh = randn(Float32,E,L,H,B) .* 0.2f0
+            vh = randn(Float32,E,L,H,B) .* 0.2f0
+            f16(x) = DNNKernels.toback(back, Float16.(x))
+            q, k, v = f16(qh), f16(kh), f16(vh)
+            scale = Float32(1/sqrt(E))
+            ref = attnref(Float32.(Float16.(qh)), Float32.(Float16.(kh)),
+                          Float32.(Float16.(vh)), scale)
+            # Both places `O` can live, because `FLASHCM_REGO` is a measured
+            # choice and the losing branch still has to be right — a switch whose
+            # other side is broken is not a switch.
+            for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS, rego in (false, true)
+                NW * 32 <= Lava.WORKGROUP_LIMIT[] || continue
+                L % BR == 0 && L % BC == 0 || continue
+                o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
+                @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                                              BR, BC, NW, rego)
+                KA.synchronize(back)
+                got = Array(o)
+                @test maximum(abs, got) > 1e-3          # it wrote something…
+                @test maximum(abs, got .- ref) / maximum(abs, ref) < 5e-3
+                o = nothing
+            end
+            q = k = v = nothing; GC.gc()
+        end
+
+        @testset "cooperative-matrix flash: the tiling chooser" begin
+            # 64 x 64 wants 66 KB and must never be offered.
+            @test !DNNKernels.flashcmfits(80, 64, 64, 256)
+            @test DNNKernels.flashcmfits(80, 64, 32, 256)
+            # The shipped default, on the encoder's two dominant shapes.
+            @test DNNKernels.flashcm_tiling(72, 4096, 4096) == (64, 32, 8)
+            @test DNNKernels.flashcm_tiling(72, 256, 256) == (64, 32, 8)
+            # A query count no tiling divides falls back to the other paths.
+            @test DNNKernels.flashcm_tiling(72, 4, 16) === nothing
+            # Every shipped tiling must satisfy the write-out loop's own
+            # divisibility, which `flashcmfits` cannot see (it takes the padded
+            # head dimension, and the write-out uses the real one).
+            for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS
+                @test (BR * 72) % (NW * 32) == 0
+            end
+        end
+
+        @testset "cooperative-matrix flash agrees with the path it replaces" begin
+            # Same call through `sdpa`, switch flipped: this is what guards the
+            # routing rather than the kernel.
+            E, L, H, B = 72, 256, 2, 2
+            f16r(s) = DNNKernels.toback(back, Float16.(randn(Float32,E,L,H,B) .* 0.2f0))
+            q, k, v = f16r(1), f16r(2), f16r(3)
+            ws = DNNKernels.Workspace(back)
+            scale = Float32(1/sqrt(E))
+            outs = map((true, false)) do on
+                DNNKernels.FLASHCM[] = on
+                DNNKernels.reset!(ws)
+                o = DNNKernels.sdpa(q, k, v, nothing, scale; backend = back, ws)
+                KA.synchronize(back)
+                Array(o)
+            end
+            DNNKernels.FLASHCM[] = true
+            @test maximum(abs, outs[1] .- outs[2]) / maximum(abs, outs[2]) < 5e-3
+            q = k = v = nothing; GC.gc()
+        end
+    end
 end
