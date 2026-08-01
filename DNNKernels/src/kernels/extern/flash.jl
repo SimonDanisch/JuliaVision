@@ -68,7 +68,15 @@ Kept because the analysis points somewhere specific, and so does what blocks it:
 
 **The conclusion, having worked the numbers: this shape cannot win here.**
 Occupancy is `NT * floor(48 KB / shared)`, and no valid tiling beats the 256
-threads per SM the three-pass kernel gets for free:
+threads per SM the three-pass kernel gets for free.
+
+**The `48 KB` in that formula is wrong**, and the table below inherits it. 48 KB
+is `maxComputeSharedMemorySize`, Vulkan's per-*workgroup* limit; Ada's SM has
+about 100 KB to hand out, so "44.8 KB of 48 KB, therefore one workgroup" was
+never the right arithmetic — two fit. It does not rescue this kernel, whose
+problem is doing the products by hand at 0.8 TFLOP/s, but every "wg/SM" figure
+below should be read as a lower bound rather than a count. The cooperative-matrix
+kernel's occupancy was measured rather than derived: see `FLASHCM_TILINGS`.
 
     tiling                     shared     wg/SM   threads/SM
     BQ=64 BK=32 NT=256 fp32     44.8 KB     1        256      (current)
@@ -601,8 +609,7 @@ that reads and writes `BR x EP`, plus an accumulator load on top of the store,
 `FLASHCM_TILINGS`.
 
 Kept as a switch rather than deleted, because the paper argument for registers is
-sound and the reason it loses here is a property of *this* compiler. Interleaved,
-one session, both forms of the same kernel:
+sound. Interleaved, one session, both forms of the same kernel:
 
     tiling      floats/thread    shared      registers
     64x32/8w         20          5.032 ms     6.347 ms     <- shipped
@@ -610,13 +617,25 @@ one session, both forms of the same kernel:
     32x32/8w         10          7.284        6.696
     32x32/8w         10          0.567        0.560
 
-**The register form wins at `32x32` and loses at `64x32`, and the crossing point
-is where `BR*EP/NT` goes from 10 floats a thread to 20.** That is register
-pressure, not the traffic argument — the block that halves the shared traffic is
-the one that spills. So this is not "the reference is wrong", it is "the
-reference's `O` fits its register budget and does not fit ours at the block size
-this device wants", and if the block ever shrinks the switch should be flipped
-back.
+**The register form wins at `32x32` and loses at `64x32`, crossing where
+`BR*EP/NT` goes from 10 floats a thread to 20.** The obvious reading is register
+pressure, and the driver says it is not:
+`VK_KHR_pipeline_executable_properties` reports **128 registers for the shared
+form and 122 for the register form, stack size 0 in both** — the register form
+uses *fewer* registers and neither spills.
+
+What it actually costs is the pass that replaces the accumulator. Keeping `O` in
+shared makes the update two cooperative-matrix memory ops, which move a 16x16
+tile in the hardware's own fragment layout. Keeping it in registers replaces them
+with a scalar sweep over `BR*EP` — a `splitidx` per element, per key block, to
+recover `(row, e)` from the flat index — plus a barrier to publish `P·V` first.
+That is `BR*EP/NT` index decompositions a thread a block, which is exactly the
+quantity the crossing point is measured in.
+
+So the reference is not wrong; it is written for a compiler where `O`'s home is
+plain registers indexed by an unrolled constant, not one where getting at the
+same value costs a division. If the sweep ever becomes free the switch should be
+flipped back.
 """
 const FLASHCM_REGO = Ref(false)
 
@@ -667,6 +686,18 @@ warp *tile* lost: what this device wants is warps in flight.
 
 `64x64` at any width wants 66 KB and is refused; `64x32` asks 48 896 bytes of the
 48 KB budget, with 256 to spare.
+
+What the driver reports for the shipped tiling
+(`VK_KHR_pipeline_executable_properties`):
+
+    Register Count 128    Shared Memory Size 48 900    Stack Size 0
+
+Nothing spills, and **two workgroups fit per SM, capped by both resources at
+once**: 256 threads x 128 registers is 32 768 of the SM's 65 536, and 48 900
+bytes is two of Ada's ~100 KB of shared. 512 of 1 536 resident threads. So
+shrinking the tile alone buys no occupancy — registers cap it at two
+independently, and a third workgroup needs both under 34 KB and under 85
+registers a thread.
 """
 const FLASHCM_TILINGS = [(64, 32, 8), (32, 32, 8), (64, 16, 8), (32, 16, 8),
                          (32, 32, 4), (16, 32, 4)]
