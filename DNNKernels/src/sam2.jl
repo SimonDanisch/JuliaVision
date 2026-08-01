@@ -129,7 +129,26 @@ function decode(s::SAM2, feats, point, label)
         s.cacheval[] = a
         a
     end
-    call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label; dims=s.dims)
+    # Padded attention tiles are the decoder's business, not the encoder's.
+    # `FLASHCM_CLAMP` lets an attention whose extents do not divide the tile take
+    # the cooperative-matrix path anyway, padded and masked. The decoder's are 23
+    # tokens and want exactly that; the encoder has six `Lq = 16` calls that
+    # would go along at 50% waste, and they cost **+2.12 ms of encode** for
+    # nothing. Measured interleaved in one process on the autocast export, which is
+    # the only form that means anything for a 4 ms call on a shared card: decode
+    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75. Scoped here, both.
+    #
+    # A `Ref` set around the call rather than a parameter because
+    # `flashcm_tiling` reads it six frames down, inside `runop!`; threading a
+    # keyword through `execute!` for one graph's benefit would be worse. Restored
+    # in a `finally`, so a decoder error cannot leave it on for the next encode.
+    old = FLASHCM_CLAMP[]
+    FLASHCM_CLAMP[] = true
+    try
+        call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label; dims=s.dims)
+    finally
+        FLASHCM_CLAMP[] = old
+    end
 end
 
 """
