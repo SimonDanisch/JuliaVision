@@ -119,6 +119,11 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     # this pass can then permute.
     graphs, host, nperm = hoistpermutes(graphs, host)
     graphs, host, nconst = hoistconstants(graphs, host)
+    # The other side of `hoistcasts`: a cast that narrows something the graph
+    # just computed, rather than a constant. After the weight passes, because
+    # this one only ever looks at computed values and there is no point offering
+    # it buffers the passes above are about to turn into weights.
+    graphs, noutcast = foldoutcasts(graphs)
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes
@@ -129,7 +134,7 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     live = livekeys(graphs)
     dropped = length(host) - count(k -> k in live, keys(host))
     host = Dict{String,Any}(k => v for (k, v) in host if k in live)
-    @debug "DNNKernels: folded $nfold batch-norms and $nact relus, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops and $dropped orphaned weights"
+    @debug "DNNKernels: folded $nfold batch-norms, $nact relus and $noutcast output casts, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops and $dropped orphaned weights"
     weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in host)
     Model(graphs, weights, backend, memevery, memframes, topk)
 end
