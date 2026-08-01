@@ -1,10 +1,12 @@
 """
 Fused attention: one kernel, no score matrix.
 
-**Two kernels live here.** `attn_flash_cm!` at the bottom is the one `sdpa` runs:
-it does both products on the tensor cores and is 1.9x the two-GEMM path on the
-encoder's dominant shapes. `attn_flash!` immediately below is the scalar form,
-kept and still tested but not routed to.
+**Two kernels live here.** `attn_flash!` comes first and is the scalar form: kept
+and still tested, never routed to. `attn_flash_cm!` follows it and is the one
+`sdpa` runs — both products on the tensor cores, and **2.2x the two-GEMM path**
+on the encoder's global blocks (9.50 -> 4.39 ms), 2.0x on the windowed ones
+(0.883 -> 0.450). Its switches, tiling table and launcher are below it, each
+carrying the measurement that set it.
 
 Everything from here to `attn_flash!` is about the scalar form. Its conclusion —
 "this shape cannot win here" — is correct **for that arrangement** and was read
@@ -317,9 +319,21 @@ end
 # shared instead and load it *as the accumulator's initial value*, so the add is
 # the tensor core's own accumulate and the round trip disappears.
 
-"""Bytes of `@localmem` the cooperative-matrix kernel needs."""
+"""
+Bytes of `@localmem` the cooperative-matrix kernel needs.
+
+Term by term, so a new buffer cannot be added to the kernel without this
+noticing: `qs` + `kvs` (fp16 staging) + `ss` (fp32 scores) + `ps` (fp16 weights)
++ `pvs` (fp32 `O`) + `ms`/`ls`/`cs` + the two scalar flags, `grew` and `redo`.
+
+Those last eight bytes were missed when the flags were added, which left the
+budget check eight bytes optimistic — harmless at the shipped tiling with 248 to
+spare, and exactly the kind of drift that makes a tiling launch and write nothing
+at the margin.
+"""
 @inline flashcmshared(EP, BR, BC) =
-    2 * EP * BR + 2 * EP * BC + 4 * BR * BC + 2 * BC * BR + 4 * BR * EP + 12 * BR
+    2 * EP * BR + 2 * EP * BC + 4 * BR * BC + 2 * BC * BR + 4 * BR * EP +
+    12 * BR + 8
 
 """
 Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run.
@@ -924,8 +938,8 @@ measured — five times the best. That is the same result the GEMM tuning reache
 from the other direction, where widening the warp *grid* won and widening the
 warp *tile* lost: what this device wants is warps in flight.
 
-`64x64` at any width wants 66 KB and is refused; `64x32` asks 48 896 bytes of the
-48 KB budget, with 256 to spare.
+`64x64` at any width wants 66 KB and is refused; `64x32` asks 48 904 bytes of the
+48 KB budget, with 248 to spare.
 
 What the driver reports for the shipped tiling
 (`VK_KHR_pipeline_executable_properties`):
