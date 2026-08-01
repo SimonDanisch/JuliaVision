@@ -118,12 +118,13 @@ end
             # Both places `O` can live, because `FLASHCM_REGO` is a measured
             # choice and the losing branch still has to be right — a switch whose
             # other side is broken is not a switch.
-            for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS, rego in (false, true)
+            for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS, rego in (false, true),
+                lazyrescale in (false, true)
                 NW * 32 <= Lava.WORKGROUP_LIMIT[] || continue
                 L % BR == 0 && L % BC == 0 || continue
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
                 @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
-                                              BR, BC, NW, rego)
+                                              BR, BC, NW, rego, lazyrescale)
                 KA.synchronize(back)
                 got = Array(o)
                 @test maximum(abs, got) > 1e-3          # it wrote something…
@@ -148,6 +149,25 @@ end
             for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS
                 @test (BR * 72) % (NW * 32) == 0
             end
+        end
+
+        @testset "skipping the rescale is exact, not approximate" begin
+            # `FLASHCM_LAZYRESCALE` skips `O *= exp(m_old - m_new)` on blocks
+            # where no row's max moved, i.e. where the factor is exactly one. If
+            # that reasoning is ever wrong the two answers differ, so they are
+            # compared to each other rather than to a tolerance.
+            E, L, H, B = 72, 256, 2, 2
+            f16r(s) = DNNKernels.toback(back, Float16.(randn(Float32,E,L,H,B) .* 0.2f0))
+            q, k, v = f16r(1), f16r(2), f16r(3)
+            scale = Float32(1/sqrt(E))
+            outs = map((false, true)) do lazy
+                o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
+                DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back, lazyrescale = lazy)
+                KA.synchronize(back)
+                Array(o)
+            end
+            @test outs[1] == outs[2]
+            q = k = v = nothing; GC.gc()
         end
 
         @testset "cooperative-matrix flash agrees with the path it replaces" begin

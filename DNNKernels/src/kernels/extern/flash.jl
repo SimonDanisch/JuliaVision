@@ -345,7 +345,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 @kernel cpu=false unsafe_indices=true function attn_flash_cm!(
         out, @Const(q), @Const(k), @Const(v), scale,
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO},
-        Lk::Int32) where {BR,BC,E,EP,NW,REGO}
+        Lk::Int32, alwaysrescale::Int32) where {BR,BC,E,EP,NW,REGO}
     NT = NW * 32
     qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
     kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
@@ -357,6 +357,9 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
     ms  = @localmem Float32 (BR,)
     ls  = @localmem Float32 (BR,)
     cs  = @localmem Float32 (BR,)
+    # Did any row's running max move this block? One word, and it decides
+    # whether `O` has to be rescaled at all — see the loop below.
+    grew = @localmem Float32 (1,)
 
     # `O` in registers: `BR*EP/NT` floats per thread, 20 for the shipped tiling.
     # Written out as `Float32` rather than through a local `T`, because Lava
@@ -401,6 +404,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 
         for kb in 0:(div(Lk, BC) - 1)
             k0 = kb * BC
+            tid == 0 && (grew[1] = Float32(alwaysrescale))
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
@@ -448,6 +452,11 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 ms[1 + tid] = mn
                 ls[1 + tid] = ls[1 + tid] * cr + sm
                 cs[1 + tid] = cr
+                # `cr == 1` exactly when this block's max did not beat the
+                # running one, and then rescaling `O` multiplies it by one. The
+                # write races with the other rows and that is fine: every thread
+                # that writes writes the same value.
+                cr == 1.0f0 || (grew[1] = 1.0f0)
             end
             @synchronize
 
@@ -455,7 +464,12 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             # apply this block's rescale to it. Both sit between the same pair of
             # barriers because the score product is the last thing that read
             # `kvs`, and `pvs` is not touched again until below.
-            if !REGO
+            # **Only when some row's max actually moved.** This pass reads and
+            # writes the whole of `O` — 40 KB of the ~110 KB of shared traffic a
+            # key block costs — and after the first few blocks the running max
+            # has usually settled, so most blocks multiply `O` by one from end to
+            # end. The flag makes that case free.
+            if !REGO && grew[1] != 0.0f0
                 for r in 0:(div(BR * EP, NT) - 1)
                     idx = tid + r * NT
                     lq, _ = Lava.splitidx(idx, Val(BR))
@@ -591,6 +605,28 @@ back.
 const FLASHCM_REGO = Ref(false)
 
 """
+    FLASHCM_LAZYRESCALE[]
+
+Skip the `O *= exp(m_old - m_new)` pass on key blocks where no row's running
+maximum moved.
+
+The online softmax rescales the accumulator whenever a block contains a larger
+score than anything seen so far. That is a read and a write of the whole of `O`
+— 40 KB of the ~110 KB of shared traffic a key block costs, and `O` is the
+single largest consumer of it. But the rescale factor is `exp(m_old - m_new)`,
+which is **exactly one** whenever the block's max did not beat the running one,
+and after the first few blocks the max has usually settled: the pass then
+multiplies `O` by one from end to end.
+
+One shared word per workgroup records whether any row grew. The threads racing
+to set it all write the same value, and the branch is uniform because every
+thread reads it after the same barrier.
+
+Exact, not approximate — the skipped work is a multiplication by one.
+"""
+const FLASHCM_LAZYRESCALE = Ref(true)
+
+"""
     FLASHCM_TILINGS
 
 `(BR, BC, NW)`, fastest first. `NW` is subgroups, so the workgroup is `32*NW`.
@@ -660,7 +696,8 @@ Run the cooperative-matrix fused kernel, or return `false` when the shape or the
 device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
 """
 function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
-                      BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[])
+                      BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
+                      lazyrescale::Bool = FLASHCM_LAZYRESCALE[])
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
@@ -673,7 +710,7 @@ function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_back
     (BR * E) % NT == 0 || return false
     attn_flash_cm!(backend, NT)(out, q, k, v, Float32(scale),
                                 Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Val(rego),
-                                Int32(Lk);
+                                Int32(Lk), Int32(lazyrescale ? 0 : 1);
                                 ndrange = (NT * div(Lq, BR), H, B))
     return true
 end
