@@ -134,8 +134,19 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     live = livekeys(graphs)
     dropped = length(host) - count(k -> k in live, keys(host))
     host = Dict{String,Any}(k => v for (k, v) in host if k in live)
-    @debug "DNNKernels: folded $nfold batch-norms, $nact relus and $noutcast output casts, hoisted $nhoist casts, $nperm permutes and $nconst constants, dropped $ndead dead ops and $dropped orphaned weights"
     weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in host)
+    # The one pass that has to *run* the ops it folds, so it comes after the
+    # upload and works on the device weights: constant subgraphs, not just the
+    # nullary constants `hoistconstants` took above. Then the same sweep again,
+    # because folding a subgraph orphans whatever only it read.
+    graphs, weights, nsub = hoistconstants(graphs, weights, backend)
+    if nsub > 0
+        graphs, nsubdead = dropdead(graphs)
+        live2 = livekeys(graphs)
+        weights = Dict{String,Any}(k => v for (k, v) in weights if k in live2)
+        ndead += nsubdead
+    end
+    @debug "DNNKernels: folded $nfold batch-norms, $nact relus and $noutcast output casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, dropped $ndead dead ops and $dropped orphaned weights"
     Model(graphs, weights, backend, memevery, memframes, topk)
 end
 

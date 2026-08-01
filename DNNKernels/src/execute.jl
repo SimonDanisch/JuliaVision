@@ -624,7 +624,8 @@ end
         return r
     end
     # `isempty` first: the string compare is not free 640 times a step.
-    if !isempty(OPDOUBLE[]) && op.aten == OPDOUBLE[] && opdoublewanted(ctx, op)
+    d = OPDOUBLE[]
+    if !isempty(d) && (d == "*" || op.aten == d) && opdoublewanted(ctx, op)
         runop!(ctx, op, op.tag)
     end
     runop!(ctx, op, op.tag)
@@ -640,5 +641,9 @@ a time and buries a 640-op step under 240 ms of its own barriers, and per-
 dispatch timestamps serialise and inflate just as badly. Running an idempotent
 op a second time perturbs nothing — the result is identical — and the difference
 is measured on an otherwise untouched step.
+
+`"*"` matches every aten, which is only useful together with `OPDOUBLEFILTER`:
+it costs a *set* of ops spanning several atens in one measurement instead of one
+run per aten, so the answer carries one run's error rather than the sum of eight.
 """
 const OPDOUBLE = Ref{String}("")

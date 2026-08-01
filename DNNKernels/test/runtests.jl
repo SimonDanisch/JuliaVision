@@ -79,5 +79,7 @@ end
 include(joinpath(@__DIR__, "test_plan.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
+# The one rewrite that runs the ops it folds — here on the CPU backend.
+include(joinpath(@__DIR__, "test_constfold.jl"))
 # The non-overlapping transposed convolution against the gather it replaces.
 include(joinpath(@__DIR__, "test_convtranspose_gemm.jl"))
