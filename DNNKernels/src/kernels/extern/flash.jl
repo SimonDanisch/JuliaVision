@@ -740,16 +740,25 @@ const FLASH_EXP_HEADROOM = 10.0f0
 `(BR, BC, NW)`, fastest first. `NW` is subgroups, so the workgroup is `32*NW`.
 
 Measured on SAM 2's two dominant attention shapes, clock warmed, interleaved,
-against the two-GEMM cooperative-matrix path:
+against the two-GEMM cooperative-matrix path. **Re-swept after the lazy rescale
+and the one-pass softmax**, because a measured constant is invalidated by the
+thing it was measured against and this project has already been caught by that
+once (`COOPMAT_MINL`, 512 -> 256, when the GEMM under it got 1.68x faster):
 
     tiling        4096x4096      256x256
     coopmat        9.50 ms       0.883 ms     (the path this replaces)
-    64x32/8w       5.09          0.468        <- shipped default
-    32x16/8w       5.87          0.471
-    64x16/8w       5.85          0.499
-    32x32/8w       7.36          0.567
-    64x16/4w       7.34          0.633
-    32x64/2w      24.71          1.717
+    64x32/8w       4.39          0.450        <- shipped default
+    64x16/8w       5.49          0.504
+    32x32/8w       6.21          0.557
+    32x16/8w       6.38          0.537
+    64x16/4w       6.47          0.572
+    32x64/8w       9.92          0.808
+    32x32/4w      10.77          0.815
+
+The order shuffled below the top — `32x32/8w` and `32x16/8w` swapped on the
+global blocks — but the default is unchanged and its lead widened from 15% to
+25%, because both optimisations scale with `BR` and `64` is the largest that
+fits.
 
 **Subgroups dominate every other parameter.** The same `64x32` block goes 7.34 ->
 5.09 on four warps against eight, and `32x64` at two warps is the worst thing
