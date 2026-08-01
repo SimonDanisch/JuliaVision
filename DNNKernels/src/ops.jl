@@ -603,7 +603,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
         ox = convtransposesize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1], outpad[1])
         oy = convtransposesize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2], outpad[2])
         out = alloc(ctx, eltype(x), ox, oy, size(w, 3), size(x, 4))
-        convolutiontranspose!(out, x, w, bias, stride, pad, dil, outpad, groups)
+        convolutiontranspose!(out, x, w, bias, stride, pad, dil, outpad, groups; ws = ctx.ws)
         act === :relu && (out .= max.(out, zero(eltype(out))))
         return out
     end

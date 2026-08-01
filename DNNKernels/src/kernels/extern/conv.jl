@@ -130,6 +130,52 @@ convolution's `convsize` did to that axis.
 convtransposesize(n, k, s, p, d, op) = (n - 1) * s - 2p + d * (k - 1) + op + 1
 
 """
+    shufflecase(w, stride, padding, dilation, outpad, groups) -> Bool
+
+Whether a transposed convolution is the **non-overlapping** one, where the
+receptive fields of neighbouring output pixels do not intersect: stride equal to
+the kernel, no padding, no dilation, one group.
+
+That case is not really a convolution. Take the gather in `convtranspose2d`: with
+`P = 0`, `D = 1` and `S = K`, the stride-divisibility test `tx % SX == 0` is
+satisfied by exactly one `kx` for each output column, namely `kx = dx + 1` where
+`dx = (ox - 1) % S`. One input pixel, one weight slice, per output pixel:
+
+    out[co, S*i+dx, S*j+dy] = Σ_ci  x[ci, i, j] * W[ci, co, dx, dy]
+
+which is a GEMM over `(H*W) x C_in x (C_out*S*S)` followed by a depth-to-space
+interleave — the pixel-shuffle identity. SAM 2's mask decoder upsamples with two
+of these, and they were **3.73 ms of an 8.44 ms decode**, 44%, because the
+gather kernel below computes each output element from scratch with no reuse.
+"""
+const CONVT_GEMM = Ref(true)
+
+@inline shufflecase(w, stride, padding, dilation, outpad, groups) =
+    CONVT_GEMM[] &&
+    groups == 1 && length(stride) == 2 &&
+    all(==(1), dilation) && all(==(0), padding) && all(==(0), outpad) &&
+    size(w, 1) == stride[1] && size(w, 2) == stride[2]
+
+"""
+Scatter the GEMM's `(H*W, S*S*C_out)` result into `(S*H, S*W, C_out)`.
+
+Reads are the transposed convolution's own output order, so consecutive threads
+write consecutive addresses; the gather side is strided but it is a read.
+"""
+@inline function shuffleout(I, P, bias, ::Val{SX}, ::Val{SY}, W::Int32) where {SX,SY}
+    ox, oy, co, n = I
+    @inbounds begin
+        # `splitidx` returns (remainder, quotient) in that order — the sub-pixel
+        # offset first, the input coordinate second.
+        dx, i = Lava.splitidx(ox - 1, Val(SX))
+        dy, j = Lava.splitidx(oy - 1, Val(SY))
+        v = P[1 + i + j * Int(W), 1 + dx + SX * (dy + SY * (co - 1))]
+        # `launch!` is a map: return the element, it does the store.
+        bias === nothing ? v : v + bias[co]
+    end
+end
+
+"""
     convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups)
 
 `aten::convolution` with `transposed = true` — SAM 2's mask decoder upsamples
@@ -140,9 +186,27 @@ arithmetic differs from the ordinary grouped case (the weight's second axis is
 `C_out ÷ groups`), and nothing here exercises it, so it would be untested code
 that silently returns a picture.
 """
-function convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups)
+function convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups;
+                               ws = nothing)
     groups == 1 || error("grouped transposed convolution (groups = $groups) is not implemented")
     all(==(0), outpad) || error("transposed convolution with output_padding = $outpad is not implemented")
+    # The non-overlapping case is a GEMM; everything else is the gather below.
+    # `size(x, 4) == 1` because the flatten fuses `W` and `H`, which are only
+    # adjacent in memory within one batch element.
+    if ws !== nothing && size(x, 4) == 1 && shufflecase(w, stride, padding, dilation, outpad, groups)
+        Wi, Hi, Ci, _ = size(x)
+        KX, KY, Co, _ = size(w)
+        backend = KernelAbstractions.get_backend(x)
+        xm = reshape(x, Wi * Hi, Ci)
+        # `(ci, dx, dy, co)` flattens column-major to the column index the
+        # shuffle above reads. The permute is of a *weight*, so it belongs at
+        # load time — `hoistpermutes` territory — and is done per call for now.
+        wm = reshape(permutedims(w, (4, 1, 2, 3)), Ci, KX * KY * Co)
+        P = scratch!(ws, backend, eltype(out), Wi * Hi, KX * KY * Co)
+        matmul!(P, xm, wm, nothing; ws)
+        launch!(shuffleout, out, P, bias, Val(stride[1]), Val(stride[2]), Int32(Wi))
+        return out
+    end
     launch!(convtranspose2d, out, x, w, bias,
             Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
             Val(dilation[1]), Val(dilation[2]))
