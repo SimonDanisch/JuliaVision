@@ -141,13 +141,62 @@ end
             # The shipped default, on the encoder's two dominant shapes.
             @test DNNKernels.flashcm_tiling(72, 4096, 4096) == (64, 32, 8)
             @test DNNKernels.flashcm_tiling(72, 256, 256) == (64, 32, 8)
-            # A query count no tiling divides falls back to the other paths.
+            # A query count no tiling divides is taken clamped — but only when
+            # the padding earns its place. `Lq = 4` would be 94% waste at any
+            # tiling, so it still falls back; `Lq = 23` is taken at `BR = 32`
+            # (72% occupied) rather than `BR = 64` (36%).
             @test DNNKernels.flashcm_tiling(72, 4, 16) === nothing
+            # `FLASHCM_CLAMP` ships off, so a non-dividing extent is refused
+            # until it is turned on with the autocast decoder.
+            @test DNNKernels.flashcm_tiling(16, 23, 4096) === nothing
+            let old = DNNKernels.FLASHCM_CLAMP[]
+                try
+                    DNNKernels.FLASHCM_CLAMP[] = true
+                    @test DNNKernels.flashcm_tiling(16, 23, 4096)[1] == 32
+                    @test DNNKernels.flashcm_tiling(16, 23, 23) == (32, 32, 8)
+                    # …and padding still has to earn its place: 4 queries is
+                    # 94% waste at any tiling.
+                    @test DNNKernels.flashcm_tiling(72, 4, 16) === nothing
+                finally
+                    DNNKernels.FLASHCM_CLAMP[] = old
+                end
+            end
             # Every shipped tiling must satisfy the write-out loop's own
             # divisibility, which `flashcmfits` cannot see (it takes the padded
             # head dimension, and the write-out uses the real one).
             for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS
                 @test (BR * 72) % (NW * 32) == 0
+            end
+        end
+
+        @testset "clamped: extents that do not divide the tile" begin
+            # The decoder's shapes, which are why CLAMP exists: every one has a
+            # 23 in it. Includes Lk = 23 < BC, where the key-block count has to
+            # be `cld` — `div` gives ZERO blocks and the loop never runs, which
+            # is a silently wrong answer rather than a crash.
+            old = DNNKernels.FLASHCM_CLAMP[]
+            try
+                DNNKernels.FLASHCM_CLAMP[] = true
+                for (E, Lq, Lk, H, B) in ((16, 23, 4096, 8, 1), (32, 23, 23, 8, 1),
+                                          (16, 4096, 23, 8, 1), (16, 23, 17, 4, 1))
+                    f16r(s, L) = DNNKernels.toback(back,
+                                    Float16.(randn(Float32, E, L, H, B) .* 0.2f0))
+                    q, k, v = f16r(1, Lq), f16r(2, Lk), f16r(3, Lk)
+                    scale = Float32(1/sqrt(E))
+                    t = DNNKernels.flashcm_tiling(E, Lq, Lk)
+                    @test t !== nothing
+                    o = KA.allocate(back, Float32, E, Lq, H, B); fill!(o, 0f0)
+                    @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                                                  BR = t[1], BC = t[2], NW = t[3])
+                    KA.synchronize(back)
+                    got = Array(o)
+                    ref = attnref(Float32.(Array(q)), Float32.(Array(k)), Float32.(Array(v)), scale)
+                    @test maximum(abs, got) > 1e-3
+                    @test maximum(abs, got .- ref) / maximum(abs, ref) < 5e-3
+                    q = k = v = o = nothing; GC.gc()
+                end
+            finally
+                DNNKernels.FLASHCM_CLAMP[] = old
             end
         end
 

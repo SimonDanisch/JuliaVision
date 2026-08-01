@@ -368,7 +368,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 @kernel cpu=false unsafe_indices=true function attn_flash_cm!(
         out, @Const(q), @Const(k), @Const(v), scale,
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
-        Lk::Int32, alwaysrescale::Int32, onepass::Int32) where {BR,BC,E,EP,NW,REGO,HELD}
+        ::Val{CLAMP}, Lq::Int32, Lk::Int32, alwaysrescale::Int32,
+        onepass::Int32) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP}
     NT = NW * 32
     qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
     kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
@@ -412,7 +413,13 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         for r in 0:(div(BR * EP, NT) - 1)
             idx = tid + r * NT
             e, lq = Lava.splitidx(idx, Val(EP))
-            qs[1 + idx] = e < E ? q[1 + e, 1 + q0 + lq, h, b] : zero(Float16)
+            # `CLAMP` is what lets a sequence that does not divide the tile run at
+            # all: the rows past its end are staged as zero and masked out of the
+            # softmax, and never written back. SAM 2's *decoder* is the case —
+            # every one of its attentions has a 23 in it, the mask prompt's token
+            # count, and 23 does not tile to 16.
+            inq = !CLAMP || q0 + lq < Lq
+            qs[1 + idx] = (e < E && inq) ? q[1 + e, 1 + q0 + lq, h, b] : zero(Float16)
         end
         if REGO
             for s in 1:div(BR * EP, NT)
@@ -437,7 +444,11 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             acc_j = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
         @synchronize
 
-        for kb in 0:(div(Lk, BC) - 1)
+        # `cld`, not `div`: with `CLAMP` the last key block is partial, and at
+        # `Lk = 23 < BC = 32` — the decoder's self-attention — `div` gives ZERO
+        # blocks and the loop never runs. Identical to `div` when `BC` divides
+        # `Lk`, which is every non-clamped call.
+        for kb in 0:(cld(Lk, BC) - 1)
             k0 = kb * BC
             if tid == 0
                 grew[1] = Float32(alwaysrescale)
@@ -446,7 +457,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
-                kvs[1 + idx] = e < E ? k[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
+                ink = !CLAMP || k0 + lk < Lk
+                kvs[1 + idx] = (e < E && ink) ? k[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
             end
             @synchronize
 
@@ -512,11 +524,19 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             if onep && tid < BR
                 mo = ms[1 + tid]
                 for ci in 0:(BC - 1)
-                    s = ss[1 + tid + ci * BR] * scale
-                    mb = max(mb, s)
-                    p = exp(s - mo)
-                    ps[1 + ci + tid * BC] = Float16(p)
-                    sm += p
+                    # A padded key contributes nothing: it is out of the maximum
+                    # and its weight is zero, so `P·V` adds zero for it. Staging
+                    # already zeroed its `k`, which would otherwise have given it
+                    # a score of 0 and a weight of `exp(-mo)` — not nothing.
+                    if !CLAMP || k0 + ci < Lk
+                        s = ss[1 + tid + ci * BR] * scale
+                        mb = max(mb, s)
+                        p = exp(s - mo)
+                        ps[1 + ci + tid * BC] = Float16(p)
+                        sm += p
+                    else
+                        ps[1 + ci + tid * BC] = zero(Float16)
+                    end
                 end
                 mb - mo > FLASH_EXP_HEADROOM && (redo[1] = 1.0f0)
             end
@@ -535,7 +555,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 mo = ms[1 + tid]
                 mb = -Inf32
                 for ci in 0:(BC - 1)
-                    mb = max(mb, ss[1 + tid + ci * BR] * scale)
+                    (!CLAMP || k0 + ci < Lk) &&
+                        (mb = max(mb, ss[1 + tid + ci * BR] * scale))
                 end
                 mn = max(mo, mb)
                 # A row that has seen nothing finite must not make NaN out of
@@ -543,9 +564,13 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
                 sm = 0.0f0
                 for ci in 0:(BC - 1)
-                    p = exp(ss[1 + tid + ci * BR] * scale - mn)
-                    ps[1 + ci + tid * BC] = Float16(p)
-                    sm += p
+                    if !CLAMP || k0 + ci < Lk
+                        p = exp(ss[1 + tid + ci * BR] * scale - mn)
+                        ps[1 + ci + tid * BC] = Float16(p)
+                        sm += p
+                    else
+                        ps[1 + ci + tid * BC] = zero(Float16)
+                    end
                 end
                 ms[1 + tid] = mn
                 ls[1 + tid] = ls[1 + tid] * cr + sm
@@ -570,7 +595,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
-                kvs[1 + idx] = e < E ? v[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
+                ink = !CLAMP || k0 + lk < Lk
+                kvs[1 + idx] = (e < E && ink) ? v[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
             end
             @synchronize
 
@@ -708,9 +734,11 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         for s in 1:div(BR * E, NT)
             idx = tid + (s - 1) * NT
             lq, e = Lava.splitidx(idx, Val(BR))
-            l = ls[1 + lq]
-            o = REGO ? acco[s] : pvs[1 + idx]
-            out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
+            if !CLAMP || q0 + lq < Lq
+                l = ls[1 + lq]
+                o = REGO ? acco[s] : pvs[1 + idx]
+                out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
+            end
         end
     end
 end
@@ -907,6 +935,42 @@ fact that `ps` rounds.
 const FLASH_EXP_HEADROOM = 10.0f0
 
 """
+    FLASHCM_CLAMP[]
+
+Let a sequence length that does not divide the tile take the fused path, by
+padding it and masking what is past the end.
+
+`flash_attn_cm1.comp` carries this as its `Clamp` spec constant and
+`KV_bounds_check`; our port dropped it because SAM 2's **encoder** shapes all
+land on 16. The **decoder's** do not: every one of its seven attentions has a 23
+in it — the mask prompt's token count — and that is why they run the three-pass
+path at 39.8 GFLOP/s, about 0.2% of what this kernel reaches on the encoder.
+
+Masking is not optional decoration. Staging already writes zeros past the end,
+which gives a padded key a score of zero and therefore a weight of `exp(-m)` —
+small, but not nothing, and it would land in `l` and in `O`. The softmax has to
+exclude those keys from the maximum and write their weight as an explicit zero.
+
+**Off by default, and the default is a measurement not a preference.** Turning it
+on lets the *encoder's* seven leftover calls onto the fused path too, and they
+are tiny on **both** axes — `Lq` of 4 and 16 against `Lk` of 16 and 64 — so the
+padding buys nothing and costs launches. Encode measured 133.7 -> 137.97 ms with
+it on and no occupancy floor, and still 135.5 with a half-tile floor. The
+decoder's shapes are the opposite: a 23 against a 4096, so the padded axis is
+tiny beside the work it amortises.
+
+A single global cannot express "clamp the decoder, not the encoder", and a
+heuristic tuned against two workloads is a heuristic that will be wrong on the
+third. So this ships **off**, the capability tested, and turns on together with
+`--decoder-precision autocast` — the change that makes the decoder's attention
+fp16 and therefore eligible at all. Neither is any use without the other.
+
+Costs nothing when off: `CLAMP` is a `Val`, so the encoder compiles the same code
+it did before.
+"""
+const FLASHCM_CLAMP = Ref(false)
+
+"""
     FLASHCM_TILINGS
 
 `(BR, BC, NW)`, fastest first. `NW` is subgroups, so the workgroup is `32*NW`.
@@ -967,7 +1031,21 @@ function flashcm_tiling(E::Int, Lq::Int, Lk::Int)
     for (BR, BC, NW) in FLASHCM_TILINGS
         NT = NW * 32
         NT <= Lava.WORKGROUP_LIMIT[] || continue
-        Lq % BR == 0 && Lk % BC == 0 || continue
+        # Without `FLASHCM_CLAMP` the extents have to divide the tile; with it
+        # they are padded and masked, which is what puts the decoder's 23-token
+        # attentions on this path at all.
+        #
+        # **But padding is wasted arithmetic, so it has to earn its place.** A
+        # tiling may be taken clamped only if it is at least half occupied on
+        # both axes. Without that floor the encoder's `Lq = 4` and `Lq = 16`
+        # calls get padded to `BR = 64` — 94% and 75% waste — and take the fused
+        # path to their cost: encode measured 133.7 -> 137.97 ms with the floor
+        # absent. It also makes the chooser prefer `BR = 32` over `BR = 64` for
+        # `Lq = 23`, which is 72% occupied rather than 36%.
+        if Lq % BR != 0 || Lk % BC != 0
+            FLASHCM_CLAMP[] || continue
+            2 * Lq >= BR && 2 * Lk >= BC || continue
+        end
         flashcmfits(EP, BR, BC, NT) && (BR * E) % NT == 0 && return (BR, BC, NW)
     end
     nothing
@@ -1000,22 +1078,24 @@ function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_back
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
                       lazyrescale::Bool = FLASHCM_LAZYRESCALE[],
                       onepass::Bool = FLASHCM_ONEPASS[],
-                      held::Bool = FLASHCM_HELD[])
+                      held::Bool = FLASHCM_HELD[],
+                      clamp::Bool = FLASHCM_CLAMP[])
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
     NT = NW * 32
     eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
     Lava.coopmat_gemm_available() || return false
-    (Lq % BR == 0 && Lk % BC == 0 && flashcmfits(EP, BR, BC, NT)) || return false
+    (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return false
+    flashcmfits(EP, BR, BC, NT) || return false
     # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
     # because it does not see the unpadded head dimension.
     (BR * E) % NT == 0 || return false
     attn_flash_cm!(backend, NT)(out, q, k, v, Float32(scale),
                                 Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Val(rego),
-                                Val(held && !rego),
-                                Int32(Lk), Int32(lazyrescale ? 0 : 1),
+                                Val(held && !rego), Val(clamp),
+                                Int32(Lq), Int32(Lk), Int32(lazyrescale ? 0 : 1),
                                 Int32(onepass && !rego ? 1 : 0);
-                                ndrange = (NT * div(Lq, BR), H, B))
+                                ndrange = (NT * cld(Lq, BR), H, B))
     return true
 end
