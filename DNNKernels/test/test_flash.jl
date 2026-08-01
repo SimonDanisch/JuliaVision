@@ -151,6 +151,35 @@ end
             end
         end
 
+        @testset "the one-pass softmax agrees, including past its headroom" begin
+            # `FLASHCM_ONEPASS` exponentiates against the PREVIOUS block's
+            # maximum and defers the correction, which is exact in exact
+            # arithmetic but not bit-identical: `ps` is fp16 and now rounds at a
+            # different scale, so this is a tolerance and not `==`.
+            #
+            # The `4096` case is the one that matters. It is 128 key blocks, so
+            # the deferred correction is applied 128 times, and `Lk` that long is
+            # also where a row is most likely to meet a block hotter than
+            # `FLASH_EXP_HEADROOM` and take the two-pass fallback — the branch
+            # that would otherwise never run in a test.
+            for (E, Lq, Lk, H, B) in ((72, 128, 256, 2, 2), (72, 64, 4096, 2, 1))
+                f16r(s, L) = DNNKernels.toback(back,
+                                Float16.(randn(Float32, E, L, H, B) .* 0.2f0))
+                q, k, v = f16r(1, Lq), f16r(2, Lk), f16r(3, Lk)
+                scale = Float32(1/sqrt(E))
+                outs = map((false, true)) do op
+                    o = KA.allocate(back, Float32, E, Lq, H, B); fill!(o, 0f0)
+                    @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                                                  onepass = op)
+                    KA.synchronize(back)
+                    Array(o)
+                end
+                @test maximum(abs, outs[1]) > 1e-3
+                @test maximum(abs, outs[1] .- outs[2]) / maximum(abs, outs[1]) < 1e-3
+                q = k = v = nothing; GC.gc()
+            end
+        end
+
         @testset "skipping the rescale is exact, not approximate" begin
             # `FLASHCM_LAZYRESCALE` skips `O *= exp(m_old - m_new)` on blocks
             # where no row's max moved, i.e. where the factor is exactly one. If
@@ -162,7 +191,8 @@ end
             scale = Float32(1/sqrt(E))
             outs = map((false, true)) do lazy
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
-                DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back, lazyrescale = lazy)
+                DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                                        lazyrescale = lazy, onepass = false)
                 KA.synchronize(back)
                 Array(o)
             end

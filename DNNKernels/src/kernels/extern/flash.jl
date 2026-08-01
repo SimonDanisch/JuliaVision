@@ -350,7 +350,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 @kernel cpu=false unsafe_indices=true function attn_flash_cm!(
         out, @Const(q), @Const(k), @Const(v), scale,
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO},
-        Lk::Int32, alwaysrescale::Int32) where {BR,BC,E,EP,NW,REGO}
+        Lk::Int32, alwaysrescale::Int32, onepass::Int32) where {BR,BC,E,EP,NW,REGO}
     NT = NW * 32
     qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
     kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
@@ -459,47 +459,77 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             # so both went back.
             if tid < BR
                 mo = ms[1 + tid]
+                # **One pass over `ss` when the running maximum is usable as the
+                # reference.** The online softmax is exact for *any* reference:
+                # `m` cancels between the numerator and `l`, and it exists only to
+                # keep `exp` in range. So exponentiate against `mo` — the maximum
+                # from previous blocks, already known — and correct afterwards,
+                # which reads each score once instead of once for the maximum and
+                # again for the exponential.
+                #
+                # The bound is `ps`, which is fp16: `exp(s - mo) <= 65504` needs
+                # `s - mo <= 11.09`. When this block runs hotter than that, the
+                # values written were `Inf` and the row is redone against its own
+                # maximum — the two-pass form, at two-pass cost, on the rare block
+                # that needs it. `mo = -Inf` (the first block) always takes it.
+                onep = onepass != 0 && isfinite(mo)
                 mb = -Inf32
-                for ci in 0:(BC - 1)
-                    mb = max(mb, ss[1 + tid + ci * BR] * scale)
-                end
-                mn = max(mo, mb)
-                # A row that has seen nothing finite must not make NaN out of
-                # exp(-Inf - -Inf); it stays at zero weight.
-                cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
                 sm = 0.0f0
-                for ci in 0:(BC - 1)
-                    p = exp(ss[1 + tid + ci * BR] * scale - mn)
-                    ps[1 + ci + tid * BC] = Float16(p)
-                    sm += p
+                if onep
+                    for ci in 0:(BC - 1)
+                        s = ss[1 + tid + ci * BR] * scale
+                        mb = max(mb, s)
+                        p = exp(s - mo)
+                        ps[1 + ci + tid * BC] = Float16(p)
+                        sm += p
+                    end
                 end
-                ms[1 + tid] = mn
-                ls[1 + tid] = ls[1 + tid] * cr + sm
-                cs[1 + tid] = cr
-                # `cr == 1` exactly when this block's max did not beat the
-                # running one, and then rescaling `O` multiplies it by one. The
-                # write races with the other rows and that is fine: every thread
-                # that writes writes the same value.
-                cr == 1.0f0 || (grew[1] = 1.0f0)
+                if !onep || mb - mo > FLASH_EXP_HEADROOM
+                    mb = -Inf32
+                    for ci in 0:(BC - 1)
+                        mb = max(mb, ss[1 + tid + ci * BR] * scale)
+                    end
+                    mn = max(mo, mb)
+                    cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
+                    sm = 0.0f0
+                    for ci in 0:(BC - 1)
+                        p = exp(ss[1 + tid + ci * BR] * scale - mn)
+                        ps[1 + ci + tid * BC] = Float16(p)
+                        sm += p
+                    end
+                    # `ps` is relative to the NEW maximum, so this row's `O` has
+                    # to be converted *now*, before the product adds to it. One
+                    # thread over its own `EP` elements, and only on the rare row
+                    # that took this branch — `cs` is left at one so the sweep
+                    # after the product skips it.
+                    if !REGO && cr != 1.0f0
+                        for e in 0:(EP - 1)
+                            pvs[1 + tid + e * BR] *= cr
+                        end
+                    end
+                    ms[1 + tid] = mn
+                    ls[1 + tid] = ls[1 + tid] * cr + sm
+                    # One, because the conversion already happened above — except
+                    # under `REGO`, where `pvs` is this block's `P·V` rather than
+                    # `O` and the register sweep is the only thing that applies
+                    # the factor at all.
+                    cs[1 + tid] = REGO ? cr : 1.0f0
+                else
+                    # `ps` is relative to `mo`, and so is `O`, so nothing is
+                    # converted before the product: the correction applies to the
+                    # old and the new contribution alike and is deferred to the
+                    # sweep after it. That deferral is the whole point — it is
+                    # what lets the pass above read each score once.
+                    mn = max(mo, mb)
+                    cr = exp(mo - mn)
+                    ms[1 + tid] = mn
+                    ls[1 + tid] = (ls[1 + tid] + sm) * cr
+                    cs[1 + tid] = cr
+                    cr == 1.0f0 || (grew[1] = 1.0f0)
+                end
             end
             @synchronize
 
-            # Refill the staging buffer with V, and — when `O` lives in shared —
-            # apply this block's rescale to it. Both sit between the same pair of
-            # barriers because the score product is the last thing that read
-            # `kvs`, and `pvs` is not touched again until below.
-            # **Only when some row's max actually moved.** This pass reads and
-            # writes the whole of `O` — 40 KB of the ~110 KB of shared traffic a
-            # key block costs — and after the first few blocks the running max
-            # has usually settled, so most blocks multiply `O` by one from end to
-            # end. The flag makes that case free.
-            if !REGO && grew[1] != 0.0f0
-                for r in 0:(div(BR * EP, NT) - 1)
-                    idx = tid + r * NT
-                    lq, _ = Lava.splitidx(idx, Val(BR))
-                    pvs[1 + idx] *= cs[1 + lq]
-                end
-            end
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
@@ -527,6 +557,20 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 copyto!(pvs, off, BR, acc)
             end
             @synchronize
+
+            # The deferred correction, applied to old and new contributions
+            # together now that both are in `O`. This reads and writes the whole
+            # of `O` — 40 KB of the ~110 KB a key block costs — and `grew` is what
+            # keeps it off the blocks where every factor is one, which after the
+            # first few is most of them.
+            if !REGO && grew[1] != 0.0f0
+                for r in 0:(div(BR * EP, NT) - 1)
+                    idx = tid + r * NT
+                    lq, _ = Lava.splitidx(idx, Val(BR))
+                    pvs[1 + idx] *= cs[1 + lq]
+                end
+                @synchronize
+            end
 
             if REGO
                 # `O = O*c + PV` in registers. `pvs` has the same `(BR, EP)`
@@ -662,6 +706,35 @@ Exact, not approximate — the skipped work is a multiplication by one.
 const FLASHCM_LAZYRESCALE = Ref(true)
 
 """
+    FLASHCM_ONEPASS[]
+
+Read each score once in the softmax instead of twice.
+
+The two-pass form reads `ss` for the row maximum and again for the exponential —
+`2 * BR * BC * 4` bytes a key block, and the softmax is a third of the kernel.
+The online softmax is exact for **any** reference maximum (it cancels between the
+numerator and `l`; it exists only to keep `exp` in range), so the one-pass form
+exponentiates against `mo`, the maximum from previous blocks, which is already
+known, and defers the correction to the sweep that runs after the value product.
+
+`ps` is fp16, so `exp(s - mo)` must stay under 65504, i.e. `s - mo <= 11.09`
+([`FLASH_EXP_HEADROOM`](@ref)). A row whose block runs hotter than that is redone
+against its own maximum at two-pass cost, and its `O` is converted in place by
+the one thread that owns it rather than by the sweep. `mo = -Inf`, which is every
+row on the first key block, always takes that path.
+
+Exact either way: the tests compare the two settings with `==`.
+"""
+const FLASHCM_ONEPASS = Ref(true)
+
+"""
+How far a block's maximum may exceed the running one before the one-pass softmax
+falls back. `exp(11.09)` is fp16's largest finite value; 10 leaves room for the
+fact that `ps` rounds.
+"""
+const FLASH_EXP_HEADROOM = 10.0f0
+
+"""
     FLASHCM_TILINGS
 
 `(BR, BC, NW)`, fastest first. `NW` is subgroups, so the workgroup is `32*NW`.
@@ -744,7 +817,8 @@ device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
 """
 function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
-                      lazyrescale::Bool = FLASHCM_LAZYRESCALE[])
+                      lazyrescale::Bool = FLASHCM_LAZYRESCALE[],
+                      onepass::Bool = FLASHCM_ONEPASS[])
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
@@ -757,7 +831,8 @@ function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_back
     (BR * E) % NT == 0 || return false
     attn_flash_cm!(backend, NT)(out, q, k, v, Float32(scale),
                                 Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Val(rego),
-                                Int32(Lk), Int32(lazyrescale ? 0 : 1);
+                                Int32(Lk), Int32(lazyrescale ? 0 : 1),
+                                Int32(onepass && !rego ? 1 : 0);
                                 ndrange = (NT * div(Lq, BR), H, B))
     return true
 end
