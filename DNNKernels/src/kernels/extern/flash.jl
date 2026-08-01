@@ -315,13 +315,10 @@ end
 
 """
 Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run.
-
-`BR` must not exceed the workgroup, because the softmax gives one thread a whole
-query row — a row's max and sum reduce over keys, and keeping that in one thread
-is what avoids a cross-lane reduction per block.
 """
 @inline function flashcmfits(EP::Int, BR::Int, BC::Int, NT::Int)
     BR % Lava.GEMM_TILE == 0 && BC % Lava.GEMM_TILE == 0 && EP % Lava.GEMM_TILE == 0 || return false
+    # The softmax gives one thread a whole query row.
     BR <= NT || return false
     (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
     flashcmshared(EP, BR, BC) <= FLASH_SHARED_BUDGET[]
@@ -433,6 +430,25 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             # keys and a row lives entirely in this thread, so no lane talks to
             # another. `scale` is applied here rather than folded into `qs`,
             # which keeps `q` bit-exact in fp16 on the way in.
+            #
+            # **This leaves 64 of 256 threads working, and spreading it is
+            # slower.** The obvious complaint about this loop is that six of
+            # eight warps sit at the barrier while two walk `BC` serially. The
+            # fix looks free: store the score tile row-major instead (a whole row
+            # contiguous, which needed a row-major cooperative-matrix store — see
+            # `Lava.copyto!`), give each *subgroup* a query row and each lane a
+            # key, and `subgroup_max` is then exactly the row maximum with no
+            # cluster and no shared scratch. Built and measured interleaved:
+            #
+            #     4096x4096   4.836 ms -> 5.097     256x256   0.444 -> 0.461
+            #
+            # 5% the wrong way. Eight rows a subgroup at two subgroup reductions
+            # each is 16 shuffle sequences per block, and that costs about what
+            # the serial walk did — so the idle warps were never the problem, and
+            # the softmax is not what this kernel is waiting on. The transposed
+            # layout and the parallel reduction are inseparable (a thread-per-row
+            # loop over a row-major tile puts all 32 lanes in one shared bank),
+            # so both went back.
             if tid < BR
                 mo = ms[1 + tid]
                 mb = -Inf32
