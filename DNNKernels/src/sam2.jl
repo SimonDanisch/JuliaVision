@@ -32,6 +32,20 @@ struct SAM2
     res::Int
     maxpoints::Int
     dims::NamedTuple
+    # The decoder's inputs in ITS dtype, and the `feats` they were made from.
+    #
+    # The two graphs are exported under different precision policies, so three of
+    # the encoder's outputs need converting before the decoder can read them —
+    # 12.6 MB of device copies. That is per *frame*, not per click: one embedding
+    # serves every click on it, and the editor's whole shape is encode once,
+    # decode many. Converting inside `decode` made it per click, which is 12.6 of
+    # the 22.3 MB each decode allocated and a full pass over the features on
+    # every one.
+    #
+    # Keyed by `===` on the feats tuple, so a new embedding invalidates it and
+    # nothing has to remember to.
+    cachekey::Base.RefValue{Any}
+    cacheval::Base.RefValue{Any}
 end
 
 function SAM2(graphdir::AbstractString, weightpath::AbstractString;
@@ -43,7 +57,7 @@ function SAM2(graphdir::AbstractString, weightpath::AbstractString;
     img[end] == res || error("encoder graph takes a $(img[end])-square image, not $res")
     pts = dec.buffers[dec.inputs[4]].shape
     pts[2] == maxpoints || error("decoder graph has $(pts[2]) point slots, not $maxpoints")
-    SAM2(m, res, maxpoints, (res=res,))
+    SAM2(m, res, maxpoints, (res=res,), Ref{Any}(nothing), Ref{Any}(nothing))
 end
 
 KernelAbstractions.get_backend(s::SAM2) = s.model.backend
@@ -59,6 +73,27 @@ the positional encodings the graph produced alongside them. Keep the whole tuple
 between clicks: that *is* the cached embedding.
 """
 encode(s::SAM2, image) = call(s.model, "sam2_encoder", image; dims=s.dims)
+
+"""
+    CACHE_DECODER_INPUTS[] :: Bool
+
+Reuse the decoder's dtype-converted inputs across clicks on one embedding.
+
+**Off, because it is unverified.** The saving is real and measured — the
+conversion is 12.6 MB of the 22.3 MB each `decode` allocates, and it is per
+click where it should be per frame — but the numerical check needs a decode
+result read back, and every attempt at that hit the flush hang (see
+`perf-plan.md`; it fired about ten times in one afternoon). Shipping a cache on
+the path that produces masks, without having compared one against the uncached
+result, is not a trade worth making for 12.6 MB.
+
+To verify: decode twice on the same `feats` with this on, once more with
+`s.cachekey[] = nothing` in between, and compare. The open question it settles is
+whether any decoder op writes into an *input* buffer — the planner is free to
+alias, and if it does, the second click on an embedding reads corrupted features.
+Turn this on when that comparison passes.
+"""
+const CACHE_DECODER_INPUTS = Ref(false)
 
 """
     decode(s, feats, point, label) -> (masks, iou)
@@ -80,10 +115,19 @@ function decode(s::SAM2, feats, point, label)
     # mask logits keep their precision through the threshold. That makes the
     # handover a dtype boundary, and the graph's own declaration is what decides
     # it, not an assumption about which policy either side was built with.
-    args = ntuple(3) do i
-        want = g.buffers[g.inputs[i]].dtype
-        f = feats[i]
-        eltype(f) === want ? f : want.(f)
+    # Converted once per embedding, not once per click — see the cache fields on
+    # `SAM2`. `===` on the tuple, so a fresh `encode` invalidates it by identity.
+    args = if CACHE_DECODER_INPUTS[] && s.cachekey[] === feats
+        s.cacheval[]::NTuple{3,Any}
+    else
+        a = ntuple(3) do i
+            want = g.buffers[g.inputs[i]].dtype
+            f = feats[i]
+            eltype(f) === want ? f : want.(f)
+        end
+        s.cachekey[] = feats
+        s.cacheval[] = a
+        a
     end
     call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label; dims=s.dims)
 end

@@ -69,8 +69,17 @@ end
             @test coopmat_sdpa_applicable(q, q, q, nothing, 1024, 1024)
             # Extents off the tile: the mask decoder's 23-token prompt.
             @test !coopmat_sdpa_applicable(q, q, q, nothing, 23, 4096)
-            # Short sequences lose; see the table above.
-            @test !coopmat_sdpa_applicable(q, q, q, nothing, 256, 256)
+            # Short sequences lose. Written against `COOPMAT_MINL` rather than a
+            # literal, because the threshold is a measured property of the GEMM
+            # underneath and it has already moved once: 512 -> 256 when the staged
+            # `vec2` GEMM took that path from 20.6 to 35.3 TFLOP/s. A test that
+            # hardcoded 256 as "refused" is what caught the change, which is
+            # useful once and an obstacle every time after.
+            let L = COOPMAT_MINL[]
+                @test coopmat_sdpa_applicable(q, q, q, nothing, L, L)
+                below = L - Lava.GEMM_TILE          # still tile-aligned
+                @test !coopmat_sdpa_applicable(q, q, q, nothing, below, below)
+            end
             # fp32 operands have no cooperative-matrix load.
             @test !coopmat_sdpa_applicable(f32(72, 1024, 4, 1), q, q, nothing, 1024, 1024)
             q = nothing

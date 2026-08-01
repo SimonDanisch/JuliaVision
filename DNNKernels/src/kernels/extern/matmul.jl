@@ -120,6 +120,24 @@ so a separate reduction kernel would be a second full traversal for nothing.
     end
 end
 
+"""
+    MATMUL_FUSED[] :: Bool
+
+Whether the GEMM writes `out` directly — bias in the accumulator's initial value,
+fp32→fp16 conversion in registers — instead of an fp32 scratch plus
+`mm_epilogue_kernel!`.
+
+A switch rather than a constant for the same reason as `LAUNCH_FLAT`: it is the
+only way to compare the two **inside one session**, and cross-session encode
+numbers on this machine have disagreed by 40 ms in both directions.
+
+The two are not bit-identical and are not meant to be: the bias joins the fp32
+accumulation chain rather than being added after it, so 31 elements of a 2.36 M
+output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
+reference is the same to four significant figures on every shape.
+"""
+const MATMUL_FUSED = Ref(true)
+
 function matmul_coopmat!(out, A, B, bias, ws)
     M, K = size(A)
     N = size(B, 2)
@@ -131,9 +149,22 @@ function matmul_coopmat!(out, A, B, bias, ws)
         Bp = scratch!(ws, backend, Float16, K, NP)
         padcols_kernel!(backend)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
-    _, splitk = Lava.coopmat_gemm_shape(M, NP, K)
+    blk_split = Lava.coopmat_gemm_shape(M, NP, K)
+    splitk = blk_split[2]
+    # Nothing to reduce, and the destination is not padded: the GEMM can start
+    # its accumulators from the bias and convert to `out`'s type as it stores, so
+    # there is no fp32 scratch and no second pass. `mm_epilogue_kernel!` was 23%
+    # of matmul time on exactly these shapes — `splitk == 1` for every one the
+    # encoder runs — and all it did was read `M x N` fp32 back and write fp16.
+    #
+    # `NP != N` still needs the epilogue: the GEMM writes the padded width and
+    # the padding columns must not reach `out`.
+    if MATMUL_FUSED[] && splitk == 1 && NP == N
+        Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias)
+        return out
+    end
     C = scratch!(ws, backend, Float32, M, NP, max(splitk, 1))
-    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; partials = C, reduce = false)
+    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
     mm_epilogue_kernel!(backend)(out, C, bias, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out

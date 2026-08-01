@@ -46,11 +46,13 @@ Kept because the analysis points somewhere specific, and so does what blocks it:
   * **`BK` cannot simply shrink.** `BK*E` must divide the workgroup, and with
     `E = 72`, `NT = 256` that forces `BK` to a multiple of 32. `BK = 16` does not
     tile.
-  * **`BQ = 32` is wrong and unexplained.** It is exact for constant inputs and
-    for query rows 1..3, and wrong for every row from 4 on (~5e-3) with varied
-    inputs — whole rows, sharp boundary, independent of how many key blocks
-    there are. Since `BQ = 32` is the other route to 2 workgroups, that bug is
-    the gate on this whole optimisation. `flashfits` refuses it meanwhile.
+  * ~~**`BQ = 32` is wrong and unexplained.**~~ **Explained and fixed.** It was
+    `OpUDiv` in the staging index — `E = 72` is not a power of two, so
+    `idx % E` emitted a real division into a shared-store address, which drops
+    stores on this driver. `Lava.splitidx` removes it and every configuration is
+    exact; `flashfits` no longer refuses odd slot counts. See the note there.
+    **This was the gate, and it is open**, so the `BQ = 32` route to two
+    workgroups is available to try.
 
 **The conclusion, having worked the numbers: this shape cannot win here.**
 Occupancy is `NT * floor(48 KB / shared)`, and no valid tiling beats the 256
@@ -104,22 +106,29 @@ rather than used: the three-pass path is always available and always right.
     (BQ * E) % NT == 0 && (BK * E) % NT == 0 && (BQ * BK) % NT == 0 || return false
     BQ <= NT || return false
     flashshared(E, BQ, BK) <= FLASH_SHARED_BUDGET[] || return false
-    # An ODD number of accumulator slots per thread computes wrong results, and
-    # the divisibility rules above do not catch it. Measured at E = 72:
+    # There used to be an `iseven(div(BQ * E, NT))` refusal here, because
+    # `BQ = 32, NT = 256` computed wrong results from query row 4 on (9.4e-02)
+    # while every even slot count was exact — including `BQ = 32` at `NT = 128`,
+    # which is why it was recorded as "the odd slot count" rather than as `BQ`.
     #
-    #   BQ  NT   BQ*E/NT   result
-    #   64 256      18     exact, 7.5e-08
-    #   32 256       9     WRONG from query row 4 on, 9.4e-02
-    #   32 128      18     exact, 1.0e-07
-    #   64 128      36     exact, 8.9e-08
+    # **It was `OpUDiv`.** The staging loops decomposed a flat index with
+    # `idx % E` / `idx ÷ E`, and `E = 72` is not a power of two, so a real
+    # division landed in a shared-memory store address — which drops stores on
+    # this driver (`Lava.splitidx`, and `test_shared_index_division.jl` for the
+    # isolated case). The tell was in the old note without being recognised: it
+    # was "exact for *constant* inputs", and that is precisely the condition
+    # under which the division bug does not bite, because a constant store needs
+    # no global load to feed it. Same session, same inputs, only the arithmetic:
     #
-    # So it is not `BQ = 32` — that is exact at NT = 128 — it is the odd slot
-    # count. The failing case is also exact for *constant* inputs and for the
-    # rows that fall entirely in the first slot, which says the indexing and the
-    # barriers are right and something about the `@private` accumulator or the
-    # softmax reduction goes wrong at an odd extent. Refused until understood;
-    # the three-pass path is always available and always right.
-    iseven(div(BQ * E, NT)) || return false
+    #   BQ/NT    BQ*E/NT      OpUDiv    splitidx
+    #   64/256   18 even     7.8e-07     7.1e-07
+    #   32/256    9 odd      7.1e-02     8.6e-07
+    #   32/128   18 even     8.4e-07     7.0e-07
+    #   64/128   36 even     7.8e-07     6.8e-07
+    #
+    # The slot count was never the variable. With `splitidx` every configuration
+    # is exact, so the refusal is gone and `BQ = 32` is available again — which
+    # matters because it is one of the two routes to two workgroups per SM.
     return true
 end
 
@@ -156,8 +165,7 @@ end
         # the global read coalesces along the contiguous axis.
         for r in 0:(div(BQ * E, NT) - 1)
             idx = tid + r * NT - 1
-            e = idx % E + 1
-            lq = idx ÷ E + 1
+            e, lq = Lava.splitidx(idx, Val(E)); e += 1; lq += 1
             qs[e, lq] = T(q[e, q0 + lq, h, b])
             acc[r + 1] = zero(T)
         end
@@ -172,8 +180,7 @@ end
             k0 = kb * BK
             for r in 0:(div(BK * E, NT) - 1)
                 idx = tid + r * NT - 1
-                e = idx % E + 1
-                lk = idx ÷ E + 1
+                e, lk = Lava.splitidx(idx, Val(E)); e += 1; lk += 1
                 ks[e, lk] = T(k[e, k0 + lk, h, b])
                 vs[e, lk] = T(v[e, k0 + lk, h, b])
             end
@@ -182,8 +189,7 @@ end
             # scores for the tile
             for r in 0:(div(BQ * BK, NT) - 1)
                 idx = tid + r * NT - 1
-                qi = idx % BQ + 1
-                ki = idx ÷ BQ + 1
+                qi, ki = Lava.splitidx(idx, Val(BQ)); qi += 1; ki += 1
                 s = zero(T)
                 for e in 1:E
                     s = muladd(qs[e, qi], ks[e, ki], s)
@@ -218,8 +224,7 @@ end
             # rescale what is already accumulated, then add this block's share
             for r in 0:(div(BQ * E, NT) - 1)
                 idx = tid + r * NT - 1
-                e = idx % E + 1
-                lq = idx ÷ E + 1
+                e, lq = Lava.splitidx(idx, Val(E)); e += 1; lq += 1
                 s = zero(T)
                 for ki in 1:BK
                     s = muladd(ss[lq, ki], vs[e, ki], s)
@@ -232,8 +237,7 @@ end
         # normalise and write out
         for r in 0:(div(BQ * E, NT) - 1)
             idx = tid + r * NT - 1
-            e = idx % E + 1
-            lq = idx ÷ E + 1
+            e, lq = Lava.splitidx(idx, Val(E)); e += 1; lq += 1
             l = ls[lq]
             out[e, q0 + lq, h, b] = acc[r + 1] / (l == zero(T) ? one(T) : l)
         end

@@ -38,7 +38,12 @@ Shared, the first workload to reach a kernel freezes it and the rest hit it.
 Nothing detects a stale entry; see `Lava/src/runtime/frozen_cache.jl` for why
 that is deliberate.
 """
-const KERNELS_VERSION = "1"
+# "2": the staged cooperative-matrix GEMM (new kernels, new tilings), `splitidx`
+# in place of `%`/`÷` in the GEMM and flash staging indices, and two changes in
+# Lava's emitter that alter the SPIR-V of *every* kernel — `NonPrivatePointer` on
+# workgroup accesses, and plain `Workgroup` variables where no type needs an
+# explicit layout.
+const KERNELS_VERSION = "2"
 
 include("assets.jl")
 include("safetensors.jl")

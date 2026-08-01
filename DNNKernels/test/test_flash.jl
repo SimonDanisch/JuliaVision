@@ -45,6 +45,34 @@ end
         end
     end
 
+    @testset "exact at every tiling, including the odd slot count" begin
+        # `BQ = 32, NT = 256` gives 9 accumulator slots per thread and was wrong
+        # from query row 4 on (7.1e-02) until the staging index stopped going
+        # through `OpUDiv` — `E = 72` is not a power of two. Varied inputs
+        # matter: the broken version was **exact for constant inputs**, which is
+        # what disguised it as an accumulator problem for so long.
+        E, L, H, B = 72, 128, 2, 2
+        qh = randn(Float32,E,L,H,B) .* 0.2f0
+        kh = randn(Float32,E,L,H,B) .* 0.2f0
+        vh = randn(Float32,E,L,H,B) .* 0.2f0
+        q = DNNKernels.toback(back,qh); k = DNNKernels.toback(back,kh); v = DNNKernels.toback(back,vh)
+        scale = Float32(1/sqrt(E))
+        ref = attnref(qh, kh, vh, scale)
+        for (BQ, NT) in ((64, 256), (32, 256), (32, 128), (64, 128))
+            @test DNNKernels.flashfits(E, BQ, 32, NT)
+            o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
+            DNNKernels.attn_flash!(back, NT)(o, q, k, v, scale, Val(BQ), Val(32),
+                                             Val(E), Val(NT), Int32(L);
+                                             ndrange = (NT * div(L, BQ), H, B))
+            KA.synchronize(back)
+            got = Array(o)
+            @test maximum(abs, got) > 1e-3
+            @test maximum(abs, got .- ref) < 1e-4
+            o = nothing
+        end
+        q = k = v = nothing; GC.gc()
+    end
+
     @testset "refuses what it cannot compute" begin
         # Shared memory over budget: this tiling launches and writes zeros.
         @test !DNNKernels.flashfits(72, 64, 64, 256)
@@ -52,11 +80,12 @@ end
         # The validated one fits, in both senses.
         @test DNNKernels.flashfits(72, 64, 32, 256)
         @test DNNKernels.flashshared(72, 64, 32) <= DNNKernels.FLASH_SHARED_BUDGET[]
-        # An odd accumulator-slot count computes wrong results and is refused;
-        # the same BQ at a thread count that makes it even is accepted.
-        @test !DNNKernels.flashfits(72, 32, 32, 256)      # BQ*E/NT = 9
+        # An odd accumulator-slot count used to be refused, because
+        # `BQ = 32, NT = 256` computed wrong results. That was `OpUDiv` in the
+        # staging index, not the slot count — see `flashfits` — and `splitidx`
+        # fixed it, so both are accepted now and both must be exact.
+        @test DNNKernels.flashfits(72, 32, 32, 256)       # BQ*E/NT = 9, odd
         @test DNNKernels.flashfits(72, 32, 32, 128)       # BQ*E/NT = 18
-        @test iseven(div(32 * 72, 128)) && isodd(div(32 * 72, 256))
         # …and a sequence the tiling does not divide falls back.
         E, L, H, B = 72, 100, 1, 1              # 100 % 64 != 0
         q = KA.allocate(back, Float32, E,L,H,B); fill!(q, 0.01f0)

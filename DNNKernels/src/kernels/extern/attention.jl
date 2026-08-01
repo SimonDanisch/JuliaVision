@@ -395,14 +395,38 @@ end
 # the padding and the wider score matrix cost more than the tensor cores save.
 # SAM 2 lands on both sides of that — its windowed blocks are L=256 and its
 # three global blocks are L=4096.
+#
+# ── re-measured 2026-07-31: the crossover moved to 256 ──
+#
+# That threshold is a property of the GEMM underneath it, and the GEMM changed:
+# staged cooperative-matrix tiling with `vec2` staging buffers took it from 20.6
+# to 35.3 TFLOP/s, 1.68x. So the length at which tensor cores repay the padding
+# and the doubled score matrix moved down, and it was re-measured rather than
+# assumed — interleaved, clock warmed:
+#
+#     L=64  H16 B16   0.198 -> 0.280 ms   0.71x   <- still loses
+#     L=128 H8  B32   0.700 -> 0.749 ms   0.93x   } a wash
+#     L=128 H16 B16   0.645 -> 0.606 ms   1.06x   }
+#     L=256 H8  B16   1.227 -> 0.847 ms   1.45x   <- now WINS, was 0.81x
+#     L=512 H8  B4    1.159 -> 0.586 ms   1.98x
+#     L=1024 H8 B2    2.231 -> 1.234 ms   1.81x
+#
+# 256 rather than 128 because 128 is a coin-flip and 256 is decisive. That moves
+# **32 of SAM 2's 48 attention calls** — every windowed block — onto the tensor
+# cores; only the L=64 and L=16 tails stay on the three-pass path.
+#
+# Worth noticing as a pattern: this constant was correct when it was written and
+# silently went stale when something it depended on got faster. Any threshold
+# separating two implementations has that property.
 
 """
     COOPMAT_MINL[]
 
 Shortest sequence for which the cooperative-matrix path beats the three-pass
-kernels. 512 is the first length measured faster; see the table above.
+kernels. 256 as of the re-measurement above; it was 512 when the GEMM under this
+path ran at 20.6 TFLOP/s rather than 35.3.
 """
-const COOPMAT_MINL = Ref(512)
+const COOPMAT_MINL = Ref(256)
 
 """`(E,L,H,B)` read as `(L,EP,H,B)`, zero past `E`."""
 @inline function toLEpad(I, a, E)
