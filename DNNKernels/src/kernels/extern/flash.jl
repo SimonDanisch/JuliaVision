@@ -328,6 +328,10 @@ Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run.
     BR % Lava.GEMM_TILE == 0 && BC % Lava.GEMM_TILE == 0 && EP % Lava.GEMM_TILE == 0 || return false
     # The softmax gives one thread a whole query row.
     BR <= NT || return false
+    # `attn_flash_cm!` holds `O` in exactly three accumulators a subgroup, and
+    # `@nexprs` needs that count to be a literal. A tiling wanting a fourth
+    # would silently drop its tiles, so it is refused instead.
+    cld((BR ÷ Lava.GEMM_TILE) * (EP ÷ Lava.GEMM_TILE), NT ÷ 32) <= 3 || return false
     (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
     flashcmshared(EP, BR, BC) <= FLASH_SHARED_BUDGET[]
 end
@@ -349,8 +353,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 """
 @kernel cpu=false unsafe_indices=true function attn_flash_cm!(
         out, @Const(q), @Const(k), @Const(v), scale,
-        ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO},
-        Lk::Int32, alwaysrescale::Int32, onepass::Int32) where {BR,BC,E,EP,NW,REGO}
+        ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
+        Lk::Int32, alwaysrescale::Int32, onepass::Int32) where {BR,BC,E,EP,NW,REGO,HELD}
     NT = NW * 32
     qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
     kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
@@ -365,6 +369,10 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
     # Did any row's running max move this block? One word, and it decides
     # whether `O` has to be rescaled at all — see the loop below.
     grew = @localmem Float32 (1,)
+    # Did any row's one-pass attempt overflow fp16? Workgroup-wide, because
+    # the retry has to be taken by every row or they end up on different
+    # references — see the softmax below.
+    redo = @localmem Float32 (1,)
 
     # `O` in registers: `BR*EP/NT` floats per thread, 20 for the shipped tiling.
     # Written out as `Float32` rather than through a local `T`, because Lava
@@ -396,7 +404,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             for s in 1:div(BR * EP, NT)
                 acco[s] = 0.0f0
             end
-        else
+        elseif !HELD
             for r in 0:(div(BR * EP, NT) - 1)
                 pvs[1 + tid + r * NT] = 0.0f0
             end
@@ -405,11 +413,22 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             ms[1 + tid] = -Inf32
             ls[1 + tid] = 0.0f0
         end
+        # `O`'s tiles, held in cooperative-matrix accumulators for the whole key
+        # loop when `held` is set. Three because `cld(RT*ET, NW)` is 3 at every
+        # tiling `flashcmfits` admits; the third is guarded and idle for the
+        # upper subgroups. They cost *fewer* registers than reloading the tile
+        # per block did — 122 against 128, measured — because what goes away with
+        # the load and the store is also their address arithmetic.
+        Base.Cartesian.@nexprs 3 j ->
+            acc_j = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
         @synchronize
 
         for kb in 0:(div(Lk, BC) - 1)
             k0 = kb * BC
-            tid == 0 && (grew[1] = Float32(alwaysrescale))
+            if tid == 0
+                grew[1] = Float32(alwaysrescale)
+                redo[1] = 0.0f0
+            end
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
@@ -457,76 +476,80 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             # layout and the parallel reduction are inseparable (a thread-per-row
             # loop over a row-major tile puts all 32 lanes in one shared bank),
             # so both went back.
-            if tid < BR
+            # **One pass over `ss` when the running maximum is usable as the
+            # reference.** The online softmax is exact for *any* reference: `m`
+            # cancels between the numerator and `l`, and it exists only to keep
+            # `exp` in range. So exponentiate against `mo` — the maximum from
+            # previous blocks, already known — and correct afterwards, which reads
+            # each score once instead of once for the maximum and again for the
+            # exponential.
+            #
+            # The bound is `ps`, which is fp16: `exp(s - mo) <= 65504` needs
+            # `s - mo <= 11.09`. Past that the values written were `Inf` and the
+            # block is redone against its own maximum, at two-pass cost.
+            #
+            # `kb > 0` rather than `isfinite(mo)`: they say the same thing — `mo`
+            # is `-Inf` for every row on the first key block and finite for every
+            # row after — but this form is uniform across *all* threads, including
+            # the ones with no row, which is what lets `pre` below be uniform.
+            onep = onepass != 0 && kb > 0
+            mb = -Inf32
+            sm = 0.0f0
+            if onep && tid < BR
                 mo = ms[1 + tid]
-                # **One pass over `ss` when the running maximum is usable as the
-                # reference.** The online softmax is exact for *any* reference:
-                # `m` cancels between the numerator and `l`, and it exists only to
-                # keep `exp` in range. So exponentiate against `mo` — the maximum
-                # from previous blocks, already known — and correct afterwards,
-                # which reads each score once instead of once for the maximum and
-                # again for the exponential.
-                #
-                # The bound is `ps`, which is fp16: `exp(s - mo) <= 65504` needs
-                # `s - mo <= 11.09`. When this block runs hotter than that, the
-                # values written were `Inf` and the row is redone against its own
-                # maximum — the two-pass form, at two-pass cost, on the rare block
-                # that needs it. `mo = -Inf` (the first block) always takes it.
-                onep = onepass != 0 && isfinite(mo)
+                for ci in 0:(BC - 1)
+                    s = ss[1 + tid + ci * BR] * scale
+                    mb = max(mb, s)
+                    p = exp(s - mo)
+                    ps[1 + ci + tid * BC] = Float16(p)
+                    sm += p
+                end
+                mb - mo > FLASH_EXP_HEADROOM && (redo[1] = 1.0f0)
+            end
+            @synchronize
+
+            # **The retry is decided for the whole workgroup, not per row.** A row
+            # that overflowed needs its `ps` against its own maximum, which leaves
+            # it on a different reference from the rows that did not — and with
+            # `O` in accumulators there is no per-row conversion available to
+            # reconcile them. So if any row overflowed, every row redoes the
+            # block. `onep` is uniform already: `mo` is `-Inf` for every row on
+            # the first key block and finite for every row after it, which is
+            # what `kb > 0` says without reading `ms`.
+            pre = !onep || redo[1] != 0.0f0
+            if pre && tid < BR
+                mo = ms[1 + tid]
                 mb = -Inf32
+                for ci in 0:(BC - 1)
+                    mb = max(mb, ss[1 + tid + ci * BR] * scale)
+                end
+                mn = max(mo, mb)
+                # A row that has seen nothing finite must not make NaN out of
+                # exp(-Inf - -Inf); it stays at zero weight.
+                cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
                 sm = 0.0f0
-                if onep
-                    for ci in 0:(BC - 1)
-                        s = ss[1 + tid + ci * BR] * scale
-                        mb = max(mb, s)
-                        p = exp(s - mo)
-                        ps[1 + ci + tid * BC] = Float16(p)
-                        sm += p
-                    end
+                for ci in 0:(BC - 1)
+                    p = exp(ss[1 + tid + ci * BR] * scale - mn)
+                    ps[1 + ci + tid * BC] = Float16(p)
+                    sm += p
                 end
-                if !onep || mb - mo > FLASH_EXP_HEADROOM
-                    mb = -Inf32
-                    for ci in 0:(BC - 1)
-                        mb = max(mb, ss[1 + tid + ci * BR] * scale)
-                    end
-                    mn = max(mo, mb)
-                    cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
-                    sm = 0.0f0
-                    for ci in 0:(BC - 1)
-                        p = exp(ss[1 + tid + ci * BR] * scale - mn)
-                        ps[1 + ci + tid * BC] = Float16(p)
-                        sm += p
-                    end
-                    # `ps` is relative to the NEW maximum, so this row's `O` has
-                    # to be converted *now*, before the product adds to it. One
-                    # thread over its own `EP` elements, and only on the rare row
-                    # that took this branch — `cs` is left at one so the sweep
-                    # after the product skips it.
-                    if !REGO && cr != 1.0f0
-                        for e in 0:(EP - 1)
-                            pvs[1 + tid + e * BR] *= cr
-                        end
-                    end
-                    ms[1 + tid] = mn
-                    ls[1 + tid] = ls[1 + tid] * cr + sm
-                    # One, because the conversion already happened above — except
-                    # under `REGO`, where `pvs` is this block's `P·V` rather than
-                    # `O` and the register sweep is the only thing that applies
-                    # the factor at all.
-                    cs[1 + tid] = REGO ? cr : 1.0f0
-                else
-                    # `ps` is relative to `mo`, and so is `O`, so nothing is
-                    # converted before the product: the correction applies to the
-                    # old and the new contribution alike and is deferred to the
-                    # sweep after it. That deferral is the whole point — it is
-                    # what lets the pass above read each score once.
-                    mn = max(mo, mb)
-                    cr = exp(mo - mn)
-                    ms[1 + tid] = mn
-                    ls[1 + tid] = (ls[1 + tid] + sm) * cr
-                    cs[1 + tid] = cr
-                    cr == 1.0f0 || (grew[1] = 1.0f0)
-                end
+                ms[1 + tid] = mn
+                ls[1 + tid] = ls[1 + tid] * cr + sm
+                cs[1 + tid] = cr
+                cr == 1.0f0 || (grew[1] = 1.0f0)
+            elseif tid < BR
+                # `ps` is relative to `mo`, and so is `O`, so nothing is converted
+                # before the product: the correction applies to the old and the
+                # new contribution alike and is deferred past it. That deferral is
+                # the whole point — it is what lets the pass above read each score
+                # once.
+                mo = ms[1 + tid]
+                mn = max(mo, mb)
+                cr = exp(mo - mn)
+                ms[1 + tid] = mn
+                ls[1 + tid] = (ls[1 + tid] + sm) * cr
+                cs[1 + tid] = cr
+                cr == 1.0f0 || (grew[1] = 1.0f0)
             end
             @synchronize
 
@@ -537,39 +560,110 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             end
             @synchronize
 
-            for t in w:NW:(RT * ET - 1)
-                rt = t % RT
-                et = t ÷ RT
-                off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BR
-                # Starting from `O` itself means the accumulate is the tensor
-                # core's own; starting from zero means the registers below do it.
-                acc = REGO ?
-                    zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}) :
-                    Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
-                        pvs, off, BR, Val(false))
-                for ct in 0:(CT - 1)
-                    a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                            ps, 1 + rt * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
-                    bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                            kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
-                    acc = muladd(a, bm, acc)
+            # `pre` says the reference moved *before* this block's contribution,
+            # so `O` has to be converted first; otherwise the conversion covers
+            # old and new together and waits until after. Either way it is only
+            # needed when some row's factor is not one, which `grew` records.
+            if !REGO && pre && grew[1] != 0.0f0
+                if HELD
+                    Base.Cartesian.@nexprs 3 j -> begin
+                        t_j = w + (j - 1) * NW
+                        t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
+                                                 (t_j ÷ RT) * Lava.GEMM_TILE * BR, BR, acc_j)
+                    end
+                    @synchronize
                 end
-                copyto!(pvs, off, BR, acc)
-            end
-            @synchronize
-
-            # The deferred correction, applied to old and new contributions
-            # together now that both are in `O`. This reads and writes the whole
-            # of `O` — 40 KB of the ~110 KB a key block costs — and `grew` is what
-            # keeps it off the blocks where every factor is one, which after the
-            # first few is most of them.
-            if !REGO && grew[1] != 0.0f0
                 for r in 0:(div(BR * EP, NT) - 1)
                     idx = tid + r * NT
                     lq, _ = Lava.splitidx(idx, Val(BR))
                     pvs[1 + idx] *= cs[1 + lq]
                 end
                 @synchronize
+                if HELD
+                    Base.Cartesian.@nexprs 3 j -> begin
+                        t_j = w + (j - 1) * NW
+                        if t_j < RT * ET
+                            acc_j = Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
+                                pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
+                                     (t_j ÷ RT) * Lava.GEMM_TILE * BR, BR, Val(false))
+                        end
+                    end
+                end
+            end
+
+            if HELD && !REGO
+                # `O` never leaves the accumulators here: the muladd chain adds
+                # straight into the tile this subgroup has been holding since the
+                # loop began, so the load and the store that dominated `P·V` are
+                # simply not issued.
+                Base.Cartesian.@nexprs 3 j -> begin
+                    t_j = w + (j - 1) * NW
+                    if t_j < RT * ET
+                        rt_j = t_j % RT
+                        et_j = t_j ÷ RT
+                        for ct in 0:(CT - 1)
+                            a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
+                                    ps, 1 + rt_j * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
+                            bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
+                                    kvs, 1 + ct * Lava.GEMM_TILE * EP + et_j * Lava.GEMM_TILE, EP, Val(true))
+                            acc_j = muladd(a, bm, acc_j)
+                        end
+                    end
+                end
+            else
+                for t in w:NW:(RT * ET - 1)
+                    rt = t % RT
+                    et = t ÷ RT
+                    off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BR
+                    # Starting from `O` itself means the accumulate is the tensor
+                    # core's own; starting from zero means the registers below do it.
+                    acc = REGO ?
+                        zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}) :
+                        Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
+                            pvs, off, BR, Val(false))
+                    for ct in 0:(CT - 1)
+                        a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
+                                ps, 1 + rt * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
+                        bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
+                                kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
+                        acc = muladd(a, bm, acc)
+                    end
+                    copyto!(pvs, off, BR, acc)
+                end
+            end
+            @synchronize
+
+            # The deferred correction, applied to old and new contributions
+            # together now that both are in `O`. With `O` in shared this reads and
+            # writes it — 40 KB of the ~110 KB a key block costs; with `O` held it
+            # is a flush and a reload around the same sweep. `grew` is what keeps
+            # either off the blocks where every factor is one, which after the
+            # first few is most of them.
+            if !REGO && !pre && grew[1] != 0.0f0
+                if HELD
+                    Base.Cartesian.@nexprs 3 j -> begin
+                        t_j = w + (j - 1) * NW
+                        t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
+                                                 (t_j ÷ RT) * Lava.GEMM_TILE * BR, BR, acc_j)
+                    end
+                    @synchronize
+                end
+                for r in 0:(div(BR * EP, NT) - 1)
+                    idx = tid + r * NT
+                    lq, _ = Lava.splitidx(idx, Val(BR))
+                    pvs[1 + idx] *= cs[1 + lq]
+                end
+                @synchronize
+                if HELD
+                    Base.Cartesian.@nexprs 3 j -> begin
+                        t_j = w + (j - 1) * NW
+                        if t_j < RT * ET
+                            acc_j = Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
+                                pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
+                                     (t_j ÷ RT) * Lava.GEMM_TILE * BR, BR, Val(false))
+                        end
+                    end
+                end
             end
 
             if REGO
@@ -583,6 +677,15 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 end
                 @synchronize
             end
+        end
+
+        if HELD && !REGO
+            Base.Cartesian.@nexprs 3 j -> begin
+                t_j = w + (j - 1) * NW
+                t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
+                                         (t_j ÷ RT) * Lava.GEMM_TILE * BR, BR, acc_j)
+            end
+            @synchronize
         end
 
         # Slots `1 : BR*E/NT` are exactly the ones whose `e` is inside the real
@@ -692,10 +795,20 @@ maximum moved.
 The online softmax rescales the accumulator whenever a block contains a larger
 score than anything seen so far. That is a read and a write of the whole of `O`
 — 40 KB of the ~110 KB of shared traffic a key block costs, and `O` is the
-single largest consumer of it. But the rescale factor is `exp(m_old - m_new)`,
-which is **exactly one** whenever the block's max did not beat the running one,
-and after the first few blocks the max has usually settled: the pass then
-multiplies `O` by one from end to end.
+single largest consumer of it. The rescale factor is `exp(m_old - m_new)`, which
+is **exactly one** whenever the block's max did not beat the running one.
+
+Worth 5-6%, and that is less than the traffic suggests because the flag is an OR
+over all `BR` rows. Per row the maximum does settle; for a workgroup of 64 it
+does not:
+
+    BR=64  Lk=4096   grew on  67.3% of blocks
+    BR=64  Lk=256    grew on 100.0%
+    BR=1   Lk=4096   grew on   4.1%
+
+So the pass is skipped on a third of the global blocks and none of the windowed
+ones. See [`FLASHCM_HELD`](@ref), where the same statistic is the whole reason a
+promising rearrangement of `O` loses.
 
 One shared word per workgroup records whether any row grew. The threads racing
 to set it all write the same value, and the branch is uniform because every
@@ -726,6 +839,51 @@ row on the first key block, always takes that path.
 Exact either way: the tests compare the two settings with `==`.
 """
 const FLASHCM_ONEPASS = Ref(true)
+
+"""
+    FLASHCM_HELD[]
+
+Keep each subgroup's `O` tiles in cooperative-matrix accumulators for the whole
+key loop, instead of loading and storing them through shared memory every block.
+
+`P·V` was a third of the kernel and almost none of that was arithmetic: it has
+`RT*ET` accumulator tiles against the score product's `RT*CT`, each given only
+`CT` muladds to amortise a load and a store — five times the accumulator traffic
+for the same FLOPs. Held, the muladds add straight into the tile the subgroup has
+been carrying, and the load and store are simply not issued.
+
+Three accumulators a subgroup, because `cld(RT*ET, NW)` is 3 at every tiling
+[`flashcmfits`](@ref) admits (it refuses a fourth rather than silently dropping
+tiles, since `@nexprs` needs a literal count).
+
+**Off, and the reason is worth more than the switch.** A version that never
+rescales — `heldacc()` in `tools/attn_lab.jl` — measured **+31.6% / +23.9%**, and
+the driver reports it at *fewer* registers (122 against 128), so occupancy is
+untouched and it looked like a clear win. The real one, which does rescale, is
+**15-19% slower**:
+
+    shape        shared O   held O
+    4096x4096    4.494 ms   5.183 ms   -15.3%
+    256x256      0.434      0.515      -18.7%
+
+The gap is entirely how often `grew` fires, and the assumption that it is rare is
+wrong. It is rare **per row** and `grew` is an OR over all `BR` of them:
+
+    BR=64  Lk=4096   128 blocks    grew on  67.3%
+    BR=64  Lk=256      8 blocks    grew on 100.0%
+    BR=16  Lk=4096   128 blocks    grew on  31.7%
+    BR=1   Lk=4096   128 blocks    grew on   4.1%
+
+On a block that grows, held `O` costs a flush, the sweep, a reload and two extra
+barriers, against shared `O`'s load, sweep and store — strictly more. It only
+wins on blocks that do not grow, and at `BR = 64` two thirds of them do.
+
+So this is not "the idea is wrong", it is "the idea needs `grew` to be rare and
+`BR = 64` is what makes it common". A per-row-tile flag would fire on ~32% rather
+than 67% (that is the `BR = 16` row above), which is the obvious next move if
+anyone returns to it.
+"""
+const FLASHCM_HELD = Ref(false)
 
 """
 How far a block's maximum may exceed the running one before the one-pass softmax
@@ -827,7 +985,8 @@ device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
 function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
                       lazyrescale::Bool = FLASHCM_LAZYRESCALE[],
-                      onepass::Bool = FLASHCM_ONEPASS[])
+                      onepass::Bool = FLASHCM_ONEPASS[],
+                      held::Bool = FLASHCM_HELD[])
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
@@ -840,6 +999,7 @@ function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_back
     (BR * E) % NT == 0 || return false
     attn_flash_cm!(backend, NT)(out, q, k, v, Float32(scale),
                                 Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Val(rego),
+                                Val(held && !rego),
                                 Int32(Lk), Int32(lazyrescale ? 0 : 1),
                                 Int32(onepass && !rego ? 1 : 0);
                                 ndrange = (NT * div(Lq, BR), H, B))

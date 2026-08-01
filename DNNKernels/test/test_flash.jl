@@ -119,12 +119,12 @@ end
             # choice and the losing branch still has to be right — a switch whose
             # other side is broken is not a switch.
             for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS, rego in (false, true),
-                lazyrescale in (false, true)
+                lazyrescale in (false, true), held in (false, true)
                 NW * 32 <= Lava.WORKGROUP_LIMIT[] || continue
                 L % BR == 0 && L % BC == 0 || continue
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
                 @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
-                                              BR, BC, NW, rego, lazyrescale)
+                                              BR, BC, NW, rego, lazyrescale, held)
                 KA.synchronize(back)
                 got = Array(o)
                 @test maximum(abs, got) > 1e-3          # it wrote something…
