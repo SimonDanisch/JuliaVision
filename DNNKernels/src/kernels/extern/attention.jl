@@ -726,15 +726,17 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
     if flashcm_applicable(q, k, v, bias, Lq, Lk)
         out === nothing &&
             (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
-        # Densified, unlike the two-GEMM path below, and for the opposite reason.
+        # `k` and `v` are densified and `q` is not, which is not an oversight.
         # Flash re-reads the whole of `k` and `v` once per query block — 64 times
         # over for a 4096-query global block — so a `PermutedDimsArray`'s four
-        # integer divisions per element get paid 64 times instead of once.
+        # integer divisions per element get paid 64 times. **`q` is read exactly
+        # once**: each workgroup stages its own `BR` queries and no other
+        # workgroup touches them, so densifying it is a whole extra pass over the
+        # array to save nothing.
         BR, BC, NW = flashcm_tiling(E, Lq, Lk)
-        qd = densify(q, ws, backend)
-        kd = densify(k, ws, backend)
-        vd = densify(v, ws, backend)
-        sdpaflashcm!(out, qd, kd, vd, scale; backend, BR, BC, NW) && return out
+        kd = FLASHCM_DENSIFY[] ? densify(k, ws, backend) : k
+        vd = FLASHCM_DENSIFY[] ? densify(v, ws, backend) : v
+        sdpaflashcm!(out, q, kd, vd, scale; backend, BR, BC, NW) && return out
     end
 
     if coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk)

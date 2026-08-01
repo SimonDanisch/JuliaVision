@@ -527,6 +527,37 @@ paths **inside one session**, which is the only measurement this project trusts.
 const FLASHCM = Ref(true)
 
 """
+    FLASHCM_DENSIFY[]
+
+Whether `sdpa` copies `k` and `v` into dense scratch before the fused kernel.
+
+They arrive as a `PermutedDimsArray` over a `ReshapedArray`, which costs four
+integer divisions per element read, and flash reads all of `k` and `v` once per
+*query block* — 64 times over for a 4096-query global block. The copy is two
+passes; not making it is 64 passes of wrapper arithmetic on top of reads that
+happen anyway.
+
+**Not an optimisation, a precondition.** Encode, interleaved, one process:
+
+    coopmat path (replaced)   162.75 ms
+    flash, k/v densified      137.64
+    flash, k/v as they arrive 169.42   <- slower than the path it replaces
+
+Without the copy the fused kernel *loses* to the two-GEMM path it is meant to
+beat, and the entire difference is index arithmetic on operands whose reads
+happen either way. The two-GEMM path never had this problem because its padding
+kernels read every element exactly once.
+
+`q` is deliberately not copied: each workgroup stages its own `BR` queries and no
+other workgroup touches them, so `q` is read once and a copy would be a whole
+extra pass to save nothing.
+
+A `Ref` because the trade reverses with the block count: at `Lq = 256` and
+`BR = 64` there are four query blocks, not sixty-four.
+"""
+const FLASHCM_DENSIFY = Ref(true)
+
+"""
     FLASHCM_REGO[]
 
 Where `O` lives across key blocks: `true` puts it in registers, `false` in
