@@ -313,7 +313,8 @@ end
         # order stands. Asked by describing a one-core device rather than by
         # writing to a global and restoring it — which a failing `@test` inside
         # the `try` would have skipped, leaving it flipped for everything after.
-        one = DNNKernels.Device(dev.coopmat, dev.tile, dev.subgroup, dev.sharedbudget,
+        one = DNNKernels.Device(dev.coopmat, dev.tile, dev.subgroup,
+                                dev.coopmatsubgroup, dev.sharedbudget,
                                 dev.workgrouplimit, 1, dev.launchgroup)
         onetiling(args...) = DNNKernels.flashcm_tiling(one, args...; clamp = true)
         @test onetiling(16, 23, 4096, 8) == onetiling(16, 23, 4096)
@@ -347,18 +348,23 @@ end
                                   NW = 8).reason === :tiling
     f32 = DNNKernels.toback(back, randn(Float32, E, L, H, B))
     @test DNNKernels.flashcm_plan(dev, f32, k, v, nothing).reason === :eltype
-    nocm = DNNKernels.Device(false, dev.tile, dev.subgroup, dev.sharedbudget,
-                             dev.workgrouplimit, dev.cores, dev.launchgroup)
+    nocm = DNNKernels.Device(false, dev.tile, dev.subgroup, dev.coopmatsubgroup,
+                             dev.sharedbudget, dev.workgrouplimit, dev.cores,
+                             dev.launchgroup)
     @test DNNKernels.flashcm_plan(nocm, q, k, v, nothing).reason === :nocoopmat
     @test DNNKernels.flashcm_plan(dev, q, k, v, nothing; BR = 23).reason === :extent
 
     # ── A plan is an answer about a device, so it can be asked about one this
     # machine does not have. `NW * 32` was a literal in three places, and on a
     # wave64 part it names half the workgroup the tiling assumes.
-    w64 = DNNKernels.Device(true, 16, 64, 65536, 1024, 40, 256)
+    # An RDNA3-shaped device: default width 64, but Lava PINS coopmat modules to
+    # 32, so the workgroup must still be sized in 32s. Sizing it in 64s is the
+    # bug this field exists to prevent, and it is invisible on this card.
+    w64 = DNNKernels.Device(true, 16, 64, 32, 65536, 1024, 40, 256)
     p64 = DNNKernels.flashcm_plan(w64, q, k, v, nothing)
     @test p64 isa DNNKernels.FlashCMPlan
-    @test p64.NT == p64.NW * 64
+    @test p64.NT == p64.NW * 32              # …not * 64
+    @test w64.subgroup == 64                 # the device default is still 64
 
     # ── The clamp is per run, not per process. Two contexts, opposite policies,
     # both alive at once — which the `Ref` it replaced could not express, and

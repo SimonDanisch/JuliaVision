@@ -352,7 +352,7 @@ of the device rather than of the kernel.
     # `attn_flash_cm!` holds `O` in exactly three accumulators a subgroup, and
     # `@nexprs` needs that count to be a literal. A tiling wanting a fourth
     # would silently drop its tiles, so it is refused instead.
-    cld((BR ÷ dev.tile) * (EP ÷ dev.tile), NT ÷ dev.subgroup) <= 3 || return false
+    cld((BR ÷ dev.tile) * (EP ÷ dev.tile), NT ÷ dev.coopmatsubgroup) <= 3 || return false
     (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
     flashcmshared(EP, BR, BC) <= dev.sharedbudget
 end
@@ -1067,18 +1067,21 @@ The first tiling in [`FLASHCM_TILINGS`](@ref) that divides this shape and fits
 used.
 
 Takes a [`Device`](@ref) rather than reading one, which is what makes it
-answerable without a GPU: `flashcm_tiling(Device(false, 16, 64, 65536, 1024, 40,
-256), …)` asks what this chooser would do on a wave64 RDNA3 part from a machine
-that has none. Every table below was measured on one card, and `NW * 32` was
-written as a literal in three places — on a device whose compute subgroup is 64
-that is half the workgroup the tiling assumes.
+answerable without a GPU: `flashcm_tiling(Device(true, 16, 64, 32, 65536, 1024,
+40, 256), …)` asks what this chooser would do on a wave64 RDNA3 part from a
+machine that has none.
+
+Note the fourth argument. Every table below was measured on one card, and the
+subgroup width appears twice with different meanings: the device's *default*
+(64 there) and the width a cooperative-matrix module actually runs at, which
+Lava pins to 32. The tiling needs the second.
 """
 function flashcm_tiling(dev::Device, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
                         clamp::Bool = false)
     EP = cld(E, dev.tile) * dev.tile
     fits = NTuple{3,Int}[]
     for (BR, BC, NW) in FLASHCM_TILINGS
-        NT = NW * dev.subgroup
+        NT = NW * dev.coopmatsubgroup
         NT <= dev.workgrouplimit || continue
         # Without `clamp` the extents have to divide the tile; with it they are
         # padded and masked, which is what puts the decoder's 23-token
@@ -1168,7 +1171,8 @@ function flashcm_plan(dev::Device, q, k, v, bias;
     end
     tiling === nothing && return Decline(:notiling)
     BR, BC, NW = tiling
-    NT = NW * dev.subgroup
+    # The pinned coopmat width, not the device default — see `Device`.
+    NT = NW * dev.coopmatsubgroup
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)
     (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)

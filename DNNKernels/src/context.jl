@@ -51,6 +51,7 @@ struct Device
     coopmat::Bool          # cooperative-matrix GEMM usable here
     tile::Int              # its tile extent
     subgroup::Int          # lanes per subgroup — 32 on NVIDIA, 32 *or* 64 on RDNA3
+    coopmatsubgroup::Int   # …and the width a cooperative-matrix kernel gets
     sharedbudget::Int      # bytes of `@localmem` one workgroup may claim
     workgrouplimit::Int    # threads per workgroup
     cores::Int             # shader cores / SMs; 0 when the device will not say
@@ -71,13 +72,27 @@ Deliberately not "the RTX 4000 Ada's numbers minus the GPU bits": a CPU run must
 not take a tensor-core path, and the shared budget is the portable Vulkan floor
 so that anything computed from it stays valid rather than merely plausible.
 """
-Device(::Any) = Device(false, 16, 1, 48 * 1024, 1024, 0, 256)
+Device(::Any) = Device(false, 16, 1, 1, 48 * 1024, 1024, 0, 256)
 
 function Device(backend::Lava.LavaBackend)
     ctx = vkcontext(backend)
     Device(Lava.coopmat_gemm_available(ctx),
            Lava.GEMM_TILE,
            Lava.device_subgroup_size(ctx),
+           # NOT the device default. Lava PINS any module declaring
+           # `CooperativeMatrixKHR` to `COOPMAT_SUBGROUP` via
+           # `VK_EXT_subgroup_size_control` (`pipeline.jl`, the
+           # `PipelineShaderStageRequiredSubgroupSizeCreateInfo` branch), because
+           # its coopmat kernels index subgroups as `tid ÷ 32` and a cooperative
+           # matrix is subgroup-scoped.
+           #
+           # So a coopmat kernel's workgroup must be sized in units of THIS, not
+           # of `subgroup`. Getting that wrong is invisible on a wave32 card and
+           # silently wrong on RDNA 3.5, where the device default is 64 and the
+           # pipeline still runs 32 — the launch would ask for `NW * 64` threads
+           # while the kernel indexes `NW * 2` subgroups. Which is worse than the
+           # literal `32` it replaces, so it is spelled out here once.
+           Lava.COOPMAT_SUBGROUP,
            Lava.max_shared_memory(ctx),
            Lava.WORKGROUP_LIMIT[],
            Lava.shader_core_count(ctx),
