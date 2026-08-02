@@ -290,3 +290,62 @@ RIFE's own padding kernel stayed in `RIFERunner` rather than joining
 source frame, which is the entire point of each. RIFE pads because its flow field
 is in pixels, and resizing the input would silently rescale every motion vector
 the network predicts.
+
+---
+
+## 2026-08-03 — still green after the refactor, and "0 misses" made into a real claim
+
+Re-ran everything against `main` at `aefd9e6` — which now carries the DNNKernels
+refactor (globals 34 → 0, plan objects, per-device `Device`), Lava's per-device
+allocator and flash-decoding, all of which landed *after* `sd/small-models` was
+merged.
+
+**Nothing regressed.** All three parity checks pass with the same numbers, and
+the three runners produce byte-identical output to 2026-08-02:
+
+| | parity | runner output |
+|---|---|---|
+| neural LUT | 3.576e-07 | `RGB(0.3627222, 0.78073686, 1.0)` |
+| RIFE | 3.265e-04 max, 4.897e-07 mean | centre `RGB(0.35299557, 0.5, 0.6470045)` |
+| Depth Anything | 4.232e-05 | depth max 3.4986925 |
+
+The one digit that moved is Depth Anything's mean, 8.481e-07 → 8.485e-07.
+
+### The `misses == 0` claim was weaker than I wrote it, and now is not
+
+`STATUS.md`'s cross-project list says it plainly: **"0 misses" could mean the
+frozen cache worked, or that the driver's own shader cache served everything** —
+and the miss report identified modules by `hash(spirv_bytes)`, the *sampling*
+hash, so two modules differing in one byte counted as one. Yesterday's entry
+asserts `Lava.frozen_stats().misses == 0` three times as if it settled the
+question. It did not, and that is my error rather than a change of circumstance.
+
+Re-tested with the stronger instrument. `Lava.no_pipeline_compilation` empties
+`PIPELINE_CACHE` first — so a Julia-side hit cannot mask a cold `VkPipelineCache`
+— and refuses any pipeline that would need compiling:
+
+| editor path | refusals |
+|---|---|
+| `predictlut` + `grade!` at 4K | **0** |
+| `depthmap!` | **0** |
+| `interpolate!` at 1080p | **0** |
+
+**With a negative control, because a green from an instrument that cannot fire is
+worth nothing** — this repo has now hit that class three times, and the same
+`VK_PIPELINE_COMPILE_REQUIRED` bug that made this instrument unable to report a
+miss on Linux was live until recently. The control dispatches a kernel whose body
+is novel *per run* (a `Val{K}` with `K` from `RandomDevice`), so neither Lava's
+cache nor the driver's cross-process one can serve it: **refused = 1, the
+instrument fires.** The three zeros above are therefore real.
+
+So the workloads do cover the paths the editor takes, which is what the packages
+exist for — but it is worth being exact about what the test now proves: every
+pipeline these three paths need was already in the driver's cache, on this
+machine, in a fresh process. That is the first-use cost the workload removes.
+
+### Nothing else outstanding
+
+`small-models` is marked done in `STATUS.md` and the three artifacts are live on
+`assets-v1`. Both findings from yesterday — TF32 in the exporters, and
+benchmarking through `Model` rather than `loadgraph` — are now in the
+cross-project "act on these first" list, so they need nothing further here.
