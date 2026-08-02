@@ -229,3 +229,25 @@ changes when it lands, and says so at the point of change rather than in a note
 on a branch.
 
 Until then the two-device acceptance test cannot pass — for either project.
+
+
+## 2026-08-02 (later still) — the AMD report, read against my own commit
+
+`6489d5c`, on Lava `708eb20` (i.e. after `sd/portability` merged into
+`sd/nvidia`).
+
+**A portability bug of my own, found by reading their phase 1 rather than by a
+test.** `Device.subgroup` fed the flash tiling as `NT = NW * dev.subgroup`.
+Lava pins any `CooperativeMatrixKHR` module to 32 lanes, so on RDNA 3.5 that
+sizes the workgroup in 64s at a kernel the driver runs 32-wide. Strictly worse
+than the literal `32` it replaced, and invisible on a wave32 card. Split into
+`subgroup` / `coopmatsubgroup`; the test builds an RDNA3-shaped device and
+asserts `NT == NW * 32` while `subgroup == 64`.
+
+**This narrows their finding 1 rather than confirming it.** Literal 32s inside
+coopmat kernels are fine — Lava pins those pipelines. The finding still holds
+for subgroup kernels that do not declare the capability, which are unpinned.
+
+**Re-verified against the merged Lava**, since it changes the emitter: suite
+green throughout, SAM 2 encode 100.88 ms / click 3.08 / VRAM 1181 / masks
+identical.

@@ -106,23 +106,44 @@ a shared entry can still produce a right answer by luck.
 
 ## Cross-project, act on these first
 
-- **`VK_PIPELINE_COMPILE_REQUIRED` is discarded on Linux — this is live on the
-  DESKTOP, not just on AMD.** It is a *success*-class code, so Vulkan.jl does not
+- ✅ **MERGED.** Lava `sd/portability` → `sd/nvidia` (`708eb20`). DNNKernels
+  green against it and SAM 2 unchanged (encode 100.88 ms, click 3.08, VRAM
+  1181, masks identical). Everything below this line is settled unless marked
+  otherwise; rebase onto `sd/nvidia` before further Lava work.
+- **`VK_PIPELINE_COMPILE_REQUIRED` was discarded on Linux — this was live on the
+  DESKTOP, not just on AMD.** Fixed. It is a *success*-class code, so Vulkan.jl does not
   raise and Lava caches and binds a NULL pipeline. The check exists but sits
   inside `if LARGE_STACK_PIPELINE`, which is `Sys.iswindows()`. Consequence
   beyond the crash: `PIPELINE_COMPILES_REFUSED` is always 0 here and
   `PIPELINE_COMPILE_MISSES` never fills, so **`no_pipeline_compilation` cannot
   report a miss on Linux** — it either crashes or returns a false green. That is
   the instrument the frozen-kernel-cache workflow verifies with, and it is the
-  third instrument-cannot-fire bug found on 2026-08-02. Fixed on Lava
-  `sd/portability` (`93e4765`); merge it.
-- **Subgroup width is not a device fact.** RDNA 3.5 reports min 32 / max 64 with
-  compute pipelines free to pin either, so `device_subgroup_size()` is a
-  *default*. Any plan object storing a width must pin it at pipeline creation
-  via `VK_EXT_subgroup_size_control` (`Lava.can_require_subgroup_size` exists),
-  or it is storing a guess the driver may contradict. `DNNKernels.Device.subgroup`
-  as committed in `4f43ba4` does not pin, and `flash.jl` still has literal `32`s
-  at `399`, `431`, `440`. Invisible on the desktop.
+  third instrument-cannot-fire bug found on 2026-08-02.
+- **…and its negative control was dead on BOTH vendors, which extends
+  portability finding 9.** The control used a fixed "novel" kernel body, novel
+  only to *Lava's* cache — but the flag asks the DRIVER, and the driver keeps a
+  shader cache across processes that nothing here controls. So it fired exactly
+  once per machine, ever. Deleting Lava's `VkPipelineCache` blob does not
+  restore it on either vendor (verified by doing it), so this is not RADV-only.
+  Note the instrument was behaving *correctly* throughout — cached means no
+  compile required — the test's premise was wrong. Now novel per RUN via a
+  random `Val{K}` literal; verified firing across two independent sessions.
+  **Consequence to carry: "0 misses" was a weaker claim than it read.** It could
+  mean the frozen cache worked or that the driver's own cache served everything.
+  The miss report also identified modules with `hash(spirv_bytes)` — the
+  *sampling* hash — so two modules differing in one byte reported as one miss.
+- **Subgroup width is not a device fact — and the coopmat half is already
+  handled, which NARROWS portability finding 1.** Lava pins any module declaring
+  `CooperativeMatrixKHR` to `COOPMAT_SUBGROUP` (32) at pipeline creation
+  (`pipeline.jl`), so the literal `32`s *inside coopmat kernels* are correct
+  everywhere, including RDNA 3.5.
+  What the finding does still catch: subgroup kernels that do **not** declare
+  that capability are unpinned and run at the device default (64 there) — the
+  `getcomp` + butterfly fallback for `coopmat_reduce` is exactly one of those.
+  And it caught a bug in `DNNKernels.Device` (`4f43ba4`), fixed in `6489d5c`:
+  sizing a coopmat workgroup from the device *default* would ask for `NW * 64`
+  threads at a kernel the driver runs 32-wide — worse than the literal it
+  replaced. `Device` now carries `subgroup` and `coopmatsubgroup` separately.
 - **A `Bool` capability predicate cannot express this hardware.**
   `coopmat_gemm_available()` is `true` on RDNA 3.5, but its shape table has no
   `Float32` A/B form at all — so a Float32 GEMM is told yes and emits
