@@ -392,35 +392,103 @@ nothing."* On this device the instrument does not fire, so the rest of that
 testset is vacuous here, and the same is true of anything else built on
 `no_pipeline_compilation`. Not root-caused; handing over as an open question.
 
-#### 10. A teardown segfault, bounded but not isolated — OPEN
+#### 10. `vkUnmapMemory` in the buffer free path segfaults — LOCATED, patch below
 
-`test_pipeline_cache_no_compile.jl` also segfaults at **process exit**, in a
-finalizer, independently of the test outcome:
+**Correction to my own first reading of this.** I initially recorded it as a
+teardown crash because that is where it first appeared. It is not. Once findings
+7 and 8 were patched and the suite got further, the same stack fired **in the
+middle of `test_static_workgroup.jl`**, from a finalizer that GC happened to run
+at that moment. So this can kill any Lava process at an arbitrary GC point, not
+only at exit. That makes it the most disruptive of the three.
 
 ```
 destroy_buffer! (memory.jl:858) -> unmap_memory -> vkUnmapMemory -> SIGSEGV
-unsafe_free!    (lavaarray.jl:238) -> GPUArrays release -> SIGSEGV
+  <- vk_free! (memory.jl:821) <- lavaarray.jl:73 <- GPUArrays release
+  <- unsafe_free! (lavaarray.jl:238) <- run_finalizers
 ```
 
-both reached from `run_finalizers` under `ijl_atexit_hook`. It is nastier than it
-looks because Julia's stdout is block-buffered to a file, so this crash **destroys
-the test output that preceded it** — which is why the first suite log was 3 KB of
-pure stack trace. Running under a pty (`script -qec`) works around that and is
-worth doing for any Lava suite run on this machine.
+The code at `memory.jl:856` wraps the unmap in `try`/`catch` with the comment
+*"unmap may fail if the driver released the memory first ... don't propagate
+(finalizers must not throw)"*. **That protection cannot work.** An invalid unmap
+is undefined behaviour, not a Julia exception:
+VUID-vkUnmapMemory-memory-00689 requires the memory to be currently mapped, and a
+SIGSEGV is not catchable. The `catch` gives the appearance of having handled the
+case while handling nothing.
 
-Two hypotheses formed and **both disproved by MWE**, recorded so nobody spends
-the time again:
+The call is also **redundant**: `vkFreeMemory` implicitly unmaps, and
+`buf.memory.destructor()` runs eleven lines below. Deleting the unmap removes the
+crash entirely: `test_static_workgroup.jl` goes from SIGSEGV to completing with
+541 passed.
 
-1. *Plain `LavaArray` finalization at exit is broken.* No: allocating, using and
-   holding a `LavaArray` to exit is clean, as is freeing it explicitly. Three
-   modes, all exit 0.
+Patch applied locally, **not committed**, and deliberately labelled an experiment
+rather than a proposed fix, because removing the call treats the symptom. The
+reason the unmap faulted is that `buf.mapped_ptr` and the memory's real mapped
+state disagree, and *that* disagreement is the actual defect. Removing a
+redundant call is safe and spec-legal; it is not a diagnosis.
+
+Two earlier hypotheses, **both disproved by MWE** and recorded so nobody repeats
+them:
+
+1. *Plain `LavaArray` finalization at exit is broken.* No: allocate, use, and
+   either hold to exit or free explicitly. Three modes, all exit 0.
 2. *`no_pipeline_compilation`'s `empty!(PIPELINE_CACHE)` drops pipelines that
    `LAUNCH_PLAN_CACHE` / `LINKED_KERNEL_CACHE` still reference, so a finalizer
-   destroys a live `VkPipeline`* (the GUARDRAILS §8 class). No: clearing the
-   cache, forcing `GC.gc(true)`, and relaunching the same kernel is clean, exit 0.
+   destroys a live `VkPipeline`* (the GUARDRAILS §8 class). No: clear the cache,
+   `GC.gc(true)`, relaunch the same kernel. Clean, exit 0.
 
-So the trigger is narrower than either and is still open. It reproduces reliably
-in that one test file.
+Operational note worth keeping regardless: this crash block-buffers away the test
+output that preceded it, which is why the first suite log was 3 KB of pure stack
+trace. **Run Lava suites on this machine under a pty** (`script -qec "julia ..."`)
+so output survives.
+
+#### 11. The rank>=3 `Extruded` miscompile does NOT reproduce on RDNA 3.5 — this is `lava-core` Phase 1's missing datapoint
+
+The most useful thing this machine found, and it was hidden behind finding 10.
+
+`test_static_workgroup.jl` completes with **541 passed, 11 failed**. Every one of
+the 11 fails in the same direction:
+
+```
+:133  coverage(ND, wg, :typed; fallback=false) < 1.0     Evaluated: 1.0 < 1.0   (x4)
+:143  coverage(ND5, (16,4,1,1,1), :typed)      < 1.0     Evaluated: 1.0 < 1.0
+:144  coverage(ND5, (16,4,2,1,1), :typed)      < 1.0     Evaluated: 1.0 < 1.0
+:155  law(b2, b3) == min(1, b3/b2)                       Evaluated: 1.0 == 0.5
+:155  law(b2, b3) == min(1, b3/b2)                       Evaluated: 1.0 == 0.5
+:155  law(b2, b3) == min(1, b3/b2)                       Evaluated: 1.0 == 0.125
+:155  law(b2, b3) == min(1, b3/b2)                       Evaluated: 1.0 == 0.25
+:155  law(b2, b3) == min(1, b3/b2)                       Evaluated: 1.0 == 0.125
+```
+
+These are **characterization tests that assert the defect is present** (`< 1.0`,
+and a coverage law of exactly `min(1, b3/b2)`). They fail here because coverage is
+**1.0 everywhere**: the same Lava-emitted SPIR-V that writes only `b3/b2` of its
+output on the desktop writes **all** of it on RDNA 3.5.
+
+`lava-core`'s brief lists this as one of two items labelled *NVIDIA driver
+miscompile*, root-caused, mitigated, and "cannot be settled on this hardware".
+This is the second device it could not get. What the result means, stated per
+Rule 0's own corollary rather than more loosely:
+
+> when our module behaves *differently* on another vendor, that difference is
+> evidence about **our** code, not evidence against the driver.
+
+So this does **not** exonerate our emitter, and it is not a licence to call it a
+driver bug. It says our module's correctness depends on something the spec leaves
+open, which one compiler exploits and the other does not. That is exactly the
+shape of the lead already in the brief: *"LLVM's canonicalisation of `x <s 1` when
+it believes `x` is non-negative, valid only under `nuw`/`nsw` flags that rank 4's
+extra index arithmetic supplies."* RADV's compiler evidently does not take the
+same liberty. The GLSL differential (Rule 0 instrument 3) is now much cheaper to
+interpret, because there is a known-good vendor to diff against.
+
+**Separately, the test itself needs changing, and by this project's own rule.**
+`CLAUDE.md` says no vendor-conditional tests: "the regression test pins the source
+pattern and runs the same assertion on every platform." These assertions pin the
+**symptom**, so they can only pass on hardware that exhibits the defect, and they
+will keep failing on every non-NVIDIA device until the underlying bug is fixed, at
+which point they fail everywhere. They should assert full coverage on every
+device, with the NVIDIA shortfall recorded as a known failure, not as the expected
+result.
 
 ### Design note for `kernels-refactor` step 4 and `lava-core` phase 3
 
