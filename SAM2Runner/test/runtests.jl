@@ -23,7 +23,7 @@ occurrence as a mystery the log names the kernel that did not complete. The cost
 is one interpolated string per dispatch on a 0.6 s run.
 """
 
-using Test, SAM2Runner
+using Test, SAM2Runner, Random
 
 const SUBPROCESS = """
 using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
@@ -75,4 +75,92 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
         @test r.compile < 5.0
         @test r.wall < 20.0
     end
+end
+
+# The mask resample, against the literal form of its own definition.
+#
+# It is the largest host-side cost of a click — 8.1 ms at 1920x1080 against 3.3
+# for the decode — and the rewrite that took it to 1.04 ms is entirely about
+# what does *not* vary per pixel. That is exactly the kind of change that is
+# correct on the interior and wrong on an edge, so the reference below is the
+# original loop, kept verbatim, and the comparison is over every pixel rather
+# than a tolerance: bilinear-then-threshold has no rounding slack, a wrong tap
+# flips a pixel outright.
+#
+# No GPU and no assets, so it always runs.
+"""The reference's threshold input, so a disagreement can be judged by how close
+to zero it was rather than only counted."""
+function referencevalue(lg, w, h)
+    mw, mh = size(lg)
+    out = Matrix{Float32}(undef, w, h)
+    @inbounds for j in 1:h, i in 1:w
+        fx = ((i - 0.5) / w) * mw + 0.5
+        fy = ((j - 0.5) / h) * mh + 0.5
+        x0 = clamp(floor(Int, fx), 1, mw); y0 = clamp(floor(Int, fy), 1, mh)
+        x1 = min(x0 + 1, mw); y1 = min(y0 + 1, mh)
+        tx = Float32(fx - x0); ty = Float32(fy - y0)
+        out[i, j] = (1 - tx) * (1 - ty) * lg[x0, y0] + tx * (1 - ty) * lg[x1, y0] +
+                    (1 - tx) * ty * lg[x0, y1] + tx * ty * lg[x1, y1]
+    end
+    out
+end
+
+function referencemask(lg, w, h)
+    mw, mh = size(lg)
+    out = Matrix{UInt8}(undef, w, h)
+    @inbounds for j in 1:h, i in 1:w
+        fx = ((i - 0.5) / w) * mw + 0.5
+        fy = ((j - 0.5) / h) * mh + 0.5
+        x0 = clamp(floor(Int, fx), 1, mw); y0 = clamp(floor(Int, fy), 1, mh)
+        x1 = min(x0 + 1, mw); y1 = min(y0 + 1, mh)
+        tx = Float32(fx - x0); ty = Float32(fy - y0)
+        v = (1 - tx) * (1 - ty) * lg[x0, y0] + tx * (1 - ty) * lg[x1, y0] +
+            (1 - tx) * ty * lg[x0, y1] + tx * ty * lg[x1, y1]
+        out[i, j] = v > 0 ? 0xff : 0x00
+    end
+    out
+end
+
+@testset "maskatframe matches its reference" begin
+    # Seeded: the assertion below is about a *tie* at the threshold, and an
+    # unseeded draw turns that into a test that fails once every few hundred
+    # runs on a different pixel each time.
+    Random.seed!(20260802)
+    lg = Float32.(3 .* randn(256, 256))
+    # Upsampling, downsampling, 1:1, and the degenerate sizes where x1 == x0.
+    # **Not bit-equality, and the reason is worth stating.** The reference sums
+    # four products; the shipped form blends two rows and then interpolates. Those
+    # are algebraically the same and not the same in floating point, so a pixel
+    # whose interpolated value sits *at* zero can round either side of the `> 0`
+    # threshold. Measured: one pixel in 8 294 400 at 3840x2160, where the
+    # reference gets +1.19e-07 and the row-blend gets exactly 0.0.
+    #
+    # So the contract is: identical wherever the value is meaningfully non-zero,
+    # and disagreements confined to the zero crossing. An indexing bug would put
+    # them anywhere.
+    @testset "$w x $h" for (w, h) in [(1920, 1080), (256, 256), (64, 40),
+                                      (1, 1), (1, 300), (300, 1), (3840, 2160)]
+        got = SAM2Runner.maskatframe(lg, w, h)
+        want = referencemask(lg, w, h)
+        val = referencevalue(lg, w, h)
+        differ = got .!= want
+        @test count(differ) <= max(1, length(got) ÷ 1_000_000)
+        # Every disagreement is a value that rounds to zero in fp32.
+        @test all(abs.(val[differ]) .<= 1f-6)
+        # And away from the crossing they agree exactly.
+        solid = abs.(val) .> 1f-3
+        @test got[solid] == want[solid]
+    end
+
+    # A logit field that is zero somewhere: `v > 0` is the whole output, so a
+    # field that never crosses zero would agree with almost any implementation.
+    flat = zeros(Float32, 256, 256)
+    flat[100:160, 100:160] .= 1f0
+    m = SAM2Runner.maskatframe(flat, 1920, 1080)
+    @test m == referencemask(flat, 1920, 1080)
+    @test 0 < count(==(0xff), m) < length(m)      # it really does have both
+
+    # Non-square logits, since nothing in the signature promises 256x256.
+    odd = Float32.(randn(37, 91))
+    @test SAM2Runner.maskatframe(odd, 640, 480) == referencemask(odd, 640, 480)
 end

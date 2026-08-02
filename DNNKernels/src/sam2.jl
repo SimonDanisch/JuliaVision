@@ -42,10 +42,21 @@ struct SAM2
     # the 22.3 MB each decode allocated and a full pass over the features on
     # every one.
     #
-    # Keyed by `===` on the feats tuple, so a new embedding invalidates it and
-    # nothing has to remember to.
+    # Invalidated by `encode`, which clears the key. `===` on the feats tuple is
+    # NOT enough on its own and the comment here used to say it was: the encoder
+    # writes into the same slab buffers every frame, so the tuple `decode` gets
+    # back is identical to the one it converted from and holds other numbers.
     cachekey::Base.RefValue{Any}
     cacheval::Base.RefValue{Any}
+    # The two clicks-per-embedding fields. `prompts` is the one `(point, label)`
+    # pair every click writes into, because a replay reads whatever those bytes
+    # hold *now* — a fresh pair per click would leave the captured commands
+    # pointing at freed storage. `replay` is `(feats, point, label, seq, out)`,
+    # and holds those four alive for exactly that reason. It survives a new
+    # embedding, because the addresses it recorded do not move; what retires it
+    # is a converted input having to be reallocated.
+    prompts::Base.RefValue{Any}
+    replay::Base.RefValue{Any}
 end
 
 function SAM2(graphdir::AbstractString, weightpath::AbstractString;
@@ -57,7 +68,8 @@ function SAM2(graphdir::AbstractString, weightpath::AbstractString;
     img[end] == res || error("encoder graph takes a $(img[end])-square image, not $res")
     pts = dec.buffers[dec.inputs[4]].shape
     pts[2] == maxpoints || error("decoder graph has $(pts[2]) point slots, not $maxpoints")
-    SAM2(m, res, maxpoints, (res=res,), Ref{Any}(nothing), Ref{Any}(nothing))
+    SAM2(m, res, maxpoints, (res=res,), Ref{Any}(nothing), Ref{Any}(nothing),
+         Ref{Any}(nothing), Ref{Any}(nothing))
 end
 
 KernelAbstractions.get_backend(s::SAM2) = s.model.backend
@@ -72,14 +84,25 @@ Returns all six encoder outputs; `decode` reads the first three and the rest are
 the positional encodings the graph produced alongside them. Keep the whole tuple
 between clicks: that *is* the cached embedding.
 """
-encode(s::SAM2, image) = call(s.model, "sam2_encoder", image; dims=s.dims)
+function encode(s::SAM2, image)
+    # A new embedding has to invalidate the converted decoder inputs here,
+    # because `decode` cannot detect it: `call` writes the encoder's outputs into
+    # the same statically planned slab buffers every time, so it returns a tuple
+    # that is `===` to the one `decode` last converted from while holding
+    # different numbers. The cache's own comment used to claim identity was
+    # enough; it never was, and it only went unnoticed because the shipped
+    # autocast decoder declares the dtypes the encoder already produces, so
+    # nothing is converted and the "cache" holds the live features themselves.
+    s.cachekey[] = nothing
+    call(s.model, "sam2_encoder", image; dims=s.dims)
+end
 
 """
     CACHE_DECODER_INPUTS[] :: Bool
 
 Reuse the decoder's dtype-converted inputs across clicks on one embedding.
 
-**Off, because it is unverified.** The saving is real and measured — the
+**On, and it is a precondition rather than a saving.** The saving is real and measured — the
 conversion is 12.6 MB of the 22.3 MB each `decode` allocates, and it is per
 click where it should be per frame — but the numerical check needs a decode
 result read back, and every attempt at that hit the flush hang (see
@@ -87,13 +110,21 @@ result read back, and every attempt at that hit the flush hang (see
 the path that produces masks, without having compared one against the uncached
 result, is not a trade worth making for 12.6 MB.
 
-To verify: decode twice on the same `feats` with this on, once more with
-`s.cachekey[] = nothing` in between, and compare. The open question it settles is
-whether any decoder op writes into an *input* buffer — the planner is free to
-alias, and if it does, the second click on an embedding reads corrupted features.
-Turn this on when that comparison passes.
+**The open question is answered.** It asked whether any decoder op writes into an
+*input* buffer, since the planner is free to alias. Read back on 2026-08-02: the
+cached first call and the cached *second* call both differ from the uncached
+result by `0.000e+00`. It agrees with the static argument — no op in either graph
+names its own output among its inputs, and `escaping` gives externals no slab
+space — so neither structural route to aliasing exists.
+
+**And it buys no time on its own: +0.008 ms.** 12.6 MB at 250 GB/s is 0.05 ms;
+the "12.6 of the 22.3 MB each decode allocates" above was about allocation churn
+and had been read as though it were about time. What it *is* worth is
+[`REPLAY_DECODE`](@ref), which needs every device address to be identical next
+call — "an input buffer written in place rather than reallocated" — and that is
+1 ms. Turning this off turns that off with it.
 """
-const CACHE_DECODER_INPUTS = Ref(false)
+const CACHE_DECODER_INPUTS = Ref(true)
 
 """
     decode(s, feats, point, label) -> (masks, iou)
@@ -116,15 +147,32 @@ function decode(s::SAM2, feats, point, label)
     # handover a dtype boundary, and the graph's own declaration is what decides
     # it, not an assumption about which policy either side was built with.
     # Converted once per embedding, not once per click — see the cache fields on
-    # `SAM2`. `===` on the tuple, so a fresh `encode` invalidates it by identity.
+    # `SAM2`. `encode` clears the key, which is what makes a new embedding
+    # rebuild this; `===` alone cannot, since the tuple is the same one.
     args = if CACHE_DECODER_INPUTS[] && s.cachekey[] === feats
         s.cacheval[]::NTuple{3,Any}
     else
+        prev = s.cacheval[]
+        fresh = false
         a = ntuple(3) do i
             want = g.buffers[g.inputs[i]].dtype
             f = feats[i]
-            eltype(f) === want ? f : want.(f)
+            eltype(f) === want && return f
+            # Converted INTO the previous destination whenever there is a usable
+            # one, rather than allocated afresh. A `REPLAY_DECODE` capture
+            # records these addresses in its push constants, and a replay over
+            # moved addresses does not fail — it re-runs against whatever now
+            # lives there and returns a plausible mask. When the destination
+            # genuinely has to move, drop the capture instead.
+            d = prev === nothing ? nothing : prev[i]
+            if !(d isa AbstractArray) || eltype(d) !== want || size(d) != size(f)
+                d = similar(f, want)
+                fresh = true
+            end
+            d .= f
+            d
         end
+        fresh && (s.replay[] = nothing)
         s.cachekey[] = feats
         s.cacheval[] = a
         a
@@ -145,10 +193,69 @@ function decode(s::SAM2, feats, point, label)
     old = FLASHCM_CLAMP[]
     FLASHCM_CLAMP[] = true
     try
-        call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label; dims=s.dims)
+        run() = call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label;
+                     dims=s.dims)
+        REPLAY_DECODE[] && replayable(s, feats, point, label) || return run()
+
+        r = s.replay[]
+        if r !== nothing && r[1] === feats && r[2] === point && r[3] === label
+            Lava.replay!(r[4])
+            return r[5]
+        end
+        # First click on this embedding: `capture` RUNS the body, so this costs
+        # one decode and not two. Everything it records must keep its addresses —
+        # the slab is statically planned, the weights are fixed, `args` comes
+        # from the cache above and `point`/`label` are the persistent pair
+        # `prompt` writes into.
+        bq = Lava.VK_CONTEXT_REF[].default_bq
+        out = nothing
+        seq = Lava.capture(bq) do
+            out = run()
+        end
+        s.replay[] = (feats, point, label, seq, out)
+        return out
     finally
         FLASHCM_CLAMP[] = old
     end
+end
+
+"""
+    REPLAY_DECODE[] :: Bool
+
+Capture the decoder's command buffers on the first click and re-submit them on
+every click after.
+
+**Once, not once per frame.** The recorded addresses are the slab's, the
+weights', and the persistent pair `prompt` writes into, and none of those move
+when a new image is encoded — the encoder overwrites its outputs in place. So a
+capture keeps serving after `encode`, and it is checked that way rather than
+assumed: `test_replay_decode.jl` encodes a second image and compares the
+replayed masks against the recorded path bit for bit.
+
+**40% of a 3.9 ms decode is not any graph op** — it is the host rebuilding a
+149-dispatch launch sequence that is identical every time. `replay!` re-submits
+it with one `vkQueueSubmit2` and no recording: **4.211 -> 3.208 ms**, bit-exact,
+50% of PyTorch to 65%.
+
+The preconditions are `capture`'s, and all three are things this file already
+does for other reasons: a statically planned slab, fixed weights, and inputs
+written in place. That last one is why `CACHE_DECODER_INPUTS` matters — measured
+alone it is worth 0.008 ms and looks pointless, and it is the thing that makes a
+replay legal. `prompt` writes into one persistent pair for the same reason.
+
+The masks come back in the captured buffer, so they are valid until the next
+decode. That was already true of the slab-backed result and is worth saying
+twice: materialising two decodes' outputs and then comparing them compares one
+array with itself.
+"""
+const REPLAY_DECODE = Ref(true)
+
+"""Whether this call can be captured and replayed — see [`REPLAY_DECODE`](@ref)."""
+function replayable(s::SAM2, feats, point, label)
+    CACHE_DECODER_INPUTS[] || return false
+    s.model.backend isa Lava.LavaBackend || return false
+    pb = s.prompts[]
+    pb !== nothing && point === pb[1] && label === pb[2]
 end
 
 """
@@ -177,7 +284,18 @@ function prompt(s::SAM2, points, labels)
         lb[i, 1] = labels[i] ? Int32(1) : Int32(0)
     end
     b = s.model.backend
-    (toback(b, xy), toback(b, lb))
+    # Written into ONE persistent pair, not a fresh one per click. `replay!`
+    # re-submits command buffers whose push constants point at these exact
+    # addresses, so the buffers have to outlive the capture — see `decode`.
+    pb = s.prompts[]
+    if pb === nothing
+        pb = (toback(b, xy), toback(b, lb))
+        s.prompts[] = pb
+    else
+        copyto!(pb[1], xy)
+        copyto!(pb[2], lb)
+    end
+    pb
 end
 
 """
