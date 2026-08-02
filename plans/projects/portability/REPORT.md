@@ -1275,3 +1275,57 @@ choosing between a fallback and nothing.
 
 Caveats: synthetic input (a centred disc), one click, one click position. Frozen
 cache 106 hits / 0 misses on every run. Model build 42.8 s.
+
+### What that means for the flash-cm kernel, before the padding knob exists
+
+`attn_flash_cm!` stages its tiles as (`flash.jl:409`)
+
+```julia
+qs = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
+```
+
+so the shared row stride is `EP` elements, and
+
+```julia
+EP = cld(E, dev.tile) * dev.tile       # flash.jl:1113, :1240
+```
+
+is the head dim rounded up to the cooperative-matrix tile, with `flashcmfits`
+requiring `EP % dev.tile == 0`.
+
+`qs` is `Float16` and an LDS bank word is 4 bytes, so a row stride of `EP`
+elements is **`EP/2` bank words**. `EP` is always a multiple of 16, therefore
+`EP/2` is always a multiple of 8, therefore `gcd(EP/2, 32) >= 8` **always**.
+Combining that with the measured table above:
+
+| head dim E | EP | bank words | gcd(.,32) | measured cost |
+|---|---|---|---|---|
+| 64 | 64 | 32 | **32** | **1.84x** |
+| 72 | 80 | 40 | 8 | 1.21x |
+| 96 | 96 | 48 | 16 | 1.42x |
+| 128 | 128 | 64 | **32** | **1.85x** |
+
+**Head dims 64 and 128 — the two most common — land on the worst possible stride
+on this device**, every row of every staged tile starting on the same bank.
+
+Two consequences:
+
+1. It explains the desktop's `epad` result from the hardware up. "epad is worth
+   -31.4% at head dim 64" is what breaking a `gcd = 32` collision looks like, and
+   the same collision exists here, so the knob should pay at least as well.
+2. **The tile constraint means the kernel cannot reach conflict-free by tuning
+   `EP`.** Any legal `EP` is a multiple of 16 and so is stuck at `gcd >= 8`. The
+   fix has to decouple the shared **storage** stride from the coopmat **tile**
+   extent — store rows at `EP + pad` while still loading 16-wide tiles — which is
+   presumably exactly what `epad` does. Padding by one Float16 element makes the
+   stride odd in bank words and is measured free.
+
+Not claimed: an end-to-end number. `EP` is derived and there is no knob on this
+branch to vary it, so this is the hardware measurement plus the kernel's own
+arithmetic, not an A/B of the real attention. When the knob lands this is a
+confirmation run rather than a search: predicted best is any `EP` with `EP/2`
+odd, and predicted worst is the current default at head dims 64 and 128.
+
+`shpad`, which the branch does have, is **not** this knob — it is an occupancy
+ballast (`flash.jl:425`, a dummy `@localmem` touched at `:898` so it survives
+optimisation), and sweeping it answers a different question.
