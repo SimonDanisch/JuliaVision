@@ -1329,3 +1329,83 @@ odd, and predicted worst is the current default at head dims 64 and 128.
 `shpad`, which the branch does have, is **not** this knob — it is an occupancy
 ballast (`flash.jl:425`, a dummy `@localmem` touched at `:898` so it survives
 optimisation), and sweeping it answers a different question.
+
+### Finding 1 lands in practice: `dev.subgroup` vs `dev.coopmatsubgroup`
+
+The six asset-independent DNNKernels tests, re-run against the post-refactor
+`ctx`/plan API (nothing had run them here since `Ctx` and the plan objects
+arrived). Five green. `test_flash.jl` failed **4 assertions**, all one cause, and
+all of them pass on wave32 hardware because the two fields coincide there:
+
+```
+:167  (BR * 72) % (NW * dev.subgroup) == 0    ->  256 == 0, 128 == 0   (x3)
+:348  p.NT == p.NW * dev.subgroup             ->  128 == 256
+```
+
+The device **default** here is 64; Lava pins a cooperative-matrix module to 32.
+So `dev.subgroup` overstates the workgroup by 2x, and every shipped tiling
+"failed" its divisibility check.
+
+**The root is a `src/` comment**, which is why this was not only a test fix.
+`kernelplans.jl:58` documented the field as
+
+```julia
+NT::Int          # NW * dev.subgroup — never `NW * 32`
+```
+
+The code has always used `dev.coopmatsubgroup` (`flash.jl:1116`, `:1250`), and
+`flashcm_tiling`'s docstring already says which of the two is wanted: *"the width
+a cooperative-matrix module actually runs at, which Lava pins to 32. The tiling
+needs the second."* The `never NW * 32` clause was a correction to the old
+hardcoded literal that overcorrected onto the wrong field, and **both assertions
+were written from it**. Fixed, and it now says why.
+
+216/216 fused attention, 15/15 plans. Note the second failure was invisible until
+the first was fixed — the file threw before reaching it.
+
+This is portability finding 1 arriving in real code: `device_subgroup_size()` is
+a **default**, not a fact about the kernel that is about to run, and anything
+conflating the two is correct only on hardware where they coincide. The desktop
+added `dev.coopmatsubgroup` precisely because of that finding; the comment and
+the tests were what did not catch up.
+
+**Swept for the same class elsewhere — clean.** `Lava/src/array/gemm.jl:270` is
+*correct* and worth citing as the pattern to copy:
+
+```julia
+device_subgroup_size(ctx) == GEMM_SUBGROUP || can_require_subgroup_size(ctx, GEMM_SUBGROUP)
+```
+
+with a comment that names both ways to have a 32-lane subgroup. The remaining
+literals in `attn_flash_cm!` (`NW * 32` at `flash.jl:408`, `:440`, `tid ÷ 32` at
+`:455`) are correct **by the pin**, not by accident of this device — which is
+exactly why the "refuse to build a coopmat pipeline where 32 lanes cannot be
+pinned" change matters: those literals are silently wrong on any device that
+cannot pin, and nothing would report it.
+
+### Post-refactor status of the standalone DNNKernels tests
+
+| file | result |
+|---|---|
+| `test_constfold.jl` | 19 / 19 |
+| `test_foldoutcasts.jl` | 2 skips recorded (no `gen/` tree; see finding 14) |
+| `test_convtranspose_gemm.jl` | 78 / 78, including the new 1x1-as-GEMM testset |
+| `test_transposeLE.jl` | 16 / 16 |
+| `test_coopmat_attention.jl` | 11 / 11 |
+| `test_flash.jl` | **216 + 15 after the fix**, was 4 failures |
+
+### The lavapipe teardown fault: four attempts, not reproduced
+
+Recorded so nobody repeats the same three ideas. All exit 0:
+
+1. Two contexts, work on lavapipe, `vk_reset_device!`, forced GC.
+2. Same, but forcing the finalizer **ordering** — collect the context first so the
+   lavapipe `VkDevice` is finalized before the buffers that reference it.
+3. The suite's real sequence: the probe creates ctx 2 (`runtests.jl:190`) and a
+   later test resets (`test_gpuav_clean.jl`, `:489`), with buffers left **live**
+   so the finalizers run at process exit, which is where the suite faults
+   (`in expression starting at none:0`).
+
+So "the lavapipe context is never retired" is **not sufficient** as an
+explanation. The suite still reproduces it reliably, so the repro exists; it
+needs more of the suite's accumulated state than these isolate.
