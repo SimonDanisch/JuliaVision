@@ -163,8 +163,15 @@ end
             # Every shipped tiling must satisfy the write-out loop's own
             # divisibility, which `flashcmfits` cannot see (it takes the padded
             # head dimension, and the write-out uses the real one).
+            # `dev.coopmatsubgroup`, NOT `dev.subgroup`. They are the same 32 on
+            # wave32 hardware, which is why this passed there; on RDNA 3.5 the
+            # device default is 64 while Lava pins a cooperative-matrix module to
+            # 32, so `dev.subgroup` overstates the workgroup by 2x and every
+            # shipped tiling "failed" divisibility. `flashcm_tiling` itself uses
+            # `NT = NW * dev.coopmatsubgroup` (flash.jl:1116) and its docstring
+            # spells out which of the two the tiling needs.
             for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS
-                @test (BR * 72) % (NW * dev.subgroup) == 0
+                @test (BR * 72) % (NW * dev.coopmatsubgroup) == 0
             end
         end
 
@@ -338,7 +345,9 @@ end
     p = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
     @test p isa DNNKernels.FlashCMPlan
     @test (p.BR, p.BC, p.NW) == DNNKernels.flashcm_tiling(dev, E, L, L, H * B)
-    @test p.NT == p.NW * dev.subgroup
+    # coopmatsubgroup, not subgroup — see the comment at :166. The plan builds
+    # NT as NW * dev.coopmatsubgroup (flash.jl:1250).
+    @test p.NT == p.NW * dev.coopmatsubgroup
     @test p.EP == cld(E, dev.tile) * dev.tile
 
     # ── Every refusal is named, so a caller can react and a test can assert
