@@ -11,21 +11,26 @@
             0.5f0 * t3 - 0.5f0 * t2)
 end
 
-@kernel function warp_kernel!(out, @Const(img), M::Mat3f, skipoutside::Bool)
+@kernel function warp_kernel!(out, @Const(img), M::Mat3f, skipoutside::Bool,
+                              x0::Int32, y0::Int32, x1::Int32, y1::Int32)
     I = @index(Global, Cartesian)
     p = M * Vec3f(Float32(I[1]), Float32(I[2]), 1.0f0)
     x = p[1] / p[3]
     y = p[2] / p[3]
-    w = Int32(size(img, 1))
-    h = Int32(size(img, 2))
+    # `x0…y1` is the source rect this warp may read — the whole image by default,
+    # a CROP when the caller has one. A crop that only chose where to sample from
+    # is not a crop: reframe outward and the material it was supposed to remove
+    # comes back into view.
+    w = x1
+    h = y1
     # `skipoutside`: an output pixel the source doesn't reach is LEFT ALONE
     # rather than filled with a replicated border pixel. That is what makes
     # letterboxing one rule instead of two — the caller decides what shows
     # through by what it put there (black for the base layer, the canvas so far
     # for a layer stacked over one, which is how upper-layer bars stay clear).
     # Written as a branch, not an early return: KA kernels forbid `return`.
-    covered = (x >= 0.5f0) & (x <= Float32(w) + 0.5f0) &
-              (y >= 0.5f0) & (y <= Float32(h) + 0.5f0)
+    covered = (x >= Float32(x0) - 0.5f0) & (x <= Float32(x1) + 0.5f0) &
+              (y >= Float32(y0) - 0.5f0) & (y <= Float32(y1) + 0.5f0)
     if covered | !skipoutside
         xb = floor(Int32, x)
         yb = floor(Int32, y)
@@ -33,10 +38,10 @@ end
         wy = catmullrom(clamp(y - Float32(yb), 0.0f0, 1.0f0))
         r = 0.0f0; g = 0.0f0; b = 0.0f0
         @inbounds for j in Int32(0):Int32(3)
-            yj = clamp(yb - Int32(1) + j, Int32(1), h)   # replicate borders
+            yj = clamp(yb - Int32(1) + j, y0, y1)   # replicate the RECT's borders
             wyj = wy[j + 1]
             for i in Int32(0):Int32(3)
-                xi = clamp(xb - Int32(1) + i, Int32(1), w)
+                xi = clamp(xb - Int32(1) + i, x0, x1)
                 c = tofloat(img[xi, yj])
                 wgt = wx[i + 1] * wyj
                 r += c.r * wgt; g += c.g * wgt; b += c.b * wgt
@@ -60,15 +65,24 @@ different sizes.
 instead of replicating an edge pixel into them — see [`fitmatrix`](@ref), where
 those pixels are the letterbox bars.
 
+`bounds = (x0, y0, x1, y1)` restricts what may be READ to that source rect: with
+it, a crop actually removes picture instead of merely choosing where to sample,
+so nothing outside it can come back into view when the result is scaled down.
+
     warp!(out, img, crop::NTuple{4})
 
 Convenience: sample the normalized crop rect `(x, y, w, h)` of `img`
 (measured from the top-left) into all of `out` — crop + resize in one pass.
 """
 function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
-               skipoutside::Bool = false) where {T <: AbstractRGB, S <: AbstractRGB}
+               skipoutside::Bool = false,
+               bounds::Union{Nothing, NTuple{4, <:Integer}} = nothing) where {T <: AbstractRGB,
+                                                                             S <: AbstractRGB}
     backend = KA.get_backend(img)
-    warp_kernel!(backend)(out, img, M, skipoutside; ndrange = size(out))
+    w, h = size(img, 1), size(img, 2)
+    b = bounds === nothing ? (1, 1, w, h) : bounds
+    warp_kernel!(backend)(out, img, M, skipoutside, Int32(b[1]), Int32(b[2]),
+                          Int32(b[3]), Int32(b[4]); ndrange = size(out))
     return out
 end
 
@@ -103,7 +117,8 @@ aspect and the reframe is neutral, which is every single-format edit: fitting
 must not resample material that already fits.
 """
 function fitmatrix(crop::NTuple{4, <:Real}, insize::Tuple{Int, Int}, outsize::Tuple{Int, Int};
-                   scale::Real = 1, position::Tuple{<:Real, <:Real} = (0, 0))
+                   scale::Real = 1, position::Tuple{<:Real, <:Real} = (0, 0),
+                   rotation::Real = 0)
     x, y, w, h = Float32.(crop)
     W, H = insize
     ow, oh = outsize
@@ -112,9 +127,26 @@ function fitmatrix(crop::NTuple{4, <:Real}, insize::Tuple{Int, Int}, outsize::Tu
     inv = 1.0f0 / s
     ox = 0.5f0 * (ow - cw * s) + Float32(position[1]) * ow
     oy = 0.5f0 * (oh - ch * s) + Float32(position[2]) * oh
-    return Mat3f(inv, 0, 0,
-                 0, inv, 0,
-                 x * W + 0.5f0 - inv * (ox + 0.5f0), y * H + 0.5f0 - inv * (oy + 0.5f0), 1)
+    # ROTATION about the placed rect's own centre, so turning a clip does not also
+    # walk it across the canvas. This is a SAMPLING matrix (canvas pixel → source
+    # pixel), so the angle enters inverted: rotating the picture clockwise means
+    # sampling along a counter-clockwise-rotated axis.
+    if rotation == 0
+        return Mat3f(inv, 0, 0,
+                     0, inv, 0,
+                     x * W + 0.5f0 - inv * (ox + 0.5f0), y * H + 0.5f0 - inv * (oy + 0.5f0), 1)
+    end
+    θ = -Float32(rotation) * Float32(pi) / 180.0f0
+    c, sn = cos(θ), sin(θ)
+    a11 = inv * c;  a12 = -inv * sn
+    a21 = inv * sn; a22 = inv * c
+    qx = ox + 0.5f0 * cw * s + 0.5f0        # centre of the placed rect, canvas px
+    qy = oy + 0.5f0 * ch * s + 0.5f0
+    px = x * W + 0.5f0 * cw + 0.5f0         # …and the source point it samples
+    py = y * H + 0.5f0 * ch + 0.5f0
+    return Mat3f(a11, a21, 0,
+                 a12, a22, 0,
+                 px - (a11 * qx + a12 * qy), py - (a21 * qx + a22 * qy), 1)
 end
 
 "Pure translation sampling matrix: shifts content by `(dx, dy)` pixels."

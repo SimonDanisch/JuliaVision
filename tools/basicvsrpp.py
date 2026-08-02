@@ -27,7 +27,9 @@ import torch
 import torch.nn as nn
 from torchvision.ops import deform_conv2d
 
-REPO = Path(__file__).resolve().parent.parent / "dev" / "BasicVSR_PlusPlus"
+from common import find_root  # tools/ is symlinked; see find_root
+
+REPO = find_root() / "dev" / "BasicVSR_PlusPlus"
 
 
 # ---------------------------------------------------------------- mmcv stand-ins

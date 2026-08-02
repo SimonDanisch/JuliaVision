@@ -1,0 +1,7 @@
+[depthanything]
+git-tree-sha1 = "f33c510b80444089b1277c6ad9680566b2e572a2"
+lazy = true
+
+    [[depthanything.download]]
+    sha256 = "59d42d96ed7a39558e1c0948f49828f013109db017d8fc76a2d6b0113afc5751"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/depthanything.tar.gz"

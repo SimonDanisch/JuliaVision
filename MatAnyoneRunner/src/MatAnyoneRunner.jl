@@ -24,6 +24,7 @@ using Lava, DNNKernels, KernelAbstractions
 # The propagator reads the editor's frames, which are `Matrix{RGB{N0f8}}`.
 using ColorTypes: red, green, blue
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: Model, initstate, step!, toback
 
 export matanyonemodel, runmatanyone, matanyonepropagator
@@ -38,16 +39,37 @@ const KA = KernelAbstractions
 const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
+    artifactdir() -> String
+
+The artifact's root: downloaded on first use and cached across every environment
+on this machine.
+
+**Changing these assets means re-binding the artifact**, not editing a directory.
+Re-export, then `julia --project=. tools/make_artifacts.jl matanyone` — that hashes
+the new content and rewrites `../Artifacts.toml`, so this call resolves to it
+immediately. Uploading is only needed to publish it to anyone else.
+"""
+artifactdir() = @artifact_str("matanyone")
+
+"""
     assetdir() -> String
 
-Where MatAnyone2's exported graphs live: the `matanyone` artifact, unless this
-checkout generates them itself or `JULIA_MATANYONE_ASSETS` says otherwise. See
-[`DNNKernels.assetpath`](@ref) for the order and why it is that order.
+The **graph** directory, which is `graphs/` INSIDE the artifact.
+
+`Model(dir, weights)` reads `joinpath(dir, "\$name.json")`, so it needs the
+directory the JSONs are in, and this artifact keeps them one level down. SAM 2's
+is flat and its `assetdir()` is the artifact root — the two layouts differ, and a
+uniform `assetdir() = @artifact_str(...)` is right for one and wrong for the
+other.
+
+That is not hypothetical: it shipped that way for a moment and the symptom was
+silent. `@setup_workload` guards on `isfile(joinpath(dir, "encode_image.json"))`,
+which was false, so the guard took its else branch and logged *"no assets —
+nothing precompiled"* while naming a path inside a fully downloaded artifact.
+The package still loaded, still precompiled, and simply did none of the work it
+exists to do — and the message read like a deliberate skip.
 """
-assetdir() = assetpath(; artifact = "matanyone",
-                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
-                       generated = joinpath("gen", "graphs", "aten-autocast"),
-                       env = "JULIA_MATANYONE_ASSETS", from = @__DIR__)
+assetdir() = joinpath(artifactdir(), "graphs")
 
 """
 Path to the weights, which sit beside the graph directory in a generated tree
@@ -56,8 +78,8 @@ but *inside* the artifact, since an artifact is one directory.
 function weightpath()
     p = get(ENV, "JULIA_MATANYONE_WEIGHTS", "")
     isempty(p) || return p
-    dir = assetdir()
-    inside = joinpath(dir, "weights.safetensors")
+    # The artifact ROOT: the weights sit beside `graphs/`, not inside it.
+    inside = joinpath(artifactdir(), "weights.safetensors")
     isfile(inside) && return inside
     return findasset(joinpath("gen", "weights.safetensors"); from = @__DIR__)
 end
