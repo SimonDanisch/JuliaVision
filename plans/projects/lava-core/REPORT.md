@@ -218,7 +218,7 @@ handles: a stale pipeline crashes, a stale *property* returns the wrong number �
 32 here, 64 on RDNA 3.5 — so every tiling decision keyed on it would silently be
 made for the other card.
 
-### THE BLOCKER: the memory pool is global (Lava `d7449f7`)
+### THE BLOCKER, now FIXED: the memory pool was global (Lava `83b9b10`)
 
 ```
 mutable struct PoolBlock
@@ -240,11 +240,43 @@ caches holding pipeline *handles*. The allocator hands out *memory*, so the
 failure is silent data corruption, and no amount of cache keying reaches it.
 
 The headline for phase 2: **all four caches the review found by reading are now
-keyed, and not one of them is what actually breaks two devices.** The blocker is
-a per-device allocator, which is its own piece of work.
+keyed, and not one of them is what actually broke two devices.**
 
-Unaudited after that: `TIMESTAMP_POOL`, `BLIT_PIPELINE`, `GEMM_SPLIT_SCRATCH`,
-`WORKGROUP_LIMIT`.
+`DevicePool` per `VkContext.id` holds that device's blocks and free lists. Each
+`PoolBlock` carries a back-reference to its pool rather than being looked up,
+because `return_to_pool!` runs from a **finalizer** — where a `get!` could
+allocate and a missing key would throw. The free path is a field hop.
+
+### And the last piece: `LavaBackend()` built inside the library
+
+Six sites — `fill!`, `mul!`, `coopmat_gemm!`, `gemmlaunch!`, broadcast
+`_copyto!`, the identity-matrix constructor — built an **unpinned** backend,
+which resolves its queue through `vk_context()`. Work on a second device's array
+therefore dispatched on whichever context was global. The array read back as
+zeros, and `sync_access!` caught it much later as *"buffer was last written on a
+BatchQueue from a DIFFERENT VkContext"*.
+
+That guard existing and firing correctly is worth recording: the library already
+knew this failure was possible and named it exactly. All six now take the backend
+from the data via `KA.get_backend`.
+
+### The exit criterion is met
+
+```
+gpu id=1  NVIDIA RTX 4000 Ada Generation   -> correct
+cpu id=3  llvmpipe (LLVM 22.1.8)           -> correct
+PIPELINE_CACHE grew by 3   (1 would mean a shared pipeline)
+per-device keys present in both kernel caches
+PASS
+```
+
+`twodevice_probe.jl` is back in `runtests.jl`. Single device unchanged: suite
+green throughout, SAM 2 encode p50 **100.63 ms** (the best of the day, band
+99.7–103.5), click 3.16, VRAM 1181 MiB, masks IoU 1.00000 / 0.99955 / 1.00000.
+
+**Unaudited**, because nothing on this path exercises them: `TIMESTAMP_POOL`,
+`BLIT_PIPELINE`, `GEMM_SPLIT_SCRATCH`, `WORKGROUP_LIMIT`. Graphics and profiling
+would need the probe extended before a second device could be trusted there.
 
 ### The original worklist, produced by running rather than reading
 

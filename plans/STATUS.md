@@ -13,7 +13,7 @@ belief or writes code the next phase deletes.
 | phase | contents | exit criterion |
 |---|---|---|
 | **1 — bugs** | Rule-0 re-audit of the two "driver bugs"; the `blockfor` hang; the flush-hang soak | no tracker item says "driver bug" without having passed all three Rule-0 instruments |
-| **2 — refactors** | `kernel-library-review.md` steps 2–7 (DNNKernels) and step 8 (Lava) | globals **34 → 0** in DNNKernels and **84 → 0** module-level in Lava, **and the two-device test passes** |
+| **2 — refactors** | `kernel-library-review.md` steps 2–7 (DNNKernels) and step 8 (Lava) | globals **34 → 0** in DNNKernels ✅ and **84 → 0** module-level in Lava, **and the two-device test passes** ✅ |
 | **3 — instructions** | the missing SPIR-V surface, each landing as a plan-type method | section D of `dev/Lava/spirv-intrinsics.md` is empty |
 | **4 — the work** | model ports and the kernel items | — |
 
@@ -114,15 +114,26 @@ builds the pair on any machine here. It asserts correct results on both *and*
 that one kernel compiles **twice** — a single new `PIPELINE_CACHE` entry means
 the devices shared a pipeline, which can still produce a right answer by luck.
 
-It does **not pass yet**, and is not in `runtests.jl` because it segfaults.
+**It PASSES** (Lava `83b9b10`) and is back in `runtests.jl`.
 
-**The blocker is the allocator, not the caches.** `POOL_BLOCKS` is module-level
-and `PoolBlock` carries no device, so a second device's allocation is served from
-the first device's 64 MiB block — measured: `length(POOL_BLOCKS)` stays at 1
-across an allocation on each device. `fill!` on the second context then reads
-back 0.0. All four caches §8 names are now keyed per device and **none of them is
-what actually breaks two devices**; the allocator is a bigger class, because it
-hands out memory rather than handles and so corrupts silently.
+**The blocker was the allocator, not the caches.** `POOL_BLOCKS` was
+module-level and `PoolBlock` carried no device, so a second device's allocation
+came out of the first device's 64 MiB block — measured: the block count stayed at
+1 across an allocation on each device, and `fill!` on the second context read
+back 0.0. All four caches §8 names were already keyed per device by then and
+**none of them was what actually broke it**; the allocator is a bigger class,
+because it hands out memory rather than handles and so corrupts silently. Now
+`DevicePool` per device, with each block back-referencing its pool so the
+finalizer free path needs no lookup.
+
+The last piece was six `LavaBackend()` calls *inside* the library — an unpinned
+backend resolves through `vk_context()`, so `fill!`/`mul!`/`coopmat_gemm!` and
+broadcast dispatched on whichever device was global. All six now derive the
+backend from the data.
+
+Still unaudited on a second device: `TIMESTAMP_POOL`, `BLIT_PIPELINE`,
+`GEMM_SPLIT_SCRATCH`, `WORKGROUP_LIMIT` — graphics and profiling, which the
+probe does not exercise.
 Keying the caches was necessary and not sufficient: the first thing it caught was
 `CMD_PIPELINE_BARRIER_FPTR`, a module-global **device function pointer**, which
 §8's four-cache list does not cover and which is worse than any of them — a stale
