@@ -17,12 +17,18 @@ re-exported.
 using Test, DNNKernels
 const DK = DNNKernels
 
-const GDIR = normpath(joinpath(@__DIR__, "..", "..", "..", "..",
-                               "gen", "graphs", "sam2-large"))
+# Walked up rather than a fixed `../../../../gen`, for the reason runtests.jl:36
+# already records: this package moved into a monorepo and the fixed form silently
+# points somewhere that does not exist. When it did, BOTH testsets in this file
+# reported `Total 0` and read as green — 4172 assertions that were not running.
+const GDIR = DNNKernels.findasset(joinpath("gen", "graphs", "sam2-large"); from = @__DIR__)
 
 @testset "foldoutcasts" begin
     if !isfile(joinpath(GDIR, "sam2_encoder.json"))
         @info "no exported SAM 2 graph at $GDIR; skipping"
+        # Recorded, so an absent graph shows up as a skip rather than as a
+        # testset with zero assertions, which is indistinguishable from a pass.
+        @test_skip isfile(joinpath(GDIR, "sam2_encoder.json"))
     else
         g = DK.loadgraph(joinpath(GDIR, "sam2_encoder.json"))
         g2, n = DK.foldoutcasts(g)
@@ -94,6 +100,9 @@ end
 @testset "foldrelu folds gelu into addmm" begin
     if !isfile(joinpath(GDIR, "sam2_encoder.json"))
         @info "no exported SAM 2 graph at $GDIR; skipping"
+        # Recorded, so an absent graph shows up as a skip rather than as a
+        # testset with zero assertions, which is indistinguishable from a pass.
+        @test_skip isfile(joinpath(GDIR, "sam2_encoder.json"))
     else
         g = DK.loadgraph(joinpath(GDIR, "sam2_encoder.json"))
         g2, n = DK.foldrelu(g)

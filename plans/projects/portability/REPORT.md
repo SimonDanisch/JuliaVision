@@ -656,3 +656,77 @@ Two honest qualifications:
 Caveat on all of the above: it ran with three locally-applied Lava crash patches
 (findings 7, 8, 10) and one known-unpatched crash site (`vkCmdCopyBuffer`,
 `command.jl:1549`). The number is provisional until those land.
+
+### Full suite results
+
+#### Lava suite (with the three local crash patches)
+
+Does **not** complete. Progressively deeper on each fix:
+
+| run | patches applied | outcome |
+|---|---|---|
+| 1 | none | SIGSEGV in `video_capabilities` (finding 7), 3 KB of log, all prior output lost to buffering |
+| 2 | video | SIGSEGV at `vkCmdBindPipeline` (finding 8) |
+| 3 | video + pipeline | SIGSEGV at `vkUnmapMemory` (finding 10), mid-`test_static_workgroup` |
+| 4 | all three | SIGSEGV at `vkCmdCopyBuffer` (`command.jl:1549`) in `test_closesthit_via_rayquery.jl:89` |
+
+Run 4 reaches far more of the suite and reports **15 failures** before the crash,
+which decompose cleanly:
+
+- **13 in `test_static_workgroup.jl`** — finding 11, the characterization tests
+  that assert the `Extruded` miscompile is present. They fail because it is not.
+- **2 in `test_pipeline_cache_no_compile.jl`** — finding 9, the negative control
+  that does not fire on RADV.
+
+So there are **no unexplained Lava failures on this device**. Every one maps to a
+recorded finding. The fourth crash site is open (task: root-cause the
+`vkCmdCopyBuffer` use-after-free; it is plausibly the same buffer-lifetime class
+as finding 10, since both are "we touched a buffer that is no longer valid").
+
+#### DNNKernels
+
+`runtests.jl` does not run here (finding 13, an asset-wiring gap, not hardware).
+The six asset-independent files all run and are **entirely green: 325 passed, 0
+failed**, including both coopmat-dependent ones:
+
+| file | result |
+|---|---|
+| `test_constfold.jl` | 19 / 19 |
+| `test_foldoutcasts.jl` | see finding 14 |
+| `test_convtranspose_gemm.jl` | 37 + 19 / 56 |
+| `test_transposeLE.jl` | 16 / 16 |
+| `test_coopmat_attention.jl` | **10 / 10** |
+| `test_flash.jl` | **213 + 11 / 224** |
+
+`test_coopmat_attention.jl` and `test_flash.jl` passing matters: those are the
+kernels that reach `Lava.coopmat_gemm!` and the flash paths, on a device with a
+64-lane default subgroup and no coopmat2. The subgroup pin at `pipeline.jl:363`
+is doing its job.
+
+#### 14. Two testsets ran zero assertions and read as green — FIXED (test-level)
+
+`test_foldoutcasts.jl` resolved its graph with a hardcoded
+`../../../../gen/graphs/sam2-large`, and `test_constfold.jl` with the same. When
+that path does not exist both guarded testsets took an `@info ... skipping`
+branch with **no `@test_skip`**, so each reported `Total 0` — indistinguishable
+from a pass in any summary.
+
+This is precisely the bug `runtests.jl:36` documents as already fixed elsewhere:
+*"Walked up from here rather than a fixed `../../../gen`: this package moved into
+a monorepo and the fixed form silently pointed at `dev/gen`."* The fix never
+reached these two files.
+
+Measured, by pointing `gen/graphs/sam2-large` at the downloaded artifact:
+
+```
+before:  foldoutcasts 0    foldrelu 0          (Total 0, reads green)
+after:   foldoutcasts 4023 foldrelu 149        (4172 assertions, all passing)
+```
+
+**4172 assertions were silently not running** on any machine without a local
+`gen/` tree — which, until finding 12 was fixed, was any machine relying on
+artifacts.
+
+Fixed at test level: both files now use `DNNKernels.findasset`, and the skip
+branches gained `@test_skip` so an absent graph shows as `1 Broken` rather than
+`Total 0`. Verified in both directions.
