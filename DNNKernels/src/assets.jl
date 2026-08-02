@@ -75,12 +75,21 @@ function artifactpath(name::AbstractString, toml::AbstractString)
     hash = Base.SHA1(meta["git-tree-sha1"])
     try
         Artifacts.artifact_exists(hash) ||
-            Artifacts.ensure_artifact_installed(name, meta, toml)
+            # NOT `Artifacts.ensure_artifact_installed`: the Artifacts stdlib has
+            # no such binding, so every lazy download raised UndefVarError, was
+            # swallowed by the catch below, and silently fell back to a local path
+            # that does not exist. LazyArtifacts is already a dependency and is
+            # imported above precisely for this.
+            LazyArtifacts.ensure_artifact_installed(name, meta, toml)
         return Artifacts.artifact_path(hash)
     catch err
         # A download that fails must not take the whole session with it: the
         # caller can still be pointed at a local copy, and every workload
         # tolerates the asset being absent.
+        #
+        # This must stay narrow. It previously hid a plain typo for as long as
+        # nobody fetched a lazy artifact, so anything that is not a network or
+        # filesystem failure deserves suspicion before it is downgraded to a warning.
         @warn "could not install artifact $name" exception = err
         return nothing
     end
