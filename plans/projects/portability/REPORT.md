@@ -1443,3 +1443,14 @@ it genuinely was: its `[[deps.SAM2Runner]]` block had no `deps` line at all and
 fix. I then assumed `GPUFiltering` was the same and it was **not** — its manifest
 entry lists `deps` correctly and `FixedPointNumbers` is present. Two different
 causes behind one error message; check the manifest entry before assuming which.
+
+**Confirmed as a set.** All six re-run together after the `coopmatsubgroup` fix:
+exit 0, **367 assertions, zero failures**.
+
+```
+constfold 19 · foldoutcasts 2 (skips, no gen/ tree) · convtranspose_gemm 78
+transposeLE 16 · coopmat_attention 11 · flash 216 + 11 + 15
+```
+
+That is the whole asset-independent DNNKernels surface green on RDNA 3.5
+post-refactor. It was not, before the `dev.subgroup` correction.
