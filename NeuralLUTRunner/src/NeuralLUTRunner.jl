@@ -23,8 +23,8 @@ frame size is.
 
 The consequence for cost is worth stating up front, because the two halves are
 paid at different rates: applying a look is **0.79 ms at 4K** on this machine,
-while re-predicting one is ~10 ms and is dominated by the classifier's
-convolutions. Predict on a shot or a keyframe; grade every frame.
+while re-predicting one is ~1.8 ms. Both fit a 60 fps frame at 4K, so the
+look can be re-predicted per frame if the edit wants it to be.
 
 Upstream: https://github.com/HuiZeng/Image-Adaptive-3DLUT
 License: **Apache-2.0**
@@ -162,7 +162,7 @@ function neurallut(; backend = LavaBackend(), dir::AbstractString = assetdir())
         "no export at $dir — generate it with `uv run tools/export_neurallut.py`"))
     # `Model`, not `loadgraph`: it runs the host-side preparation passes, and the
     # planned slab is what keeps every intermediate from being a fresh
-    # allocation. Together they are worth 14.08 ms -> ~10 ms on this classifier,
+    # allocation. Together they are worth 14.08 ms -> ~1.8 ms on this classifier,
     # and a runner that skipped them would be slower than its own benchmark.
     model = Model(dir, joinpath(dir, "weights.safetensors");
                   names = ["neurallut"], backend)
@@ -183,8 +183,8 @@ Returns a `(33, 33, 33, 3)` device array indexed `[r, g, b, channel]` — the
 argument [`grade!`](@ref) and `GPUFiltering.lut3d!` take. It is a fresh table per
 call, so keeping one is the caller's business.
 
-Costs about 10 ms at 4K on an RTX 3070 laptop, nearly all of it the classifier's
-six convolutions; the resize into 256x256 is 0.03 ms of it. That is a per-shot
+Costs about 1.8 ms at 4K on an RTX 3070 laptop, nearly all of it the
+classifier's six convolutions; the resize into 256x256 is 0.03 ms of it. That is a per-shot
 cost, not a per-frame one — see [`grade!`](@ref).
 """
 function predictlut(model::NeuralLUT, img::AbstractMatrix{<:AbstractRGB})
@@ -207,10 +207,10 @@ Apply a look. The three-argument form takes a table already predicted (or
 authored, or dragged in from disk); the `model` form predicts one from `img`
 first.
 
-**Prefer the first.** Applying is 0.79 ms at 4K on this machine and predicting
-is ~10 ms, so a timeline that re-predicts per frame pays 13x for a look that is
-supposed to be constant across a shot. The four-argument form exists for the
-one-off — a user dropping the effect on a clip and seeing it immediately.
+Applying is 0.80 ms at 4K on this machine and predicting is ~1.8 ms, so
+re-predicting per frame costs 2.6 ms all in and fits a 60 fps frame. Prefer the
+first form anyway when the look is constant across a shot — it is 3x cheaper and
+says what it means — but the `model` form is no longer a budget decision.
 """
 grade!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB},
        lut::AbstractArray{Float32,4}) = lut3d!(out, img, lut)

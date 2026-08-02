@@ -148,8 +148,8 @@ card. Two models, two different conv pathologies, same kernel.
 
 The neural LUT port meets its target and is worth shipping. Applying a look at
 4K is **0.79 ms**, the 4K→256 reduce is **0.03 ms**, and predicting a new look
-is ~10 ms — so grading a shot at 60 fps costs 0.79 ms/frame and only re-prediction
-is expensive. That is the right shape for the feature: predict per shot or per
+is **~1.8 ms** (corrected 2026-08-03 — see below; it was measured inside a
+warm-up ramp). Re-predicting *and* grading is 2.6 ms, so both fit a 60 fps frame. That is the right shape for the feature: predict per shot or per
 keyframe, grade per frame. `NeuralLUTRunner` has a real workload and
 `Lava.frozen_stats().misses == 0` on a fresh process.
 
@@ -349,3 +349,84 @@ machine, in a fresh process. That is the first-use cost the workload removes.
 `assets-v1`. Both findings from yesterday — TF32 in the exporters, and
 benchmarking through `Model` rather than `loadgraph` — are now in the
 cross-project "act on these first" list, so they need nothing further here.
+
+---
+
+## 2026-08-03 (second entry) — a warm-up ramp I was measuring inside, and 4 GB of pool for 942 MB of weights
+
+### The classifier is 1.8 ms, not ~10 — my benchmark was measuring its own warm-up
+
+Every classifier number in this report has been unstable: 7.0, 8.4, 8.4, 10.5,
+9.5, 10.5, then 2.1, 4.4, 5.5, 11.1 ms on an idle card. I wrote that up twice as
+noise and once as a refactor speed-up. It was neither.
+
+Timing 200 single calls and printing them **in sequence** rather than sorted:
+
+    call 1        2 834 ms
+    calls 2-24    7-20 ms, decaying
+    calls 25-200  ~2 ms, flat
+
+The outlier indices are `[1 … 24]` — contiguous, nothing after. It is a warm-up
+ramp, and `timed()` in all three `bench_*.jl` warmed up **three** calls before
+measuring, so the median-of-seven landed at a random point on the ramp. Over 60
+samples the distribution was min 1.19 / median 1.47 / p95 10.13 / max 569.67 ms —
+a heavy right tail that is entirely the ramp, not a stall.
+
+Warm-up is now 30 calls. Three consecutive runs: **1.79 / 1.66 / 1.81 ms**, a 9%
+spread instead of 5x.
+
+**This changes the port's advice.** Applying a look is 0.80 ms at 4K and
+predicting one is 1.8 ms, so re-predict *and* grade is **2.6 ms** — inside a 60
+fps frame. Yesterday's "predict per shot, grade per frame; re-predicting costs
+18x" was an artefact of the ramp. Prefer the precomputed-LUT form because it is
+3x cheaper and says what it means, not because the budget forbids the other one.
+
+RIFE (314.6 ms) and Depth Anything (374.2 ms, PyTorch 25.3) are unchanged by the
+fix, as expected: a 20-call ramp is negligible against a 300 ms call, which is
+also why only the small graph ever looked noisy.
+
+### SAM 2 on this machine, after flash-decoding
+
+| | today | 2026-08-02 | desktop |
+|---|---|---|---|
+| encode | **173.8 ms** | 182.3 | 100.4 |
+| decode, one click | **17.7 ms** | 17.6 | 2.21 *(replayed)* |
+
+Decode is unchanged here, which is what should be expected rather than a
+disappointment: the desktop's 2.21 ms is a **replayed captured command buffer**
+and `segment()` is not replayed, so flash-decoding's 3.55x on cross-attention is
+not what this number is dominated by.
+
+### A VRAM regression that only a small card would notice
+
+Measuring the same SAM 2 script as yesterday, `nvidia-smi` reports **4 467 MiB**
+for the process where yesterday it reported **1 337 MiB**. `STATUS.md` records the
+VRAM goal as met at 1 181 MiB.
+
+Located, not guessed:
+
+- Lava's pool holds **63 blocks x 64 MiB = 4 032 MiB**, against a
+  `POOL_SOFT_CAP` of 2 048 MiB — nearly 2x its own cap.
+- All 63 blocks are allocated inside **`sam2model()`** — the weight upload.
+  `encode` adds **zero** blocks, and a second encode adds zero. So this is
+  residency, not transients, and not a leak per call.
+- SAM 2's weights are ~942 MB. 4 032 MiB to hold them is **4.3x**.
+
+The mechanism is visible in `memory.jl`: past `POOL_SOFT_CAP` the allocator asks
+the GC and then **cuts a new block anyway**, and `reclaim_empty_pool_blocks!` is
+documented as running "only on the OOM retry path". So the pool ratchets up and
+never gives back until an allocation is about to fail. That is invisible on a
+desktop and decisive on 8 GB — it is why `sam2model()` OOM'd here earlier today
+with 2 246 MiB of budget free.
+
+**Not attributed to a commit.** The only allocator change since yesterday is
+`POOL_BLOCKS` → `pool(ctx).blocks` (Lava `83b9b10`), which with one device should
+be equivalent; DNNKernels' globals-to-plan-objects refactor landed in the same
+window and SAM 2's loader does not go through `Model`. Bisecting wants a machine
+that can hold two Lava versions comfortably, and the allocator worklist already
+lives in `projects/lava-core/REPORT.md`. Handing it over with the measurement
+rather than a guess.
+
+Worth pairing with `GUARDRAILS.md` §6's own advice: this is a *memory* number,
+and the only reason it was caught is that this machine has 8 GB. The desktop's
+1 181 MiB "goal met, nothing to do" may no longer be true there either.
