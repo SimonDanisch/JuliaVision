@@ -490,6 +490,51 @@ which point they fail everywhere. They should assert full coverage on every
 device, with the NVIDIA shortfall recorded as a known failure, not as the expected
 result.
 
+#### 12. Lazy artifacts never downloaded — FIXED (not platform-specific)
+
+`DNNKernels.artifactpath` (`assets.jl:78`) called
+`Artifacts.ensure_artifact_installed`. That binding does not exist in the
+`Artifacts` stdlib; it is in `Pkg.Artifacts` / `LazyArtifacts`. Every lazy fetch
+therefore raised `UndefVarError`, the surrounding `catch` downgraded it to a
+`@warn`, and `assetpath` fell through to its "local generated tree" branch, which
+in a checkout with no `gen/` is `findasset` walking to the filesystem root and
+returning `/gen/graphs/sam2-large`.
+
+**Nothing to do with AMD.** It fails identically everywhere and stayed hidden
+only because the machines that run these models have a local `gen/` and never
+took the artifact path. `assets.jl` already declares `LazyArtifacts` in
+`Project.toml` and imports it at line 32 — the dependency was added for this call
+and the call was then written against the wrong module.
+
+Fixed (one word). With it, `SAM2Runner.assetdir()` fetches the 942 MB
+`sam2-large` artifact and `sam2model()` builds in **39.9 s** on this device.
+
+Worth noting as a pattern rather than an incident: the `catch` is what allowed a
+plain typo to survive indefinitely, by turning a hard failure into a plausible
+fallback path. It is the shape `CLAUDE.md` warns about.
+
+#### 13. Correcting my own earlier claim: none of this needs CUDA
+
+I asserted mid-session that the DNNKernels suite cannot run here because its
+reference activations require a CUDA export. **That was wrong**, and it is worth
+recording because it would have written off a whole verification path.
+
+Both asset sets are ordinary lazy downloads: `sam2-large` (942 MB, weights and
+the two graph JSONs) and `sam2-large-refs` (1.2 GB, the PyTorch reference
+activations, deliberately separate because a caller that just wants to segment a
+picture should not fetch them). No export, and therefore no CUDA, is involved in
+either running or verifying SAM 2 on this machine.
+
+The real blocker is much narrower and is a wiring gap:
+`DNNKernels/test/runtests.jl:37` resolves its asset directory with
+`findasset("gen")`, which only walks parent directories, whereas
+`SAM2Runner.assetdir()` uses `assetpath(...)`, which consults `Artifacts.toml`.
+So the suite cannot see an artifact it has every right to use. That is a
+one-line change and it makes the layer-by-layer PyTorch comparison runnable on
+any machine, which is exactly the cross-vendor numerical check this project
+wants. Filed rather than changed here, since it belongs with whoever owns the
+verification story.
+
 ### Design note for `kernels-refactor` step 4 and `lava-core` phase 3
 
 Written here rather than implemented, because the brief says gather evidence and
@@ -569,3 +614,45 @@ only cheap once plan dispatch exists.
 `UndefVarError: reset_runtime not defined in GPUCompiler`. Unrelated package,
 unrelated to Lava or DNNKernels, recorded only so the next person does not chase
 it.
+
+### SAM 2 (large) actually runs on this device
+
+Asked directly, so measured directly. Synthetic input (a centred bright disc,
+centre click) rather than the reference activations, because `refs.safetensors`
+is in the separate 1.2 GB artifact and encoder cost does not depend on pixel
+values.
+
+```
+model build            39.8 s
+cold run                0.488 s     frozen cache 106 hits / 0 misses
+steady state (5 runs)   min 0.2899 s   median 0.2941 s
+desktop reference       encode 100.4 ms + decode 3.30 ms ~= 104 ms
+ratio                   ~2.8x slower than the RTX 4000 Ada
+```
+
+**It is correct, not merely non-crashing.** The mask's positive fraction is
+**0.192** against a disc covering **0.196** of the frame, and all 65536 logits
+are finite (range -8.578 to 4.370). It found the object.
+
+For a 40-CU integrated part sharing system memory, 2.8x off a discrete Ada card
+is respectable, and it is a **floor**: this ran with `coopmat2` entirely absent
+(so the per-element flash path falls back), `FLASH_SHARED_BUDGET` at 48 KB
+against a measured 64 KB at identical occupancy (finding 4), and
+`FLASHCM_MINGRID` at 48 against 40 real CUs.
+
+Two honest qualifications:
+
+- **The frozen-cache number is weaker than it reads.** `misses = 0` does show the
+  freeze/replay mechanism works on AMD: every kernel the workload touches was
+  captured and replayed from disk with no fallback compile. It is **not** evidence
+  that NVIDIA-recorded SPIR-V runs here. `~/.julia/scratchspaces/lava_frozen_kernels`
+  is a local scratchspace and was written during this machine's own precompile
+  workload. Shipping the cache is what would test the stronger claim.
+- **Predicted IoU came back exactly `0.0000`** while the mask is visibly right.
+  That may be genuine low confidence on a very out-of-distribution synthetic
+  disc, or a fault in the score head. It cannot be distinguished without the
+  reference activations. Flagged, not concluded.
+
+Caveat on all of the above: it ran with three locally-applied Lava crash patches
+(findings 7, 8, 10) and one known-unpatched crash site (`vkCmdCopyBuffer`,
+`command.jl:1549`). The number is provisional until those land.
