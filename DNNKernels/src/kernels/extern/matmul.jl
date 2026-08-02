@@ -59,10 +59,14 @@ the operand types and its own device query. Nothing here knows tensor cores
 exist, which is the point: this file describes what the graph needs, not how a
 particular GPU provides it.
 """
-function matmul!(out, A, B, bias=nothing; ws=nothing)
-    mm_coopmat_applicable(out, A, B) && return matmul_coopmat!(out, A, B, bias, ws)
+function matmul!(out, A, B, bias=nothing; ws=nothing, epi=identity)
+    mm_coopmat_applicable(out, A, B) && return matmul_coopmat!(out, A, B, bias, ws, epi)
     mul!(out, astranspose(A), astranspose(B))
     bias === nothing || (out .= out .+ bias)
+    # The scalar path has no epilogue to fold into, so the activation is a second
+    # pass here — the same one the graph would have run as its own op. Folding is
+    # an optimisation on the tensor-core path, never a correctness requirement.
+    epi === identity || (out .= epi.(out))
     out
 end
 
@@ -97,7 +101,7 @@ end
 summing the split-K planes on the way — this pass already reads every element,
 so a separate reduction kernel would be a second full traversal for nothing.
 """
-@kernel function mm_epilogue_kernel!(out, @Const(C), @Const(bias), ::Val{M},
+@kernel function mm_epilogue_kernel!(out, @Const(C), @Const(bias), epi, ::Val{M},
                                      ::Val{SPLITK}, plane, ntot) where {M,SPLITK}
     # Flat launch: a 2-D `ndrange` is partitioned into 2-D workgroups, so a warp
     # covers only a few consecutive `i` and neither the read of `C` nor the write
@@ -115,7 +119,11 @@ so a separate reduction kernel would be a second full traversal for nothing.
                 v += C[k + s * Int32(plane)]
             end
             bias === nothing || (v += Float32(bias[i]))
-            out[i, j] = eltype(out)(v)
+            # The activation goes on the *converted* value, exactly as it does in
+            # the fused path and for the same reason: the graph rounds between
+            # the matmul and the activation, so applying it to the fp32
+            # accumulator would compute a different function.
+            out[i, j] = epi(eltype(out)(v))
         end
     end
 end
@@ -138,7 +146,7 @@ reference is the same to four significant figures on every shape.
 """
 const MATMUL_FUSED = Ref(true)
 
-function matmul_coopmat!(out, A, B, bias, ws)
+function matmul_coopmat!(out, A, B, bias, ws, epi)
     M, K = size(A)
     N = size(B, 2)
     NP = padtile(N)
@@ -160,12 +168,12 @@ function matmul_coopmat!(out, A, B, bias, ws)
     # `NP != N` still needs the epilogue: the GEMM writes the padded width and
     # the padding columns must not reach `out`.
     if MATMUL_FUSED[] && splitk == 1 && NP == N
-        Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias)
+        Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi)
         return out
     end
     C = scratch!(ws, backend, Float32, M, NP, max(splitk, 1))
     Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
-    mm_epilogue_kernel!(backend)(out, C, bias, Val(M), Val(splitk), M * NP, M * N;
+    mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out
 end

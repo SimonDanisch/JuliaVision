@@ -30,6 +30,32 @@ both ends.
 padtile(n::Int) = cld(n, Lava.GEMM_TILE) * Lava.GEMM_TILE
 
 """
+    CONV_CRS_PAD[] :: Float64
+
+How much padding of the reduction axis a convolution may buy its way onto the
+tensor cores with.
+
+`CRS` off the tile used to be a flat refusal, because it is the *weight's* extent
+and padding it means padding the weight. It is paddable — `convolution_coopmat!`
+zero-fills both halves — but the padding is paid for: every padded column is
+written by im2col, read by the GEMM, and multiplied by a zero, so the cost is
+proportional to the waste.
+
+At `1.25` the line falls between the two cases this repo has:
+
+    SAM 2 stem      7x7x3      CRS 147 -> 160    +8.8%    admitted
+    MatAnyone       1x1x17     CRS  17 ->  32   +88.2%    refused
+    MatAnyone       1x1x257    CRS 257 -> 272    +5.8%    admitted
+    MatAnyone       1x1x769    CRS 769 -> 784    +2.0%    admitted
+
+The stem is what motivated it: **2.800 -> 1.147 ms, 2.44x**, 0.99 to 2.42
+TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A `Ref` rather than a constant so
+the two sides can be measured in one session, which is the only comparison this
+project trusts — set it to `1.0` to get the old refusal exactly.
+"""
+const CONV_CRS_PAD = Ref(1.25)
+
+"""
     conv_coopmat_applicable(out, x, w) -> Bool
 
 Whether the tensor-core path can take this convolution.
@@ -40,6 +66,10 @@ mean rewriting the weight, so a convolution whose channel counts do not land on
 the tile falls back to the implicit-GEMM kernel. In this model that is the
 stem (`7x7x3`), the 1x1 layers with a concatenated scalar channel (`Cin` 17,
 257, 769) and the single-channel alpha heads — all of them small.
+
+`CRS` is no longer among those refusals: it is padded when the waste is small
+enough, which [`CONV_CRS_PAD`](@ref) decides. `Cout` still is — padding it would
+widen the *output*, not just the reduction.
 """
 function conv_coopmat_applicable(out, x, w)
     # The operands have to be *on the Lava device*, not merely of a type
@@ -51,8 +81,8 @@ function conv_coopmat_applicable(out, x, w)
     eltype(x) === Float16 && eltype(w) === Float16 || return false
     KW, KH, Cin, Cout = size(w)
     CRS = Cin * KH * KW
-    CRS % Lava.GEMM_TILE == 0 || return false
     Cout % Lava.GEMM_TILE == 0 || return false
+    padtile(CRS) <= CRS * CONV_CRS_PAD[] || return false
 
     # Materialising im2col is only worth it when the GEMM reuses each element
     # enough to pay for writing and re-reading it. Every column is read once per
@@ -77,8 +107,8 @@ function conv_coopmat_applicable(out, x, w)
     # The lesson worth keeping is that the old bounds were never wrong in
     # reasoning, only in their input — nobody had measured the fallback.
     Cout >= Lava.GEMM_TILE || return false
-    padtile(size(out, 4) * size(out, 2) * size(out, 1)) * CRS * sizeof(Float16) <= 48 << 20 ||
-        return false
+    padtile(size(out, 4) * size(out, 2) * size(out, 1)) * padtile(CRS) * sizeof(Float16) <=
+        48 << 20 || return false
     Lava.coopmat_gemm_available()
 end
 
@@ -97,7 +127,8 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
 @kernel function im2col_kernel!(col, @Const(x), ::Val{MP},
                                 ::Val{KW}, ::Val{KH}, ::Val{SX}, ::Val{SY},
                                 ::Val{PX}, ::Val{PY}, ::Val{DX}, ::Val{DY},
-                                Wid, Hei, OW, OH, NPQ, ntot) where {MP,KW,KH,SX,SY,PX,PY,DX,DY}
+                                Wid, Hei, OW, OH, NPQ, ntot,
+                                Cin) where {MP,KW,KH,SX,SY,PX,PY,DX,DY}
     # Flat launch, like `conv_epilogue_kernel!`: a 2-D `ndrange` is partitioned
     # into 2-D workgroups, so a warp spans only a handful of consecutive `m` and
     # the writes to `col` (which is `m`-major) are fragmented.
@@ -121,10 +152,16 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
                 t = crs ÷ Int32(KW)
                 kh = t % Int32(KH)
                 cin = t ÷ Int32(KH)
-                ix = ow * Int32(SX) - Int32(PX) + kw * Int32(DX)
-                iy = oh * Int32(SY) - Int32(PY) + kh * Int32(DY)
-                if Int32(0) <= ix < Int32(Wid) && Int32(0) <= iy < Int32(Hei)
-                    v = T(x[ix + Int32(1), iy + Int32(1), cin + Int32(1), n + Int32(1)])
+                # `col` has `CRS` rounded up to the tile, so the last few columns
+                # have no input channel behind them. They stay zero, which makes
+                # them contribute nothing to the product — the same trick the
+                # `m > NPQ` rows already use. See `convolution_coopmat!`.
+                if cin < Int32(Cin)
+                    ix = ow * Int32(SX) - Int32(PX) + kw * Int32(DX)
+                    iy = oh * Int32(SY) - Int32(PY) + kh * Int32(DY)
+                    if Int32(0) <= ix < Int32(Wid) && Int32(0) <= iy < Int32(Hei)
+                        v = T(x[ix + Int32(1), iy + Int32(1), cin + Int32(1), n + Int32(1)])
+                    end
                 end
             end
             col[m + Int32(MP) * (c - Int32(1))] = v
@@ -189,20 +226,41 @@ function convolution_coopmat!(out, x, w, bias, stride, padding, dilation;
     CRS = Cin * KH * KW
     NPQ = N * OH * OW
     MP = padtile(NPQ)
+    # The reduction axis is padded to the tile the same way `NPQ` already is.
+    # `CRS` is the weight's own extent, so this used to be a refusal rather than
+    # a padding — and it kept SAM 2's stem (`7x7x3`, `CRS = 147`) on the
+    # implicit-GEMM kernel at **1.01 TFLOP/s**. The two halves of the pad:
+    # `im2col` writes zeros for the columns with no input channel behind them,
+    # and the weight gets a zeroed copy that is `CRSP` rows tall. Zero times
+    # anything is zero, so the padded product is the real one — but the weight's
+    # pad has to be *written*, not merely reserved: reading uninitialised memory
+    # there would multiply a possible NaN by zero and give NaN.
+    CRSP = padtile(CRS)
     backend = KernelAbstractions.get_backend(out)
 
-    col = scratch!(ws, backend, Float16, MP, CRS)
+    col = scratch!(ws, backend, Float16, MP, CRSP)
     im2col_kernel!(backend)(col, x, Val(MP),
                             Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
                             Val(padding[1]), Val(padding[2]),
                             Val(dilation[1]), Val(dilation[2]),
-                            Wid, Hei, OW, OH, NPQ, MP * CRS; ndrange = MP * CRS)
+                            Wid, Hei, OW, OH, NPQ, MP * CRSP, Cin; ndrange = MP * CRSP)
 
-    _, splitk = Lava.coopmat_gemm_shape(MP, Cout, CRS)
+    # Untouched when `CRS` is already on the tile, which is every convolution
+    # that took this path before — same buffer, no copy, no extra scratch.
+    B = if CRSP == CRS
+        w
+    else
+        wp = scratch!(ws, backend, Float16, CRSP, Cout)
+        fill!(wp, zero(Float16))
+        copyto!(view(wp, 1:CRS, :), reshape(w, CRS, Cout))
+        wp
+    end
+
+    _, splitk = Lava.coopmat_gemm_shape(MP, Cout, CRSP)
     # With a split there is no separate destination: the epilogue reads the
     # partial planes directly and sums them.
     C = scratch!(ws, backend, Float32, MP, Cout, max(splitk, 1))
-    Lava.coopmat_gemm!(C, col, w, MP, Cout, CRS; partials = C, reduce = false)
+    Lava.coopmat_gemm!(C, col, B, MP, Cout, CRSP; partials = C, reduce = false)
 
     conv_epilogue_kernel!(backend)(out, C, bias, Val(MP), Val(act), Val(splitk),
                                    OW * OH, Cout, length(out), MP * Cout;

@@ -657,8 +657,18 @@ function coopmat_sdpa_applicable(q, k, v, bias, Lq::Int, Lk::Int)
     eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
     min(Lq, Lk) >= COOPMAT_MINL[] || return false
     Lq % Lava.GEMM_TILE == 0 && Lk % Lava.GEMM_TILE == 0 || return false
+    # `coopmat_gemm_available` asks the *device*, not the operands. On the CPU
+    # backend of a machine that has a Vulkan device — which is every run of
+    # `verify_sam2.jl` — it says yes, and the encoder's attention then handed
+    # slab-backed `Vector{UInt8}` arrays to a cooperative-matrix kernel:
+    # "passing non-bitstype argument", and the CPU reference for SAM 2's encoder
+    # could not be produced at all. The operands have to be on the device too.
+    ondevice(q) && ondevice(k) && ondevice(v) || return false
     Lava.coopmat_gemm_available()
 end
+
+"""Whether `a` is backed by device memory, wrappers and all."""
+@inline ondevice(a) = stridedroot(a) !== nothing
 
 """
     sdpa_coopmat!(out, q, k, v, scale; backend, ws) -> out
@@ -733,7 +743,7 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
         # once**: each workgroup stages its own `BR` queries and no other
         # workgroup touches them, so densifying it is a whole extra pass over the
         # array to save nothing.
-        BR, BC, NW = flashcm_tiling(E, Lq, Lk)
+        BR, BC, NW = flashcm_tiling(E, Lq, Lk, size(q, 3) * size(q, 4))
         kd = FLASHCM_DENSIFY[] ? densify(k, ws, backend) : k
         vd = FLASHCM_DENSIFY[] ? densify(v, ws, backend) : v
         sdpaflashcm!(out, q, kd, vd, scale; backend, BR, BC, NW) && return out

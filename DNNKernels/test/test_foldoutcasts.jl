@@ -90,3 +90,48 @@ const GDIR = normpath(joinpath(@__DIR__, "..", "..", "..", "..",
         end
     end
 end
+
+@testset "foldrelu folds gelu into addmm" begin
+    if !isfile(joinpath(GDIR, "sam2_encoder.json"))
+        @info "no exported SAM 2 graph at $GDIR; skipping"
+    else
+        g = DK.loadgraph(joinpath(GDIR, "sam2_encoder.json"))
+        g2, n = DK.foldrelu(g)
+
+        # The reason this needed the whole view chain rather than
+        # `resolvealias`: the graph reshapes the `addmm` result, so the shape is
+        # `gelu <- view.default <- addmm` and an alias-only resolve finds no
+        # producer at all. It folded 0 of 48 until that was fixed.
+        @test n >= 48
+        @test count(o -> o.aten == "gelu.default", g2.ops) == 0
+        @test count(o -> get(o.attrs, "act", "") == "gelu", g2.ops) == 48
+        @test all(o -> o.aten == "addmm.default",
+                  (o for o in g2.ops if get(o.attrs, "act", "") == "gelu"))
+
+        @testset "the alias keeps the gelu's own shape" begin
+            # Aliasing onto the `addmm` buffer would be a rank error waiting to
+            # happen: `addmm_2` is `[65536, 576]` and the gelu it feeds is
+            # `[1, 256, 256, 576]`. The alias has to target the *view*.
+            for o in g.ops
+                o.aten == "gelu.default" || continue
+                b = g2.buffers[o.out]
+                @test b.kind === :view
+                @test b.viewop == "alias.default"
+                @test g2.buffers[b.of].shape == g.buffers[o.out].shape
+            end
+        end
+
+        @testset "the tanh approximation is a different function and does not fold" begin
+            # `gelu(approximate="tanh")` differs from the exact form by ~1e-3.
+            # Folding it in as if it were the same would be a silent wrong answer.
+            gl = first(o for o in g.ops if o.aten == "gelu.default")
+            attrs = Dict{String,Any}(gl.attrs); attrs["arg1"] = "tanh"
+            ops = [o.id == gl.id ? DK.Op(o.id, o.aten, o.ins, o.out, attrs) : o
+                   for o in g.ops]
+            gt = DK.Graph(g.name, g.symbols, g.inputs, g.outputs, g.buffers,
+                          g.order, ops, g.fusion)
+            _, nt = DK.foldrelu(gt)
+            @test nt == n - 1
+        end
+    end
+end

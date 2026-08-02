@@ -292,11 +292,31 @@ end
     contiguous(a)
 
 Materialise a permuted view. Torch's `reshape`/`view` on a non-contiguous tensor
-copies; Julia's `reshape` instead stacks a second lazy wrapper, and the resulting
-`ReshapedArray{PermutedDimsArray{...}}` is not recognised as a GPU array by
-either backend — `Adapt`'s wrapper union is one level deep, so broadcast falls
-back to `DefaultArrayStyle` and scalar-indexes from the host. Collapsing it here,
-once, with a real device-side `permutedims` keeps the nesting from ever forming.
+copies; Julia's `reshape` instead stacks a second lazy wrapper, so a
+`ReshapedArray{PermutedDimsArray{...}}` forms. Collapsing it here, once, with a
+real device-side `permutedims` keeps that nesting from reaching a kernel.
+
+**The original reason is gone; the measured one replaces it.** This used to say
+the nest "is not recognised as a GPU array by either backend — `Adapt`'s wrapper
+union is one level deep". That was true and is not: Lava's `AnyLavaArray` covers
+`ReshapedArray` over a `PermutedDimsArray`, the nest gets `LavaArrayStyle`, and
+`d .= reshape(permutedimsarray, dims) .+ x` runs on the device and is correct.
+It is simply **slow**, and that is why the collapse stays. On a 4.5 MB tensor,
+one broadcast reading the same data three ways:
+
+    dense leaf                    0.029 ms   461 GB/s
+    PermutedDimsArray leaf        0.050      263
+    ReshapedArray{PermutedDims}   0.106      124
+
+`ReshapedArray` carries `SignedMultiplicativeInverse{Int64}` and does a 64-bit
+magic division per element on a device with no 64-bit integer unit — the same
+effect that made narrowing `im2col_kernel!`'s counter to `Int32` worth 1.56x.
+
+Worth knowing before anyone tries to *remove* the graph's own `clone.default`
+ops on the strength of the nest working: measured end to end, clone-then-read
+(0.053 ms) beats reading the nest (0.103), and even with the `Int64` division
+fixed it would only reach ~0.050 — a wash. The clones are an optimisation, not
+waste.
 """
 contiguous(a) = a
 contiguous(a::PermutedDimsArray{T,N,perm}) where {T,N,perm} =

@@ -51,6 +51,46 @@ few thousand products in fp16 instead drifts by percent, not ulps.
 end
 
 """
+    CONV_1X1_GEMM[] :: Bool
+
+Route a 1x1 convolution straight to `matmul!`, with no `im2col` and no scatter.
+
+A 1x1 kernel at stride 1 with no padding is a matrix multiply and nothing else.
+`im2col` exists to gather each output pixel's receptive field into a row; when
+the field is one pixel the "column matrix" **is** the input, reshaped. And the
+product already lands in the right place: `C` is `(NPQ, Cout)` with `NPQ`
+contiguous, and the reversed output `(W, H, Cout, N)` is the same bytes in the
+same order, so the scatter is the identity too.
+
+Measured on SAM 2's largest, `convolution_4` — 144 -> 256 channels over 256x256,
+4.83 GFLOP: **0.860 ms**, of which the GEMM is 0.411. The other 52% is `im2col`
+writing an 18.9 MB copy of the input and the epilogue reading `C` back to move it
+somewhere it already was. Five of the encoder's seven convolutions are 1x1.
+
+**Reach, audited across every exported graph.** MatAnyone has 55 of these — 28 in
+`encode_image` alone — and they are covered: `runtests.jl` verifies its graphs
+node by node against PyTorch at both precisions. SAM 2's encoder has 6 of 7.
+BasicVSR++ has 510 convolutions and not one 1x1-stride-1-unpadded. Wan's VAE has
+6, which cannot take this route because its graphs are fp32 and
+`conv_coopmat_applicable` refuses them.
+
+The bias is the one thing that does not come free. `coopmat_gemm!`'s bias is
+per-*row* of `C` — per pixel here — and a convolution's is per output channel,
+which is per column. So it stays a separate broadcast; that is one pass over the
+output against the two this removes.
+"""
+const CONV_1X1_GEMM = Ref(true)
+
+"""
+Whether this convolution is the 1x1 case that is a plain GEMM: unit kernel, unit
+stride, no padding, no dilation, one group.
+"""
+@inline onebyone(w, stride, padding, dilation, groups) =
+    CONV_1X1_GEMM[] && groups == 1 && length(stride) == 2 &&
+    size(w, 1) == 1 && size(w, 2) == 1 &&
+    all(==(1), stride) && all(==(0), padding) && all(==(1), dilation)
+
+"""
     convolution!(out, x, w, bias, stride, padding, dilation, groups)
 
 `stride`/`padding`/`dilation` are `(x, y)` in the reversed layout, i.e. the
@@ -69,6 +109,19 @@ function convolution!(out, x, w, bias, stride, padding, dilation, groups;
     p = (padding[1], padding[2])
     d = (dilation[1], dilation[2])
     if groups == 1
+        # A 1x1 convolution is a GEMM on the input as it already lies — see
+        # `CONV_1X1_GEMM`. Checked before the coopmat path because it is the same
+        # product with two passes removed.
+        if ws !== nothing && onebyone(w, stride, padding, dilation, groups) &&
+           conv_coopmat_applicable(out, x, w)
+            Wi, Hi, Cin, Nb = size(x)
+            Cout = size(w, 4)
+            matmul!(reshape(out, Wi * Hi * Nb, Cout), reshape(x, Wi * Hi * Nb, Cin),
+                    reshape(w, Cin, Cout), nothing; ws)
+            bias === nothing || (out .= out .+ reshape(bias, 1, 1, Cout, 1))
+            act === :relu && (out .= max.(out, zero(eltype(out))))
+            return out
+        end
         # Tensor cores when the extents land on the cooperative-matrix tile and
         # the operands are fp16 (i.e. the autocast export); the scalar
         # implicit-GEMM otherwise. Same arithmetic, ~30x apart on the layers

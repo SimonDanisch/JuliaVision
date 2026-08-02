@@ -270,3 +270,50 @@ end
         end
     end
 end
+
+@testset "the tiling chooser prefers occupancy when the grid cannot fill the device" begin
+    # `FLASHCM_TILINGS` is ordered fastest-first *for a launch that fills the
+    # card*. SAM 2's decoder is where none does: `Lq = 23` (the mask prompt's
+    # token count) against `Lk = 4096` is one query block, so the grid is
+    # `1 * H*B` = 8 workgroups on 48 SMs and the kernel measures 0.10 TFLOP/s.
+    # Below `FLASHCM_MINGRID` the chooser therefore picks for grid size instead.
+    old = DNNKernels.FLASHCM_CLAMP[]
+    try
+        DNNKernels.FLASHCM_CLAMP[] = true
+        # Without a batch count it must behave exactly as it always did.
+        @test DNNKernels.flashcm_tiling(16, 23, 4096) == DNNKernels.flashcm_tiling(16, 23, 4096, 0)
+
+        with = DNNKernels.flashcm_tiling(16, 23, 4096, 8)
+        @test with !== nothing
+        @test cld(23, with[1]) * 8 > cld(23, DNNKernels.flashcm_tiling(16, 23, 4096)[1]) * 8
+        # ...and the choice is still a legal tiling for the shape.
+        @test 2 * 23 >= with[1]
+
+        # The other two decoder shapes: one is already wide, one is not.
+        @test DNNKernels.flashcm_tiling(16, 4096, 23, 8) == DNNKernels.flashcm_tiling(16, 4096, 23)
+        @test DNNKernels.flashcm_tiling(32, 23, 23, 8) !== nothing
+    finally
+        DNNKernels.FLASHCM_CLAMP[] = old
+    end
+
+    @testset "inert on every encoder shape" begin
+        # These launch 512 workgroups and must keep the table's own order, or the
+        # rule has quietly re-tuned the encoder against a decoder measurement.
+        for (E, Lq, Lk, nb) in [(72, 4096, 4096, 8), (72, 256, 256, 128),
+                                (72, 512, 512, 32), (72, 1024, 1024, 16)]
+            @test DNNKernels.flashcm_tiling(E, Lq, Lk, nb) == DNNKernels.flashcm_tiling(E, Lq, Lk)
+        end
+    end
+
+    @testset "a grid at the threshold is not re-chosen" begin
+        # `FLASHCM_MINGRID` is a floor, not a target: at or above it the table's
+        # order stands.
+        old = DNNKernels.FLASHCM_MINGRID[]
+        try
+            DNNKernels.FLASHCM_MINGRID[] = 1
+            @test DNNKernels.flashcm_tiling(16, 23, 4096, 8) == DNNKernels.flashcm_tiling(16, 23, 4096)
+        finally
+            DNNKernels.FLASHCM_MINGRID[] = old
+        end
+    end
+end

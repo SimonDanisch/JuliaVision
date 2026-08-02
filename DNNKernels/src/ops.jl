@@ -694,7 +694,10 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("addmm.default")})
     bias = lhs(ctx, op)
     a, b = value(ctx, op.ins[2]), value(ctx, op.ins[3])
     out = alloc(ctx, op.out, size(b, 1), size(a, 2))
-    matmul!(out, b, a, bias; ws=ctx.ws)
+    # `act` is set by `foldgelu`, which deleted the activation op and aliased its
+    # buffer onto this one. It is applied inside the GEMM's store, so the fused
+    # form reads and writes the result once instead of three times.
+    matmul!(out, b, a, bias; ws=ctx.ws, epi=actfn(Symbol(get(op.attrs, "act", "none"))))
     out
 end
 
@@ -870,6 +873,23 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
     end
     materialize(ctx, view(x, idx...))
 end
+
+"""
+    actfn(name) -> function
+
+The activation a fused epilogue applies, by name.
+
+**These have to be the same expressions the standalone ops use**, character for
+character, or folding one into a GEMM changes the model's output. `geluexact`
+below is `runop!(::Val{Symbol("gelu.default")})`'s branch with the operand type
+made implicit — including that `erf` runs at the *component's* precision, fp16
+under autocast, which is where most of the difference between this and a more
+careful gelu lives.
+"""
+@inline geluexact(v) = oftype(v, 0.5f0 * v * (1 + erf(v / sqrt(typeof(v)(2)))))
+@inline relu_epi(v) = max(v, zero(v))
+@inline actfn(name::Symbol) = name === :gelu ? geluexact :
+                              name === :relu ? relu_epi : identity
 
 """
 `gelu` with torch's default (exact) formulation: `x/2 * (1 + erf(x/sqrt(2)))`.
