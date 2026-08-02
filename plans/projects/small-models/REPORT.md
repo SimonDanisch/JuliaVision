@@ -559,3 +559,42 @@ and `drain_deferred_frees!` before each count), and not the per-device pool spli
 The probe exits non-zero when pattern 3 pins more than the minimum, so it can go
 straight into a test suite once the behaviour is decided on. It is filed from
 here rather than fixed because the allocator is `lava-core`'s.
+
+### The trigger, named: 186 constant-subgraph folds at load
+
+MatAnyone was the control worth running, because it is the other large model with
+an artifact on this machine and it goes through the same `DNNKernels.Model`:
+
+    MatAnyone   2 blocks (128 MiB), reclaim frees 0  — does NOT reproduce
+    SAM 2      63 blocks (4032 MiB), reclaim frees 51 (3.2 GB)
+
+Same loader, opposite outcome. The `@debug` line `Model` already prints says why:
+
+| | constant-subgraph ops folded | batch-norms | blocks stranded |
+|---|---|---|---|
+| MatAnyone | **0** | 75 | 0 |
+| SAM 2 | **186** | 0 | 51 |
+
+`hoistconstants(graphs, weights, backend)` is described in `driver.jl` as "the one
+pass that has to **run** the ops it folds, so it comes after the upload and works
+on the device weights". For SAM 2 that is 186 computations executed at load time,
+each allocating transients *after* the resident weights are already placed —
+which is pattern 3 of the probe exactly, and it is why the blocks come out pinned
+rather than empty. MatAnyone folds none, allocates no transients after its
+upload, and lands at 128 MiB for ~130 MiB of weights.
+
+So the causal chain is complete: **186 device-side constant folds → transients
+interleaved with resident weights → 4 GB pool for 941 MiB → 3.2 GB unreclaimable
+by anything but the empty-block scan, and 12 blocks not even by that.**
+
+Two fixes follow from it, and both are cheaper than changing the allocator:
+
+1. **Fold constants before uploading the resident weights**, so the transients
+   are allocated and freed while the pool is still empty and nothing pins the
+   blocks. This is an ordering change in `Model`, not an allocator change.
+2. **Or reclaim once after `hoistconstants`**, which recovers the wholly-transient
+   blocks at a known-quiet point rather than waiting for an OOM.
+
+Neither is mine to make — `Model` is `kernels-refactor`'s and the allocator is
+`lava-core`'s — but the measurement now names the pass, the count, and a control
+that does not reproduce.
