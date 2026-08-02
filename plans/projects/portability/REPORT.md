@@ -1560,3 +1560,74 @@ is a finding rather than an artefact.
 GPU-AV prints its own warning and it is right: *"Both GPU Assisted Validation and
 Normal Core Check Validation are enabled, this is not recommended as it will be
 very slow."* Run core validation first, fix what it reports, then GPU-AV alone.
+
+### The second `OpBitcast` family, reproduced and inventoried
+
+`GPUFiltering`-free reproducer, 30 seconds, no GPU-AV needed — just dump and
+validate:
+
+```julia
+for T in (Int16, Int32, Int64, Float16, Float32, Float64,
+          ComplexF16, ComplexF32, ComplexF64,
+          Complex{Int16}, Complex{Int32}, Complex{Int64})
+    x = Lava.LavaArray(zeros(T, (2,3,4)));  y = Lava.LavaArray(rand(T, (2,3)))
+    x[:, :, 2] = y
+    @assert Array(x[:, :, 2]) == Array(y)
+end
+```
+
+with `LAVA_SPIRV_DUMP_DIR` set, then `spirv-val` each dump. **All twelve element
+types produce correct results and two `gpu_getindex_kernel` modules are invalid.**
+
+Real element types alone do **not** reproduce it — the first eight I tried were
+all clean. It needs the `Complex` types, which is why it surfaced through
+GPUArrays' `supported_eltypes` and not through anything hand-written.
+
+The offending pattern is a **narrowing store into a Function-scope alloca**:
+
+```
+%160 = OpVariable %_ptr_Function__arr_ulong_uint_2 Function   ; [2 x ulong]
+%373 = OpBitcast %_ptr_Function_uint %160                     ; ptr[2 x ulong] -> ptr uint
+       OpStore %373 %336
+%376 = OpAccessChain %_ptr_Function_ulong %160 %uint_0        ; legal drill to element 0
+%379 = OpBitcast %_ptr_Function_uint %376                     ; then illegally re-type ulong* -> uint*
+       OpStore %379 %339
+```
+
+Note the second one: the emitter *does* drill legally with `OpAccessChain`, then
+bitcasts the result anyway because the element is `ulong` and the value is
+`uint`. Drilling cannot fix this one — the address is already right and it is the
+**width** that is wrong.
+
+#### Corrected inventory of pointer `OpBitcast` sites
+
+An earlier entry in this report said "the emitter has three pointer `OpBitcast`
+sites (`emit.jl:1362`, `:1378`, `:1414`)". That was wrong twice: `:1414`/`:1416`
+bitcasts a loaded **value**, which is legal, and the two **store-path** sites were
+missed entirely.
+
+| site | operand | status |
+|---|---|---|
+| `~emit.jl:6067` OpSelect reconciliation | pointer | **fixed**, `be52353` |
+| `emit.jl:1362`, `:1378` load path | pointer | **live** |
+| `emit.jl:2174`, `:2186` store path | pointer | **live** — what this reproducer hits |
+| `emit.jl:1416`, `:2089` | value | legal, not a defect |
+
+#### Why the remaining four need a different fix from the one that worked
+
+`be52353` worked because the `OpSelect` case was an **addressing** mismatch:
+array-of-T versus T at the same address, and `OpAccessChain` expresses exactly
+that. The load and store paths are **width** mismatches — a 32-bit value through
+a pointer whose pointee is 64-bit — and the Logical addressing model has no way
+to produce a differently-typed pointer to the same address at all.
+
+So the fix has to move to the value side: load the pointee's true type and
+convert, or widen the value and store the full pointee. `emit.jl:1335` already
+does exactly this for the widening-load case, with a comment explaining that
+bitcasting the pointer there would read past the field. That branch is the
+template; the narrowing and store cases need the same treatment.
+
+Not attempted here: a narrowing store that only wants the low 32 bits of a
+64-bit slot is not semantically identical to a widening store of the whole slot,
+so this is a change to what the kernel writes and needs the emitter's owner, not
+a portability pass. The reproducer above is the thing to iterate against.
