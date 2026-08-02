@@ -7,29 +7,44 @@ That output shape is the whole argument for it. Per-frame diffusion style transf
 
 Almost nothing new for the runtime, which is why it is second in the order: it is the fastest visible result in the set. The LUT apply is trilinear interpolation and belongs in GPUFiltering, not in the graph.
 
-**Not ported yet.** This package is the place the port lands, committed ahead of
-the work so the graph path, the asset lookup and the workload guard are settled
-and everything after this is model code. What exists: [`assetdir`](@ref) resolves
-the export, [`neurallutgraph`](@ref) loads it if it is there, and precompilation is
-inert until it is. What does not: the workload body, and whatever ops the export
-turns out to need.
+**Ported and verified** against upstream on 2026-08-02. [`neurallut`](@ref) loads
+the model, [`predictlut`](@ref) turns a frame into a table and [`grade!`](@ref)
+applies it. The graph's blended LUT matches PyTorch to 1.3e-5 and the apply
+matches upstream's own `trilinear_kernel.cu` to 3.0e-7; see
+`plans/projects/small-models/REPORT.md` for the numbers and the caveats.
+
+**Two halves, on purpose.** The graph ends at the LUT, not at an image: what the
+network produces is a *grading object*, so the editor can hold it, show it in the
+inspector, keyframe it and let the user push it around. Applying it is a
+`GPUFiltering` kernel ([`lut3d!`](@ref)) that does not care whether a network or
+a `.cube` file on disk produced the table. That split is also what keeps the
+graph resolution-independent — the tensor leaving it is 3x33x33x33 whatever the
+frame size is.
+
+The consequence for cost is worth stating up front, because the two halves are
+paid at different rates: applying a look is **0.835 ms at 4K** on this machine,
+while re-predicting one is ~14 ms and is dominated by the classifier's
+convolutions. Predict on a shot or a keyframe; grade every frame.
 
 Upstream: https://github.com/HuiZeng/Image-Adaptive-3DLUT
 License: **Apache-2.0**
 
-Ops `DNNKernels` does not have yet:
-  * trilinear 3D LUT apply (a GPUFiltering kernel, not an ATen op)
+Ops `DNNKernels` did not have: none. `_native_batch_norm_legit.no_stats` (what
+`nn.InstanceNorm2d` decomposes to) was added for this port and is general.
 
 See `models-to-port.md` for the state of this one, and `tools/export_neurallut.py`
 for the export that feeds it.
 """
 module NeuralLUTRunner
 
-using Lava, DNNKernels, KernelAbstractions
+using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 using Lava: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors, assetpath
+using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback
+using GPUFiltering: lut3d!, resizeplanar!
+using ColorTypes: AbstractRGB, RGB
 
 export neurallutgraph, neurallutweights, assetdir
+export neurallut, predictlut, grade!, NeuralLUT
 
 const KA = KernelAbstractions
 
@@ -97,26 +112,123 @@ function __init__()
     return nothing
 end
 
+# ------------------------------------------------------------------- the model
+
+"""
+    CLASSIFIER_RES
+
+The side length the classifier's input is resized to, and not a free parameter:
+upstream's `Classifier` begins with `nn.Upsample(size=(256,256))`, so the network
+has only ever seen 256x256. The export strips that layer (it would bake a frame
+size into a graph that immediately discards it) and [`predictlut`](@ref) does the
+resize instead, which is why the constant has to live on this side too.
+"""
+const CLASSIFIER_RES = 256
+
+"""
+    NeuralLUT
+
+A loaded predictor: the graph, its weights on the device, and the classifier
+input buffer that [`predictlut`](@ref) reuses.
+
+The input buffer is held rather than allocated per call because it is the same
+1.5 MB every time and a look gets re-predicted whenever the user scrubs to a new
+shot. Nothing else here is stateful — the predicted table is returned, not
+stored, so the caller decides whether this frame's look replaces the last one or
+is smoothed against it (`models-to-port.md` wants temporal stability to come from
+smoothing the prediction, not from the network).
+"""
+struct NeuralLUT{B,W,T}
+    backend::B
+    graph::DNNKernels.Graph
+    weights::W
+    input::T
+end
+
+"""
+    neurallut(; backend = LavaBackend(), dir = assetdir()) -> NeuralLUT
+
+Load the model. Separate from [`predictlut`](@ref) so the workload can build it
+in `@setup_workload`, where the loading is not what is being cached.
+"""
+function neurallut(; backend = LavaBackend(), dir::AbstractString = assetdir())
+    graph = neurallutgraph(; dir)
+    weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in neurallutweights(; dir))
+    input = KA.allocate(backend, Float32, CLASSIFIER_RES, CLASSIFIER_RES, 3, 1)
+    return NeuralLUT(backend, graph, weights, input)
+end
+
+"""
+    predictlut(model, img) -> lut
+
+Predict a grading LUT for `img`, a frame of any resolution on `model`'s backend.
+
+Returns a `(33, 33, 33, 3)` device array indexed `[r, g, b, channel]` — the
+argument [`grade!`](@ref) and `GPUFiltering.lut3d!` take. It is a fresh table per
+call, so keeping one is the caller's business.
+
+Costs about 14 ms at 4K on an RTX 3070 laptop, nearly all of it the classifier's
+six convolutions; the resize into 256x256 is 0.03 ms of it. That is a per-shot
+cost, not a per-frame one — see [`grade!`](@ref).
+"""
+function predictlut(model::NeuralLUT, img::AbstractMatrix{<:AbstractRGB})
+    resizeplanar!(model.input, img)
+    vals = execute!(model.graph, Dict{String,Any}("img" => model.input), model.weights;
+                    dims = (;), backend = model.backend)
+    # The exporter names the blend's output; reading it from the graph rather
+    # than hardcoding "sum_1" means a re-export that renumbers cannot silently
+    # return the wrong buffer.
+    return vals[only(model.graph.outputs)]
+end
+
+"""
+    grade!(out, img, lut) -> out
+    grade!(model, out, img) -> out
+
+Apply a look. The three-argument form takes a table already predicted (or
+authored, or dragged in from disk); the `model` form predicts one from `img`
+first.
+
+**Prefer the first.** Applying is 0.835 ms at 4K on this machine and predicting
+is ~14 ms, so a timeline that re-predicts per frame pays 18x for a look that is
+supposed to be constant across a shot. The four-argument form exists for the
+one-off — a user dropping the effect on a clip and seeing it immediately.
+"""
+grade!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB},
+       lut::AbstractArray{Float32,4}) = lut3d!(out, img, lut)
+
+grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
+       img::AbstractMatrix{<:AbstractRGB}) = lut3d!(out, img, predictlut(model, img))
+
 # ---------------------------------------------------------------- the workload
 #
 # Guarded on the assets and on a working device: precompilation must not fail on
 # a machine without either, it should just produce a package with nothing cached.
 #
-# TODO(port): drive the real call here once the graph runs. The measurement that
-# matters is `Lava.frozen_stats().misses == 0` on a *fresh* process — a workload
-# that runs a different path than the editor does leaves the editor compiling on
-# first use, which is the entire cost this package exists to remove. SAM2Runner
-# learned that the expensive way: its `runsam2` workload still left 45 s on the
-# first click because the editor goes through a closure `runsam2` never touches.
+# The workload drives `predictlut` and both `grade!` methods, which is the whole
+# call tree the editor uses — the measurement that matters is
+# `Lava.frozen_stats().misses == 0` on a *fresh* process, and a workload that
+# runs a different path than the editor does leaves the editor compiling on first
+# use, which is the entire cost this package exists to remove. SAM2Runner learned
+# that the expensive way: its `runsam2` workload still left 45 s on the first
+# click because the editor goes through a closure `runsam2` never touches.
+#
+# 256x256 rather than a real frame: `lut3d!` and `resizeplanar!` are compiled per
+# element type and backend, not per resolution, so a small image freezes the same
+# kernels in a fraction of the time and none of the VRAM.
 @setup_workload begin
     if ready()
         try
             backend = LavaBackend()
-            graph = neurallutgraph()
-            weights = neurallutweights()
+            model = neurallut(; backend)
+            img = KA.allocate(backend, RGB{Float32}, 256, 256)
+            out = similar(img)
             @compile_workload KERNELS_VERSION begin
-                # Inputs: image (1, 3, H, W) in 0..1
-                nothing
+                fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
+                lut = predictlut(model, img)
+                grade!(out, img, lut)
+                grade!(model, out, img)
+                KA.synchronize(backend)
             end
         catch err
             @warn "NeuralLUTRunner: workload skipped; first use will compile" exception = err

@@ -639,6 +639,44 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_native_batch_norm_legit_no_trai
     (x .* s .+ b, similar(x, 0), similar(x, 0))
 end
 
+"""
+`InstanceNorm2d`, which is what an `nn.InstanceNorm2d` decomposes to: a batch
+norm that computes its statistics from the input because there are none stored.
+
+The `_no_training` overload above is the folded case — running mean and variance
+come in as weights, so the whole thing collapses to one affine map. This one
+cannot fold: the statistics are a function of the input, so they are reduced per
+channel on every call. That is the difference between the two overloads and the
+reason this needed its own method rather than a rename.
+
+**Biased variance, deliberately.** Training-mode batch norm normalises with
+`1/N`, and only the running-statistics update (which `no_stats` does not have)
+uses the `1/(N-1)` correction. Using the unbiased estimator here is a silent
+`N/(N-1)` error in the output — invisible at 128x128 where it is 6e-5, and not
+invisible in a 4x4 feature map.
+
+Returns `(output, save_mean, save_invstd)` as the ATen signature does. The
+graph's inference path never reads the second and third, but they are cheap and
+already computed, so they are returned rather than stubbed.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_stats")})
+    x = lhs(ctx, op)
+    γ, β = value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    eps = Float32(op.attrs["arg5"])
+    c = ndims(x) - 1                      # torch channel dim 1 -> Julia dim n-1
+    rd = ntuple(i -> i < c ? i : i + 1, ndims(x) - 1)   # every dim but the channel
+    rs = ntuple(i -> i == c ? length(γ) : 1, ndims(x))
+
+    n = length(x) ÷ size(x, c)
+    μ = sum(x; dims = rd) ./ n
+    d = x .- μ
+    v = sum(abs2, d; dims = rd) ./ n      # biased; see above
+    invstd = 1 ./ sqrt.(v .+ eps)
+
+    s = invstd .* reshape(γ, rs)
+    (d .* s .+ reshape(β, rs), vec(μ), vec(invstd))
+end
+
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_adaptive_avg_pool2d.default")})
     x = lhs(ctx, op)
     oy = Int(value(ctx, op.ins[2]))       # torch (H, W) -> Julia (y, x)
