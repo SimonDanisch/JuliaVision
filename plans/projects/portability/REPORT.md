@@ -730,3 +730,92 @@ artifacts.
 Fixed at test level: both files now use `DNNKernels.findasset`, and the skip
 branches gained `@test_skip` so an absent graph shows as `1 Broken` rather than
 `Total 0`. Verified in both directions.
+
+## 2026-08-02, continued — validation turned on
+
+The three crash patches are now committed to `dev/Lava` @ `sd/portability`
+(`6dcf9f4`, `93e4765`, `bc61b3d`). With those in, the suite was re-run under
+`LAVA_VALIDATION=1`, which is Rule 0's first instrument and which
+`spirv-intrinsics.md` notes is "cheap, and neither is run by default".
+
+#### 15. Lava emits SPIR-V that `spirv-val` REJECTS — two modules, both illegal
+
+Not "depends on unspecified behaviour". **Invalid.**
+
+```
+vkCreateShaderModule(): pCreateInfo->pCode (spirv-val produced an error):
+  Instruction may not have a logical pointer operand
+    %127 = OpBitcast %_ptr_Workgroup__arr_float_uint_128 %126
+    %99  = OpBitcast %_ptr_Workgroup__arr_float_uint_128 %98
+```
+
+Vulkan requires the **Logical** addressing model, under which `OpBitcast` may not
+produce or consume a pointer at all. Two distinct modules do it, both reached
+from the same construct: a clamped ternary over shared memory, which LLVM lowers
+to an `OpSelect` between two Workgroup pointers.
+
+- `test_select_width_mismatch.jl:22` — "OpSelect of Workgroup pointers (clamped ternary)"
+- `test_shared_memory_stress.jl:242` — "iterative shared-memory stencil (clamped, 32 barriers, double-buffered)"
+
+**Both of these tests PASS when validation is off.** They are absent from the
+15 failures in the run without it. So the driver accepts an invalid module, the
+kernel produces the right answer today, and nothing reports a problem — which is
+the worst possible failure mode and exactly the argument for `lava-core` Phase
+1's "turn `spirv-val` and `gpu_av` on by default for test runs".
+
+Worth noting what this is *not*: `test_select_width_mismatch.jl` already exists
+as a regression test for this construct. Its header describes the **previous**
+bug — the emitter minting two structurally-identical-but-distinct `[N x T]` type
+ids so `OpSelect`'s operand type differed from its result type. That was fixed by
+making the ids agree. The `OpBitcast` on a logical pointer was left in place, and
+it is independently illegal. The fix addressed the symptom the validator happened
+to report first.
+
+Reproduce:
+
+    spirv-val <input.spv> --relax-block-layout --scalar-block-layout \
+              --workgroup-scalar-block-layout --allow-localsizeid --target-env vulkan1.4
+
+Nine test sites report an error under validation, but only these two distinct
+spirv-val messages appear. The other seven (`test_atomics_and_dispatch.jl` x4,
+`test_int32_cartesian_miscompile.jl` x2, `test_shared_index_division.jl`) are most
+likely re-reporting accumulated messages rather than being independently invalid,
+since `check_validation_errors!` reads a list that does not appear to be cleared
+between tests. **Not claimed as seven separate bugs** — worth a look, because if
+that list really is sticky then a validation error attributes itself to whichever
+test runs next, which would be its own trap.
+
+Deliberately NOT claimed: that this explains the `Extruded` miscompile (finding
+11) or the `OpUDiv`-in-a-shared-store-index item. Both involve shared-memory
+indexing and both are labelled driver miscompiles, so the adjacency is
+suggestive and worth pursuing. But nothing here demonstrates a link, and Rule 0
+cuts both ways: a satisfying-sounding connection is not evidence.
+
+#### 16. The `vkCmdCopyBuffer` fault is a floating GC race, not a test-specific bug
+
+Characterised, still open.
+
+- `test_closesthit_via_rayquery.jl` **passes 3/3 standalone**. It only faults
+  inside the full suite.
+- Across runs the crash **moves**: `test_closesthit_via_rayquery.jl:89` in one
+  run, `test_static_workgroup.jl:81` in the next. Always the same call,
+  `Vulkan.cmd_copy_buffer` at `command.jl:1549`.
+- Under the validation layer there is **no object-lifetime error** — no
+  "destroyed VkBuffer", no invalid-handle VUID — and the layer is in the crash
+  stack, having forwarded the call before RADV faulted. So the `VkBuffer` handle
+  is still live as far as validation tracks it; the likelier shape is that its
+  *memory* was freed while the buffer object remained valid, which validation
+  does not track as aggressively.
+
+This is the residual that `vk_free!`'s own comment predicts, at about the rate it
+predicts: *"Not certainly the last of it ... either a second window exists or
+something rarer shares this one. If it recurs, the next thing to check is whether
+a buffer can be reached by an open batch through something `pins` does not count
+either."*
+
+One structural gap noticed while reading, **not confirmed on this hardware**: the
+deferral check at `memory.jl:732` consults `ctx.default_bq` only. A buffer
+reachable from a recording batch on a different `BatchQueue` would not be seen.
+This device reports `max_queue_count = 1`, so it cannot be exercised here, but
+`async_queue_count` is 4 and the RT/async paths are where a second queue appears.
+Worth the desktop checking.
