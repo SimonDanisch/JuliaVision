@@ -284,6 +284,217 @@ advertised. `saturating_accumulation` is dropped the same way.
 Low severity, filed rather than patched, and worth folding into whatever
 capability type replaces the predicate (finding 5 above).
 
+#### 7. `video_capabilities` omits a required pNext chain and segfaults RADV — FILED, patch below
+
+**This is a hard crash that killed the whole Lava suite.** Rule 0 applies and
+comes out on our side: the call is invalid per spec.
+
+`vkGetPhysicalDeviceVideoCapabilitiesKHR` requires, for an H.264 decode profile,
+that `pCapabilities->pNext` contain **both** `VkVideoDecodeCapabilitiesKHR` and
+the codec-specific `VkVideoDecodeH264CapabilitiesKHR`
+(VUID-vkGetPhysicalDeviceVideoCapabilitiesKHR-pVideoProfile-07185 and -07183).
+
+`video.jl` builds that chain correctly in **two** places
+(`decode_capability_flags` at :304, and the `H264Decoder` constructor at :594)
+and passes **`C_NULL`** in the third, `video_capabilities` at :337. RADV writes
+the codec-specific capabilities unconditionally, through a chain entry that is
+not there, and segfaults inside `libvulkan_radeon.so`.
+
+Isolated to a two-call MWE on this device, which is what makes it ours rather
+than a driver defect: same function, same profile, same process.
+
+```
+A: decode_capability_flags  (full chain)   -> returns 0x00000002, fine
+B: video_capabilities       (pNext=C_NULL) -> SIGSEGV in libvulkan_radeon.so
+```
+
+With the chain added, B returns real data:
+`minBitstreamBufferOffsetAlignment = 128`, `minBitstreamBufferSizeAlignment = 128`,
+`maxDpbSlots = 17`, `maxActiveReferencePictures = 16`.
+
+Two side notes from that number. `test_video_decode_layout.jl`'s header says
+"The H.264 profile on AMD asks for 4096"; on this driver (Mesa 26.1.5) it asks
+**128**. And `decode_capability_flags` returns `0x2`, DISTINCT only, so this
+device is exactly the DISTINCT-only configuration that test says it exists to
+pin, and it crashed before reaching that assertion.
+
+Reach is narrow: `video_capabilities` has exactly one caller outside its own
+definition, the test at `test_video_decode_layout.jl:42`. The decoder itself is
+unaffected because :594 chains correctly. But it is a documented public function
+that hard-crashes, and it takes the suite with it.
+
+The fix is to make :337 look like :304, which is twenty lines above it.
+
+#### 8. A refused pipeline creation returns a NULL handle that Lava binds — FILED, patch below
+
+The second hard crash, at `vkCmdBindPipeline`, from inside
+`no_pipeline_compilation`. Also ours, and **not vendor-specific: it is
+Linux-specific, so it is equally live on the desktop.**
+
+`VK_PIPELINE_COMPILE_REQUIRED` is a **success**-class code (positive,
+1000297000). Vulkan.jl's generated `_create_compute_pipelines` therefore does not
+raise: `@check` only converts the negative error class, and it returns
+`(pipelines, _return_code)` with `pipelines[1] == VK_NULL_HANDLE`.
+
+`pipeline.jl:518` then writes
+
+```julia
+pipelines, _ = @vk_checked "vkCreateComputePipelines" Vulkan.create_compute_pipelines(dev, [ci]; pipeline_cache)
+```
+
+and **discards the return code**, which is the only thing that says the handle is
+null. `@vk_checked` is `unwrap(...)`, which cannot help here for the same reason.
+The null pipeline is cached, bound later, and the driver dereferences it.
+
+The check for exactly this code **does** exist, at `pipeline.jl:504` — but inside
+`if LARGE_STACK_PIPELINE`, and `LARGE_STACK_PIPELINE = Sys.iswindows()`. So the
+refusal is detected on Windows and silently mishandled on every Linux machine.
+The constant is even defined unconditionally at :137 with a comment noting that
+it is success-class and "needs naming".
+
+Consequences beyond the crash, and these are the reason this matters more than
+one test:
+
+- `PIPELINE_COMPILES_REFUSED[]` is only incremented on the Windows branch, so it
+  is always 0 on Linux.
+- `PIPELINE_COMPILE_MISSES` is populated from the `catch` at :401, which matches
+  on the string `"PIPELINE_COMPILE_REQUIRED"` in a raised exception. Nothing
+  raises that on Linux, so the list never fills.
+- So `no_pipeline_compilation`, the instrument whose entire purpose is to prove
+  the pipeline cache is doing its job, **cannot report a miss on Linux**. Any
+  Linux run of it either crashes or returns a false green. That affects the
+  frozen-kernel-cache "verify with zero misses" workflow directly.
+
+Patch applied locally to get the rest of the suite to run, **not committed**:
+capture the code and raise on it in the non-Windows branch too, mirroring :504.
+
+#### 9. The pipeline-cache test's negative control does not fire on RADV
+
+With finding 8 patched the test no longer crashes, but it fails 2 of 9:
+
+```
+test_pipeline_cache_no_compile.jl:62  @test refused                        FAIL
+test_pipeline_cache_no_compile.jl:63  @test PIPELINE_COMPILES_REFUSED == 1 FAIL
+```
+
+The device supports `pipelineCreationCacheControl` and Lava does enable it
+(`device.jl:1023`), so the flag is legitimate. RADV nonetheless creates the
+"novel" pipeline rather than returning `VK_PIPELINE_COMPILE_REQUIRED`.
+
+Tried and **did not** fix it: deleting Lava's on-disk `VkPipelineCache` blob, and
+running with `MESA_SHADER_CACHE_DISABLE=true` (the hypothesis being that Mesa's
+own shader cache, which is independent of `VkPipelineCache`, was satisfying the
+request). Both still fail the control.
+
+That is significant because the test file says so itself: *"The negative control
+is not optional. A green run against an instrument that never fires proves
+nothing."* On this device the instrument does not fire, so the rest of that
+testset is vacuous here, and the same is true of anything else built on
+`no_pipeline_compilation`. Not root-caused; handing over as an open question.
+
+#### 10. A teardown segfault, bounded but not isolated — OPEN
+
+`test_pipeline_cache_no_compile.jl` also segfaults at **process exit**, in a
+finalizer, independently of the test outcome:
+
+```
+destroy_buffer! (memory.jl:858) -> unmap_memory -> vkUnmapMemory -> SIGSEGV
+unsafe_free!    (lavaarray.jl:238) -> GPUArrays release -> SIGSEGV
+```
+
+both reached from `run_finalizers` under `ijl_atexit_hook`. It is nastier than it
+looks because Julia's stdout is block-buffered to a file, so this crash **destroys
+the test output that preceded it** — which is why the first suite log was 3 KB of
+pure stack trace. Running under a pty (`script -qec`) works around that and is
+worth doing for any Lava suite run on this machine.
+
+Two hypotheses formed and **both disproved by MWE**, recorded so nobody spends
+the time again:
+
+1. *Plain `LavaArray` finalization at exit is broken.* No: allocating, using and
+   holding a `LavaArray` to exit is clean, as is freeing it explicitly. Three
+   modes, all exit 0.
+2. *`no_pipeline_compilation`'s `empty!(PIPELINE_CACHE)` drops pipelines that
+   `LAUNCH_PLAN_CACHE` / `LINKED_KERNEL_CACHE` still reference, so a finalizer
+   destroys a live `VkPipeline`* (the GUARDRAILS §8 class). No: clearing the
+   cache, forcing `GC.gc(true)`, and relaunching the same kernel is clean, exit 0.
+
+So the trigger is narrower than either and is still open. It reproduces reliably
+in that one test file.
+
+### Design note for `kernels-refactor` step 4 and `lava-core` phase 3
+
+Written here rather than implemented, because the brief says gather evidence and
+do not write per-feature fallbacks yet, and because the dispatch API belongs on
+`sd/kernels-refactor`. What this machine adds is that both projects are designing
+against one card's answers, and two of those answers are wrong here.
+
+**Rule for the whole design: types are named after capability levels, never after
+vendors.** `CoopMatMapped`, not `CoopMatNV`. A card that gains per-element
+operations next year should acquire an existing type, not need a new branch. This
+is the same rule as Lava's own ban on vendor-conditional code in `src/`, and it is
+what makes "code using Lava never writes something for one vendor" enforceable
+rather than aspirational.
+
+#### Vendor differences come in three kinds, and they need different treatment
+
+Collapsing them is what produces `if has_feature` chains.
+
+1. **Same instruction, different width.** The subgroup shuffle family: verified
+   identical here at 64 lanes and on the desktop at 32. The *intrinsic* is
+   already device-independent. What leaks is `subgroup_size()`, and the fix is
+   that no kernel writes 32 (see finding 1).
+2. **Instruction exists on one vendor only.** coopmat2 per-element and reduce,
+   cooperative vector. There is no device-independent intrinsic to write here.
+   There is a device-independent *operation* with two lowerings.
+3. **Instruction is KHR, but this device's shape and type table does not include
+   your case.** `Float32` cooperative-matrix operands here. This is the kind a
+   `Bool` predicate handles worst, because the answer is "yes, but not for you"
+   (finding 5).
+
+#### Capability as a type, carrying shapes rather than a flag
+
+```julia
+abstract type CoopMat end
+struct NoCoopMat            <: CoopMat end
+struct CoopMatBasic{M,N,K}  <: CoopMat end   # KHR: load/store/muladd/getcomp/setcomp
+struct CoopMatMapped{M,N,K} <: CoopMat end   # + per-element and reduce
+
+coopmat(ctx, ::Type{AB}, ::Type{Acc}) -> CoopMat
+```
+
+On this device `coopmat(ctx, Float16, Float32)` is `CoopMatBasic{16,16,16}()` and
+`coopmat(ctx, Float32, Float32)` is `NoCoopMat()`. On the desktop the first would
+be `CoopMatMapped{16,16,16}()`. `matmul!` then dispatches, and a new path is a new
+method rather than another `&&` in a predicate:
+
+```julia
+matmul!(out, A, B) = matmul!(coopmat(ctx, eltype(A), eltype(out)), out, A, B)
+matmul!(::NoCoopMat,    out, A, B) = ...
+matmul!(::CoopMatBasic, out, A, B) = ...
+matmul!(::CoopMatMapped,out, A, B) = ...
+```
+
+#### The coopmat2 fallbacks are constructible from KHR, not hypothetical
+
+This matters because it means kind 2 above collapses into kind 3 for the two
+operations that block `kernels-to-port.md` item 17. `coopmat_getcomp` and
+`coopmat_setcomp` are wired KHR and work here, so:
+
+- `coopmat_map(f, m)` lowers to `OpCooperativeMatrixPerElementOpNV` on
+  `CoopMatMapped` and to a `getcomp`/`setcomp` loop on `CoopMatBasic`.
+- `coopmat_reduce(op, m)` lowers to `OpCooperativeMatrixReduceNV` on
+  `CoopMatMapped` and to `getcomp` plus a subgroup butterfly on `CoopMatBasic`.
+
+One operation, two lowerings, chosen by dispatch, no capability test at any call
+site. The butterfly is exactly where finding 1 bites: it must read the plan's
+pinned width, not a literal 32. `test_subgroup_shuffle.jl` passing 520/520 at
+width 64 here is what makes that fallback safe to write.
+
+Not written now: per the brief, and because `lava-core` phase 3 already schedules
+each instruction to land "with its KHR fallback as a sibling method", which is
+only cheap once plan dispatch exists.
+
 ### Environment note, not a port issue
 
 `Abacus` fails to precompile in this workspace on
