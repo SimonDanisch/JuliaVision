@@ -191,7 +191,7 @@ end
 # SAM 2's package image despite nothing here ever running on the CPU. Their
 # `__run` takes every argument as `Any`, so their call edges span whole method
 # tables and any newly loaded package throws them away.
-struct Ctx{B,S}
+struct Ctx{B,S,P,W,L,R}
     values::Dict{String,Any}
     graph::Graph
     dims::NamedTuple
@@ -219,37 +219,37 @@ struct Ctx{B,S}
     # for the next encode.
     clampattn::Bool
     slab::S                       # UInt8 scratch slab, or nothing
-    plan::Any                     # Slab (plan.jl), or nothing
+    plan::P                       # Slab (plan.jl), or nothing
     outid::Base.RefValue{String}  # output id of the op currently running
-    ws::Any                       # Workspace for kernel-internal scratch, or nothing
-    lazy::Any                     # Set of ids that may stay unmaterialised (fuse.jl)
-    rec::Any                      # Recycler for unplanned allocations, or nothing
+    ws::W                         # Workspace for kernel-internal scratch, or nothing
+    lazy::L                       # Set of ids that may stay unmaterialised (fuse.jl)
+    rec::R                        # Recycler for unplanned allocations, or nothing
     diag::Diagnostics             # per-run instrumentation, all off by default
 end
 
-# `dev` is derived from `backend` and never passed in, so every constructor below
-# keeps the signature it had. It costs one query per context — that is, once per
-# graph execution — and each of those reads a field Lava filled at device
-# creation, so it does not go near the driver on the hot path.
+# `dev` is derived from `backend` and never passed in. It costs one query per
+# context — once per graph execution — and each of those reads a field Lava
+# filled at device creation, so it does not go near the driver on the hot path.
 #
-# `clampattn` is a keyword rather than the twelfth positional argument: it is a
-# per-run policy that one caller sets, and the positional forms are already at
-# the length where an extra `false` in the middle is a bug waiting to happen.
-Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec, diag;
-    clampattn::Bool = false) =
+# ONE constructor, all keywords. There were five telescoping positional forms
+# (review finding 6), which is a shape that only ever grows: `slab, plan, outid,
+# ws, lazy, rec, diag` is seven arguments in a fixed order with `nothing` as most
+# of them, and adding `clampattn` in the middle of that would have been a bug
+# nobody could see. A keyword is also self-documenting at the call site.
+#
+# The four remaining `Any` fields became type PARAMETERS rather than named types
+# because `Slab`, `Workspace` and `Recycler` are all defined in files included
+# after this one. Parameters cost nothing here: there are two live combinations,
+# the graph path and the bare `Ctx(backend)`, not a combinatorial spread. And the
+# typing is load-bearing rather than tidiness — see the note above on `slab`,
+# where `::Any` put 3 948 CPU kernel specialisations into SAM 2's package image.
+function Ctx(values, graph, dims, backend;
+             slab = nothing, plan = nothing, outid = Ref(""), ws = nothing,
+             lazy = nothing, rec = nothing, diag::Diagnostics = Diagnostics(),
+             clampattn::Bool = false)
     Ctx(values, graph, dims, backend, Device(backend), clampattn,
         slab, plan, outid, ws, lazy, rec, diag)
-Ctx(values, graph, dims, backend; kw...) =
-    Ctx(values, graph, dims, backend, nothing, nothing, Ref(""), nothing, nothing,
-        nothing; kw...)
-Ctx(values, graph, dims, backend, slab, plan, outid; kw...) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, nothing, nothing, nothing; kw...)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws; kw...) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, nothing, nothing; kw...)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy; kw...) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, nothing; kw...)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec; kw...) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec, Diagnostics(); kw...)
+end
 
 """
     Ctx(backend; ws = nothing, rec = nothing, diag = Diagnostics())
@@ -265,8 +265,7 @@ test does, and the reason `sdpa(ctx, …)` is as reachable from a test as
 The empty `Graph` costs one small allocation and is never read: nothing on this
 path asks for `ctx.graph`, because nothing on it has an op id.
 """
-Ctx(backend; ws = nothing, rec = nothing, diag = Diagnostics(), clampattn = false) =
+Ctx(backend; kw...) =
     Ctx(Dict{String,Any}(), Graph("", String[], String[], String[],
                                   Dict{String,Buffer}(), String[], Op[]),
-        NamedTuple(), backend, Device(backend), clampattn,
-        nothing, nothing, Ref(""), ws, nothing, rec, diag)
+        NamedTuple(), backend; kw...)

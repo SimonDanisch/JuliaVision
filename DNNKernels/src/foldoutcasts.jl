@@ -41,13 +41,6 @@ reads *it* is. Counting view links as readers makes all 96 look twice-read and
 folds nothing, which is the same trap `foldrelu` records for aliases.
 """
 
-"""
-    FOLD_OUTCASTS[]
-
-Whether [`foldoutcasts`](@ref) runs. A `Ref` so the two graphs can be compared
-inside one session; dropping it changes speed and memory, never values.
-"""
-const FOLD_OUTCASTS = Ref(true)
 
 """
 Ops whose result may be declared narrower than they would otherwise produce.
@@ -84,8 +77,10 @@ end
 
 Retype each foldable producer's result and drop the cast.
 """
-function foldoutcasts(g::Graph)
-    FOLD_OUTCASTS[] || return (g, 0)
+# Switchable because the fold changes numerics — see the note carried onto
+# `foldoutcasts(::AbstractDict)` — and `enabled = false` is how the A/B is run.
+function foldoutcasts(g::Graph; enabled::Bool = true)
+    enabled || return (g, 0)
     producer = Dict(op.out => op for op in g.ops)
     reads = Dict{String,Int}()
     bump!(id) = (reads[id] = get(reads, id, 0) + 1)
@@ -155,11 +150,18 @@ function foldoutcasts(g::Graph)
     (Graph(g.name, g.symbols, g.inputs, g.outputs, buffers, order, ops, g.fusion), folded)
 end
 
-function foldoutcasts(graphs::AbstractDict)
+"""
+
+`enabled = false` skips the fold, so the two graphs can be compared inside one
+session; dropping it changes speed and memory, never values. A keyword rather
+than a global, so two comparisons can run at once and a failing test cannot
+leave it switched off for everything after.
+"""
+function foldoutcasts(graphs::AbstractDict; enabled::Bool = true)
     out = Dict{String,Graph}()
     total = 0
     for (n, g) in graphs
-        g2, k = foldoutcasts(g)
+        g2, k = foldoutcasts(g; enabled)
         out[n] = g2
         total += k
     end

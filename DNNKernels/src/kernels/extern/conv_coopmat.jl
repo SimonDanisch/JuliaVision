@@ -29,34 +29,10 @@ both ends.
 """Round up to the cooperative-matrix tile."""
 padtile(n::Int) = cld(n, Lava.GEMM_TILE) * Lava.GEMM_TILE
 
-"""
-    CONV_CRS_PAD[] :: Float64
 
-How much padding of the reduction axis a convolution may buy its way onto the
-tensor cores with.
-
-`CRS` off the tile used to be a flat refusal, because it is the *weight's* extent
-and padding it means padding the weight. It is paddable — `convolution_coopmat!`
-zero-fills both halves — but the padding is paid for: every padded column is
-written by im2col, read by the GEMM, and multiplied by a zero, so the cost is
-proportional to the waste.
-
-At `1.25` the line falls between the two cases this repo has:
-
-    SAM 2 stem      7x7x3      CRS 147 -> 160    +8.8%    admitted
-    MatAnyone       1x1x17     CRS  17 ->  32   +88.2%    refused
-    MatAnyone       1x1x257    CRS 257 -> 272    +5.8%    admitted
-    MatAnyone       1x1x769    CRS 769 -> 784    +2.0%    admitted
-
-The stem is what motivated it: **2.800 -> 1.147 ms, 2.44x**, 0.99 to 2.42
-TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A `Ref` rather than a constant so
-the two sides can be measured in one session, which is the only comparison this
-project trusts — set it to `1.0` to get the old refusal exactly.
-"""
-const CONV_CRS_PAD = Ref(1.25)
 
 """
-    conv_coopmat_applicable(out, x, w) -> Bool
+    conv_coopmat_plan(dev, out, x, w; crspad = 1.25) -> ConvCoopMatPlan | Decline
 
 Whether the tensor-core path can take this convolution.
 
@@ -68,21 +44,42 @@ stem (`7x7x3`), the 1x1 layers with a concatenated scalar channel (`Cin` 17,
 257, 769) and the single-channel alpha heads — all of them small.
 
 `CRS` is no longer among those refusals: it is padded when the waste is small
-enough, which [`CONV_CRS_PAD`](@ref) decides. `Cout` still is — padding it would
+enough, which `conv_coopmat_plan`'s `crspad` decides. `Cout` still is — padding it would
 widen the *output*, not just the reduction.
 """
-function conv_coopmat_applicable(out, x, w)
+function conv_coopmat_plan(dev::Device, out, x, w; crspad::Float64 = 1.25)
     # The operands have to be *on the Lava device*, not merely of a type
     # cooperative matrices could hold: `coopmat_gemm_available` asks the Vulkan
     # context, which answers yes whenever Lava is loaded, so without this the CPU
     # verification run took this path and handed host `Array`s to the SPIR-V
     # compiler.
-    x isa Lava.LavaArray && w isa Lava.LavaArray || return false
-    eltype(x) === Float16 && eltype(w) === Float16 || return false
+    x isa Lava.LavaArray && w isa Lava.LavaArray || return Decline(:host)
+    eltype(x) === Float16 && eltype(w) === Float16 || return Decline(:eltype)
     KW, KH, Cin, Cout = size(w)
     CRS = Cin * KH * KW
-    Cout % Lava.GEMM_TILE == 0 || return false
-    padtile(CRS) <= CRS * CONV_CRS_PAD[] || return false
+    Cout % dev.tile == 0 || return Decline(:cout)
+    #
+    # How much padding of the reduction axis a convolution may buy its way onto the
+    # tensor cores with.
+    #
+    # `CRS` off the tile used to be a flat refusal, because it is the *weight's* extent
+    # and padding it means padding the weight. It is paddable — `convolution_coopmat!`
+    # zero-fills both halves — but the padding is paid for: every padded column is
+    # written by im2col, read by the GEMM, and multiplied by a zero, so the cost is
+    # proportional to the waste.
+    #
+    # At `1.25` the line falls between the two cases this repo has:
+    #
+    #     SAM 2 stem      7x7x3      CRS 147 -> 160    +8.8%    admitted
+    #     MatAnyone       1x1x17     CRS  17 ->  32   +88.2%    refused
+    #     MatAnyone       1x1x257    CRS 257 -> 272    +5.8%    admitted
+    #     MatAnyone       1x1x769    CRS 769 -> 784    +2.0%    admitted
+    #
+    # The stem is what motivated it: **2.800 -> 1.147 ms, 2.44x**, 0.99 to 2.42
+    # TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A `Ref` rather than a constant so
+    # the two sides can be measured in one session, which is the only comparison this
+    # project trusts — set it to `1.0` to get the old refusal exactly.
+    padtile(CRS) <= CRS * crspad || return Decline(:crswaste)
 
     # Materialising im2col is only worth it when the GEMM reuses each element
     # enough to pay for writing and re-reading it. Every column is read once per
@@ -106,10 +103,11 @@ function conv_coopmat_applicable(out, x, w)
     #
     # The lesson worth keeping is that the old bounds were never wrong in
     # reasoning, only in their input — nobody had measured the fallback.
-    Cout >= Lava.GEMM_TILE || return false
-    padtile(size(out, 4) * size(out, 2) * size(out, 1)) * padtile(CRS) * sizeof(Float16) <=
-        48 << 20 || return false
-    Lava.coopmat_gemm_available()
+    Cout >= dev.tile || return Decline(:reuse)
+    NPQ = size(out, 4) * size(out, 2) * size(out, 1)
+    padtile(NPQ) * padtile(CRS) * sizeof(Float16) <= 48 << 20 || return Decline(:im2colsize)
+    dev.coopmat || return Decline(:nocoopmat)
+    ConvCoopMatPlan(CRS, padtile(CRS), Cout, NPQ)
 end
 
 """
@@ -216,15 +214,16 @@ end
 """
     convolution_coopmat!(ctx, out, x, w, bias, stride, padding, dilation) -> out
 
-Tensor-core path. `conv_coopmat_applicable` decides whether it can run.
+Tensor-core path. `conv_coopmat_plan` decides whether it can run, and hands the
+padded extents over rather than leaving them to be recomputed here.
 """
-function convolution_coopmat!(ctx, out, x, w, bias, stride, padding, dilation;
-                              act::Symbol=:none)
+function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, stride,
+                              padding, dilation; act::Symbol=:none)
     KW, KH, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)
     OW, OH, _, N = size(out)
-    CRS = Cin * KH * KW
-    NPQ = N * OH * OW
+    CRS = plan.CRS
+    NPQ = plan.NPQ
     MP = padtile(NPQ)
     # The reduction axis is padded to the tile the same way `NPQ` already is.
     # `CRS` is the weight's own extent, so this used to be a refusal rather than

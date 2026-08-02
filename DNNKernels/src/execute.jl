@@ -501,8 +501,8 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
                   overrides::AbstractDict=Dict{String,Any}(),
                   slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing,
                   diag::Diagnostics=Diagnostics(), clampattn::Bool=false)
-    ctx = Ctx(Dict{String,Any}(), graph, dims, backend, slab, plan, Ref(""), ws, lazy,
-              rec, diag; clampattn)
+    ctx = Ctx(Dict{String,Any}(), graph, dims, backend;
+              slab, plan, ws, lazy, rec, diag, clampattn)
     for id in graph.order
         b = graph.buffers[id]
         if b.kind === :weight

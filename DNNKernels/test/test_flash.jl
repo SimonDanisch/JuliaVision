@@ -262,10 +262,11 @@ end
             DNNKernels.reset!(wctx.ws)
             fused = Array(DNNKernels.sdpa(wctx, q, k, v, nothing, scale))
             KA.synchronize(back)
-            @test DNNKernels.coopmat_sdpa_applicable(q, k, v, nothing, L, L)
+            cmplan = DNNKernels.coopmat_sdpa_plan(dev, q, k, v, nothing)
+            @test cmplan isa DNNKernels.CoopMatSDPAPlan
             DNNKernels.reset!(wctx.ws)
             o = KA.allocate(back, Float32, E, L, H, B); fill!(o, 0f0)
-            DNNKernels.sdpa_coopmat!(wctx, o, q, k, v, scale)
+            DNNKernels.sdpa_coopmat!(wctx, o, cmplan, q, k, v, scale)
             KA.synchronize(back)
             twogemm = Array(o)
             @test maximum(abs, twogemm) > 1e-3

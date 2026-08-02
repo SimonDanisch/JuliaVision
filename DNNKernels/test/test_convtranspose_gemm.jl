@@ -119,7 +119,11 @@ end
             # review's finding 7 names; the switch is gone.)
             @test DK.onebyone(w, (1,1), (0,0), (1,1), 1)
             DK.reset!(ws)
-            DK.convolution_coopmat!(ctx, ref, x, w, b, (1,1), (0,0), (1,1))
+            # The im2col path by name, through its plan — which also asserts that
+            # this shape really is one it takes, instead of assuming it.
+            cmplan = DK.conv_coopmat_plan(ctx.dev, ref, x, w)
+            @test cmplan isa DK.ConvCoopMatPlan
+            DK.convolution_coopmat!(ctx, ref, cmplan, x, w, b, (1,1), (0,0), (1,1))
             DK.reset!(ws)
             DK.convolution!(ctx, got, x, w, b, (1,1), (0,0), (1,1), 1)
             KA.synchronize(back)
@@ -171,10 +175,11 @@ end
         o2 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o2, Float16(0))
         ctx = DK.Ctx(back; ws = DK.Workspace(back))
         DK.reset!(ctx.ws)
-        DK.convolution_coopmat!(ctx, o1, x, w, nothing, (s, s), (p, p), (1, 1))
+        cmplan = DK.conv_coopmat_plan(ctx.dev, o1, x, w)
+        DK.convolution_coopmat!(ctx, o1, cmplan, x, w, nothing, (s, s), (p, p), (1, 1))
         DK.convolution_igemm!(ctx, o2, x, w, nothing, (s, s), (p, p), (1, 1))
         KA.synchronize(back)
-        r = (Float64.(Array(o1)), Float64.(Array(o2)), DK.conv_coopmat_applicable(o1, x, w))
+        r = (Float64.(Array(o1)), Float64.(Array(o2)), cmplan isa DK.ConvCoopMatPlan)
         x = w = o1 = o2 = nothing; GC.gc()
         r
     end
@@ -196,25 +201,26 @@ end
 
     @testset "the pad is refused when the waste is large" begin
         # A concatenated scalar channel gives MatAnyone `Cin = 17`, which would
-        # round to 32 and pay 88% waste to reach the tensor cores. `CONV_CRS_PAD`
+        # round to 32 and pay 88% waste to reach the tensor cores. `crspad`
         # is where that line sits.
+        dev = DK.Device(back)
         x = KA.allocate(back, Float16, 32, 32, 17, 1); fill!(x, Float16(0.1))
         w = KA.allocate(back, Float16, 1, 1, 17, 32); fill!(w, Float16(0.1))
         o = KA.allocate(back, Float16, 32, 32, 32, 1); fill!(o, Float16(0))
-        @test !DK.conv_coopmat_applicable(o, x, w)          # 17 -> 32, refused
-        old = DK.CONV_CRS_PAD[]
-        try
-            DK.CONV_CRS_PAD[] = 2.0
-            @test DK.conv_coopmat_applicable(o, x, w)       # ...only by policy
-            DK.CONV_CRS_PAD[] = 1.0
+        # A keyword, not a global flipped and restored: the second call simply
+        # asks a different question, and a failing `@test` between them can no
+        # longer leave the policy changed for everything after.
+        @test DK.conv_coopmat_plan(dev, o, x, w).reason === :crswaste   # 17 -> 32
+        let
+            @test DK.conv_coopmat_plan(dev, o, x, w; crspad = 2.0) isa
+                  DK.ConvCoopMatPlan                       # ...only by policy
             # 1.0 is the old behaviour exactly: nothing off the tile gets in.
             w2 = KA.allocate(back, Float16, 7, 7, 3, 144); fill!(w2, Float16(0.1))
             x2 = KA.allocate(back, Float16, 256, 256, 3, 1); fill!(x2, Float16(0.1))
             o2 = KA.allocate(back, Float16, 64, 64, 144, 1); fill!(o2, Float16(0))
-            @test !DK.conv_coopmat_applicable(o2, x2, w2)
+            @test DK.conv_coopmat_plan(dev, o2, x2, w2; crspad = 1.0).reason ===
+                  :crswaste
             w2 = x2 = o2 = nothing
-        finally
-            DK.CONV_CRS_PAD[] = old
         end
         x = w = o = nothing; GC.gc()
     end

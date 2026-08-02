@@ -189,8 +189,8 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
     # materialised right here, and that copy needs a stable address as much as
     # anything inside the graph did. Ordinals carry on from where `execute!` left
     # them, which is deterministic because the op sequence is.
-    ctx = Ctx(vals, g, dims, m.backend, slab, plans[name], Ref(""), ws, lazies[name], rec,
-              m.diag; clampattn)
+    ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
+              lazy = lazies[name], rec, diag = m.diag, clampattn)
     Tuple(value(ctx, o) for o in g.outputs)
 end
 

@@ -59,8 +59,16 @@ the operand types and its own device query. Nothing here knows tensor cores
 exist, which is the point: this file describes what the graph needs, not how a
 particular GPU provides it.
 """
-function matmul!(ctx, out, A, B, bias=nothing; epi=identity)
-    mm_coopmat_applicable(out, A, B) && return matmul_coopmat!(ctx, out, A, B, bias, epi)
+matmul!(ctx, out, A, B, bias=nothing; epi=identity) =
+    matmul!(ctx, mm_coopmat_plan(ctx.dev, out, A, B), out, A, B, bias, epi)
+
+# One method per plan type (review finding 1): a new GEMM path is a new plan type
+# and a new method here, not another branch in the function above.
+matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi) =
+    matmul_coopmat!(ctx, out, plan, A, B, bias, epi)
+
+"""`LinearAlgebra.mul!`, which is Lava's scalar kernel — always available."""
+function matmul!(ctx, ::Decline, out, A, B, bias, epi)
     mul!(out, astranspose(A), astranspose(B))
     bias === nothing || (out .= out .+ bias)
     # The scalar path has no epilogue to fold into, so the activation is a second
@@ -70,8 +78,9 @@ function matmul!(ctx, out, A, B, bias=nothing; epi=identity)
     out
 end
 
+
 """
-    mm_coopmat_applicable(out, A, B) -> Bool
+    mm_coopmat_plan(dev, out, A, B) -> MMCoopMatPlan | Decline
 
 Whether `matmul!` can take the tensor-core path.
 
@@ -84,10 +93,12 @@ belongs in the same epilogue and `mul!` has no bias.
 `N` is padded internally; `M` and `K` are the operands' own extents and are
 required to land on the tile.
 """
-function mm_coopmat_applicable(out, A, B)
-    A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} || return false
-    size(A, 1) % Lava.GEMM_TILE == 0 && size(A, 2) % Lava.GEMM_TILE == 0 || return false
-    Lava.coopmat_gemm_available()
+function mm_coopmat_plan(dev::Device, out, A, B)
+    A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
+        return Decline(:operands)
+    size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
+    dev.coopmat || return Decline(:nocoopmat)
+    MMCoopMatPlan(cld(size(B, 2), dev.tile) * dev.tile, dev.tile)
 end
 
 """Copy `B` into the leading `N` columns of a `K x NP` scratch, zeroing the rest."""
@@ -144,10 +155,10 @@ end
 # output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
 # reference is the same to four significant figures on every shape.
 
-function matmul_coopmat!(ctx, out, A, B, bias, epi)
+function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi)
     M, K = size(A)
     N = size(B, 2)
-    NP = padtile(N)
+    NP = plan.NP
     backend = ctx.backend
 
     Bp = B

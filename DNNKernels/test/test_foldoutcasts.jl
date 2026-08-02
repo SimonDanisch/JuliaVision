@@ -71,15 +71,12 @@ const GDIR = normpath(joinpath(@__DIR__, "..", "..", "..", "..",
         end
 
         @testset "the switch turns it off" begin
-            old = DK.FOLD_OUTCASTS[]
-            try
-                DK.FOLD_OUTCASTS[] = false
-                g3, k = DK.foldoutcasts(g)
-                @test k == 0
-                @test length(g3.ops) == length(g.ops)
-            finally
-                DK.FOLD_OUTCASTS[] = old
-            end
+            # A keyword, so there is no module state to save and restore — which
+            # a failing `@test` inside the old `try` would have skipped, leaving
+            # the fold off for every test after it.
+            g3, k = DK.foldoutcasts(g; enabled = false)
+            @test k == 0
+            @test length(g3.ops) == length(g.ops)
         end
 
         @testset "it is idempotent" begin

@@ -79,7 +79,7 @@ somewhere it already was. Five of the encoder's seven convolutions are 1x1.
 node by node against PyTorch at both precisions. SAM 2's encoder has 6 of 7.
 BasicVSR++ has 510 convolutions and not one 1x1-stride-1-unpadded. Wan's VAE has
 6, which cannot take this route because its graphs are fp32 and
-`conv_coopmat_applicable` refuses them.
+`conv_coopmat_plan` refuses them.
 
 The bias is the one thing that does not come free. `coopmat_gemm!`'s bias is
 per-*row* of `C` — per pixel here — and a convolution's is per output channel,
@@ -113,8 +113,9 @@ function convolution!(ctx, out, x, w, bias, stride, padding, dilation, groups;
         # A 1x1 convolution is a GEMM on the input as it already lies — see
         # `onebyone`. Checked before the coopmat path because it is the same
         # product with two passes removed.
+        cmplan = conv_coopmat_plan(ctx.dev, out, x, w)
         if ctx.ws !== nothing && onebyone(w, stride, padding, dilation, groups) &&
-           conv_coopmat_applicable(out, x, w)
+           cmplan isa ConvCoopMatPlan
             Wi, Hi, Cin, Nb = size(x)
             Cout = size(w, 4)
             matmul!(ctx, reshape(out, Wi * Hi * Nb, Cout), reshape(x, Wi * Hi * Nb, Cin),
@@ -127,8 +128,8 @@ function convolution!(ctx, out, x, w, bias, stride, padding, dilation, groups;
         # the operands are fp16 (i.e. the autocast export); the scalar
         # implicit-GEMM otherwise. Same arithmetic, ~30x apart on the layers
         # that dominate this model.
-        conv_coopmat_applicable(out, x, w) &&
-            return convolution_coopmat!(ctx, out, x, w, bias, s, p, d; act)
+        cmplan isa ConvCoopMatPlan &&
+            return convolution_coopmat!(ctx, out, cmplan, x, w, bias, s, p, d; act)
         return convolution_igemm!(ctx, out, x, w, bias, s, p, d; act)
     end
     convolution_direct!(ctx, out, x, w, bias, stride, padding, dilation, groups)
