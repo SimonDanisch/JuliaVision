@@ -495,3 +495,28 @@ which is exactly what happened here earlier today, at 2 246 MiB of free budget.
 Filed here rather than acted on because these three models are bring-up, and
 because the desktop should confirm the numbers — but the mechanism is not
 machine-specific and its own `1 181 MiB` figure was measured the same way.
+
+### Checked, and these three models are not affected
+
+Before changing anything in my own loaders, I measured whether they strand blocks
+the way SAM 2's load does. They do not:
+
+| | pool after a run | `reclaim_empty_pool_blocks!` frees |
+|---|---|---|
+| neural LUT | 1 block (64 MiB) | **0** |
+| Depth Anything | 3 blocks (192 MiB) | **0** |
+| RIFE | 7 blocks (448 MiB) | **0** |
+
+So the one-line fix would recover nothing here and has **not** been added to
+`neurallut`, `rife` or `depthanything` — a call that always frees zero is a
+reader's puzzle, not a safeguard.
+
+That also bounds the bug usefully. These three upload 21–239 weight entries
+totalling 2–95 MiB and strand nothing; SAM 2 uploads 734 entries totalling
+941 MiB and strands 3.2 GB. Whatever the threshold is, it is reached at SAM 2's
+scale and not at these — which means the models to check next are the other large
+ones (MatAnyone, and Whisper's encoder at 2.55 GB fp32) rather than any of the
+small ports.
+
+Soak, meanwhile: **221 450 trials, zero hangs** since the restart, on top of the
+508 740 recorded yesterday.
