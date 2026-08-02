@@ -43,10 +43,38 @@ The review's reasoning, not a re-derivation: each step makes the next cheaper.
    telescoping constructors. Worth doing after 3, because the plan objects give
    `ws`/`plan` real types to be.
 
+## Multi-device is a hard requirement of this design
+
+The plan objects and `Ctx` are the layer where a second Vulkan device is either
+supported or permanently excluded, so decide it here rather than discovering it
+later.
+
+- **`Ctx` carries the backend/context.** Every `runop!` already receives `Ctx`, so
+  once the device is on it, no kernel needs a global to find its device. This is
+  the same move `lava-core` is making one layer down — coordinate, do not
+  duplicate.
+- **Plan objects are per-device by construction.** The review already requires
+  device-derived defaults to be "computed in the constructor, on a live context,
+  never captured at module scope". Multi-device makes that mandatory rather than
+  stylistic: a plan built for one device's shared-memory budget, subgroup size or
+  coopmat shape list is *wrong* on another.
+- **Finding 9's literals become per-device values.** `48` SMs, `32` lanes and
+  `48 KB` are hardcoded at five call sites; `Lava.shader_core_count`,
+  `shader_warps_per_sm`, `max_shared_memory` and `device_subgroup_size` already
+  answer all four. On one machine a literal is merely wrong-in-principle; across
+  an Ada desktop, an RDNA3 iGPU with a subgroup that may be 64, and lavapipe, it
+  is wrong in fact.
+- **Nothing in a plan may be cached at module scope** if it was derived from a
+  device — see `GUARDRAILS.md` §8.
+
 ## Exit
 
 **Globals 34 → 0**, no carve-outs. That is the review's metric and it is
 unambiguous.
+
+Plus: no code path reaches a device except through `Ctx` or an explicit backend
+argument. The check is the same two-device test `lava-core` sets up — a real GPU
+and lavapipe, which needs no second card.
 
 Behaviour must be unchanged: the DNNKernels suite green, and SAM 2 encode/decode
 re-measured on this machine and within noise of 100.4 / 3.30 ms. If a number

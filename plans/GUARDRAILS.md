@@ -77,7 +77,23 @@ was wrong both times — most recently by proposing five parallel branches that
 would all have collided with a refactor described in a file that had not been
 opened.
 
-## 8. Write the report
+## 8. No device-owned handle in a module-level cache
+
+A `VkPipeline`, `VkShaderModule`, `VkPipelineLayout` or `VkDescriptorSetLayout`
+belongs to the `VkDevice` that created it. Binding one from device A into a
+command buffer on device B is undefined behaviour.
+
+Four caches in Lava hold exactly those handles at module scope, keyed without the
+device — `PIPELINE_CACHE`, `LINKED_KERNEL_CACHE`, `LAUNCH_PLAN_CACHE`,
+`GFX_PIPELINE_CACHE`. Two devices running the same kernel produce the same key and
+the second one gets the first one's pipeline. This is the same class as the
+`hash(spirv_bytes)` collision fixed on 2026-08-02: a cache keyed on too little,
+returning an object that does not belong to the caller.
+
+Device state goes on `VkContext`. If you are adding a cache and it holds anything
+the driver created, it goes on the context, not in a `const`.
+
+## 9. Write the report
 
 Append findings to `plans/projects/<name>/REPORT.md` and push. The next agent may
 be on another machine, or three weeks later. The in-session task list and any

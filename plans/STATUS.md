@@ -13,7 +13,7 @@ belief or writes code the next phase deletes.
 | phase | contents | exit criterion |
 |---|---|---|
 | **1 — bugs** | Rule-0 re-audit of the two "driver bugs"; the `blockfor` hang; the flush-hang soak | no tracker item says "driver bug" without having passed all three Rule-0 instruments |
-| **2 — refactors** | `kernel-library-review.md` steps 2–7 (DNNKernels) and step 8 (Lava) | globals **34 → 0** in DNNKernels, **84 → 1** in Lava |
+| **2 — refactors** | `kernel-library-review.md` steps 2–7 (DNNKernels) and step 8 (Lava) | globals **34 → 0** in DNNKernels and **84 → 0** module-level in Lava, **and the two-device test passes** |
 | **3 — instructions** | the missing SPIR-V surface, each landing as a plan-type method | section D of `dev/Lava/spirv-intrinsics.md` is empty |
 | **4 — the work** | model ports and the kernel items | — |
 
@@ -56,6 +56,26 @@ Only the desktop produces these. Last measured 2026-08-02.
   routes to stay under measured and all dead. See `FLASHCM_HELD`.
 - gelu into the GEMM epilogue; stem convolution padded onto the tensor cores;
   1×1 convolution routed to `matmul!`; decode capture/replay; click 16.7 → 5.05 ms.
+
+## Standing constraint: multi-device
+
+Phase 2 must leave the library able to drive **two Vulkan devices at once**. It
+cannot today: four caches hold device-owned handles at module scope keyed without
+the device (`PIPELINE_CACHE`, `LINKED_KERNEL_CACHE`, `LAUNCH_PLAN_CACHE`,
+`GFX_PIPELINE_CACHE`), so a second device running the same kernel is handed the
+first device's `VkPipeline`. The review's stated end state — "`VK_CONTEXT_REF` as
+the one global that stays" — describes a single-device library and has been
+restated in the briefs.
+
+The carrier already exists (`LavaBackend(ctx)`, `BatchQueue.ctx`, and KA passes
+the backend to every launch); what leaks is 58 direct `vk_context()` calls.
+`vk_context()` may remain as a convenience default — nothing inside the library
+may depend on it.
+
+**Testable everywhere, no second GPU needed:** a real device plus lavapipe
+(`dev/Lava/test/run_lavapipe.sh`) is a two-device pair on all three machines.
+Assert correct results on both *and* that the two contexts' caches are disjoint —
+a shared entry can still produce a right answer by luck.
 
 ## Open bugs
 

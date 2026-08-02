@@ -36,15 +36,68 @@ Also in this phase, because they are cheap and prevent the next misdiagnosis:
 turn `spirv-val` and `gpu_av` on by default for test runs, and add the
 pipeline-count assertion (`GUARDRAILS.md` §4) to the A/B harnesses.
 
-## Phase 2 — globals
+## Phase 2 — globals, and this is where multi-device is won or lost
 
 `kernel-library-review.md` step 8, explicitly independent of the DNNKernels
 refactor: move the ~84 `Ref`s onto `VkContext`, starting with the seven-plus that
-the ten `RESET_CALLBACKS` sites exist to clear. `ctx.compute` is the worked
-example already in the tree. Ends with `VK_CONTEXT_REF` as the one global that
-stays.
+the fifteen `RESET_CALLBACKS` sites exist to clear. `ctx.compute` is the worked
+example already in the tree.
 
-**Exit:** 84 → 1.
+**The review's stated end state — "`VK_CONTEXT_REF` as the one global that stays"
+— describes a single-device library, and must not be built.** The direction is
+right (caches onto the context *is* the multi-device fix); the goal statement is
+what needs restating.
+
+### What is broken today
+
+Four caches hold **device-owned Vulkan handles** at module scope, keyed without
+the device:
+
+| cache | holds |
+|---|---|
+| `PIPELINE_CACHE` (`runtime/pipeline.jl:176`) | `LavaComputePipeline` — shader module, pipeline layout, pipeline, descriptor set layout |
+| `LINKED_KERNEL_CACHE` (`runtime/launch.jl:32`) | `LavaLinkedKernel`, which owns a pipeline |
+| `LAUNCH_PLAN_CACHE` (`array/ka_backend.jl:689`) | `LaunchPlan`, which owns a pipeline |
+| `GFX_PIPELINE_CACHE` (`graphics/pipeline.jl:23`) | `CompiledGraphicsPipeline` |
+
+Two devices running the same kernel produce the **same cache key**, so the second
+gets the first's `VkPipeline` and binds it into a command buffer on a different
+`VkDevice`. Undefined behaviour, and exactly the class of the `hash(spirv_bytes)`
+collision fixed on 2026-08-02.
+
+Two things are already right and should not be disturbed: the **on-disk**
+`VkPipelineCache` is keyed by device name and driver version
+(`lava_pipeline_cache_path`), and the ray-tracing cache is a **struct field**, so
+it is per-object already.
+
+### What makes it tractable
+
+The carrier exists. `LavaBackend(ctx::VkContext)` pins a context, `BatchQueue`
+carries `ctx`, and KernelAbstractions hands the backend to every launch — so a
+pinned backend already reaches a specific device. What leaks is the **58 direct
+`vk_context()` calls** in `src/`, which resolve a global instead.
+
+`vk_context()` may **stay** as a convenience default for the single-device case.
+What must change is that nothing inside the library *depends* on it: every path
+that touches a device object takes the context from its argument.
+
+`RESET_CALLBACKS` also encodes the single-device model — fifteen sites that
+`empty!` global state on the assumption there is one device to reset. Those become
+per-context lifetime.
+
+### Exit
+
+- **84 → 0 module-level.** All device state on `VkContext`; `vk_context()`
+  survives only as a default, depended on by nothing.
+- **The acceptance test, which needs no second GPU:** `test/run_lavapipe.sh` shows
+  lavapipe is available, so a real GPU plus lavapipe is a two-device pair on
+  *every* machine. Create both contexts, run the same kernel on each, and assert
+  the results are correct on both **and that the two contexts' caches are
+  disjoint** — a shared entry is the bug, and it would otherwise be invisible
+  because the answer can still come out right by luck.
+
+Coordinate the `Ctx`-carries-the-device half with `kernels-refactor`; it is doing
+the same thing one layer up.
 
 ## Phase 3 — the missing instructions
 
