@@ -1,23 +1,46 @@
 # Development environment for the monorepo, Makie-style: `Pkg.activate(".")`
-# here and all four packages are dev'd from their subdirectories, so a change to
+# here and every package is dev'd from its subdirectory, so a change to
 # DNNKernels is visible to SAM2Runner without a resolve.
 #
 #     julia --project=. -e 'using Pkg; Pkg.instantiate()'
 #
 # Not a package itself — it has no `name`/`uuid`/`src`.
+#
+# The nine runners below `SAM2Runner` are scaffolded but not ported; see
+# `models-to-port.md`. They are listed here from the start on purpose — each one
+# loads and precompiles with no assets installed, so having them in the
+# environment costs nothing and means the port is the only thing left to do.
 [deps]
+BasicVSRRunner = "80334b24-06e6-4f50-a0e2-378c5490f15d"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
+DeepFilterRunner = "76ab6b05-7ff6-4b1b-98e3-d56aa964097a"
+DemucsRunner = "a4515a7e-7709-4c13-8f3d-d3adf643ca1a"
+DepthAnythingRunner = "acf050f5-8d8b-44a6-839a-ace43aa41d7c"
 GPUFiltering = "0d8d4a14-6fb1-4aec-8b08-0f10adea08ad"
+KokoroRunner = "31480c1c-f298-4848-9ae9-978a73fb95d8"
 MatAnyoneRunner = "7c4d9e15-2b83-4f6a-a0d7-3e1b8f5c9a24"
+NeuralLUTRunner = "0f237b2a-cdac-4549-9dcd-ab780cc4b910"
+ProPainterRunner = "f30bad0e-6420-4ef0-ba68-abf723d394da"
+RIFERunner = "091c3b0f-d4d3-44b9-a2bb-d2bc125c3573"
 SAM2Runner = "3f5b1e8a-9d42-4c7e-b16a-2c9d0e4f7a51"
+WhisperRunner = "6f1a5d52-5102-48dc-988e-ecb6f8c89f5e"
 
 # Lava is not in the General registry, so a fresh clone cannot resolve without
 # being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
 # fetches it from the URL below instead of failing with "package not found".
-# The four packages here are dev'd by path, which `[sources]` also expresses.
+# The packages here are dev'd by path, which `[sources]` also expresses.
 [sources]
+BasicVSRRunner = {path = "BasicVSRRunner"}
 DNNKernels = {path = "DNNKernels"}
+DeepFilterRunner = {path = "DeepFilterRunner"}
+DemucsRunner = {path = "DemucsRunner"}
+DepthAnythingRunner = {path = "DepthAnythingRunner"}
 GPUFiltering = {path = "GPUFiltering"}
+KokoroRunner = {path = "KokoroRunner"}
 MatAnyoneRunner = {path = "MatAnyoneRunner"}
+NeuralLUTRunner = {path = "NeuralLUTRunner"}
+ProPainterRunner = {path = "ProPainterRunner"}
+RIFERunner = {path = "RIFERunner"}
 SAM2Runner = {path = "SAM2Runner"}
+WhisperRunner = {path = "WhisperRunner"}
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}

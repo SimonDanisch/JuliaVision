@@ -11,6 +11,24 @@ model whose job is to have no cold start.
 | `SAM2Runner` | SAM 2.1, precompiled |
 | `MatAnyoneRunner` | MatAnyone2 video matting, precompiled |
 
+Scaffolded, not ported — one editor feature each, see `models-to-port.md`:
+
+| package | feature | licence |
+|---|---|---|
+| `WhisperRunner` | speech → text | MIT |
+| `DeepFilterRunner` | voice denoising | MIT / Apache-2.0 |
+| `DemucsRunner` | stem separation | MIT |
+| `KokoroRunner` | text → speech | Apache-2.0 |
+| `NeuralLUTRunner` | style / mood grading | Apache-2.0 |
+| `RIFERunner` | frame interpolation | MIT |
+| `DepthAnythingRunner` | monocular depth | Apache-2.0 |
+| `BasicVSRRunner` | video upscaling | Apache-2.0 |
+| `ProPainterRunner` | object removal | **S-Lab 1.0, non-commercial** |
+
+Each of those loads and precompiles with no assets installed, so they cost
+nothing until their port lands. Only the two working runners are dev'd into the
+editor's own environment; the rest live here alone until they run.
+
 A monorepo because these change together: an op added to `DNNKernels` is usually
 a model that needed it, and a kernel frozen by one model is a cache hit for the
 rest.
@@ -35,9 +53,14 @@ so `git log --follow` still works through the move.
 
 ## Not here yet
 
-`BasicVSRRunner` — the graphs are exported (`gen/graphs/basicvsrpp-fp32`) and
-`tools/export_basicvsrpp.py` produces them, but the runner package is not
-written.
+The nine packages above are skeletons: asset lookup, graph loading and a guarded
+workload, with the workload body and the missing ops still to write.
+`BasicVSRRunner` is the furthest along — its graph is already exported to
+`gen/graphs/basicvsrpp-fp32` by `tools/export_basicvsrpp.py`, so it is the only
+one whose `ready()` is already true.
+
+The name is now wrong: two of these are audio models and `JuliaVision` is not
+where a speech recogniser belongs. Renaming is a separate job from porting.
 
 ## Getting started
 
