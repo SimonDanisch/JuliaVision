@@ -1072,3 +1072,130 @@ recording batch on a different `BatchQueue` is invisible to the deferral check.
 This device reports `max_queue_count = 1`; the desktop has `async_queue_count` 4
 and the RT/async paths are where a second queue appears. If the desktop's
 reproducer uses one, that is the first thing to instrument.
+
+## 2026-08-02, Phase 3 — the first complete suite table on RDNA 3.5
+
+Rebased onto `dev/Lava` `sd/nvidia` @ `83235f0` and `dev/JuliaVision` main @
+`dd72061`.
+
+### The suite completes, and the crash was `vk_reset_device!` — confirmed here
+
+The desktop's diagnosis is right, and this machine reproduced the mechanism in
+full before the fix arrived:
+
+```
+test_pipeline_cache_no_compile.jl (runtests.jl:171)  calls vk_reset_device!
+  -> old context replaced, device_lost NEVER set
+  -> pre-reset buffers still hold last_write = (old_bq, val)
+test_static_workgroup.jl (runtests.jl:175)           GC finalizes one
+  -> vk_free! (memory.jl:754) checks device_lost(bq.ctx) -> FALSE
+  -> query_timeline -> vkGetSemaphoreCounterValue on a destroyed VkDevice
+  -> SIGSEGV
+```
+
+`vk_reset_device!` contained no `mark_device_lost!` call at all, while its own
+comment asserted the opposite: *"Pre-reset VkManagedBuffers hold a strong ref to
+the OLD ctx whose `device_lost` is already true"*. That holds only when the reset
+was **triggered by** a DEVICE_LOST. A proactive reset leaves the flag false.
+
+This retro-explains everything this project could not close earlier: why the
+crash moved between tests (it fires wherever GC runs after the reset), why the
+3-file reproducer worked (the FIRST file was the one resetting), why
+`GC.enable(false)` cured it, why the BDA scanner was clean (it hunts live
+references, and nothing is wrong with the buffer's address), and why validation
+reported no object-lifetime error (the `VkBuffer` is fine — the semaphore and
+device are dead).
+
+**Correction to this report's own finding 16.** The earlier "staging buffer raw
+tuple in `get_staging`" hypothesis was WRONG. The `vkCmdCopyBuffer` stack was one
+downstream symptom of the same dead device, not a lifetime bug in `get_staging`.
+
+With `mark_device_lost!(old)` added to the retire block, the suite printed a
+summary for the first time:
+
+```
+Lava.jl | 23783 passed | 15 failed | 13 errored | 23811 total | 27m02s
+```
+
+### The table
+
+**15 failures — 13 known, 2 new**
+
+| site | count | status |
+|---|---|---|
+| `test_static_workgroup.jl:133,143,144,155,287,288` | 13 | the `Extruded` characterization tests; finding 11, they do not reproduce here |
+| `test_disk_cache.jl:121,127` | 2 | **new**, see below |
+
+**13 errors — 6 known, 7 one cause**
+
+| site | count | status |
+|---|---|---|
+| `test_shared_index_division.jl:196` | 3 | `@test_broken` Unexpected Pass; the OpUDiv item |
+| `test_int32_cartesian_miscompile.jl:301,334` | 3 | `@test_broken` Unexpected Pass |
+| `test_disk_cache.jl:128-132` | 6 | per-device cache refactor |
+| `test_struct_broadcast.jl:80` | 1 | per-device cache refactor (desktop already has this) |
+| `test_subgroup_size_pinning.jl:90` | 1 | per-device cache refactor — **fixed**, `e8fd416` |
+
+**The last three rows are one bug in three files**, not three bugs: tests that
+index the now-per-device caches directly get the inner dict back.
+
+- `test_disk_cache.jl:128` — `linked.compiled` where `linked` is now
+  `Dict{Any,LavaLinkedKernel}`; the two failures at `:121,:127` are almost
+  certainly the same shape. **8 sites, left alone** in case the desktop's
+  working tree already covers them alongside the `struct_broadcast` fix.
+- Mine — `DEVICE_SUBGROUP_SIZE` became `Dict{UInt64,Int}` keyed by `ctx.id`
+  rather than a `Ref`. Fixed by querying through `device_subgroup_size(ctx)`
+  then overriding by id. Back to 10/10.
+
+### Two devices work here, and that is what the last segfault is
+
+`twodevice_probe.jl`: **PASS**, exit 0, no segfault.
+
+```
+gpu id=1  AMD Radeon 8060S Graphics (RADV STRIX_HALO)
+cpu id=2  llvmpipe (LLVM 22.1.8, 256 bits)
+  gpu: dispatch ok   reduce ok   gemm ok
+  cpu: dispatch ok   reduce ok   gemm ok
+PIPELINE_CACHE grew by 12   (1 would mean the devices shared a pipeline)
+LINKED_KERNEL_CACHE device keys: [0x1, 0x2]
+LAUNCH_PLAN_CACHE   device keys: [0x1, 0x2]
+```
+
+So GUARDRAILS §8 holds on the RADV + lavapipe pairing, and the per-device keying
+is real rather than nominal.
+
+**The one remaining segfault follows from that.** It is now AFTER the summary,
+and it is not RADV:
+
+```
+pthread_mutex_lock -> libvulkan_lvp.so        <- lavapipe
+  vkGetSemaphoreCounterValue                  <- the same call as before
+```
+
+The suite includes `twodevice_probe.jl`, so it creates context id=2. The retire
+fix marks `VK_CONTEXT_REF[]` lost — which the lavapipe context never is. At exit,
+finalizers for lavapipe-backed buffers reach `query_timeline` on a device being
+torn down, and it is the identical bug one context over.
+
+**Suggested shape of the fix:** retire every live context, not just the global
+ref. Now that contexts are per device and enumerable by `ctx.id`, "the context
+being replaced" is no longer the same thing as "every context whose buffers are
+about to be finalized".
+
+### Not runnable here yet
+
+Three items in the Phase 3 prompt reference work that is not on the pushed
+branches, verified rather than assumed:
+
+- **`BRIEF.md` "Phase 3"** — the portability brief is still Phases 1-2
+  (`3803955`). The only Phase 3 in `plans/` is `lava-core`'s, about missing
+  SPIR-V instructions.
+- **A coopmat pipeline refusing to build without a 32-lane pin** —
+  `pipeline.jl:380` is still the permissive form, so it silently skips pinning.
+  The underlying question is already answered here regardless: size control is
+  min 32 / max 64 / compute true, and a pinned width is honoured at BOTH widths
+  (`test_subgroup_size_pinning.jl`, 10/10), so the refusal path will not fire on
+  this device.
+- **`flashepad` / `flashrpad`, `sdpaflashcm!(; epad, rpad)`** — absent;
+  `git log --all -S flashepad` finds nothing, and the current keywords are
+  `ballast`, `shpad`, `nrsc`, `preonly`, `rscbar`.
