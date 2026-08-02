@@ -251,3 +251,31 @@ for subgroup kernels that do not declare the capability, which are unpinned.
 **Re-verified against the merged Lava**, since it changes the emitter: suite
 green throughout, SAM 2 encode 100.88 ms / click 3.08 / VRAM 1181 / masks
 identical.
+
+
+## 2026-08-02 — RETRACTION: "the carrier does not exist" was wrong
+
+The entry above ends by reporting that `BatchQueue` has no `ctx` field and that
+both briefs were wrong to say the carrier existed. **That is retracted.**
+`BatchQueue.ctx` exists, is populated, and `backend -> dispatch_bq -> ctx`
+resolves for every way a `LavaBackend` can be built. The briefs were right.
+
+The error: I grepped the first ~50 lines of a struct whose `ctx::Any` field sits
+at line 67, past the command-buffer pools and the deferred-free lists, and read
+its absence from the part I had looked at. It is `::Any`, so it also does not
+show up in a search for the type name.
+
+Consequences, all now corrected: a redundant `ctx` field was added to
+`LavaBackend` (Lava `48747ed`) and removed again (`0aaa7f9`); `STATUS.md`
+carried the claim as a standing blocker on both refactors; and I reported it to
+the coordinator as the reason multi-device could not proceed. It could have
+proceeded at any time.
+
+What was genuinely worth doing survives: `Lava.vk_context(backend)` /
+`vk_context(array)` give the path a name, and the three pipeline-owning caches
+are now keyed by a never-reused `VkContext.id`, which was the actual §8 defect.
+
+**The lesson is narrower than "read more".** The field was invisible to a grep
+for `VkContext` because it is typed `Any` — which is `kernel-library-review.md`
+finding 6 biting from an unexpected direction. An untyped field is not only a
+performance problem; it is unfindable by the search anyone would run.

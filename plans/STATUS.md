@@ -88,16 +88,24 @@ first device's `VkPipeline`. The review's stated end state — "`VK_CONTEXT_REF`
 the one global that stays" — describes a single-device library and has been
 restated in the briefs.
 
-**The carrier does NOT exist, and both briefs said it did.** `LavaBackend(ctx)`
-keeps `ctx.default_bq` and **discards `ctx`**; `BatchQueue` holds a
-`Vulkan.Device`, not the `VkContext` that owns it. So there is no path from a
-backend to its context, and neither refactor can finish the multi-device work
-until Lava keeps that one field. Found on 2026-08-02 while building DNNKernels'
-`Device`; see that project's report.
+**RETRACTED, and the briefs were right.** This section briefly claimed the
+carrier did not exist. `BatchQueue.ctx` is real and populated, so
+`backend -> dispatch_bq -> ctx` resolves for every construction form. The claim
+came from reading the first half of `BatchQueue`'s field list, where `ctx::Any`
+sits sixty-odd lines down. A `ctx` field was added to `LavaBackend` on the
+strength of it and has been removed again — a second copy of a fact the queue
+already holds can only disagree with it.
 
-Once it exists, what remains is the 58 direct `vk_context()` calls.
+What landed instead: `Lava.vk_context(backend)` and `vk_context(array)` name
+that path, and **the three pipeline-owning caches are now keyed by device**
+(`VkContext.id`, a never-reused counter) — Lava `0aaa7f9`. So two devices
+compiling the same kernel no longer collide. `GFX_PIPELINE_CACHE` is still
+unkeyed and holds only graphics pipelines.
+
+What remains for phase 2: the 58 direct `vk_context()` calls in `src/`.
 `vk_context()` may remain as a convenience default — nothing inside the library
-may depend on it.
+may depend on it. And the two-device acceptance test (real GPU + lavapipe) is
+now *possible*, which it was not before, and still unwritten.
 
 **Testable everywhere, no second GPU needed:** a real device plus lavapipe
 (`dev/Lava/test/run_lavapipe.sh`) is a two-device pair on all three machines.
