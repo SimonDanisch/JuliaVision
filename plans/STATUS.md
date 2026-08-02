@@ -26,7 +26,7 @@ existing one, so it does not collide with the refactor.
 
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
-| `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | phase 1a **done** (`3f59291`); 1b, 2, 3 not started |
+| `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | phase 1a **done**; phase 2 **started on `sd/nvidia`** — caches keyed per device, the two-device probe exists and found a class §8 missed. 1b and 3 not started |
 | `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–4 and 6 done, **globals 34 → 0**; step 5 declined with reasons; **multi-device blocked on Lava** |
 | `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
 | `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | **phase 1 + 2 done.** Capability dump, 3 hard crashes found and fixed, `Extruded` does NOT reproduce on RDNA 3.5, SAM 2 runs at 294 ms. Read its report before touching `Device` or any subgroup width |
@@ -107,10 +107,21 @@ What remains for phase 2: the 58 direct `vk_context()` calls in `src/`.
 may depend on it. And the two-device acceptance test (real GPU + lavapipe) is
 now *possible*, which it was not before, and still unwritten.
 
-**Testable everywhere, no second GPU needed:** a real device plus lavapipe
-(`dev/Lava/test/run_lavapipe.sh`) is a two-device pair on all three machines.
-Assert correct results on both *and* that the two contexts' caches are disjoint —
-a shared entry can still produce a right answer by luck.
+**Testable everywhere, no second GPU needed — and now actually written.**
+`init_vulkan!(; select)` returns a context without installing it, and the loader
+enumerates the GPU and lavapipe from one instance, so `dev/Lava/test/twodevice_probe.jl`
+builds the pair on any machine here. It asserts correct results on both *and*
+that one kernel compiles **twice** — a single new `PIPELINE_CACHE` entry means
+the devices shared a pipeline, which can still produce a right answer by luck.
+
+It does **not pass yet**, and is not in `runtests.jl` because it segfaults.
+Keying the caches was necessary and not sufficient: the first thing it caught was
+`CMD_PIPELINE_BARRIER_FPTR`, a module-global **device function pointer**, which
+§8's four-cache list does not cover and which is worse than any of them — a stale
+handle is undefined behaviour, a foreign function pointer jumps into another
+driver. Fixed. The remaining worklist is in `projects/lava-core/REPORT.md` and
+includes three device *properties* cached globally, which give wrong answers
+rather than crashes.
 
 ## Cross-project, act on these first
 

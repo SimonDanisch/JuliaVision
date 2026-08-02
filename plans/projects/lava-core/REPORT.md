@@ -167,3 +167,72 @@ not evidence a project is alive; the last write time in its worktree is.
 
 `GUARDRAILS.md` now requires appending here at the end of each *step*. Reporting
 last means a killed agent loses everything instead of one step.
+
+
+## 2026-08-02 (later) — phase 2 started: the two-device probe exists, and it works
+
+Lava `16f193e`. Done by the coordinator rather than this project's agent, which
+was killed; recorded here because it is this project's phase 2.
+
+### The acceptance test the brief describes is now possible
+
+`init_vulkan!(; select = pick_physical_device)` chooses the physical device and
+still returns a context **without** installing it as the global. The Vulkan
+loader enumerates the real GPU *and* lavapipe from one instance, so every machine
+here has a two-device pair with no second card. Before this there was no way to
+ask for the second device at all — which is why the test had never been written,
+and the reason was never the caches.
+
+`test/twodevice_probe.jl`, deliberately **not** in `runtests.jl`: it segfaults,
+and a segfault takes the whole suite with it.
+
+### Keying the caches was necessary and not sufficient
+
+`VkContext.id` (a never-reused counter) now leads `PIPELINE_CACHE`'s key, and
+`LINKED_KERNEL_CACHE` / `LAUNCH_PLAN_CACHE` are per-device outer dicts. That is
+the §8 defect fixed.
+
+The probe then crashed anyway, on the **first** thing §8 does not name.
+
+### `CMD_PIPELINE_BARRIER_FPTR` — a whole class the review missed
+
+A device function pointer is per device: `vkGetDeviceProcAddr` returns one valid
+only for the device asked. It was a module global, so creating the second context
+overwrote it and the **first** device's command buffers were recorded through the
+**second** device's driver. The crash was inside `libvulkan_lvp.so` while
+dispatching on the NVIDIA context.
+
+§8 lists four caches holding *handles* and says nothing about the function table,
+which is strictly more dangerous: a stale handle is undefined behaviour, a
+foreign function pointer is an immediate jump into another driver.
+
+Fixed — `VkContext.cmd_pipeline_barrier_fptr`, reached through `barrier_fptr(bq)`
+at the three recording sites. With it, the GPU dispatch goes from segfault to
+correct, and the crash moves to the lavapipe dispatch.
+
+### The phase-2 worklist, produced by running rather than reading
+
+The review's list was four caches. The real list is longer, and the probe is how
+to enumerate it honestly. In descending order of suspicion:
+
+```
+PREPARE_INDIRECT_PIPELINE_REF   a LavaComputePipeline, bound at dispatch
+PREPARE_INDIRECT_OFFSETS_REF    its layout, same lifetime
+TIMESTAMP_POOL                  a Vulkan.QueryPool
+BLIT_PIPELINE                   a graphics pipeline
+GEMM_SPLIT_SCRATCH              device memory
+DEVICE_SUBGROUP_SIZE   \
+SUBGROUP_SIZE_CONTROL   >  device PROPERTIES cached globally
+WORKGROUP_LIMIT        /
+```
+
+The last three matter differently from the rest and are worth calling out: they
+produce a **wrong answer** rather than a crash, so they are the ones that survive
+unnoticed. `DEVICE_SUBGROUP_SIZE` cached from the GPU and read on a device whose
+subgroup is 64 is exactly the finding `portability` raised from the other side.
+
+### Behaviour on one device
+
+Unchanged. Full DNNKernels suite green after each step —
+61/80/4023/149/4511/25/37/22/19/16/11/216/11/15/41, zero failures — and SAM 2
+masks identical with VRAM at 1181 MiB.
