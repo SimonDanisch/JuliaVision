@@ -1,0 +1,7 @@
+[neurallut]
+git-tree-sha1 = "69986cb87d2aff50d65675eb9887a2bc3e8193ff"
+lazy = true
+
+    [[neurallut.download]]
+    sha256 = "463e24bafbf060d9ef2c61a0d2743db38622f9eb3432ee45809ab17dfcb7b753"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/neurallut.tar.gz"

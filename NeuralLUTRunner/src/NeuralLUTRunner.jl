@@ -9,8 +9,8 @@ Almost nothing new for the runtime, which is why it is second in the order: it i
 
 **Ported and verified** against upstream on 2026-08-02. [`neurallut`](@ref) loads
 the model, [`predictlut`](@ref) turns a frame into a table and [`grade!`](@ref)
-applies it. The graph's blended LUT matches PyTorch to 1.3e-5 and the apply
-matches upstream's own `trilinear_kernel.cu` to 3.0e-7; see
+applies it. The graph's blended LUT matches PyTorch to **3.6e-7** and the apply
+matches upstream's own `trilinear_kernel.cu` to **3.0e-7**; see
 `plans/projects/small-models/REPORT.md` for the numbers and the caveats.
 
 **Two halves, on purpose.** The graph ends at the LUT, not at an image: what the
@@ -22,8 +22,8 @@ graph resolution-independent — the tensor leaving it is 3x33x33x33 whatever th
 frame size is.
 
 The consequence for cost is worth stating up front, because the two halves are
-paid at different rates: applying a look is **0.835 ms at 4K** on this machine,
-while re-predicting one is ~14 ms and is dominated by the classifier's
+paid at different rates: applying a look is **0.88 ms at 4K** on this machine,
+while re-predicting one is ~8 ms and is dominated by the classifier's
 convolutions. Predict on a shot or a keyframe; grade every frame.
 
 Upstream: https://github.com/HuiZeng/Image-Adaptive-3DLUT
@@ -62,13 +62,19 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 Where the exported graph and weights live.
 
-No `Artifacts.toml` yet, deliberately: a lazy artifact needs the sha256 of a
-tarball that has been uploaded to a release, and there is nothing to upload
-until the export runs. Until then `assetpath` falls through to the generated
-directory, and the error message names the place it looked. Adding the artifact
-is what turns a working port into an installable one.
+Three places, in order: `JULIA_NEURALLUT_ASSETS` if it is set, the generated
+directory if this is a checkout that has run the exporter, and the lazy artifact
+otherwise. A developer re-exporting a graph gets their own copy without touching
+the artifact; a plain `Pkg.add` gets the published one.
+
+The artifact is bound in `../Artifacts.toml` by `tools/make_artifacts.jl`, and it
+carries the graph and weights only — `reference*.safetensors` is what
+`tools/verify_neurallut.jl` diffs against and the exporter regenerates it in one
+command, so it is not something a caller should have to download.
 """
-assetdir() = assetpath(; generated = joinpath("gen", "graphs", "neurallut"),
+assetdir() = assetpath(; artifact = "neurallut",
+                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
+                       generated = joinpath("gen", "graphs", "neurallut"),
                        env = "JULIA_NEURALLUT_ASSETS", from = @__DIR__)
 
 """

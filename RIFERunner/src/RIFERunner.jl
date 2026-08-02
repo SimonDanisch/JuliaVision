@@ -5,18 +5,27 @@ Slow motion, framerate conversion, and smoothing a retime — about 10 MB of wei
 
 Cheap for the runtime: the warping is `grid_sampler_2d`, which is already implemented and already exercised by the optical-flow path in GPUFiltering.
 
-**Not ported yet.** This package is the place the port lands, committed ahead of
-the work so the graph path, the asset lookup and the workload guard are settled
-and everything after this is model code. What exists: [`assetdir`](@ref) resolves
-the export, [`rifegraph`](@ref) loads it if it is there, and precompilation is
-inert until it is. What does not: the workload body, and whatever ops the export
-turns out to need.
+**Ported and verified** against upstream on 2026-08-02. [`rife`](@ref) loads the
+model and [`interpolate!`](@ref) produces one frame between two, at any `t` in
+[0, 1]. The interpolated frame matches PyTorch to **3.3e-4** max and 4.9e-7 mean.
+
+**Correct, and far off its target.** One 1080p frame costs ~500 ms on an RTX 3070
+laptop against the 16.67 ms that 1080p60 needs. The port is not what is slow: the
+graph is **149 GFLOP of convolution per frame**, so even a kernel sustaining a
+plausible 10 TFLOP/s would spend 14.9 ms on convolution alone. 1080p60 is not
+reachable here in fp32 at this model size, which is a target-setting finding
+rather than an optimisation task — see `plans/projects/small-models/REPORT.md`.
+
+**Resolution is baked into the export**, and the frame is *padded* to it rather
+than resized: RIFE's flow field is in pixels, so scaling the input would silently
+rescale every motion vector the network predicts. [`framesize`](@ref) reports the
+padded size the installed export was built for.
 
 Upstream: https://github.com/hzwer/Practical-RIFE
 License: **MIT**
 
-Ops `DNNKernels` does not have yet:
-  * none — the runtime already covers it
+Ops `DNNKernels` did not have: none, as predicted — including the 18
+`grid_sampler_2d` warps and 7 transposed convolutions.
 
 See `models-to-port.md` for the state of this one, and `tools/export_rife.py`
 for the export that feeds it.
@@ -48,13 +57,19 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 Where the exported graph and weights live.
 
-No `Artifacts.toml` yet, deliberately: a lazy artifact needs the sha256 of a
-tarball that has been uploaded to a release, and there is nothing to upload
-until the export runs. Until then `assetpath` falls through to the generated
-directory, and the error message names the place it looked. Adding the artifact
-is what turns a working port into an installable one.
+Three places, in order: `JULIA_RIFE_ASSETS` if it is set, the generated
+directory if this is a checkout that has run the exporter, and the lazy artifact
+otherwise. A developer re-exporting a graph gets their own copy without touching
+the artifact; a plain `Pkg.add` gets the published one.
+
+The artifact is bound in `../Artifacts.toml` by `tools/make_artifacts.jl`, and it
+carries the graph and weights only — `reference*.safetensors` is what
+`tools/verify_rife.jl` diffs against and the exporter regenerates it in one
+command, so it is not something a caller should have to download.
 """
-assetdir() = assetpath(; generated = joinpath("gen", "graphs", "rife"),
+assetdir() = assetpath(; artifact = "rife",
+                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
+                       generated = joinpath("gen", "graphs", "rife"),
                        env = "JULIA_RIFE_ASSETS", from = @__DIR__)
 
 """

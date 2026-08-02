@@ -163,10 +163,44 @@ changed to match anyway, because "today" is doing the work in that sentence.
 slab — without it the shipped runner would have been ~1.8x slower than the
 benchmark that measures it, which is its own kind of wrong.
 
+### Artifacts are bound but not uploaded
+
+All three packages now have an `Artifacts.toml` in the SAM 2 shape — lazy, with a
+`git-tree-sha1` and a `sha256` against `assets-v1` — written by
+`tools/make_artifacts.jl`, which packs `gen/graphs/<name>` and binds it in one
+command so a re-export can redo it.
+
+| artifact | tarball | tree sha1 |
+|---|---|---|
+| `neurallut` | 2.1 MiB | `69986cb87d2a` |
+| `rife` | 20.1 MiB | `b41f6be8ace2` |
+| `depthanything` | 87.7 MiB | `f33c510b8044` |
+
+Each `assetdir()` now consults three places in order — its env var, the generated
+directory, then the artifact — so a developer who re-exports keeps their own copy
+and a plain `Pkg.add` gets the published one.
+
+The tarballs carry the graph, the weights and the op histogram, and deliberately
+**not** `reference*.safetensors`: those are what `tools/verify_*.jl` diffs
+against and the exporter regenerates them in one command. It matters most for
+RIFE, whose references are ~80 MB against 22 MB of weights.
+
+**The tarballs are in `gen/artifacts/` and have not been uploaded.**
+`bind_artifact!` records a URL; it does not put anything there. Until they are
+attached to the release, a fresh clone resolves the artifact, fails the download
+and falls through to the generated directory — which is exactly today's
+behaviour, so nothing regresses by waiting. The upload is one
+`gh release upload assets-v1 gen/artifacts/*.tar.gz --repo SimonDanisch/JuliaVision`
+and is left to a human because it publishes to a public release.
+
+Note this supersedes `models-to-port.md`'s claim that RIFE is blocked on
+re-hosting `train_log/`: the artifact carries the *exported graph*, not upstream's
+checkpoint, so nothing needed mirroring first.
+
 ### What is not done
 
-- **No `Artifacts.toml` for any of the three.** RIFE's `train_log/` still needs
-  re-hosting on the assets release before it can be one (`models-to-port.md`).
+- **The three tarballs are not on the release** — see above. One command, but a
+  publishing one.
 - **The conv findings are not fixed**, per the brief — these three are bring-up,
   not kernel work. They are handed to whoever owns `kernels-to-port.md` item 1.
 

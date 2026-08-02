@@ -7,18 +7,25 @@ Depth per frame, which buys fake shallow depth of field, depth-keyed grading, pa
 
 A ViT with scaled-dot-product attention and nothing else unusual, so the runtime needs nothing new. Pure editor value, no engine work — which is why it sits where it does in the order.
 
-**Not ported yet.** This package is the place the port lands, committed ahead of
-the work so the graph path, the asset lookup and the workload guard are settled
-and everything after this is model code. What exists: [`assetdir`](@ref) resolves
-the export, [`depthanythinggraph`](@ref) loads it if it is there, and precompilation is
-inert until it is. What does not: the workload body, and whatever ops the export
-turns out to need.
+**Ported and verified** against upstream on 2026-08-02. [`depthanything`](@ref)
+loads the model and [`depthmap!`](@ref) turns a frame into inverse relative
+depth. The map matches PyTorch to **4.2e-5**, which is 0.0025% of its own range.
+
+**Correct, and 15x off its target.** One 518² map costs ~421 ms on an RTX 3070
+laptop against PyTorch's 27.6 ms for the same forward, so the `≥ PyTorch` target
+is not met and the gap is convolution and `bmm` throughput rather than anything
+in this package — see `plans/projects/small-models/REPORT.md`.
+
+**The attention decomposes even though the export is from CUDA.** Unlike Whisper,
+DINOv2 falls back to a manual `bmm` + `softmax` when xFormers is absent, so the
+graph carries 24 `bmm` and 12 `_softmax` instead of a fused
+`_scaled_dot_product_*`. The export-from-CUDA rule is about SDPA *dispatch*, not
+a guarantee that attention survives whole.
 
 Upstream: https://github.com/DepthAnything/Depth-Anything-V2
 License: **Apache-2.0**
 
-Ops `DNNKernels` does not have yet:
-  * none — the runtime already covers it
+Ops `DNNKernels` did not have: none, as predicted.
 
 See `models-to-port.md` for the state of this one, and `tools/export_depthanything.py`
 for the export that feeds it.
@@ -50,13 +57,19 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 Where the exported graph and weights live.
 
-No `Artifacts.toml` yet, deliberately: a lazy artifact needs the sha256 of a
-tarball that has been uploaded to a release, and there is nothing to upload
-until the export runs. Until then `assetpath` falls through to the generated
-directory, and the error message names the place it looked. Adding the artifact
-is what turns a working port into an installable one.
+Three places, in order: `JULIA_DEPTHANYTHING_ASSETS` if it is set, the generated
+directory if this is a checkout that has run the exporter, and the lazy artifact
+otherwise. A developer re-exporting a graph gets their own copy without touching
+the artifact; a plain `Pkg.add` gets the published one.
+
+The artifact is bound in `../Artifacts.toml` by `tools/make_artifacts.jl`, and it
+carries the graph and weights only — `reference*.safetensors` is what
+`tools/verify_depthanything.jl` diffs against and the exporter regenerates it in one
+command, so it is not something a caller should have to download.
 """
-assetdir() = assetpath(; generated = joinpath("gen", "graphs", "depthanything"),
+assetdir() = assetpath(; artifact = "depthanything",
+                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
+                       generated = joinpath("gen", "graphs", "depthanything"),
                        env = "JULIA_DEPTHANYTHING_ASSETS", from = @__DIR__)
 
 """
