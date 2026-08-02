@@ -34,10 +34,18 @@ struct Model{B}
     # dims -> (slab, per-graph plans). Computed on first use at a resolution and
     # reused; the plan depends only on the graph and the resolved shapes.
     scratch::Dict{Any,Any}
+    # Per-run instrumentation, off by default and free when off. On the model
+    # rather than in a module `Ref` so two models in one process can be measuring
+    # different things — `m.diag.optimes = Dict{String,Tuple{Int,Float64}}()` and
+    # every graph this model runs starts accumulating. See `Diagnostics`.
+    diag::Diagnostics
 end
 
 Model(graphs, weights, backend, memevery, memframes, topk) =
-    Model(graphs, weights, backend, memevery, memframes, topk, Dict{Any,Any}())
+    Model(graphs, weights, backend, memevery, memframes, topk, Dict{Any,Any}(),
+          Diagnostics())
+Model(graphs, weights, backend, memevery, memframes, topk, scratch) =
+    Model(graphs, weights, backend, memevery, memframes, topk, scratch, Diagnostics())
 
 """
     scratchfor(m, dims) -> (slab, plans, workspace, lazies, recyclers)
@@ -168,7 +176,7 @@ end
 
 
 """Run one graph and return its outputs in declaration order."""
-function call(m::Model, name::AbstractString, args...; dims)
+function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = false)
     g = m.graphs[name]
     length(args) == length(g.inputs) ||
         error("$name expects $(length(g.inputs)) inputs, got $(length(args))")
@@ -176,12 +184,13 @@ function call(m::Model, name::AbstractString, args...; dims)
     rec = startcall!(recs[name])
     vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
                     dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
-                    lazy=lazies[name], rec=rec)
+                    lazy=lazies[name], rec=rec, diag=m.diag, clampattn)
     # The same recycler resolves the outputs: an output that is a view gets
     # materialised right here, and that copy needs a stable address as much as
     # anything inside the graph did. Ordinals carry on from where `execute!` left
     # them, which is deterministic because the op sequence is.
-    ctx = Ctx(vals, g, dims, m.backend, slab, plans[name], Ref(""), ws, lazies[name], rec)
+    ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
+              lazy = lazies[name], rec, diag = m.diag, clampattn)
     Tuple(value(ctx, o) for o in g.outputs)
 end
 
@@ -255,8 +264,8 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
             # previous mask value is reused directly
             first(call(m, "pixel_fusion", pixfeat, s.lastmskvalue, s.sensory, s.lastmask; dims))
         else
-            visual = readmemory(s.bank, key, selection, dims.w, dims.h;
-                                topk=m.topk, backend=m.backend)
+            visual = readmemory(Ctx(m.backend; diag=m.diag), s.bank, key, selection,
+                                dims.w, dims.h; topk=m.topk)
             # temporal-sparsity blend (memory_manager.py:249). Slices go through
             # `view` + broadcast rather than `getindex`; see `materialize`.
             diff = view(visual, :, :, :, 1, :) .- view(s.lastmskvalue, :, :, :, 1, :)

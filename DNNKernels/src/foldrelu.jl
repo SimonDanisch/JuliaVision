@@ -65,7 +65,7 @@ function foldrelu(g::Graph)
         # has two and folds neither, they do not meet the conditions below; SAM
         # 2's encoder is the target, 48 of 48. Wan's DiT folds 1 and 3, and has
         # no test in the suite — benign because its graphs are fp32, so
-        # `mm_coopmat_applicable` refuses them, `matmul!` takes the scalar path
+        # `mm_coopmat_plan` refuses them, `matmul!` takes the scalar path
         # and the epilogue becomes `out .= epi.(out)`: the same computation the
         # deleted op did, one dispatch earlier.
         #

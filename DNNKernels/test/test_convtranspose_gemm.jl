@@ -23,6 +23,12 @@ const DK = DNNKernels
 @testset "transposed convolution via GEMM" begin
     back = LavaBackend()
     ws = DK.Workspace(back)
+    # The entry points take a context, not a `(backend, ws)` pair; `Ctx(backend)`
+    # is what a caller with no graph behind it builds. `nows` is the same context
+    # without a workspace, which is how the gather path is reached — the GEMM
+    # form needs scratch and declines without it.
+    ctx = DK.Ctx(back; ws)
+    nows = DK.Ctx(back)
 
     @testset "agrees with the gather" begin
         # The decoder's two shapes, plus a small one whose channel counts are
@@ -36,9 +42,9 @@ const DK = DNNKernels
             x, w, b = DK.toback(back, hx), DK.toback(back, hw), DK.toback(back, hb)
             ref = KA.allocate(back, T, 2Hi, 2Hi, Co, 1); fill!(ref, zero(T))
             got = KA.allocate(back, T, 2Hi, 2Hi, Co, 1); fill!(got, zero(T))
-            DK.convolutiontranspose!(ref, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
+            DK.convolutiontranspose!(nows, ref, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
             DK.reset!(ws)
-            DK.convolutiontranspose!(got, x, w, b, (2,2), (0,0), (1,1), (0,0), 1; ws)
+            DK.convolutiontranspose!(ctx, got, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
             KA.synchronize(back)
             r, g = Float32.(Array(ref)), Float32.(Array(got))
             # A shuffle that drops a sub-pixel phase leaves an exact lattice of
@@ -79,9 +85,9 @@ const DK = DNNKernels
         ox = DK.convtransposesize(Hi, 3, 2, 0, 1, 0)
         ref = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(ref, 0f0)
         got = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(got, 0f0)
-        DK.convolutiontranspose!(ref, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
+        DK.convolutiontranspose!(nows, ref, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
         DK.reset!(ws)
-        DK.convolutiontranspose!(got, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1; ws)
+        DK.convolutiontranspose!(ctx, got, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
         KA.synchronize(back)
         @test Array(ref) == Array(got)
         x = w = ref = got = nothing; GC.gc()
@@ -91,6 +97,7 @@ end
 @testset "1x1 convolution as a plain GEMM" begin
     back = LavaBackend()
     ws = DK.Workspace(back)
+    ctx = DK.Ctx(back; ws)
 
     @testset "agrees with the im2col path" begin
         # SAM 2's own 1x1 shapes plus one whose channel counts miss the GEMM
@@ -104,15 +111,21 @@ end
             b = DK.toback(back, T.(randn(Float32, Cout) .* 0.1f0))
             ref = KA.allocate(back, T, Wi, Hi, Cout, 1); fill!(ref, zero(T))
             got = KA.allocate(back, T, Wi, Hi, Cout, 1); fill!(got, zero(T))
-            old = DK.CONV_1X1_GEMM[]
-            try
-                DK.CONV_1X1_GEMM[] = false; DK.reset!(ws)
-                DK.convolution!(ref, x, w, b, (1,1), (0,0), (1,1), 1; ws)
-                DK.CONV_1X1_GEMM[] = true; DK.reset!(ws)
-                DK.convolution!(got, x, w, b, (1,1), (0,0), (1,1), 1; ws)
-            finally
-                DK.CONV_1X1_GEMM[] = old
-            end
+            # The routing is half the test: `convolution!` must recognise the
+            # shape and take the GEMM. Asserted rather than assumed, because
+            # `onebyone` returning `false` would silently compare the im2col path
+            # against itself. (It used to be switched off with `CONV_1X1_GEMM`,
+            # which is exactly the predicate-that-answers-configuration the
+            # review's finding 7 names; the switch is gone.)
+            @test DK.onebyone(w, (1,1), (0,0), (1,1), 1)
+            DK.reset!(ws)
+            # The im2col path by name, through its plan — which also asserts that
+            # this shape really is one it takes, instead of assuming it.
+            cmplan = DK.conv_coopmat_plan(ctx.dev, ref, x, w)
+            @test cmplan isa DK.ConvCoopMatPlan
+            DK.convolution_coopmat!(ctx, ref, cmplan, x, w, b, (1,1), (0,0), (1,1))
+            DK.reset!(ws)
+            DK.convolution!(ctx, got, x, w, b, (1,1), (0,0), (1,1), 1)
             KA.synchronize(back)
             r, g = Float32.(Array(ref)), Float32.(Array(got))
             @test any(!iszero, g)
@@ -160,12 +173,13 @@ end
                                     KW, KH, Cin, Cout)))
         o1 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o1, Float16(0))
         o2 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o2, Float16(0))
-        ws = DK.Workspace(back)
-        DK.reset!(ws)
-        DK.convolution_coopmat!(o1, x, w, nothing, (s, s), (p, p), (1, 1); ws)
-        DK.convolution_igemm!(o2, x, w, nothing, (s, s), (p, p), (1, 1))
+        ctx = DK.Ctx(back; ws = DK.Workspace(back))
+        DK.reset!(ctx.ws)
+        cmplan = DK.conv_coopmat_plan(ctx.dev, o1, x, w)
+        DK.convolution_coopmat!(ctx, o1, cmplan, x, w, nothing, (s, s), (p, p), (1, 1))
+        DK.convolution_igemm!(ctx, o2, x, w, nothing, (s, s), (p, p), (1, 1))
         KA.synchronize(back)
-        r = (Float64.(Array(o1)), Float64.(Array(o2)), DK.conv_coopmat_applicable(o1, x, w))
+        r = (Float64.(Array(o1)), Float64.(Array(o2)), cmplan isa DK.ConvCoopMatPlan)
         x = w = o1 = o2 = nothing; GC.gc()
         r
     end
@@ -187,25 +201,26 @@ end
 
     @testset "the pad is refused when the waste is large" begin
         # A concatenated scalar channel gives MatAnyone `Cin = 17`, which would
-        # round to 32 and pay 88% waste to reach the tensor cores. `CONV_CRS_PAD`
+        # round to 32 and pay 88% waste to reach the tensor cores. `crspad`
         # is where that line sits.
+        dev = DK.Device(back)
         x = KA.allocate(back, Float16, 32, 32, 17, 1); fill!(x, Float16(0.1))
         w = KA.allocate(back, Float16, 1, 1, 17, 32); fill!(w, Float16(0.1))
         o = KA.allocate(back, Float16, 32, 32, 32, 1); fill!(o, Float16(0))
-        @test !DK.conv_coopmat_applicable(o, x, w)          # 17 -> 32, refused
-        old = DK.CONV_CRS_PAD[]
-        try
-            DK.CONV_CRS_PAD[] = 2.0
-            @test DK.conv_coopmat_applicable(o, x, w)       # ...only by policy
-            DK.CONV_CRS_PAD[] = 1.0
+        # A keyword, not a global flipped and restored: the second call simply
+        # asks a different question, and a failing `@test` between them can no
+        # longer leave the policy changed for everything after.
+        @test DK.conv_coopmat_plan(dev, o, x, w).reason === :crswaste   # 17 -> 32
+        let
+            @test DK.conv_coopmat_plan(dev, o, x, w; crspad = 2.0) isa
+                  DK.ConvCoopMatPlan                       # ...only by policy
             # 1.0 is the old behaviour exactly: nothing off the tile gets in.
             w2 = KA.allocate(back, Float16, 7, 7, 3, 144); fill!(w2, Float16(0.1))
             x2 = KA.allocate(back, Float16, 256, 256, 3, 1); fill!(x2, Float16(0.1))
             o2 = KA.allocate(back, Float16, 64, 64, 144, 1); fill!(o2, Float16(0))
-            @test !DK.conv_coopmat_applicable(o2, x2, w2)
+            @test DK.conv_coopmat_plan(dev, o2, x2, w2; crspad = 1.0).reason ===
+                  :crswaste
             w2 = x2 = o2 = nothing
-        finally
-            DK.CONV_CRS_PAD[] = old
         end
         x = w = o = nothing; GC.gc()
     end

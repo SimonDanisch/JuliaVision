@@ -81,5 +81,7 @@ include(joinpath(@__DIR__, "test_plan.jl"))
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
 # The one rewrite that runs the ops it folds — here on the CPU backend.
 include(joinpath(@__DIR__, "test_constfold.jl"))
+# Instrumentation rides on the context: two runs, two measurements, no crosstalk.
+include(joinpath(@__DIR__, "test_diagnostics.jl"))
 # The non-overlapping transposed convolution against the gather it replaces.
 include(joinpath(@__DIR__, "test_convtranspose_gemm.jl"))

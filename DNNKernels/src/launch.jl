@@ -96,12 +96,13 @@ launch geometry, which on its own was only 54 -> 103 GB/s of the 54 -> 332
 total. These kernels already take an N-D index and do no such division, so
 flattening buys nothing and costs a `CartesianIndices` lookup.
 """
-# Flat variant of `ndmap!`; see `LAUNCH_FLAT`.
+# Flat variant of `ndmap!`, and what `launch!` takes for any multi-dimensional
+# linearly-indexable destination.
 #
 # The decomposition is `Lava.cart32` over `Lava.FastDiv32` extents, not
 # `CartesianIndices`, and that is the whole reason this variant is worth
 # re-measuring: it used to cost N-1 real integer divisions, which is exactly what
-# `LAUNCH_FLAT` was switched off for. A magic-number multiply is ~5 cycles where
+# the flat launch was switched off for. A magic-number multiply is ~5 cycles where
 # the divide was ~25.
 @kernel function ndmap_flat!(f::F, out, sz, n, args::Vararg{Any,N}) where {F,N}
     lin = @index(Global, Linear)
@@ -110,41 +111,32 @@ flattening buys nothing and costs a `CartesianIndices` lookup.
     end
 end
 
-"""
-    LAUNCH_FLAT[] :: Bool
-
-Launch `launch!` kernels over a flat range instead of `size(out)`.
-
-**On.** It was off, for a good reason that stopped being true.
-
-The rule is: flatten when the index arithmetic you need is cheaper than the
-fragmentation you are paying for. An N-D `ndrange` gets an N-D workgroup, so
-consecutive lanes stop walking consecutive memory; flattening fixes that but
-`ndmap!` hands `f` a full Cartesian index, so it has to rebuild one — N-1
-divisions where the N-D launch needed none.
-
-Measured that way it lost, 31.69 ms against 28.83. Then `Lava.FastDiv32` made a
-decomposition a magic-number multiply instead of a division (~5 cycles against
-~25) and the same A/B, interleaved in one session on SAM 2's encoder, reverses:
-
-    LAUNCH_FLAT = false    p50 264.79 ms
-    LAUNCH_FLAT = true     p50 253.41 ms      11.38 ms, 4.3%
-
-Encoder outputs are bit-identical between the two, and correctness was never the
-question — all 8 graphs verified on this path when it was written, and the
-end-to-end matte was 2.754e-4 against 2.768e-4.
-
-Keep the switch. The balance depends on the cost of a division, and that has now
-moved once.
-"""
-const LAUNCH_FLAT = Ref(true)
-
-"""
-    LAUNCH_GROUP[] :: Int
-
-Threads per workgroup `launch!` asks for. 256 measured best; see `launchgroup`.
-"""
-const LAUNCH_GROUP = Ref(256)
+# ── Why the flat launch, and what would overturn it ──────────────────────────
+#
+# This was a switch (`LAUNCH_FLAT`), on by default. It was off first, for a good
+# reason that stopped being true; the switch is gone and the winner is inlined
+# (`kernel-library-review.md` finding 3, tier two).
+#
+# The rule is: flatten when the index arithmetic you need is cheaper than the
+# fragmentation you are paying for. An N-D `ndrange` gets an N-D workgroup, so
+# consecutive lanes stop walking consecutive memory; flattening fixes that but
+# `ndmap!` hands `f` a full Cartesian index, so it has to rebuild one — N-1
+# divisions where the N-D launch needed none.
+#
+# Measured that way it lost, 31.69 ms against 28.83. Then `Lava.FastDiv32` made a
+# decomposition a magic-number multiply instead of a division (~5 cycles against
+# ~25) and the same A/B, interleaved in one session on SAM 2's encoder, reverses:
+#
+#     flat = false    p50 264.79 ms
+#     flat = true     p50 253.41 ms      11.38 ms, 4.3%
+#
+# Encoder outputs are bit-identical between the two, and correctness was never
+# the question — all 8 graphs verified on this path when it was written, and the
+# end-to-end matte was 2.754e-4 against 2.768e-4.
+#
+# The balance depends on the cost of a division, and that has moved once. If it
+# moves again this is the paragraph to re-measure against; the A/B is the two
+# branches of `launch!` below, not a global.
 
 """
     launchgroup(sz) -> Dims
@@ -156,31 +148,33 @@ is a property of the backend, and two copies of it would drift.
 Note in particular the warning it carries about `kernel(backend, wg)` versus the
 `workgroupsize` launch keyword — every launch in this package uses the keyword.
 """
-@inline launchgroup(sz::Dims, target::Int = LAUNCH_GROUP[]) = Lava.launchgroup(sz, target)
+# 256 threads measured best and is the default. A literal rather than a global
+# because it was read in exactly one place — here — and a caller holding a
+# context passes `ctx.dev.launchgroup` instead, which is the same number clamped
+# to what the device will actually launch.
+@inline launchgroup(sz::Dims, target::Int = 256) = Lava.launchgroup(sz, target)
+@inline launchgroup(ctx::Ctx, sz::Dims) = Lava.launchgroup(sz, ctx.dev.launchgroup)
 
 """
-    LAUNCH_PROBE[] :: Union{Nothing,Dict}
+    launch!(ctx, f, out, args...)
 
-Set to a dict to record every `launch!` as `(ndrange, workgroup) => (count, groups)`.
-Off by default and free when off.
-
-For finding launches that do not fill the device. A grid of 64 workgroups on a
-48-SM card leaves most of it idle however good the kernel is, and that is
-invisible in a per-op timing table — it shows up only as one op being
-inexplicably slow. `Lava.with_dispatch_timing` says *which dispatch*; this says
-*which launch site and what shape*.
+The form every op body and kernel entry point uses: the backend and the launch
+probe both come off the context, so a launch site needs no argument of its own to
+be measurable. See [`Diagnostics`](@ref).
 """
-const LAUNCH_PROBE = Ref{Any}(nothing)
+@inline launch!(ctx::Ctx, f::F, out, args...) where {F} =
+    launch!(f, out, args...; backend = ctx.backend, probe = ctx.diag.launches)
 
-function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)) where {F}
-    p = LAUNCH_PROBE[]
-    if p !== nothing && !(LAUNCH_FLAT[] && ndims(out) > 1)
+function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out),
+                 probe=nothing) where {F}
+    p = probe
+    if p !== nothing && ndims(out) <= 1
         sz = size(out); wg = Lava.staticgroup(sz)
         grp = ntuple(i -> cld(sz[i], wg[i]), length(sz))
         c, _ = get(p, (sz, wg), (0, grp))
         p[(sz, wg)] = (c + 1, grp)
     end
-    if LAUNCH_FLAT[] && ndims(out) > 1 && IndexStyle(out) === IndexLinear()
+    if ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
         ndmap_flat!(backend)(f, out, map(Lava.FastDiv32, size(out)), n, args...; ndrange=n)
     else

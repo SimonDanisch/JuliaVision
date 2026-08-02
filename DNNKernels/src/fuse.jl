@@ -78,24 +78,6 @@ read by a fusable op of the same declared dtype.
 const EMPTY = Set{String}()
 
 """
-Let a value with more than one consumer stay lazy, recomputing it per reader.
-
-**Off, because it was measured worth nothing.** Interleaved A/B on the captured
-step: 1019 dispatches at 11.060 ms against 1013 at 11.076 ms. The depth-1 guard
-below is what limits it — of 67 twice-read elementwise ops, only 6 have fully
-materialised operands, and 6 dispatches out of 1019 is under the noise floor.
-
-Kept because the mechanism is right and correct (suite 61/61, e2e unchanged at
-2.9077e-4 / 2.7702e-4), and real group codegen needs exactly this — recomputing
-a shared subexpression inside each consumer's kernel. It is the guard that has
-to go, and that only pays once whole groups are emitted as one kernel rather
-than folded pairwise.
-"""
-const DUPLICATE_FUSION = Ref{Bool}(false)
-"""Most consumers a duplicated value may have."""
-const DUPLICATE_MAX = Ref{Int}(2)
-
-"""
     finalconsumer(g, readers, id) -> Op | nothing
 
 The op that ultimately reads `id`, looking through any chain of shape-only
@@ -116,7 +98,27 @@ function finalconsumer(g::Graph, readers::Dict{String,Vector{Any}}, id, depth = 
     nothing
 end
 
-function fusableset(g::Graph)
+"""
+    fusableset(g; duplicate = false, duplicatemax = 2)
+
+`duplicate` admits the depth-1 duplication pass below; `duplicatemax` is the most
+consumers a duplicated value may have. Keywords rather than globals because they
+are read here and nowhere else.
+
+Let a value with more than one consumer stay lazy, recomputing it per reader.
+
+**Off, because it was measured worth nothing.** Interleaved A/B on the captured
+step: 1019 dispatches at 11.060 ms against 1013 at 11.076 ms. The depth-1 guard
+below is what limits it — of 67 twice-read elementwise ops, only 6 have fully
+materialised operands, and 6 dispatches out of 1019 is under the noise floor.
+
+Kept because the mechanism is right and correct (suite 61/61, e2e unchanged at
+2.9077e-4 / 2.7702e-4), and real group codegen needs exactly this — recomputing
+a shared subexpression inside each consumer's kernel. It is the guard that has
+to go, and that only pays once whole groups are emitted as one kernel rather
+than folded pairwise.
+"""
+function fusableset(g::Graph; duplicate::Bool = false, duplicatemax::Int = 2)
     mates = groupmates(g)
     readers = Dict{String,Vector{Any}}()
     note!(id, r) = push!(get!(readers, id, Any[]), r)
@@ -171,14 +173,14 @@ function fusableset(g::Graph)
     # values would fan out exponentially — each extra consumer multiplying the
     # work of everything upstream — and the win here is bounded (one dispatch and
     # one barrier per value) while the blowup would not be.
-    if DUPLICATE_FUSION[]
+    if duplicate
         for op in g.ops
             op.aten in FUSABLE || continue
             op.out in out && continue
             any(i -> resolvealias(g, i) in out, op.ins) && continue   # depth-1 only
             rs = get(readers, op.out, nothing)
             rs === nothing && continue
-            2 <= length(rs) <= DUPLICATE_MAX[] || continue
+            2 <= length(rs) <= duplicatemax || continue
             all(r -> r[1] === :op && r[2].aten in FUSABLE && !haskey(r[2].attrs, "act"), rs) || continue
             pb = get(g.buffers, op.out, nothing)
             pb === nothing && continue

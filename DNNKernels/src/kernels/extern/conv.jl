@@ -51,9 +51,16 @@ few thousand products in fp16 instead drifts by percent, not ulps.
 end
 
 """
-    CONV_1X1_GEMM[] :: Bool
+    onebyone(w, stride, padding, dilation, groups) -> Bool
 
-Route a 1x1 convolution straight to `matmul!`, with no `im2col` and no scatter.
+Whether this convolution is the 1x1 case that is a plain GEMM: unit kernel, unit
+stride, no padding, no dilation, one group. `convolution!` routes those straight
+to `matmul!`, with no `im2col` and no scatter.
+
+A question about the *problem*, and nothing else. It used to begin with
+`CONV_1X1_GEMM[] &&`, so with the switch off a 1x1 convolution reported that it
+was not one (`kernel-library-review.md` finding 7); the switch was settled and is
+gone (finding 3, tier two).
 
 A 1x1 kernel at stride 1 with no padding is a matrix multiply and nothing else.
 `im2col` exists to gather each output pixel's receptive field into a row; when
@@ -72,32 +79,26 @@ somewhere it already was. Five of the encoder's seven convolutions are 1x1.
 node by node against PyTorch at both precisions. SAM 2's encoder has 6 of 7.
 BasicVSR++ has 510 convolutions and not one 1x1-stride-1-unpadded. Wan's VAE has
 6, which cannot take this route because its graphs are fp32 and
-`conv_coopmat_applicable` refuses them.
+`conv_coopmat_plan` refuses them.
 
 The bias is the one thing that does not come free. `coopmat_gemm!`'s bias is
 per-*row* of `C` — per pixel here — and a convolution's is per output channel,
 which is per column. So it stays a separate broadcast; that is one pass over the
 output against the two this removes.
 """
-const CONV_1X1_GEMM = Ref(true)
-
-"""
-Whether this convolution is the 1x1 case that is a plain GEMM: unit kernel, unit
-stride, no padding, no dilation, one group.
-"""
 @inline onebyone(w, stride, padding, dilation, groups) =
-    CONV_1X1_GEMM[] && groups == 1 && length(stride) == 2 &&
+    groups == 1 && length(stride) == 2 &&
     size(w, 1) == 1 && size(w, 2) == 1 &&
     all(==(1), stride) && all(==(0), padding) && all(==(1), dilation)
 
 """
-    convolution!(out, x, w, bias, stride, padding, dilation, groups)
+    convolution!(ctx, out, x, w, bias, stride, padding, dilation, groups)
 
 `stride`/`padding`/`dilation` are `(x, y)` in the reversed layout, i.e. the
 reverse of the `(h, w)` pairs ATen carries.
 """
-function convolution!(out, x, w, bias, stride, padding, dilation, groups;
-                      ws=nothing, act::Symbol=:none)
+function convolution!(ctx, out, x, w, bias, stride, padding, dilation, groups;
+                      act::Symbol=:none)
     # Dense convolutions go through the implicit-GEMM kernel (conv_implicit.jl);
     # it is the only one with any data reuse. Grouped ones stay here — this model
     # has none, so that path is untuned.
@@ -110,14 +111,15 @@ function convolution!(out, x, w, bias, stride, padding, dilation, groups;
     d = (dilation[1], dilation[2])
     if groups == 1
         # A 1x1 convolution is a GEMM on the input as it already lies — see
-        # `CONV_1X1_GEMM`. Checked before the coopmat path because it is the same
+        # `onebyone`. Checked before the coopmat path because it is the same
         # product with two passes removed.
-        if ws !== nothing && onebyone(w, stride, padding, dilation, groups) &&
-           conv_coopmat_applicable(out, x, w)
+        cmplan = conv_coopmat_plan(ctx.dev, out, x, w)
+        if ctx.ws !== nothing && onebyone(w, stride, padding, dilation, groups) &&
+           cmplan isa ConvCoopMatPlan
             Wi, Hi, Cin, Nb = size(x)
             Cout = size(w, 4)
-            matmul!(reshape(out, Wi * Hi * Nb, Cout), reshape(x, Wi * Hi * Nb, Cin),
-                    reshape(w, Cin, Cout), nothing; ws)
+            matmul!(ctx, reshape(out, Wi * Hi * Nb, Cout), reshape(x, Wi * Hi * Nb, Cin),
+                    reshape(w, Cin, Cout), nothing)
             bias === nothing || (out .= out .+ reshape(bias, 1, 1, Cout, 1))
             act === :relu && (out .= max.(out, zero(eltype(out))))
             return out
@@ -126,11 +128,11 @@ function convolution!(out, x, w, bias, stride, padding, dilation, groups;
         # the operands are fp16 (i.e. the autocast export); the scalar
         # implicit-GEMM otherwise. Same arithmetic, ~30x apart on the layers
         # that dominate this model.
-        conv_coopmat_applicable(out, x, w) &&
-            return convolution_coopmat!(out, x, w, bias, s, p, d; ws, act)
-        return convolution_igemm!(out, x, w, bias, s, p, d; act)
+        cmplan isa ConvCoopMatPlan &&
+            return convolution_coopmat!(ctx, out, cmplan, x, w, bias, s, p, d; act)
+        return convolution_igemm!(ctx, out, x, w, bias, s, p, d; act)
     end
-    convolution_direct!(out, x, w, bias, stride, padding, dilation, groups)
+    convolution_direct!(ctx, out, x, w, bias, stride, padding, dilation, groups)
     # The grouped path has no epilogue to fold into; this model has no grouped
     # convolutions, so it is left as a separate pass rather than duplicated.
     act === :relu && (out .= max.(out, zero(eltype(out))))
@@ -200,11 +202,14 @@ which is a GEMM over `(H*W) x C_in x (C_out*S*S)` followed by a depth-to-space
 interleave — the pixel-shuffle identity. SAM 2's mask decoder upsamples with two
 of these, and they were **3.73 ms of an 8.44 ms decode**, 44%, because the
 gather kernel below computes each output element from scratch with no reuse.
-"""
-const CONVT_GEMM = Ref(true)
 
+Like [`onebyone`](@ref) this asks about the problem only. It used to begin with
+`CONVT_GEMM[] &&` — and, because the `const` sat between this docstring and the
+function, the prose was attached to the *switch*, so `?shufflecase` answered
+nothing. Deleting the settled switch (review finding 3) put the docstring back on
+the function it describes.
+"""
 @inline shufflecase(w, stride, padding, dilation, outpad, groups) =
-    CONVT_GEMM[] &&
     groups == 1 && length(stride) == 2 &&
     all(==(1), dilation) && all(==(0), padding) && all(==(0), outpad) &&
     size(w, 1) == stride[1] && size(w, 2) == stride[2]
@@ -229,7 +234,7 @@ write consecutive addresses; the gather side is strided but it is a read.
 end
 
 """
-    convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups)
+    convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, outpad, groups)
 
 `aten::convolution` with `transposed = true` — SAM 2's mask decoder upsamples
 its 64x64 embedding to 256x256 with two of these.
@@ -239,36 +244,35 @@ arithmetic differs from the ordinary grouped case (the weight's second axis is
 `C_out ÷ groups`), and nothing here exercises it, so it would be untested code
 that silently returns a picture.
 """
-function convolutiontranspose!(out, x, w, bias, stride, padding, dilation, outpad, groups;
-                               ws = nothing)
+function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, outpad,
+                               groups)
     groups == 1 || error("grouped transposed convolution (groups = $groups) is not implemented")
     all(==(0), outpad) || error("transposed convolution with output_padding = $outpad is not implemented")
     # The non-overlapping case is a GEMM; everything else is the gather below.
     # `size(x, 4) == 1` because the flatten fuses `W` and `H`, which are only
     # adjacent in memory within one batch element.
-    if ws !== nothing && size(x, 4) == 1 && shufflecase(w, stride, padding, dilation, outpad, groups)
+    if ctx.ws !== nothing && size(x, 4) == 1 && shufflecase(w, stride, padding, dilation, outpad, groups)
         Wi, Hi, Ci, _ = size(x)
         KX, KY, Co, _ = size(w)
-        backend = KernelAbstractions.get_backend(x)
         xm = reshape(x, Wi * Hi, Ci)
         # `(ci, dx, dy, co)` flattens column-major to the column index the
         # shuffle above reads. The permute is of a *weight*, so it belongs at
         # load time — `hoistpermutes` territory — and is done per call for now.
         wm = reshape(permutedims(w, (4, 1, 2, 3)), Ci, KX * KY * Co)
-        P = scratch!(ws, backend, eltype(out), Wi * Hi, KX * KY * Co)
-        matmul!(P, xm, wm, nothing; ws)
-        launch!(shuffleout, out, P, bias, Val(stride[1]), Val(stride[2]), Int32(Wi))
+        P = scratch!(ctx, eltype(out), Wi * Hi, KX * KY * Co)
+        matmul!(ctx, P, xm, wm, nothing)
+        launch!(ctx, shuffleout, out, P, bias, Val(stride[1]), Val(stride[2]), Int32(Wi))
         return out
     end
-    launch!(convtranspose2d, out, x, w, bias,
+    launch!(ctx, convtranspose2d, out, x, w, bias,
             Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
             Val(dilation[1]), Val(dilation[2]))
 end
 
 """One thread per output element, no reuse. Kept for grouped convolutions and as
 the reference the implicit-GEMM kernel is checked against."""
-function convolution_direct!(out, x, w, bias, stride, padding, dilation, groups)
-    launch!(conv2d, out, x, w, bias,
+function convolution_direct!(ctx, out, x, w, bias, stride, padding, dilation, groups)
+    launch!(ctx, conv2d, out, x, w, bias,
             Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
             Val(dilation[1]), Val(dilation[2]), Val(groups))
 end
@@ -309,6 +313,6 @@ Layout `(x, c, n)`; weight reversed `(C_out, C_in÷groups, K)` = `(kx, ci, co)`.
     end
 end
 
-convolution1d!(out, x, w, bias, stride, padding, dilation, groups) =
-    launch!(conv1d, out, x, w, bias, Val(stride[1]), Val(padding[1]),
+convolution1d!(ctx, out, x, w, bias, stride, padding, dilation, groups) =
+    launch!(ctx, conv1d, out, x, w, bias, Val(stride[1]), Val(padding[1]),
             Val(dilation[1]), Val(groups))

@@ -220,15 +220,6 @@ function hoistcasts(g::Graph, weights::Dict{String,Any})
     (Graph(g.name, g.symbols, g.inputs, g.outputs, buffers, g.order, ops, g.fusion), hoisted)
 end
 
-"""
-    FOLD_CONSTSUBGRAPHS :: Bool
-
-Whether `hoistconstants` folds whole constant subgraphs. On. Off restores the
-graph as exported, which costs 11.7 ms per encode and 424 MB of slab, and is
-worth having for an A/B or when a load that runs no encode at all is what matters
-— folding moves the folded ops' JIT to load time.
-"""
-const FOLD_CONSTSUBGRAPHS = Ref(true)
 
 """
     hoistconstants(graphs, weights, backend) -> (graphs, weights, nfolded)
@@ -274,9 +265,16 @@ alternative and is the wrong one — the same 164 ops take 6.5 s there, 5.5 s of
 JIT for kernels nothing else in the model needs. Its 604 MB of intermediates are
 transient in the real sense: Lava returns a freed block to the driver, measured
 at `+0 MiB` across an allocate/free of that size, so `nvidia-smi` is unchanged.
+
+`enabled = false` restores the graph as exported, which costs 11.7 ms per encode
+and 424 MB of slab, and is worth having for an A/B or when a load that runs no
+encode at all is what matters — folding moves the folded ops' JIT to load time.
+A keyword rather than a global: it is read in one place, and an A/B that mutates
+module state cannot run two ways at once.
 """
-function hoistconstants(graphs::AbstractDict, weights::AbstractDict, backend)
-    FOLD_CONSTSUBGRAPHS[] || return (Dict{String,Graph}(graphs), Dict{String,Any}(weights), 0)
+function hoistconstants(graphs::AbstractDict, weights::AbstractDict, backend;
+                        enabled::Bool = true)
+    enabled || return (Dict{String,Graph}(graphs), Dict{String,Any}(weights), 0)
     w = Dict{String,Any}(weights)
     out = Dict{String,Graph}()
     n = 0

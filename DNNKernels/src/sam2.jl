@@ -57,10 +57,72 @@ struct SAM2
     # is a converted input having to be reallocated.
     prompts::Base.RefValue{Any}
     replay::Base.RefValue{Any}
+
+    # ── Policy. Fields rather than module-level `Ref`s (review finding 3): they
+    # describe *this* model, so two of them can be configured differently and be
+    # alive at once, and a test that changes one cannot leak into the next.
+
+    # ── Reuse the decoder's dtype-converted inputs across clicks on one embedding.
+    #
+    # **On, and it is a precondition rather than a saving.** The saving is real and measured — the
+    # conversion is 12.6 MB of the 22.3 MB each `decode` allocates, and it is per
+    # click where it should be per frame — but the numerical check needs a decode
+    # result read back, and every attempt at that hit the flush hang (see
+    # `perf-plan.md`; it fired about ten times in one afternoon). Shipping a cache on
+    # the path that produces masks, without having compared one against the uncached
+    # result, is not a trade worth making for 12.6 MB.
+    #
+    # **The open question is answered.** It asked whether any decoder op writes into an
+    # *input* buffer, since the planner is free to alias. Read back on 2026-08-02: the
+    # cached first call and the cached *second* call both differ from the uncached
+    # result by `0.000e+00`. It agrees with the static argument — no op in either graph
+    # names its own output among its inputs, and `escaping` gives externals no slab
+    # space — so neither structural route to aliasing exists.
+    #
+    # **And it buys no time on its own: +0.008 ms.** 12.6 MB at 250 GB/s is 0.05 ms;
+    # the "12.6 of the 22.3 MB each decode allocates" above was about allocation churn
+    # and had been read as though it were about time. What it *is* worth is
+    # `replaydecode`, which needs every device address to be identical next
+    # call — "an input buffer written in place rather than reallocated" — and that is
+    # 1 ms. Turning this off turns that off with it.
+    cacheinputs::Bool
+
+    # ── Capture the decoder's command buffers on the first click and re-submit
+    # them on every click after.
+    #
+    # **Once, not once per frame.** The recorded addresses are the slab's, the
+    # weights', and the persistent pair `prompt` writes into, and none of those move
+    # when a new image is encoded — the encoder overwrites its outputs in place. So a
+    # capture keeps serving after `encode`, and it is checked that way rather than
+    # assumed: `test_replay_decode.jl` encodes a second image and compares the
+    # replayed masks against the recorded path bit for bit.
+    #
+    # **40% of a 3.9 ms decode is not any graph op** — it is the host rebuilding a
+    # 149-dispatch launch sequence that is identical every time. `replay!` re-submits
+    # it with one `vkQueueSubmit2` and no recording: **4.211 -> 3.208 ms**, bit-exact,
+    # 50% of PyTorch to 65%.
+    #
+    # The preconditions are `capture`'s, and all three are things this file already
+    # does for other reasons: a statically planned slab, fixed weights, and inputs
+    # written in place. That last one is why `cacheinputs` matters — measured
+    # alone it is worth 0.008 ms and looks pointless, and it is the thing that makes a
+    # replay legal. `prompt` writes into one persistent pair for the same reason.
+    #
+    # The masks come back in the captured buffer, so they are valid until the next
+    # decode. That was already true of the slab-backed result and is worth saying
+    # twice: materialising two decodes' outputs and then comparing them compares one
+    # array with itself.
+    replaydecode::Bool
+
+    # ── How close two predicted IoUs have to be for `pick = :confident` to treat
+    # them as a tie. 0.1 covers the cases measured; see [`segment`](@ref).
+    segmenttie::Float32
 end
 
 function SAM2(graphdir::AbstractString, weightpath::AbstractString;
-              backend=KernelAbstractions.CPU(), res::Int=1024, maxpoints::Int=16)
+              backend=KernelAbstractions.CPU(), res::Int=1024, maxpoints::Int=16,
+              cacheinputs::Bool=true, replaydecode::Bool=true,
+              segmenttie::Real=0.1f0)
     m = Model(graphdir, weightpath; backend, names=["sam2_encoder", "sam2_decoder"])
     enc, dec = m.graphs["sam2_encoder"], m.graphs["sam2_decoder"]
     # torch order, so the image is (n, c, y, x) and the point list (n, k, 2).
@@ -69,7 +131,8 @@ function SAM2(graphdir::AbstractString, weightpath::AbstractString;
     pts = dec.buffers[dec.inputs[4]].shape
     pts[2] == maxpoints || error("decoder graph has $(pts[2]) point slots, not $maxpoints")
     SAM2(m, res, maxpoints, (res=res,), Ref{Any}(nothing), Ref{Any}(nothing),
-         Ref{Any}(nothing), Ref{Any}(nothing))
+         Ref{Any}(nothing), Ref{Any}(nothing),
+         cacheinputs, replaydecode, Float32(segmenttie))
 end
 
 KernelAbstractions.get_backend(s::SAM2) = s.model.backend
@@ -97,34 +160,6 @@ function encode(s::SAM2, image)
     call(s.model, "sam2_encoder", image; dims=s.dims)
 end
 
-"""
-    CACHE_DECODER_INPUTS[] :: Bool
-
-Reuse the decoder's dtype-converted inputs across clicks on one embedding.
-
-**On, and it is a precondition rather than a saving.** The saving is real and measured — the
-conversion is 12.6 MB of the 22.3 MB each `decode` allocates, and it is per
-click where it should be per frame — but the numerical check needs a decode
-result read back, and every attempt at that hit the flush hang (see
-`perf-plan.md`; it fired about ten times in one afternoon). Shipping a cache on
-the path that produces masks, without having compared one against the uncached
-result, is not a trade worth making for 12.6 MB.
-
-**The open question is answered.** It asked whether any decoder op writes into an
-*input* buffer, since the planner is free to alias. Read back on 2026-08-02: the
-cached first call and the cached *second* call both differ from the uncached
-result by `0.000e+00`. It agrees with the static argument — no op in either graph
-names its own output among its inputs, and `escaping` gives externals no slab
-space — so neither structural route to aliasing exists.
-
-**And it buys no time on its own: +0.008 ms.** 12.6 MB at 250 GB/s is 0.05 ms;
-the "12.6 of the 22.3 MB each decode allocates" above was about allocation churn
-and had been read as though it were about time. What it *is* worth is
-[`REPLAY_DECODE`](@ref), which needs every device address to be identical next
-call — "an input buffer written in place rather than reallocated" — and that is
-1 ms. Turning this off turns that off with it.
-"""
-const CACHE_DECODER_INPUTS = Ref(true)
 
 """
     decode(s, feats, point, label) -> (masks, iou)
@@ -138,7 +173,7 @@ here.
 the result is about to be resampled. `iou` is `(3, 1)`, the model's own estimate
 of how good each of the three is.
 """
-function decode(s::SAM2, feats, point, label)
+function decode(s::SAM2, feats, point, label; replay::Bool = s.replaydecode)
     g = s.model.graphs["sam2_decoder"]
     # The two graphs are exported under different precision policies — the
     # encoder under autocast, so its matmuls land on fp16 tensor cores, and the
@@ -149,7 +184,7 @@ function decode(s::SAM2, feats, point, label)
     # Converted once per embedding, not once per click — see the cache fields on
     # `SAM2`. `encode` clears the key, which is what makes a new embedding
     # rebuild this; `===` alone cannot, since the tuple is the same one.
-    args = if CACHE_DECODER_INPUTS[] && s.cachekey[] === feats
+    args = if s.cacheinputs && s.cachekey[] === feats
         s.cacheval[]::NTuple{3,Any}
     else
         prev = s.cacheval[]
@@ -159,7 +194,7 @@ function decode(s::SAM2, feats, point, label)
             f = feats[i]
             eltype(f) === want && return f
             # Converted INTO the previous destination whenever there is a usable
-            # one, rather than allocated afresh. A `REPLAY_DECODE` capture
+            # one, rather than allocated afresh. A `replaydecode` capture
             # records these addresses in its push constants, and a replay over
             # moved addresses does not fail — it re-runs against whatever now
             # lives there and returns a plausible mask. When the destination
@@ -178,81 +213,45 @@ function decode(s::SAM2, feats, point, label)
         a
     end
     # Padded attention tiles are the decoder's business, not the encoder's.
-    # `FLASHCM_CLAMP` lets an attention whose extents do not divide the tile take
-    # the cooperative-matrix path anyway, padded and masked. The decoder's are 23
-    # tokens and want exactly that; the encoder has six `Lq = 16` calls that
-    # would go along at 50% waste, and they cost **+2.12 ms of encode** for
-    # nothing. Measured interleaved in one process on the autocast export, which is
-    # the only form that means anything for a 4 ms call on a shared card: decode
-    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75. Scoped here, both.
+    # `clampattn` lets an attention whose extents do not divide the tile take the
+    # cooperative-matrix path anyway, padded and masked. The decoder's are 23
+    # tokens and want exactly that; the encoder has six `Lq = 16` calls that would
+    # go along at 50% waste, and they cost **+2.12 ms of encode** for nothing.
+    # Measured interleaved in one process on the autocast export, which is the only
+    # form that means anything for a 4 ms call on a shared card: decode 8.24 ->
+    # 4.22 ms with the clamp, encode 118.63 -> 120.75.
     #
-    # A `Ref` set around the call rather than a parameter because
-    # `flashcm_tiling` reads it six frames down, inside `runop!`; threading a
-    # keyword through `execute!` for one graph's benefit would be worse. Restored
-    # in a `finally`, so a decoder error cannot leave it on for the next encode.
-    old = FLASHCM_CLAMP[]
-    FLASHCM_CLAMP[] = true
-    try
-        run() = call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label;
-                     dims=s.dims)
-        REPLAY_DECODE[] && replayable(s, feats, point, label) || return run()
+    # It was a `Ref` set here and restored in a `finally`, on the grounds that
+    # `flashcm_tiling` reads it six frames down inside `runop!`. It is now an
+    # argument to the one call that wants it: the context carries it those six
+    # frames, which is what the context is for. Nothing to restore, so nothing an
+    # error can leave switched on for the next encode.
+    run() = call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label;
+                 dims=s.dims, clampattn=true)
+    replay && replayable(s, feats, point, label) || return run()
 
-        r = s.replay[]
-        if r !== nothing && r[1] === feats && r[2] === point && r[3] === label
-            Lava.replay!(r[4])
-            return r[5]
-        end
-        # First click on this embedding: `capture` RUNS the body, so this costs
-        # one decode and not two. Everything it records must keep its addresses —
-        # the slab is statically planned, the weights are fixed, `args` comes
-        # from the cache above and `point`/`label` are the persistent pair
-        # `prompt` writes into.
-        bq = Lava.VK_CONTEXT_REF[].default_bq
-        out = nothing
-        seq = Lava.capture(bq) do
-            out = run()
-        end
-        s.replay[] = (feats, point, label, seq, out)
-        return out
-    finally
-        FLASHCM_CLAMP[] = old
+    r = s.replay[]
+    if r !== nothing && r[1] === feats && r[2] === point && r[3] === label
+        Lava.replay!(r[4])
+        return r[5]
     end
+    # First click on this embedding: `capture` RUNS the body, so this costs one
+    # decode and not two. Everything it records must keep its addresses — the slab
+    # is statically planned, the weights are fixed, `args` comes from the cache
+    # above and `point`/`label` are the persistent pair `prompt` writes into.
+    bq = Lava.VK_CONTEXT_REF[].default_bq
+    out = nothing
+    seq = Lava.capture(bq) do
+        out = run()
+    end
+    s.replay[] = (feats, point, label, seq, out)
+    return out
 end
 
-"""
-    REPLAY_DECODE[] :: Bool
 
-Capture the decoder's command buffers on the first click and re-submit them on
-every click after.
-
-**Once, not once per frame.** The recorded addresses are the slab's, the
-weights', and the persistent pair `prompt` writes into, and none of those move
-when a new image is encoded — the encoder overwrites its outputs in place. So a
-capture keeps serving after `encode`, and it is checked that way rather than
-assumed: `test_replay_decode.jl` encodes a second image and compares the
-replayed masks against the recorded path bit for bit.
-
-**40% of a 3.9 ms decode is not any graph op** — it is the host rebuilding a
-149-dispatch launch sequence that is identical every time. `replay!` re-submits
-it with one `vkQueueSubmit2` and no recording: **4.211 -> 3.208 ms**, bit-exact,
-50% of PyTorch to 65%.
-
-The preconditions are `capture`'s, and all three are things this file already
-does for other reasons: a statically planned slab, fixed weights, and inputs
-written in place. That last one is why `CACHE_DECODER_INPUTS` matters — measured
-alone it is worth 0.008 ms and looks pointless, and it is the thing that makes a
-replay legal. `prompt` writes into one persistent pair for the same reason.
-
-The masks come back in the captured buffer, so they are valid until the next
-decode. That was already true of the slab-backed result and is worth saying
-twice: materialising two decodes' outputs and then comparing them compares one
-array with itself.
-"""
-const REPLAY_DECODE = Ref(true)
-
-"""Whether this call can be captured and replayed — see [`REPLAY_DECODE`](@ref)."""
+"""Whether this call can be captured and replayed — see `SAM2.replaydecode`."""
 function replayable(s::SAM2, feats, point, label)
-    CACHE_DECODER_INPUTS[] || return false
+    s.cacheinputs || return false
     s.model.backend isa Lava.LavaBackend || return false
     pb = s.prompts[]
     pb !== nothing && point === pb[1] && label === pb[2]
@@ -298,13 +297,6 @@ function prompt(s::SAM2, points, labels)
     pb
 end
 
-"""
-    SEGMENT_TIE[] :: Float32
-
-How close two predicted IoUs have to be for `pick = :confident` to treat them as
-a tie. 0.1 covers the cases measured; see [`segment`](@ref).
-"""
-const SEGMENT_TIE = Ref(0.1f0)
 
 """
     segment(s, feats, points, labels; pick = :best) -> (mask, score)
@@ -348,7 +340,7 @@ function segment(s::SAM2, feats, points, labels; pick=:best)
         argmax(scores)
     elseif pick === :confident
         best = maximum(scores)
-        near = findall(>=(best - SEGMENT_TIE[]), scores)
+        near = findall(>=(best - s.segmenttie), scores)
         # ONE download of all three planes (768 KB), not one per candidate. Each
         # download drains the batch this decode was recorded into, and repeatedly
         # draining a queue that is still being written is how the decode path

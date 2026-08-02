@@ -6,7 +6,7 @@ SAM 2's decode as a captured command buffer, replayed per click.
 The decoder's work is identical on every click but its *inputs* are not, so this
 is only correct if a replay reads the new bytes out of buffers whose addresses
 never move. Two things make that true and both are under test here: the decoder's
-converted inputs are cached (`CACHE_DECODER_INPUTS`), and `prompt` writes each
+converted inputs are cached (`SAM2.cacheinputs`), and `prompt` writes each
 click into one persistent pair instead of allocating a fresh one.
 
 The failure this guards against is silent. A replay whose buffers had been
@@ -73,11 +73,12 @@ const MODELDIR = joinpath(G, "sam2-large")
         replayed, _ = decode(sam, feats, pt2, lb2); KA.synchronize(back)
         replayed = copy(Array(replayed))
 
-        DK.REPLAY_DECODE[] = false
+        # A keyword on the call, not a global flipped around it: one model can
+        # serve both halves of the A/B, and a failure between the two lines
+        # cannot leave replay switched off for every test after.
         sam.replay[] = nothing
-        recorded, _ = decode(sam, feats, pt2, lb2); KA.synchronize(back)
+        recorded, _ = decode(sam, feats, pt2, lb2; replay = false); KA.synchronize(back)
         recorded = copy(Array(recorded))
-        DK.REPLAY_DECODE[] = true
 
         @test replayed == recorded
         # ...and it did move, so the equality above is not two copies of one mask.
@@ -131,10 +132,9 @@ const MODELDIR = joinpath(G, "sam2-large")
         replayed = copy(Array(decode(sam, feats2, pt, lb)[1])); KA.synchronize(back)
         @test sam.replay[][4] === seq          # served, not re-recorded
 
-        DK.REPLAY_DECODE[] = false
         sam.replay[] = nothing
-        recorded = copy(Array(decode(sam, feats2, pt, lb)[1])); KA.synchronize(back)
-        DK.REPLAY_DECODE[] = true
+        recorded = copy(Array(decode(sam, feats2, pt, lb; replay = false)[1]))
+        KA.synchronize(back)
 
         @test replayed == recorded
         @test replayed != maskA                # the new frame did reach the mask

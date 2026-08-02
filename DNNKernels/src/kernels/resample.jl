@@ -24,8 +24,8 @@ arithmetic folds where the ratio is exact (it always is on this model's paths).
     end
 end
 
-adaptive_avg_pool2d!(out, x) = launch!(adaptive_avg_pool, out, x,
-                                       Val(size(out, 1)), Val(size(out, 2)))
+adaptive_avg_pool2d!(ctx, out, x) = launch!(ctx, adaptive_avg_pool, out, x,
+                                           Val(size(out, 1)), Val(size(out, 2)))
 
 """
 `upsample_bilinear2d` with `align_corners=false`: source coordinate
@@ -59,12 +59,12 @@ adaptive_avg_pool2d!(out, x) = launch!(adaptive_avg_pool, out, x,
     end
 end
 
-function upsample_bilinear2d!(out, x; align_corners::Bool = false)
+function upsample_bilinear2d!(ctx, out, x; align_corners::Bool = false)
     sx = align_corners ? (size(out, 1) > 1 ? Float32((size(out, 1) - 1) / max(size(x, 1) - 1, 1)) : 1.0f0) :
                          Float32(size(out, 1) / size(x, 1))
     sy = align_corners ? (size(out, 2) > 1 ? Float32((size(out, 2) - 1) / max(size(x, 2) - 1, 1)) : 1.0f0) :
                          Float32(size(out, 2) / size(x, 2))
-    launch!(upsample_bilinear, out, x, sx, sy, Val(align_corners))
+    launch!(ctx, upsample_bilinear, out, x, sx, sy, Val(align_corners))
 end
 
 """
@@ -91,9 +91,9 @@ end
 # `scale_factors`, and the two agree by construction: ATen uses `1/scale_factor`
 # when the factors are given and `in/out` when they are not, and the output
 # extent it records was computed from those same factors.
-upsample_nearest2d!(out, x) = launch!(upsample_nearest, out, x,
-                                      Float32(size(x, 1) / size(out, 1)),
-                                      Float32(size(x, 2) / size(out, 2)))
+upsample_nearest2d!(ctx, out, x) = launch!(ctx, upsample_nearest, out, x,
+                                           Float32(size(x, 1) / size(out, 1)),
+                                           Float32(size(x, 2) / size(out, 2)))
 
 """
 `cumsum` along one axis, one thread per output element.
@@ -116,7 +116,7 @@ exercises.
     end
 end
 
-cumsum_dim!(out, a, d::Integer) = launch!(cumsum_body, out, a, Val(Int(d)))
+cumsum_dim!(ctx, out, a, d::Integer) = launch!(ctx, cumsum_body, out, a, Val(Int(d)))
 
 @inline function maxpool(I, x, ::Val{KX}, ::Val{KY}, ::Val{SX}, ::Val{SY},
                          ::Val{PX}, ::Val{PY}) where {KX,KY,SX,SY,PX,PY}
@@ -138,8 +138,8 @@ cumsum_dim!(out, a, d::Integer) = launch!(cumsum_body, out, a, Val(Int(d)))
     end
 end
 
-maxpool2d!(out, x, k, s, p) = launch!(maxpool, out, x, Val(k[1]), Val(k[2]),
-                                      Val(s[1]), Val(s[2]), Val(p[1]), Val(p[2]))
+maxpool2d!(ctx, out, x, k, s, p) = launch!(ctx, maxpool, out, x, Val(k[1]), Val(k[2]),
+                                           Val(s[1]), Val(s[2]), Val(p[1]), Val(p[2]))
 
 # ----------------------------------------------------------- BasicVSR++ kernels
 

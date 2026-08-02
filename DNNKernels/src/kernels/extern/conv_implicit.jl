@@ -63,10 +63,14 @@ Block shape for a `K x NPQ` output, ported from `ggml_vk_conv_select_shape`
 tiles per shader core, gated on `K` so a narrow output does not get a block wider
 than it is; otherwise fall back to 64x32.
 
-`cores` is the shader-core count — 48 on the RTX 4000 Ada this was tuned against.
-ggml uses 32 as its placeholder when the count cannot be queried.
+`cores` is the shader-core count — 48 on the RTX 4000 Ada this was tuned against,
+and `ctx.dev.cores` at the call site. ggml uses 32 as its placeholder when the
+count cannot be queried, and so does the default here: `Device` reports 0 when
+the device will not say, and 0 would make every `>= 2cores` test trivially true
+and always pick the widest block.
 """
-function convtiles(K::Int, NPQ::Int; cores::Int = 48)
+function convtiles(K::Int, NPQ::Int; cores::Int = 32)
+    cores <= 0 && (cores = 32)
     ntiles(s) = cld(K, s[1]) * cld(NPQ, s[2])
     if K > 64 && ntiles(CONV_SHAPE_128x128) >= 2cores
         CONV_SHAPE_128x128
@@ -294,22 +298,25 @@ function convsplit(nbk::Int, nbn::Int, nblk::Int; cores::Int = 48)
 end
 
 """
-    convolution_igemm!(out, x, w, bias, stride, padding, dilation) -> out
+    convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation) -> out
 
 Implicit-GEMM path. Dense (`groups == 1`) convolutions only; the grouped case
 still goes through the direct kernel, and this model has none.
 """
-function convolution_igemm!(out, x, w, bias, stride, padding, dilation; act::Symbol=:none)
+function convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation; act::Symbol=:none)
     KWk, KHk, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)
     OW, OH, _, N = size(out)
     CRS = Cin * KHk * KWk
     NPQ = N * OH * OW
-    BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ = convtiles(Cout, NPQ)
+    # The shader-core count comes off the context, not from the literal 48 this
+    # was tuned against: the whole rule is "at least two tiles per core", so on a
+    # part with a different count it picks the wrong block outright.
+    BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ = convtiles(Cout, NPQ; cores = ctx.dev.cores)
     nbk = cld(Cout, BS_K)
     nbn = cld(NPQ, BS_NPQ)
     splitk = convsplit(nbk, nbn, cld(CRS, BS_CRS))
-    backend = KernelAbstractions.get_backend(out)
+    backend = ctx.backend
     # Split-K accumulates with `Atomix.@atomic +=` on the destination, and
     # Vulkan 1.3 has no fp16 atomic add (`AtomicFloat16AddEXT` is not in the
     # allowed capability set), so an fp16 output accumulates into an fp32 scratch

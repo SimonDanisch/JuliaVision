@@ -49,7 +49,7 @@ astranspose(a) = a
 astranspose(a::PermutedDimsArray{T,2,(2, 1)}) where {T} = transpose(parent(a))
 
 """
-    matmul!(out, A, B, bias=nothing)
+    matmul!(ctx, out, A, B, bias=nothing)
 
 `out[i, j] = Σ_k A[i, k] B[k, j]`, plus `bias` broadcast over the output.
 
@@ -59,8 +59,16 @@ the operand types and its own device query. Nothing here knows tensor cores
 exist, which is the point: this file describes what the graph needs, not how a
 particular GPU provides it.
 """
-function matmul!(out, A, B, bias=nothing; ws=nothing, epi=identity)
-    mm_coopmat_applicable(out, A, B) && return matmul_coopmat!(out, A, B, bias, ws, epi)
+matmul!(ctx, out, A, B, bias=nothing; epi=identity) =
+    matmul!(ctx, mm_coopmat_plan(ctx.dev, out, A, B), out, A, B, bias, epi)
+
+# One method per plan type (review finding 1): a new GEMM path is a new plan type
+# and a new method here, not another branch in the function above.
+matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi) =
+    matmul_coopmat!(ctx, out, plan, A, B, bias, epi)
+
+"""`LinearAlgebra.mul!`, which is Lava's scalar kernel — always available."""
+function matmul!(ctx, ::Decline, out, A, B, bias, epi)
     mul!(out, astranspose(A), astranspose(B))
     bias === nothing || (out .= out .+ bias)
     # The scalar path has no epilogue to fold into, so the activation is a second
@@ -70,8 +78,9 @@ function matmul!(out, A, B, bias=nothing; ws=nothing, epi=identity)
     out
 end
 
+
 """
-    mm_coopmat_applicable(out, A, B) -> Bool
+    mm_coopmat_plan(dev, out, A, B) -> MMCoopMatPlan | Decline
 
 Whether `matmul!` can take the tensor-core path.
 
@@ -84,10 +93,12 @@ belongs in the same epilogue and `mul!` has no bias.
 `N` is padded internally; `M` and `K` are the operands' own extents and are
 required to land on the tile.
 """
-function mm_coopmat_applicable(out, A, B)
-    A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} || return false
-    size(A, 1) % Lava.GEMM_TILE == 0 && size(A, 2) % Lava.GEMM_TILE == 0 || return false
-    Lava.coopmat_gemm_available()
+function mm_coopmat_plan(dev::Device, out, A, B)
+    A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
+        return Decline(:operands)
+    size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
+    dev.coopmat || return Decline(:nocoopmat)
+    MMCoopMatPlan(cld(size(B, 2), dev.tile) * dev.tile, dev.tile)
 end
 
 """Copy `B` into the leading `N` columns of a `K x NP` scratch, zeroing the rest."""
@@ -128,33 +139,31 @@ so a separate reduction kernel would be a second full traversal for nothing.
     end
 end
 
-"""
-    MATMUL_FUSED[] :: Bool
+# ── Why the GEMM writes `out` directly ───────────────────────────────────────
+#
+# Bias in the accumulator's initial value, fp32→fp16 conversion in registers,
+# instead of an fp32 scratch plus `mm_epilogue_kernel!`. This was a switch
+# (`MATMUL_FUSED`), on by default; the winner is inlined below and the switch is
+# gone (`kernel-library-review.md` finding 3, tier two). It was a switch because
+# that is the only way to compare the two **inside one session**, and
+# cross-session encode numbers on this machine have disagreed by 40 ms in both
+# directions — so any re-measurement has to A/B the two branches in one process,
+# not two runs.
+#
+# The two are not bit-identical and are not meant to be: the bias joins the fp32
+# accumulation chain rather than being added after it, so 31 elements of a 2.36 M
+# output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
+# reference is the same to four significant figures on every shape.
 
-Whether the GEMM writes `out` directly — bias in the accumulator's initial value,
-fp32→fp16 conversion in registers — instead of an fp32 scratch plus
-`mm_epilogue_kernel!`.
-
-A switch rather than a constant for the same reason as `LAUNCH_FLAT`: it is the
-only way to compare the two **inside one session**, and cross-session encode
-numbers on this machine have disagreed by 40 ms in both directions.
-
-The two are not bit-identical and are not meant to be: the bias joins the fp32
-accumulation chain rather than being added after it, so 31 elements of a 2.36 M
-output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
-reference is the same to four significant figures on every shape.
-"""
-const MATMUL_FUSED = Ref(true)
-
-function matmul_coopmat!(out, A, B, bias, ws, epi)
+function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi)
     M, K = size(A)
     N = size(B, 2)
-    NP = padtile(N)
-    backend = KernelAbstractions.get_backend(out)
+    NP = plan.NP
+    backend = ctx.backend
 
     Bp = B
     if NP != N
-        Bp = scratch!(ws, backend, Float16, K, NP)
+        Bp = scratch!(ctx, Float16, K, NP)
         padcols_kernel!(backend)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
     blk_split = Lava.coopmat_gemm_shape(M, NP, K)
@@ -167,11 +176,11 @@ function matmul_coopmat!(out, A, B, bias, ws, epi)
     #
     # `NP != N` still needs the epilogue: the GEMM writes the padded width and
     # the padding columns must not reach `out`.
-    if MATMUL_FUSED[] && splitk == 1 && NP == N
+    if splitk == 1 && NP == N
         Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi)
         return out
     end
-    C = scratch!(ws, backend, Float32, M, NP, max(splitk, 1))
+    C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
     Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
     mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
@@ -179,8 +188,8 @@ function matmul_coopmat!(out, A, B, bias, ws, epi)
 end
 
 """
-    batchedmatmul!(out, A, B)
+    batchedmatmul!(ctx, out, A, B)
 
 `out[i, j, b] = Σ_k A[i, k, b] B[k, j, b]`.
 """
-batchedmatmul!(out, A, B) = launch!(mm3, out, A, B)
+batchedmatmul!(ctx, out, A, B) = launch!(ctx, mm3, out, A, B)

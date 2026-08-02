@@ -261,12 +261,16 @@ end
 end
 
 """
-    readmemory(bank, key, shrinkage_unused, query_key, selection; topk, backend)
+    readmemory(ctx, bank, query_key, selection, w, h; topk)
 
 Returns the visual readout as `(w, h, CV, NOBJ, B)`.
+
+Takes a `Ctx` like every other kernel entry point, although this one is not
+called from a graph: it runs *between* two of them, in `step!`. `Ctx(backend)`
+builds the one it needs — see that constructor.
 """
-function readmemory(m::MemoryBank, qk, qe, w, h; topk::Int=30,
-                    backend=KernelAbstractions.get_backend(qk))
+function readmemory(ctx, m::MemoryBank, qk, qe, w, h; topk::Int=30)
+    backend = ctx.backend
     hw = w * h
     ck = size(m.key, 2)
     bs = size(m.key, 3)
@@ -279,7 +283,7 @@ function readmemory(m::MemoryBank, qk, qe, w, h; topk::Int=30,
     ms = view(m.shrinkage, 1:n, :, :)
 
     sim = KernelAbstractions.allocate(backend, T, hw, n, bs)
-    launch!(similarity_body, sim, mk, ms, qk2, qe2, Val(ck), inv(sqrt(ck)); backend)
+    launch!(ctx, similarity_body, sim, mk, ms, qk2, qe2, Val(ck), inv(sqrt(ck)))
 
     sums = KernelAbstractions.allocate(backend, T, hw, bs)
     let WG = 64
@@ -289,6 +293,6 @@ function readmemory(m::MemoryBank, qk, qe, w, h; topk::Int=30,
 
     cv, nobj = size(m.value, 2), size(m.value, 3)
     out = KernelAbstractions.allocate(backend, T, hw, cv, nobj, bs)
-    launch!(memreadout_body, out, sim, view(m.value, 1:n, :, :, :); backend)
+    launch!(ctx, memreadout_body, out, sim, view(m.value, 1:n, :, :, :))
     reshape(out, w, h, cv, nobj, bs)
 end

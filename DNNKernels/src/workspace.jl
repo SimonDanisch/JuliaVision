@@ -79,3 +79,13 @@ end
 # fall back to a plain allocation. Same results, just not reused.
 scratch!(::Nothing, backend, ::Type{T}, dims::Integer...) where {T} =
     KernelAbstractions.allocate(backend, T, dims...)
+
+"""
+    scratch!(ctx, T, dims...) -> array
+
+The form the kernel entry points use. The workspace and the backend are both on
+the context, so this is one argument where `scratch!(ws, backend, T, …)` was two
+— the same trade the entry points themselves make.
+"""
+@inline scratch!(ctx::Ctx, ::Type{T}, dims::Integer...) where {T} =
+    scratch!(ctx.ws, ctx.backend, T, dims...)

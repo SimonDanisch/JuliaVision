@@ -175,9 +175,11 @@ for TK in ATTN_BLOCKS
 end
 
 """
-    ATTN_MINL[]
+    blockfor(n, other; minl = 64) -> block size
 
-Shortest sequence for which register blocking is worth it.
+Register-block size for a sequence of length `n` against `other`, or 1 for none.
+
+`minl` is the shortest sequence for which blocking is worth it.
 
 Blocking divides the *launched* extent by the block size, and the blocked axis is
 the ndrange's second dimension while the first is the sequence length. Below this
@@ -185,11 +187,7 @@ the grid stops being able to fill a warp along the fast axis and the blocked
 kernel is much slower than the plain one — measured on this card, a
 `(72, 16, 4, 1024)` attention goes 2.2 -> 26.8 ms at `TK = 8` while
 `(72, 256, 8, 16)` goes 8.9 -> 2.2 ms. 64 sits between the two measured regimes.
-"""
-const ATTN_MINL = Ref(64)
 
-"""
-    blockfor(n, other) -> block size
 
 Largest generated block that divides `n`, or 1 when blocking does not apply.
 
@@ -203,8 +201,15 @@ That is a bug in the blocked kernels, or in what Lava makes of them at those
 extents, and it is bounded rather than diagnosed here; the shapes that need the
 speed are square, so the encoder keeps the whole win.
 """
-@inline function blockfor(n, other)
-    (n != other || n < ATTN_MINL[]) && return 1
+@inline function blockfor(n, other, minl::Int = 64)
+    # `n != other` is a BUG WORKAROUND, not a design choice, and it is the one
+    # thing in this function that is not about speed: blocking the decoder's
+    # lopsided (non-square) shapes reproducibly hangs on `vkWaitSemaphores`, with
+    # the queue accumulating in-flight batches until it times out. See the
+    # docstring above. The shapes that need the speed are square, so the encoder
+    # keeps the whole win — but this is an open bug sitting inside a predicate,
+    # and it should be re-tested rather than inherited.
+    (n != other || n < minl) && return 1
     for t in reverse(ATTN_BLOCKS)
         n % t == 0 && return t
     end
@@ -244,7 +249,7 @@ function applyblocked!(backend, tq, out, p, v, sums, ndrange)
 end
 
 """
-    densify(a, ws, backend) -> a, dense
+    densify(ctx, a) -> a, dense
 
 `a` itself when it is already dense, and a workspace copy of it when it is not.
 
@@ -261,9 +266,9 @@ feeds: 9 MB for `q` against 512 MB of scores in SAM 2's global attention.
 `AbstractGPUArray <: DenseArray` — it admits both a device array and the host
 `Array` the verification path uses, and rejects exactly the wrapper stack.
 """
-@inline function densify(a, ws, backend)
+@inline function densify(ctx, a)
     a isa DenseArray && return a
-    d = scratch!(ws, backend, eltype(a), size(a)...)
+    d = scratch!(ctx, eltype(a), size(a)...)
     d .= a
     d
 end
@@ -352,12 +357,13 @@ for T in (Float16, Float32)
 end
 
 """`(E, L, H, B)` operand as a dense `(L, E, H, B)` one in the workspace."""
-function transposeLE(a, ws, backend)
+function transposeLE(ctx, a)
     E, L, H, B = size(a)
-    d = scratch!(ws, backend, eltype(a), L, E, H, B)
+    backend = ctx.backend
+    d = scratch!(ctx, eltype(a), L, E, H, B)
     r = eltype(a) in (Float16, Float32) ? stridedroot(a) : nothing
     if r === nothing
-        launch!(toLE, d, a; backend)
+        launch!(ctx, toLE, d, a)
         return d
     end
     root, off = r
@@ -419,14 +425,9 @@ end
 # silently went stale when something it depended on got faster. Any threshold
 # separating two implementations has that property.
 
-"""
-    COOPMAT_MINL[]
-
-Shortest sequence for which the cooperative-matrix path beats the three-pass
-kernels. 256 as of the re-measurement above; it was 512 when the GEMM under this
-path ran at 20.6 TFLOP/s rather than 35.3.
-"""
-const COOPMAT_MINL = Ref(256)
+# The shortest sequence for which this path beats the three-pass kernels is 256
+# as of the re-measurement above; it was 512 when the GEMM under it ran at 20.6
+# TFLOP/s rather than 35.3. It is `coopmat_sdpa_plan`'s `minl`.
 
 """`(E,L,H,B)` read as `(L,EP,H,B)`, zero past `E`."""
 @inline function toLEpad(I, a, E)
@@ -498,15 +499,6 @@ end
 const ATTN_SM_LQ = 32          # query rows per workgroup — one warp's worth, coalesced
 const ATTN_SM_CH = 8           # key-axis chunks per row; 32 × 8 = 256 threads
 
-"""
-    ATTN_SOFTMAX_ROWS[]
-
-Use the chunked softmax rather than one thread per query row. Switchable so the
-two can be compared for both speed *and* bits in one session — they differ only
-in the order the row maximum and sum are reduced, so any difference between them
-is floating-point associativity and should be tiny.
-"""
-const ATTN_SOFTMAX_ROWS = Ref(true)
 
 """
     attn_softmax_rows!(p, sums, s, scale, nlk)
@@ -577,17 +569,25 @@ Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
 end
 
 """
-    attnsoftmax!(sums, p, s, scale) -> sums
+    attnsoftmax!(ctx, sums, p, s, scale) -> sums
 
 Launch [`attn_softmax_rows!`](@ref) over `s :: (Lq, Lk, H, B)`, flattening
 `(H, B)` so the kernel indexes three dimensions instead of four. Falls back to
 the one-thread-per-row form when `Lq` is not a multiple of `ATTN_SM_LQ`, which
 the tiling has no masking for.
 """
-function attnsoftmax!(sums, p, s, scale; backend = KernelAbstractions.get_backend(s))
+function attnsoftmax!(ctx, sums, p, s, scale)
+    backend = ctx.backend
     Lq, Lk, H, B = size(s)
-    if !ATTN_SOFTMAX_ROWS[] || Lq % ATTN_SM_LQ != 0
-        launch!(attn_softmax16, sums, p, s, Float32(scale); backend)
+    # The chunked form always wins where it applies (review finding 3, tier two:
+    # the switch that selected between them is gone). It has no masking for a
+    # partial tile, so a query count the tiling does not divide still takes the
+    # one-thread-per-row kernel below — which is also how to A/B the two now that
+    # the switch is not there: call `attn_softmax16` directly. They differ only in
+    # the order the row maximum and sum are reduced, so any difference between
+    # them is floating-point associativity and should be tiny.
+    if Lq % ATTN_SM_LQ != 0
+        launch!(ctx, attn_softmax16, sums, p, s, Float32(scale))
         return sums
     end
     s3 = reshape(s, Lq, Lk, H * B)
@@ -599,41 +599,6 @@ function attnsoftmax!(sums, p, s, scale; backend = KernelAbstractions.get_backen
     sums
 end
 
-"""
-    COOPMAT_QCHUNK[]
-
-Query rows per cooperative-matrix attention step.
-
-The score matrix is the whole memory cost of attention: `Lq x Lk` per (head,
-batch), and this path needs it twice — fp32 out of the GEMM, fp16 into the next
-one. At SAM 2's global blocks (Lq = Lk = 4096, 8 head-batches) that is 536 MB +
-268 MB in one go, and it is why a single encode peaked over 11 GB where PyTorch
-peaks at 1.6 (its SDPA dispatches to a fused kernel and never writes the matrix).
-
-Chunking the QUERY axis costs nothing in arithmetic — same tiles, same tensor
-cores, same total FLOPs — and divides the live score memory by `Lq / QCHUNK`.
-Only the queries are chunked: the softmax reduces over KEYS, so a key-chunked
-version would need the running-max rescaling that makes flash attention flash,
-and flash measured 43.9 ms against this path's 4.08 on the same shape.
-
-Rows are copied into a chunk-sized staging buffer rather than passed as a view,
-because `coopmat_gemm!` conflates `M` with the leading dimension and a row slice
-of a column-major matrix is not contiguous.
-
-2048 measured, on SAM 2's global blocks (Lq = Lk = 4096, 8 head-batches):
-
-    QCHUNK  chunks   p50 ms   min ms   S fp32 + P fp16
-      512      8      400.1    398.5      101 MB
-     1024      4      370.1    366.1      201 MB
-     2048      2      352.4    350.0      403 MB
-     4096      1      554.4    337.2      805 MB   <- OOMs mid-run and reclaims
-
-Unchunked has the best floor and no ceiling: it needs 805 MB in one step, which
-on a 20 GB card shared with a desktop pushes the pool into an OOM-retry that
-dumps ~10 GB and costs more than chunking ever does. 2048 gives up ~13 ms
-against that floor for 402 MB and, unlike it, is stable.
-"""
-const COOPMAT_QCHUNK = Ref(2048)
 
 """`(E,L,H,B)` read as `(CH,EP,H,B)` for query rows `q0+1 .. q0+CH`, zero past `E`."""
 @inline function toLEpadchunk(I, a, E, q0, Lq)
@@ -643,35 +608,43 @@ const COOPMAT_QCHUNK = Ref(2048)
 end
 
 """
-    coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk) -> Bool
+    coopmat_sdpa_plan(dev, q, k, v, bias; chunk = 2048, minl = 256) -> CoopMatSDPAPlan | Decline
 
-Whether [`sdpa`](@ref) should take the cooperative-matrix path.
+Whether [`sdpa`](@ref) should take the cooperative-matrix path, and with what.
 
 `bias` must be absent: the three-pass path adds it inside `attn_scores`, and a
 GEMM has no epilogue to add it in — supporting it would mean a third pass, which
 is exactly the traffic this path exists to remove. The extents must land on the
 16-wide tile, which the mask decoder's 23-token prompt does not.
 """
-function coopmat_sdpa_applicable(q, k, v, bias, Lq::Int, Lk::Int)
-    bias === nothing || return false
-    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
-    min(Lq, Lk) >= COOPMAT_MINL[] || return false
-    Lq % Lava.GEMM_TILE == 0 && Lk % Lava.GEMM_TILE == 0 || return false
+function coopmat_sdpa_plan(dev::Device, q, k, v, bias; chunk::Int = 2048,
+                           minl::Int = 256)
+    Lq, Lk = size(q, 2), size(k, 2)
+    bias === nothing || return Decline(:bias)
+    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 ||
+        return Decline(:eltype)
+    min(Lq, Lk) >= minl || return Decline(:short)
+    Lq % dev.tile == 0 && Lk % dev.tile == 0 || return Decline(:extent)
     # `coopmat_gemm_available` asks the *device*, not the operands. On the CPU
     # backend of a machine that has a Vulkan device — which is every run of
     # `verify_sam2.jl` — it says yes, and the encoder's attention then handed
     # slab-backed `Vector{UInt8}` arrays to a cooperative-matrix kernel:
     # "passing non-bitstype argument", and the CPU reference for SAM 2's encoder
     # could not be produced at all. The operands have to be on the device too.
-    ondevice(q) && ondevice(k) && ondevice(v) || return false
-    Lava.coopmat_gemm_available()
+    ondevice(q) && ondevice(k) && ondevice(v) || return Decline(:host)
+    dev.coopmat || return Decline(:nocoopmat)
+
+    E = size(q, 1)
+    CH = min(Lq, max(dev.tile, chunk))
+    CH = cld(CH, dev.tile) * dev.tile      # the GEMM needs M on the tile
+    CoopMatSDPAPlan(CH, cld(E, dev.tile) * dev.tile, size(q, 3) * size(q, 4))
 end
 
 """Whether `a` is backed by device memory, wrappers and all."""
 @inline ondevice(a) = stridedroot(a) !== nothing
 
 """
-    sdpa_coopmat!(out, q, k, v, scale; backend, ws) -> out
+    sdpa_coopmat!(ctx, out, q, k, v, scale) -> out
 
 Attention as two batched cooperative-matrix GEMMs. `q`, `k`, `v` are `(E, L, H, B)`.
 
@@ -684,90 +657,134 @@ The second product is computed TRANSPOSED, `O(Lq x EP) = P(Lq x Lk) * vT(Lk x EP
 because `coopmat_gemm!` needs `M` on the tile and `E = 72` is not; `fromLEpad`
 puts it back.
 """
-function sdpa_coopmat!(out, q, k, v, scale; backend, ws)
+function sdpa_coopmat!(ctx, out, plan::CoopMatSDPAPlan, q, k, v, scale)
+    backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
-    EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
-    NB = H * B
+    EP = plan.EP
+    NB = plan.nbatch
     # k and v are needed whole (the softmax reduces over keys); only q is chunked.
-    kp = scratch!(ws, backend, Float16, EP, Lk, H, B)
-    vT = scratch!(ws, backend, Float16, Lk, EP, H, B)
-    launch!(padE, kp, k, E; backend)
-    launch!(toLEpad, vT, v, E; backend)
+    kp = scratch!(ctx, Float16, EP, Lk, H, B)
+    vT = scratch!(ctx, Float16, Lk, EP, H, B)
+    launch!(ctx, padE, kp, k, E)
+    launch!(ctx, toLEpad, vT, v, E)
 
-    CH = min(Lq, max(Lava.GEMM_TILE, COOPMAT_QCHUNK[]))
-    CH = cld(CH, Lava.GEMM_TILE) * Lava.GEMM_TILE      # the GEMM needs M on the tile
-    qc   = scratch!(ws, backend, Float16, CH, EP, H, B)
-    S    = scratch!(ws, backend, Float32, CH, Lk, H, B)
-    P    = scratch!(ws, backend, Float16, CH, Lk, H, B)
-    sums = scratch!(ws, backend, Float32, CH, H, B)
-    O    = scratch!(ws, backend, Float32, CH, EP, H, B)
+    CH = plan.chunk
+    qc   = scratch!(ctx, Float16, CH, EP, H, B)
+    S    = scratch!(ctx, Float32, CH, Lk, H, B)
+    P    = scratch!(ctx, Float16, CH, Lk, H, B)
+    sums = scratch!(ctx, Float32, CH, H, B)
+    O    = scratch!(ctx, Float32, CH, EP, H, B)
 
     for q0 in 0:CH:(Lq - 1)
         n = min(CH, Lq - q0)
-        launch!(toLEpadchunk, qc, q, E, q0, Lq; backend)
+        launch!(ctx, toLEpadchunk, qc, q, E, q0, Lq)
         Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
-        attnsoftmax!(sums, P, S, scale; backend)
+        attnsoftmax!(ctx, sums, P, S, scale)
         Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
         # `fromLEpad` unchanged: `launch!` indexes the VIEW, so its `l` already
         # starts at 1 for this chunk and no offset belongs in the kernel.
-        launch!(fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums; backend)
+        launch!(ctx, fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums)
     end
     out
 end
 
 """
-    sdpa(q, k, v, bias, scale; backend)
+    sdpa(ctx, q, k, v, bias, scale)
 
 `bias` may be `nothing` (flash) or an additive mask (mem-efficient).
 """
-function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), ws=nothing,
-              out=nothing)
+function sdpa(ctx, q, k, v, bias, scale; out=nothing)
+    # Decide once, then dispatch. This used to be `flashcm_applicable` (which ran
+    # `flashcm_tiling` and threw the answer away), then `flashcm_tiling` again for
+    # the tiling, then six more checks inside `sdpaflashcm!` that could still
+    # decline — after `out` had been allocated. See `FlashCMPlan`.
+    plan, k, v = sdpaplan(ctx, q, k, v, bias)
+    return sdpa!(ctx, plan, out, q, k, v, bias, scale)
+end
+
+"""
+    sdpaplan(ctx, q, k, v, bias) -> (plan, k, v)
+
+Which attention implementation this call gets, decided once. `k` and `v` come
+back because one refusal is recovered from by replacing them.
+
+The fused kernel is tried first: it computes the same thing without ever writing
+the score matrix, which is what both other paths spend most of their time on.
+`sdpa_coopmat!`'s own stage breakdown on the global blocks was softmax 5.1,
+second GEMM 4.0, first GEMM 2.2 — the two passes over `Lq x Lk` cost more than
+the arithmetic — and on the windowed blocks the padding kernels alone were half
+the op.
+"""
+function sdpaplan(ctx, q, k, v, bias)
+    plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
+
+    # The one refusal that is recoverable, and now it actually recovers. An
+    # operand stack `stridedroot` cannot account for used to need someone to set
+    # `FLASHCM_DENSIFY` by hand, which is to say it never happened and the call
+    # silently took a slower path instead.
+    #
+    # `k` and `v` are the ones worth densifying and `q` is not, which is not an
+    # oversight. Flash re-reads the whole of `k` and `v` once per query block — 64
+    # times over for a 4096-query global block — so a `PermutedDimsArray`'s four
+    # integer divisions per element get paid 64 times. **`q` is read exactly
+    # once**: each workgroup stages its own `BR` queries and no other workgroup
+    # touches them, so densifying it is a whole extra pass over the array to save
+    # nothing. Densifying when it is *not* needed costs 646.4 MB of copies per
+    # encode and 8.35 ms, which is why this is a fallback and not the default.
+    if plan isa Decline && plan.reason === :wrapped
+        k, v = densify(ctx, k), densify(ctx, v)
+        plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
+    end
+    plan isa FlashCMPlan && return (plan, k, v)
+
+    cm = coopmat_sdpa_plan(ctx.dev, q, k, v, bias)
+    cm isa CoopMatSDPAPlan && return (cm, k, v)
+    (Decline(:threepass), k, v)
+end
+
+"""Allocate the output if the caller did not."""
+@inline sdpaout(ctx, out, q, v, Lq, H, B) =
+    out === nothing ?
+        KernelAbstractions.allocate(ctx.backend, accum(eltype(q)), size(v, 1), Lq, H, B) :
+        out
+
+# ── One method per plan type (review finding 1). A new attention path is now a
+# new plan type and a new `sdpa!` method: nothing here has to be edited to admit
+# it, and each method is reachable in a test by constructing its plan. That is
+# what `kernels-to-port.md` item 1 (flash-decoding for the decoder's `Lq = 23`
+# cross-attention) is meant to land as.
+
+function sdpa!(ctx, plan::FlashCMPlan, out, q, k, v, bias, scale)
+    Lq, H, B = size(q, 2), size(q, 3), size(q, 4)
+    sdpaflashcm!(ctx, sdpaout(ctx, out, q, v, Lq, H, B), plan, q, k, v, scale)
+end
+
+function sdpa!(ctx, plan::CoopMatSDPAPlan, out, q, k, v, bias, scale)
+    Lq, H, B = size(q, 2), size(q, 3), size(q, 4)
+    # The operands go in as they arrive, wrappers and all. Densifying first was
+    # tried and is strictly worse here: `densify` is a whole extra pass over each
+    # of q, k and v, while the padding kernels read every element EXACTLY ONCE,
+    # so the wrapper's four integer divisions are paid once per element instead
+    # of once per pass. That is the opposite of `attn_scores`, which reads `q` E
+    # times and is why `densify` exists.
+    sdpa_coopmat!(ctx, sdpaout(ctx, out, q, v, Lq, H, B), plan, q, k, v, scale)
+end
+
+"""The three-pass path: always available, always right, and the slowest."""
+function sdpa!(ctx, ::Decline, out, q, k, v, bias, scale)
+    backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     T = accum(eltype(q))
-
-    # The fused kernel first: it computes the same thing without ever writing the
-    # score matrix, which is what both other paths spend most of their time on.
-    # `sdpa_coopmat!`'s own stage breakdown on the global blocks was softmax 5.1,
-    # second GEMM 4.0, first GEMM 2.2 — the two passes over `Lq x Lk` cost more
-    # than the arithmetic — and on the windowed blocks the padding kernels alone
-    # were half the op.
-    if flashcm_applicable(q, k, v, bias, Lq, Lk)
-        out === nothing &&
-            (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
-        # `k` and `v` are densified and `q` is not, which is not an oversight.
-        # Flash re-reads the whole of `k` and `v` once per query block — 64 times
-        # over for a 4096-query global block — so a `PermutedDimsArray`'s four
-        # integer divisions per element get paid 64 times. **`q` is read exactly
-        # once**: each workgroup stages its own `BR` queries and no other
-        # workgroup touches them, so densifying it is a whole extra pass over the
-        # array to save nothing.
-        BR, BC, NW = flashcm_tiling(E, Lq, Lk, size(q, 3) * size(q, 4))
-        kd = FLASHCM_DENSIFY[] ? densify(k, ws, backend) : k
-        vd = FLASHCM_DENSIFY[] ? densify(v, ws, backend) : v
-        sdpaflashcm!(out, q, kd, vd, scale; backend, BR, BC, NW) && return out
-    end
-
-    if coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk)
-        out === nothing &&
-            (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
-        # The operands go in as they arrive, wrappers and all. Densifying first
-        # was tried and is strictly worse here: `densify` is a whole extra pass
-        # over each of q, k and v, while the padding kernels below read every
-        # element EXACTLY ONCE, so the wrapper's four integer divisions are paid
-        # once per element instead of once per pass. That is the opposite of
-        # `attn_scores`, which reads `q` E times and is why `densify` exists.
-        return sdpa_coopmat!(out, q, k, v, scale; backend, ws)
-    end
 
     # Before anything else, and before the big scratch allocations, so the
     # workspace hands these out at low offsets and the score matrix follows.
     # q and k are transposed on the way; v is already in the order `attn_apply`
     # wants and only needs to be dense.
-    q = transposeLE(q, ws, backend)
-    k = densify(k, ws, backend)
-    v = densify(v, ws, backend)
+    q = transposeLE(ctx, q)
+    k = densify(ctx, k)
+    v = densify(ctx, v)
 
     # The scores matrix and the (unused) softmax sums are pure working storage,
     # so they come from the op's `Workspace` — allocating them per call is what
@@ -775,17 +792,17 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
     # is a full device flush plus a GC each time it fires.
     # Stored as the operands' own type, accumulated in `T`. See `attn_softmax`.
     ST = eltype(q)
-    scores = scratch!(ws, backend, ST, Lq, Lk, H, B)
+    scores = scratch!(ctx, ST, Lq, Lk, H, B)
     tk = blockfor(Lk, Lq)
     if tk > 1
         scoresblocked!(backend, tk, scores, q, k, bias, T(scale), (Lq, Lk ÷ tk, H, B))
     else
-        launch!(attn_scores, scores, q, k, bias, scale; backend)
+        launch!(ctx, attn_scores, scores, q, k, bias, scale)
     end
 
     # normalises `scores` in place; the returned sums are unused
-    sums = scratch!(ws, backend, T, Lq, H, B)
-    launch!(attn_softmax, sums, scores; backend)
+    sums = scratch!(ctx, T, Lq, H, B)
+    launch!(ctx, attn_softmax, sums, scores)
 
     # `out` outlives the op, so it cannot come from the workspace — but it can
     # come from the caller, and when the caller is a graph that is the slot the
@@ -796,7 +813,7 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
     if tq > 1
         applyblocked!(backend, tq, out, scores, v, sums, (size(v, 1), Lq ÷ tq, H, B))
     else
-        launch!(attn_apply, out, scores, v, sums; backend)
+        launch!(ctx, attn_apply, out, scores, v, sums)
     end
     out
 end

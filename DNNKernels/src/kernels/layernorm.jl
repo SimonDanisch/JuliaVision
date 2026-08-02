@@ -31,17 +31,6 @@ is 1152, which is nine elements per lane."""
 const LN_WG = 128
 
 """
-    LN_FUSED[]
-
-Use the fused kernel. Switchable so it can be compared against the expression
-form end to end in one session — the two do not produce identical bits (this one
-accumulates in fp32, the expression sums in the element type), so "does the mask
-still match" is a question that has to be asked of the whole model, not of the
-kernel.
-"""
-const LN_FUSED = Ref(true)
-
-"""
     layernorm_kernel!(out, mean, rstd, a, γ, β, C, eps)
 
 One workgroup per normalisation group. `γ`/`β` are indexed along the normalised
@@ -125,7 +114,7 @@ so the cost is noise.
 end
 
 """
-    layernorm!(out, mean, rstd, a, γ, β, C, eps) -> out
+    layernorm!(ctx, out, mean, rstd, a, γ, β, C, eps) -> out
 
 Launch [`layernorm_kernel!`](@ref) over `length(a) ÷ C` groups.
 
@@ -133,8 +122,8 @@ Launch [`layernorm_kernel!`](@ref) over `length(a) ÷ C` groups.
 reversed layout gives for `native_layer_norm`: torch normalises over trailing
 dims, and those are the leading Julia ones.
 """
-function layernorm!(out, mean, rstd, a, γ, β, C::Integer, eps::Real;
-                    backend = KernelAbstractions.get_backend(a))
+function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
+    backend = ctx.backend
     groups = length(a) ÷ C
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
     layernorm_kernel!(backend, LN_WG)(
