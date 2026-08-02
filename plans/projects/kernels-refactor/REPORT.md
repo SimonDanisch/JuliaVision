@@ -126,3 +126,106 @@ committed both steps (the second at 14:50:41, seconds before it died), so unlike
 still showed it running. This report was reconstructed from the commit messages.
 
 `GUARDRAILS.md` now requires appending here at the end of each *step*.
+
+
+## 2026-08-02 (later) — steps 3, 4 and 6; **globals 34 → 0**
+
+Same machine and branch, commits `4f43ba4` and `f6babca`. The exit criterion is
+met: **no module-level mutable toggles remain in DNNKernels**, no carve-outs.
+
+### What each step actually did
+
+**Step 3 — plan objects.** `FlashCMPlan`, `CoopMatSDPAPlan`, `MMCoopMatPlan`,
+`ConvCoopMatPlan`. The review's worked example was real and worse than described:
+`sdpa` asked `flashcm_applicable`, which ran `flashcm_tiling` and threw the
+answer away to return a `Bool`; `sdpa` then ran `flashcm_tiling` **again**; and
+`sdpaflashcm!` re-checked six more conditions and could still return `false`
+*after* `out` had been allocated. Now one decision, carried, and the runner
+cannot decline.
+
+A refusal is `Decline(reason)`, not `nothing`, because two callers need to know
+which rule fired. One is live: `:wrapped` means `stridedroot` could not account
+for the operand stack, and `sdpa` now densifies and retries — which is exactly
+what `FLASHCM_DENSIFY`'s docstring described as the fallback, expressed as a
+global nobody sets, so it never happened and the call silently took a slower
+path. The other is `blockfor`'s refusal of non-square attention: a known bug,
+which must say so rather than look like a design decision.
+
+**Step 4 — dispatch on plan type.** `sdpa!` and `matmul!` have one method per
+plan. A new path is a new type and a new method.
+
+**Step 6 — `Ctx`.** Five telescoping positional constructors → one keyword form;
+four `::Any` fields → type parameters (the named types are defined in files
+included *after* `context.jl`, so parameters were the only option; there are two
+live combinations, not a spread).
+
+**Step 5 — NOT done.** After step 4 the dispatchers are three one-line methods,
+so generating them saves nine lines and adds a macro. A judgement against the
+review, not a completed item.
+
+### Finding 9, and a device the kernels can be asked about
+
+`Device` answers, once per context from a live device: coopmat availability and
+tile, subgroup width, shared budget, workgroup limit, shader cores, launch group.
+3 µs and one allocation.
+
+Five numbers were hardcoded at their call sites. **`NW * 32` appeared in three
+places and names half the workgroup on a wave64 part**, and every tiling decision
+keyed on it inherits that. `flashcm_tiling` and `flashcmfits` now *take* a
+`Device` rather than reading one, so the AMD laptop's questions can be asked from
+here before it answers them:
+
+    flashcm_tiling(Device(true, 16, 64, 65536, 1024, 40, 256), 72, 4096, 4096)
+
+### `FLASHCM_CLAMP` was per process; it is per run
+
+SAM 2 set it around the decode and restored it in a `finally`, on the grounds
+that "`flashcm_tiling` reads it six frames down, inside `runop!`". That is the
+same defence the five diagnostics `Ref`s made, and it has the same answer: `Ctx`
+already reaches every `runop!`. It is now `ctx.clampattn`, threaded from
+`call(...; clampattn=true)` — so two contexts with opposite policies can be alive
+at once, and there is no state an error can leave switched on for the next
+encode.
+
+### ⚠ A test that had stopped testing anything
+
+`test_coopmat_attention.jl`'s "agrees with the three-pass path" A/B'd by flipping
+`COOPMAT_MINL` and calling `sdpa` twice. But `sdpa` tries the **fused** path
+first, and the fused path takes all four of its shapes — so both halves ran the
+same kernel and it compared a result with itself. **Vacuous since flash landed;
+four assertions that could not fail.** Verified directly rather than reasoned
+about.
+
+The general lesson, and it applies to every A/B in this repo: *a test that forces
+a path by moving a threshold stops testing that path the moment something earlier
+in the routing changes.* It now calls `sdpa_coopmat!` by name with an explicit
+plan against a host reference, which is the same correction step 1 made for two
+other tests.
+
+### Behaviour
+
+Suite green from a clean session: 61/80/4023/149/4511/25/37/22/19, transposeLE
+16, coopmat attention 11, fused attention 216 + 11 + 14, replay decode 41.
+
+| | baseline | now |
+|---|---|---|
+| encode p50 | 100.4 ms | **101.06** (three runs: 100.97 / 100.70 / 101.06) |
+| click p50 | 3.30 ms | **3.15** |
+| VRAM live | 1181 MiB | **1181** |
+| masks | — | IoU 1.00000 / 0.99955 / 1.00000, identical every run |
+
+### ⚠ The multi-device exit criterion is BLOCKED, and both briefs are wrong about why
+
+**`BatchQueue` has no `ctx` field.** Both briefs say "the carrier already exists —
+`LavaBackend(ctx)` pins a context, `BatchQueue` carries `ctx`". It does not:
+`LavaBackend(ctx)` keeps `ctx.default_bq` and **discards `ctx`**, and a
+`BatchQueue` holds a `Vulkan.Device`, not the `VkContext` that owns it. There is
+no path from a backend to its context.
+
+So `Device` is built from the *default* context, and a second device would
+silently receive the first's numbers. The fix is one field in Lava and belongs to
+`lava-core` phase 2. `vkcontext` in `context.jl` is the single function here that
+changes when it lands, and says so at the point of change rather than in a note
+on a branch.
+
+Until then the two-device acceptance test cannot pass — for either project.

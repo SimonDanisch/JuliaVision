@@ -27,7 +27,7 @@ existing one, so it does not collide with the refactor.
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
 | `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | phase 1a **done** (`3f59291`); 1b, 2, 3 not started |
-| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–2 of 6 done, globals **34 → 20**; step 3 next |
+| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–4 and 6 done, **globals 34 → 0**; step 5 declined with reasons; **multi-device blocked on Lava** |
 | `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
 | `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | not started — **its capability dump is an input to the two refactors, so run it early**; it files bugs rather than fixing them |
 | `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | not started |
@@ -68,8 +68,15 @@ Only the desktop produces these. Last measured 2026-08-02.
 - **`clear_kernel_cache!` silently did nothing** — `LAUNCH_PLAN_CACHE` is
   consulted first and was not cleared (Lava `740d982`). It invalidated an A/B
   over six SPIR-V variants. See `GUARDRAILS.md` §4.
-- DNNKernels globals **34 → 20**: nine settled toggles deleted, five diagnostics
-  `Ref`s moved onto `Ctx`.
+- DNNKernels globals **34 → 0**, the refactor's exit criterion. Nine settled
+  toggles deleted; diagnostics and the attention clamp onto `Ctx`; the tuning
+  constants absorbed into four plan objects; SAM 2's policy onto its struct.
+  Entry points dispatch on plan type, so a new kernel path is a new method.
+- A `Device` object answers the five hardcoded device literals from a live
+  device. `NW * 32` was in three places and is half the workgroup on wave64.
+- **`test_coopmat_attention.jl`'s main A/B was vacuous** — it flipped a threshold
+  to force the two-GEMM path, but the fused path took all four shapes first, so
+  it compared a result with itself. Fixed; the pattern is worth grepping for.
 
 ## Standing constraint: multi-device
 
@@ -81,8 +88,14 @@ first device's `VkPipeline`. The review's stated end state — "`VK_CONTEXT_REF`
 the one global that stays" — describes a single-device library and has been
 restated in the briefs.
 
-The carrier already exists (`LavaBackend(ctx)`, `BatchQueue.ctx`, and KA passes
-the backend to every launch); what leaks is 58 direct `vk_context()` calls.
+**The carrier does NOT exist, and both briefs said it did.** `LavaBackend(ctx)`
+keeps `ctx.default_bq` and **discards `ctx`**; `BatchQueue` holds a
+`Vulkan.Device`, not the `VkContext` that owns it. So there is no path from a
+backend to its context, and neither refactor can finish the multi-device work
+until Lava keeps that one field. Found on 2026-08-02 while building DNNKernels'
+`Device`; see that project's report.
+
+Once it exists, what remains is the 58 direct `vk_context()` calls.
 `vk_context()` may remain as a convenience default — nothing inside the library
 may depend on it.
 
