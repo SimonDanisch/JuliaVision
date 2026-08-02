@@ -57,25 +57,37 @@ Only the desktop produces these. Last measured 2026-08-02.
 - gelu into the GEMM epilogue; stem convolution padded onto the tensor cores;
   1×1 convolution routed to `matmul!`; decode capture/replay; click 16.7 → 5.05 ms.
 
-## Standing constraint: multi-device
+## Standing constraint: multi-device — MET
 
-Phase 2 must leave the library able to drive **two Vulkan devices at once**. It
-cannot today: four caches hold device-owned handles at module scope keyed without
-the device (`PIPELINE_CACHE`, `LINKED_KERNEL_CACHE`, `LAUNCH_PLAN_CACHE`,
-`GFX_PIPELINE_CACHE`), so a second device running the same kernel is handed the
-first device's `VkPipeline`. The review's stated end state — "`VK_CONTEXT_REF` as
-the one global that stays" — describes a single-device library and has been
-restated in the briefs.
+Two Vulkan devices in one process, both computing correctly, with disjoint
+caches. `dev/Lava/test/twodevice_probe.jl` is the acceptance test and is in
+`runtests.jl`: it builds the real GPU and lavapipe from one loader, runs a
+dispatch, a reduction and a split-K GEMM on each, and asserts `PIPELINE_CACHE`
+grows by **more than one** — a shared entry can still produce a right answer by
+luck.
 
-The carrier already exists (`LavaBackend(ctx)`, `BatchQueue.ctx`, and KA passes
-the backend to every launch); what leaks is 58 direct `vk_context()` calls.
-`vk_context()` may remain as a convenience default — nothing inside the library
-may depend on it.
+**Reading the code produced a list of four caches. None of the four was what
+actually broke it.** In the order the probe found them, each invisible until the
+one above it was fixed: the device **function-pointer table**
+(`vkCmdPipelineBarrier`, recorded through the *other* driver), `PREPARE_INDIRECT`,
+the subgroup-size properties, the **memory pool** (lavapipe arrays carved out of
+NVIDIA's block — silent data corruption, not a bad handle), six `LavaBackend()`s
+built inside the library, `GEMM_SPLIT_SCRATCH`, and `_REDUCE_SCRATCH` — which was
+already keyed by context and still *allocated* on the global one.
 
-**Testable everywhere, no second GPU needed:** a real device plus lavapipe
-(`dev/Lava/test/run_lavapipe.sh`) is a two-device pair on all three machines.
-Assert correct results on both *and* that the two contexts' caches are disjoint —
-a shared entry can still produce a right answer by luck.
+Two more fell out on 2026-08-02 once the probe ran to completion:
+
+- **A capability query is per device too.** `mul!` derives its backend from the
+  array — with a comment warning about exactly this — and then asked
+  `coopmat_gemm_available()` with no context. lavapipe (8-lane subgroups) was
+  told it had tensor cores because the NVIDIA card does, and returned the right
+  answer only because redundant subgroups agreed.
+- **A context that is dropped must be retired.** See "Open bugs" below; this was
+  the segfault that stopped the Lava suite from ever printing a summary.
+
+Still unaudited because nothing on this path reaches them: `TIMESTAMP_POOL`,
+`BLIT_PIPELINE`, `GFX_SHADER_CACHE`, `WORKGROUP_LIMIT`. Extend the probe before
+trusting a second device for graphics or dispatch profiling.
 
 ## Open bugs
 
@@ -83,6 +95,17 @@ a shared entry can still produce a right answer by luck.
   currently living inside a predicate: blocking the decoder's lopsided shapes
   reproducibly hangs on `vkWaitSemaphores`. Sits under the decode work.
 - **Flush hang** — dominant path fixed, one recurrence after ~90 clean trials.
+- **Device-reset segfault — FIXED 2026-08-02.** `vk_reset_device!` dropped the
+  old context without retiring it. Its comment said pre-reset buffers skip
+  Vulkan calls because that context has `device_lost` set, and that only held
+  when a device *loss* caused the reset; a voluntary reset left it false. The
+  context and its buffers then became garbage in the same collection, where
+  Julia does not order finalizers, so `Vulkan.Device`'s finalizer destroyed the
+  device and `vk_free!`'s `query_timeline` called into it. Ten-line MWE,
+  reproduces back at `046b1ed`, and it is why the Lava suite never printed a
+  summary. The AMD laptop filed the same thing from three different call sites
+  as "a floating GC race" — it floats because the crash lands wherever the next
+  GC does. Now `mark_device_lost!`, with `test_device_reset_finalizer.jl`.
 - **`OpUDiv` in a shared-store index** and **narrow index + rank≥3 `Extruded`** —
   both labelled "driver miscompile"; per Rule 0 that label is a suspect, not a
   finding. Re-open against our own compiler.
