@@ -25,7 +25,8 @@
 # rather than as an obvious failure.
 
 @kernel function resizeplanar_kernel!(dst, @Const(img), sx::Float32, sy::Float32,
-                                      w::Int32, h::Int32)
+                                      w::Int32, h::Int32,
+                                      mean::NTuple{3,Float32}, invstd::NTuple{3,Float32})
     I = @index(Global, Cartesian)
 
     # (dst + 0.5) * scale - 0.5 in 0-based coordinates, clamped at 0 as torch
@@ -51,16 +52,25 @@
         w01 = (1.0f0 - dx) * dy
         w11 = dx * dy
 
-        dst[I[1], I[2], 1, 1] = w00 * c00.r + w10 * c10.r + w01 * c01.r + w11 * c11.r
-        dst[I[1], I[2], 2, 1] = w00 * c00.g + w10 * c10.g + w01 * c01.g + w11 * c11.g
-        dst[I[1], I[2], 3, 1] = w00 * c00.b + w10 * c10.b + w01 * c01.b + w11 * c11.b
+        r = w00 * c00.r + w10 * c10.r + w01 * c01.r + w11 * c11.r
+        g = w00 * c00.g + w10 * c10.g + w01 * c01.g + w11 * c11.g
+        b = w00 * c00.b + w10 * c10.b + w01 * c01.b + w11 * c11.b
+
+        # Normalisation folded into the same pass. It is one multiply-add on a
+        # value already in a register, against a second full read and write of
+        # the whole tensor if it were its own kernel — and `invstd` is
+        # reciprocated once on the host rather than dividing per pixel.
+        dst[I[1], I[2], 1, 1] = (r - mean[1]) * invstd[1]
+        dst[I[1], I[2], 2, 1] = (g - mean[2]) * invstd[2]
+        dst[I[1], I[2], 3, 1] = (b - mean[3]) * invstd[3]
     end
 end
 
 """
-    resizeplanar!(dst, img) -> dst
+    resizeplanar!(dst, img; mean = (0, 0, 0), std = (1, 1, 1)) -> dst
 
-Bilinearly resize `img` into `dst`, de-interleaving the channels on the way.
+Bilinearly resize `img` into `dst`, de-interleaving the channels on the way and
+optionally normalising them.
 
 `img` is any `AbstractMatrix{<:AbstractRGB}`; `dst` is a `(w, h, 3, 1)` `Float32`
 array on the same backend, which is what a `DNNKernels` graph exported from a
@@ -72,14 +82,20 @@ The sampling matches `torch.nn.Upsample(mode='bilinear')` with its default
 sees the same pixels it would have made itself. See the comment above for the two
 clamps that has to get right.
 
-Values pass through unclamped and unnormalised — the graph's first op is a
-convolution, not a pixel store, and a model that wants ImageNet normalisation
-should fold it into the weights or do it as its own op rather than have it
-hidden in a resize.
+`mean` and `std` are per-channel and applied as `(v - mean) / std` after the
+resample — the ImageNet statistics for a DINOv2-style model, or the default
+identity for one that wants raw 0..1. They are here rather than in a second
+kernel because the value is already in a register: a separate normalisation pass
+is a full read and write of the tensor for one multiply-add.
+
+Values pass through unclamped. The graph's first op is a convolution, not a pixel
+store, and a model whose input legitimately leaves 0..1 (which is exactly what
+normalisation does) must not have it clipped on the way in.
 
 Asynchronous, like every kernel here: synchronize before reading on the host.
 """
-function resizeplanar!(dst::AbstractArray{Float32,4}, img::AbstractMatrix{<:AbstractRGB})
+function resizeplanar!(dst::AbstractArray{Float32,4}, img::AbstractMatrix{<:AbstractRGB};
+                       mean = (0.0f0, 0.0f0, 0.0f0), std = (1.0f0, 1.0f0, 1.0f0))
     size(dst, 3) == 3 ||
         throw(ArgumentError("dst must have 3 channels, got $(size(dst, 3))"))
     size(dst, 4) == 1 ||
@@ -90,9 +106,13 @@ function resizeplanar!(dst::AbstractArray{Float32,4}, img::AbstractMatrix{<:Abst
     KA.get_backend(dst) == backend ||
         throw(ArgumentError("dst is on $(KA.get_backend(dst)), img is on $backend"))
 
+    any(iszero, std) && throw(ArgumentError("std has a zero component: $std"))
+    μ = NTuple{3,Float32}(Float32.(mean))
+    invstd = NTuple{3,Float32}(inv.(Float32.(std)))
+
     sx = Float32(w / size(dst, 1))
     sy = Float32(h / size(dst, 2))
-    resizeplanar_kernel!(backend)(dst, img, sx, sy, Int32(w), Int32(h);
+    resizeplanar_kernel!(backend)(dst, img, sx, sy, Int32(w), Int32(h), μ, invstd;
                                   ndrange = (size(dst, 1), size(dst, 2)))
     return dst
 end

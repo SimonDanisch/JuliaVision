@@ -39,7 +39,8 @@ module NeuralLUTRunner
 
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 using Lava: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback
+using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback,
+                  Model, planslab, fusableset, Workspace
 using GPUFiltering: lut3d!, resizeplanar!
 using ColorTypes: AbstractRGB, RGB
 
@@ -138,10 +139,14 @@ stored, so the caller decides whether this frame's look replaces the last one or
 is smoothed against it (`models-to-port.md` wants temporal stability to come from
 smoothing the prediction, not from the network).
 """
-struct NeuralLUT{B,W,T}
+struct NeuralLUT{B,W,S,P,T}
     backend::B
     graph::DNNKernels.Graph
     weights::W
+    slab::S
+    plan::P
+    ws::Workspace
+    lazy::Set{String}
     input::T
 end
 
@@ -152,10 +157,20 @@ Load the model. Separate from [`predictlut`](@ref) so the workload can build it
 in `@setup_workload`, where the loading is not what is being cached.
 """
 function neurallut(; backend = LavaBackend(), dir::AbstractString = assetdir())
-    graph = neurallutgraph(; dir)
-    weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in neurallutweights(; dir))
+    ready(; dir) || throw(ArgumentError(
+        "no export at $dir — generate it with `uv run tools/export_neurallut.py`"))
+    # `Model`, not `loadgraph`: it runs the host-side preparation passes, and the
+    # planned slab is what keeps every intermediate from being a fresh
+    # allocation. Together they are worth 14.08 ms -> ~8 ms on this classifier,
+    # and a runner that skipped them would be slower than its own benchmark.
+    model = Model(dir, joinpath(dir, "weights.safetensors");
+                  names = ["neurallut"], backend)
+    graph = model.graphs["neurallut"]
+    plan = planslab(graph, (;))
+    slab = KA.allocate(backend, UInt8, max(plan.bytes, 1))
     input = KA.allocate(backend, Float32, CLASSIFIER_RES, CLASSIFIER_RES, 3, 1)
-    return NeuralLUT(backend, graph, weights, input)
+    return NeuralLUT(backend, graph, model.weights, slab, plan,
+                     Workspace(backend), fusableset(graph), input)
 end
 
 """
@@ -174,7 +189,9 @@ cost, not a per-frame one — see [`grade!`](@ref).
 function predictlut(model::NeuralLUT, img::AbstractMatrix{<:AbstractRGB})
     resizeplanar!(model.input, img)
     vals = execute!(model.graph, Dict{String,Any}("img" => model.input), model.weights;
-                    dims = (;), backend = model.backend)
+                    dims = (;), backend = model.backend,
+                    slab = model.slab, plan = model.plan,
+                    ws = model.ws, lazy = model.lazy)
     # The exporter names the blend's output; reading it from the graph rather
     # than hardcoding "sum_1" means a re-export that renumbers cannot silently
     # return the wrong buffer.
@@ -220,10 +237,16 @@ grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
     if ready()
         try
             backend = LavaBackend()
-            model = neurallut(; backend)
-            img = KA.allocate(backend, RGB{Float32}, 256, 256)
-            out = similar(img)
+            # Model construction inside the workload, not in front of it:
+            # `Model`'s last pass folds constant subgraphs by *running* them on
+            # the device, so building it outside leaves those dispatches
+            # unfrozen. RIFE showed this as a hard `misses == 9`; this graph has
+            # no constant subgraph today, and the placement is what keeps that
+            # from silently mattering after a re-export.
             @compile_workload KERNELS_VERSION begin
+                model = neurallut(; backend)
+                img = KA.allocate(backend, RGB{Float32}, 256, 256)
+                out = similar(img)
                 fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
                 lut = predictlut(model, img)
                 grade!(out, img, lut)

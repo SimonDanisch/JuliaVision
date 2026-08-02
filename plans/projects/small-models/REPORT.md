@@ -136,15 +136,35 @@ so it would not contend with a timed run.
   classifier 7.0/8.4/8.4 ms) and RIFE ~8% (478/500/516). Single numbers here are
   worth one significant figure.
 
+### All three runner packages are now real
+
+`NeuralLUTRunner`, `RIFERunner` and `DepthAnythingRunner` each have a model
+struct, a call and a workload, and **all three report
+`Lava.frozen_stats().misses == 0` on a fresh process** — the measurement the
+scaffolds' own TODO said was the point.
+
+- `neurallut` / `predictlut` / `grade!` — a 4K frame graded from a predicted look
+- `rife` / `interpolate!(out, model, a, b; t)` — zero-pads to the export's baked
+  size and crops back, any `t` in [0, 1]. Checked: `t = 0.5` between flat frames
+  at 0.30 and 0.40 gives 0.3530 against an exact midpoint of 0.35, and `t = 0.25`
+  moves toward the first frame.
+- `depthanything` / `depthmap!` — ImageNet normalisation folded into the resize
+
+**A workload must build its `Model` *inside* `@compile_workload`.** RIFE sat at
+`misses == 9` no matter what frame size the workload used. The cause is that
+`Model`'s last pass is `hoistconstants(graphs, weights, backend)`, which folds
+constant *subgraphs* by running them on the device — and RIFE has two, the
+`arange` pair that builds the warp sampling grid. Constructed in front of the
+block, those dispatches are never frozen. Moving one line took it to 0. The other
+two packages have no constant subgraph today and measured 0 either way; they were
+changed to match anyway, because "today" is doing the work in that sentence.
+
+`NeuralLUTRunner` was also switched from `loadgraph` to `Model` plus a planned
+slab — without it the shipped runner would have been ~1.8x slower than the
+benchmark that measures it, which is its own kind of wrong.
+
 ### What is not done
 
-- **`RIFERunner` and `DepthAnythingRunner` are still scaffolds.** Both models
-  export, run and match through `tools/verify_*.jl`, but neither package has a
-  model struct or a workload yet — only `NeuralLUTRunner` does. Whoever picks
-  these up should copy `NeuralLUTRunner`'s shape; the missing piece for RIFE is a
-  pad-to-128 planar input kernel (the frame is padded, not resized, so
-  `GPUFiltering.resizeplanar!` does not fit), and for Depth Anything it is the
-  ImageNet normalisation plus the square resize.
 - **No `Artifacts.toml` for any of the three.** RIFE's `train_log/` still needs
   re-hosting on the assets release before it can be one (`models-to-port.md`).
 - **The conv findings are not fixed**, per the brief — these three are bring-up,
@@ -154,6 +174,13 @@ so it would not contend with a timed run.
 
 `GPUFiltering`: `lut3d.jl` (trilinear apply, matches upstream's own
 `trilinear_kernel.cu` to 3.0e-7 with full coverage asserted) and `resizeplanar.jl`
-(RGB frame → planar NCHW, `align_corners=false` to match `nn.Upsample`).
-`DNNKernels`: the InstanceNorm op. `tools/`: three exporters, three verifiers,
-three benchmarks, one PyTorch baseline, and the soak.
+(RGB frame → planar NCHW, `align_corners=false` to match `nn.Upsample`, with
+optional per-channel normalisation folded into the same pass). `DNNKernels`: the
+InstanceNorm op. Three runner packages with workloads. `tools/`: three exporters,
+three verifiers, three benchmarks, one PyTorch baseline, and the soak.
+
+RIFE's own padding kernel stayed in `RIFERunner` rather than joining
+`resizeplanar!` in `GPUFiltering`: the two differ in what happens outside the
+source frame, which is the entire point of each. RIFE pads because its flow field
+is in pixels, and resizing the input would silently rescale every motion vector
+the network predicts.
