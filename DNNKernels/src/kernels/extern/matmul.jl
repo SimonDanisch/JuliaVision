@@ -53,11 +53,19 @@ astranspose(a::PermutedDimsArray{T,2,(2, 1)}) where {T} = transpose(parent(a))
 
 `out[i, j] = Σ_k A[i, k] B[k, j]`, plus `bias` broadcast over the output.
 
-Delegates to `LinearAlgebra.mul!`, so *how* the multiply happens is the
-backend's decision — Lava picks cooperative matrices or a scalar kernel from
-the operand types and its own device query. Nothing here knows tensor cores
-exist, which is the point: this file describes what the graph needs, not how a
-particular GPU provides it.
+Takes the cooperative-matrix path when `mm_coopmat_plan` returns one, and
+`LinearAlgebra.mul!` otherwise.
+
+This function *does* know tensor cores exist: the predicate below checks
+`Lava.coopmat_gemm_available()` and `Lava.GEMM_TILE`, and gates on
+`Lava.LavaArray{Float16,2}`, so the fast path is reachable only on Lava. An
+earlier docstring here claimed the opposite; it described a design that was
+replaced.
+
+What *is* device-independent is which device takes it. The tile and the
+availability are queried per device, so the same source picks cooperative
+matrices on Ada (subgroup 32) and on RDNA 3.5 (subgroup 64, `16x16x16` Float16)
+with no vendor branch anywhere.
 """
 matmul!(ctx, out, A, B, bias=nothing; epi=identity) =
     matmul!(ctx, mm_coopmat_plan(ctx.dev, out, A, B), out, A, B, bias, epi)

@@ -6,7 +6,7 @@ model whose job is to have no cold start.
 
 | package | what it is |
 |---|---|
-| `DNNKernels` | ATen graph runtime — loads a `torch.export` graph, plans its memory, runs it on any KernelAbstractions backend |
+| `DNNKernels` | ATen graph runtime — loads a `torch.export` graph, plans its memory, runs it on Lava (see [What DNNKernels is](#what-dnnkernels-is)) |
 | `GPUFiltering` | image kernels: colour, blur, warp, optical flow, patch tracking |
 | `SAM2Runner` | SAM 2.1, precompiled |
 | `MatAnyoneRunner` | MatAnyone2 video matting, precompiled |
@@ -32,6 +32,49 @@ editor's own environment; the rest live here alone until they run.
 A monorepo because these change together: an op added to `DNNKernels` is usually
 a model that needed it, and a kernel frozen by one model is a cache hit for the
 rest.
+
+## What DNNKernels is
+
+**A Lava kernel library that uses KernelAbstractions as its kernel-authoring
+syntax, not as a portability layer.** This is decision (a) of
+`plans/kernel-library-review.md` finding 8, settled 2026-08-02.
+
+The package `using`s KernelAbstractions and writes `@kernel` bodies, which reads
+as backend-portable. It is not, and the deciding evidence is not the raw count of
+`Lava.*` references (181 occurrences, 33 distinct symbols) but *where* they sit:
+
+- The fast paths gate on `A isa Lava.LavaArray{Float16,2}`, a type assertion on a
+  Lava-specific array type, so no other KernelAbstractions backend can reach them
+  by construction. That is not "a portable library with a Lava fast path"; the
+  fast path exists only on Lava.
+- `Lava.GEMM_TILE` is used as the literal 16 in 75 places, including pure shape
+  arithmetic, and `Lava.splitidx` / `Lava.FastDiv32` / `Lava.cart32` /
+  `Lava.staticgroup` appear inside the *generic* elementwise launcher.
+- Five `@kernel cpu=false` sites (`layernorm_kernel!`, `attn_softmax_rows!`,
+  `attn_flash!`, `attn_flash_cm!`, and the generated `toLE_tiled_*` layout
+  kernels in `attention.jl`) have no CPU form at all, in a package whose
+  verification story depends on running the same source on the CPU.
+- `Lava.VK_CONTEXT_REF`, `Lava.capture` / `replay!` and `Lava.with_dispatch_timing`
+  are Vulkan runtime concepts with no KernelAbstractions analogue at all.
+
+Some of that is unavoidable: cooperative-matrix intrinsics have no KA equivalent,
+and that is a legitimate reason for a backend-specific kernel. Some is
+incidental. Either way the facade was promising something the package does not
+deliver.
+
+**Saying (a) plainly costs nothing real, because the portability that matters
+here is a different axis and DNNKernels genuinely has it.** KA would buy
+portability across *Julia GPU backends* (CUDA, ROCm, oneAPI, CPU). Lava buys
+portability across *Vulkan devices* from one SPIR-V module. The second is the one
+in use, and it is verified rather than assumed: the same kernel sources run on an
+RTX 4000 Ada (subgroup 32, `VK_NV_cooperative_matrix2`) and on a Radeon 8060S
+(RDNA 3.5, subgroup 64, KHR cooperative matrix only, no coopmat2 at all), with
+the tile size and cooperative-matrix availability queried per device. See
+`plans/projects/portability/REPORT.md`.
+
+CPU execution through KA remains available for the kernels that have a CPU form,
+and it is a verification tool (`verify.jl` compares against it), not a supported
+deployment backend.
 
 ## Why the `*Runner` packages exist
 
