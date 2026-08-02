@@ -19,7 +19,7 @@ import Atomix
 import GPUArrays
 
 export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
-export findasset, assetpath
+export findasset
 export KERNELS_VERSION
 
 """

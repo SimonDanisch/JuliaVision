@@ -1,7 +1,7 @@
 """
 Pack the small-models exports into artifact tarballs and bind them.
 
-    julia --project=. tools/make_artifacts.jl              # all three
+    julia --project=. tools/make_artifacts.jl              # the ported three
     julia --project=. tools/make_artifacts.jl neurallut    # just one
     julia --project=. tools/make_artifacts.jl --tag assets-v2
 
@@ -9,12 +9,17 @@ For each model this creates the artifact from `gen/graphs/<name>`, archives it t
 `gen/artifacts/<name>.tar.gz`, and writes the `[<name>]` entry into that model's
 `Artifacts.toml` with `lazy = true` and the release URL.
 
-**The tarball still has to be uploaded.** `bind_artifact!` records a URL and a
-sha256; it does not put anything at that URL. Until the tarballs are attached to
-the release, `Pkg` on a fresh clone will resolve the artifact, fail to download
-it, and fall through to the generated directory — which is exactly what happens
-today, so nothing regresses in the meantime. The upload is one `gh release
-upload` and is deliberately not done from here (see the end of this file).
+**This is the step that publishes a re-export.** A runner reads its assets from
+its artifact and from nowhere else, so exporting a graph changes nothing until it
+is bound here — that is deliberate, and it is why re-running this is part of the
+edit rather than an afterthought. The binding takes effect locally as soon as it
+is written, because `create_artifact` has already put the tree in the store.
+
+**Uploading is separate, and is how it reaches anyone else.** `bind_artifact!`
+records a URL and a sha256; it does not put anything at that URL. A machine
+without the tree in its store — anyone else's — resolves the binding, tries the
+URL and fails until the tarball is attached to the release. The command is
+printed at the end and is deliberately not run from here: it publishes.
 
 **What ships and what does not.** The tarball carries the graph JSON, the
 weights and the op histogram — what a caller needs to *run* the model. It leaves
@@ -41,6 +46,14 @@ const MODELS = Dict(
     "neurallut"     => ("NeuralLUTRunner", "neurallut"),
     "rife"          => ("RIFERunner", "rife"),
     "depthanything" => ("DepthAnythingRunner", "depthanything"),
+    # Not ported yet — listed so the instruction their `assetdir()` prints is one
+    # that actually runs. Each errors here until its exporter has been run.
+    "whisper"       => ("WhisperRunner", "whisper"),
+    "basicvsrpp"    => ("BasicVSRRunner", "basicvsrpp-fp32"),
+    "deepfilternet" => ("DeepFilterRunner", "deepfilternet"),
+    "demucs"        => ("DemucsRunner", "demucs"),
+    "kokoro"        => ("KokoroRunner", "kokoro"),
+    "propainter"    => ("ProPainterRunner", "propainter"),
 )
 
 # Files a caller needs to run the model. Anything else in the export directory —
@@ -95,7 +108,7 @@ if i !== nothing
     tag = args[i + 1]
     deleteat!(args, i:i+1)
 end
-names = isempty(args) ? sort(collect(keys(MODELS))) : args
+names = isempty(args) ? ["depthanything", "neurallut", "rife"] : args   # the ported ones
 for n in names
     haskey(MODELS, n) || error("unknown model $n; known: $(join(sort(collect(keys(MODELS))), ", "))")
 end
@@ -113,5 +126,6 @@ Not yet uploaded. To publish them:
  \\
         --repo SimonDanisch/JuliaVision --clobber
 
-Until then every runner still resolves its export from `gen/graphs/<name>`, which
-is what `assetpath` falls through to, so nothing breaks by waiting.""")
+Until then the binding is local: `assetdir()` resolves to the tree just created,
+because that is what `create_artifact` put in the store. Uploading is how it
+reaches anyone else.""")

@@ -31,10 +31,9 @@ locally generated tree first. Nothing ever set the environment variables, and th
 generated-tree branch is what made the broken download invisible for as long as
 it was: on a machine that has a `gen/` tree, the fallback always answered.
 
-[`assetpath`](@ref) below is what remains of that, and it has exactly one class
-of caller left — the runner packages for models that are **not ported yet**, which
-have no artifact to bind because they have no export to bind. Each one stops
-using it at the moment it is ported.
+There is no second path left. A package for a model that is not ported yet does
+not fall back to a directory either — its `assetdir()` says so and throws, so the
+message a caller gets names the port, not a path that will never exist.
 
 Walking up rather than a fixed `../../../gen` because the depth of a generated
 tree above a package is a property of the checkout, not of the package: the
@@ -42,9 +41,10 @@ fixed form silently broke every runner the day they moved into a monorepo, and
 it is wrong on its face now that the monorepo is also a standalone repository
 where no such tree exists.
 
-Nothing here throws when an asset is missing. Every workload guards on
-`isdir`/`isfile` and precompiles nothing rather than failing, so a fresh clone
-with no weights installs and loads — it just has no model until they are.
+A fresh clone still installs and loads with no assets anywhere: every workload
+guards on its package's `ready()` and precompiles nothing rather than failing.
+What changed is that a *not ported* package now says so through `assetdir()`
+instead of handing back a path nobody will ever have.
 """
 
 using Artifacts
@@ -77,31 +77,3 @@ function findasset(relative::AbstractString; env::Union{Nothing,AbstractString} 
     return joinpath(last, relative)
 end
 
-"""
-    assetpath(; generated, env, from) -> String
-
-A model's *locally provided* asset directory: the environment override if it is
-set, else the generated tree this checkout would have.
-
-  * `generated` — the path, relative to some ancestor, that a machine which
-    produces these files would have (e.g. `gen/graphs/sam2-large`).
-  * `env` — an environment variable that overrides everything.
-  * `from` — where to start walking up; pass `@__DIR__` from the caller, since
-    `@__DIR__` here would be this package rather than the one asking.
-
-The returned path may not exist, and that is deliberate: the caller names it in
-the error so the message says where it looked.
-
-**Only for models that are not ported yet.** A ported one writes
-`assetdir() = @artifact_str("name")` and does not come here at all — see the
-module docstring.
-"""
-function assetpath(; generated::AbstractString,
-                   env::Union{Nothing,AbstractString} = nothing,
-                   from::AbstractString = @__DIR__)
-    if env !== nothing
-        p = get(ENV, env, "")
-        isempty(p) || return p
-    end
-    return findasset(generated; from)
-end

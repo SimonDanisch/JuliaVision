@@ -242,9 +242,18 @@ uploading is only how it reaches anyone else. Verified: the runners now load fro
 `~/.julia/artifacts/...` and produce byte-identical output to the `gen/`-backed
 runs, with `frozen_stats().misses == 0`.
 
-`DNNKernels.assetpath` survives with exactly one class of caller — the six
-runners for models that are **not ported yet**, which have no export to bind. Each
-stops using it the moment it is ported.
+`DNNKernels.assetpath` is **deleted** — it has no callers left. The six runners
+for models that are not ported yet do not fall back to a directory either: their
+`assetdir()` throws and names the three steps that would fix it (export, bind,
+change the line), and `ready()` returns `false` so the workloads still precompile
+to nothing rather than failing. None of the six has an export on this machine, so
+there was never a directory for them to point at — `models-to-port.md` lists
+Whisper and BasicVSR++ as exported, but those were produced on the desktop and
+have not been published.
+
+End state across all eleven runner packages: five resolve through
+`@artifact_str`, six say plainly that they are not ported, and nothing consults
+an environment variable or a working tree.
 
 The tarballs carry the graph, the weights and the op histogram, and deliberately
 **not** `reference*.safetensors`: those are what `tools/verify_*.jl` diffs
