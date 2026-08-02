@@ -1409,3 +1409,37 @@ Recorded so nobody repeats the same three ideas. All exit 0:
 So "the lavapipe context is never retired" is **not sufficient** as an
 explanation. The suite still reproduces it reliably, so the repro exists; it
 needs more of the suite's accumulated state than these isolate.
+
+### GPUFiltering: 65 / 65 on AMD, first coverage of that package here
+
+Never run on this machine before. All green, and not merely smoke tests —
+`gaussianblur!` is validated against `ImageFiltering`'s CPU reference, so this is
+a numerical check.
+
+| testset | |
+|---|---|
+| `coloradjust!` | 3 / 3 |
+| `gaussianblur!` vs ImageFiltering | 2 / 2 |
+| `unsharpmask!` | 2 / 2 |
+| `opticalflow!` | 4 / 4 |
+| `fitaffine` | 14 / 14 |
+| `fithomography` | 6 / 6 |
+| `warp!` | 4 / 4 |
+| `samplewindow!` / `nccpeak` | 7 / 7 |
+| `fitsimilarity` / `PatchTracker` | 23 / 23 |
+
+Run it with `Pkg.test("GPUFiltering")`, not
+`julia --project=<workspace> GPUFiltering/test/runtests.jl`. The test script does
+`using FixedPointNumbers`, which is a dependency of the *package* and therefore
+only an indirect dependency of the workspace project, and a script can only
+`using` direct ones. The error it produces —
+`Package FixedPointNumbers not found in current path` — reads like a missing
+declaration and is not one.
+
+**Correction to something recorded earlier in this session.** I diagnosed the
+same-looking `SAM2Runner` failure as a stale manifest entry, and for that package
+it genuinely was: its `[[deps.SAM2Runner]]` block had no `deps` line at all and
+`Pkg.resolve()` treated that as consistent, so `Pkg.rm` + `Pkg.develop` was the
+fix. I then assumed `GPUFiltering` was the same and it was **not** — its manifest
+entry lists `deps` correctly and `FixedPointNumbers` is present. Two different
+causes behind one error message; check the manifest entry before assuming which.
