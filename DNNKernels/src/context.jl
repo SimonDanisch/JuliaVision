@@ -25,27 +25,23 @@ device, and every tiling decision keyed on it inherits the error.
 None of these may be captured at module scope (`GUARDRAILS.md` §8): they describe
 a device, so a second device must get its own answers.
 
-## What is still single-device, and why it is one function
+## Where the device comes from
 
-`vkcontext` below resolves the *default* context for an unpinned backend, which
-is correct today because a pinned one cannot be resolved at all:
+`Lava.vk_context(backend)`, which resolves a pinned backend to the context it was
+built with and an unpinned one to whichever is current.
 
-    struct LavaBackend <: KA.GPU
-        dispatch_bq::Union{BatchQueue, Nothing}
-        upload_bq::Union{BatchQueue, Nothing}
-    end
+That accessor did not exist when this struct was written. `LavaBackend(ctx)` kept
+`ctx.default_bq` and **discarded `ctx`**, and a `BatchQueue` holds a
+`Vulkan.Device` rather than the `VkContext` that owns it — so there was no path
+at all from a backend to its device, and both project briefs asserted there was
+("the carrier already exists"). Adding the field was one line; finding that it
+was missing took running on a second vendor.
 
-`LavaBackend(ctx)` keeps `ctx.default_bq` and **discards `ctx`**, and `BatchQueue`
-holds a `Vulkan.Device`, not the `VkContext` that owns it. So there is no path
-from a backend to its context, and both project briefs are wrong where they say
-"the carrier already exists — `BatchQueue` carries `ctx`". It does not.
-
-The fix is one field in Lava (`LavaBackend` keeping the context it is handed) and
-it belongs to `lava-core` phase 2, not here. When it lands, `vkcontext` is the
-only thing in this package that changes, and every value below becomes per-device
-without another edit. Until then a second device would silently receive the
-first's numbers — which is exactly why this is written down at the one place that
-would have to change, rather than left as a comment on the branch.
+So a `Device` built from a pinned backend now describes **that** device, and two
+of them can be alive at once. What is still single-device is one layer down:
+Lava's four module-scope caches hold device-owned handles keyed without the
+device (`GUARDRAILS.md` §8). Nothing here depends on those, but the two-device
+acceptance test does.
 """
 struct Device
     coopmat::Bool          # cooperative-matrix GEMM usable here
@@ -63,7 +59,7 @@ The `VkContext` a backend runs on. See the note in [`Device`](@ref) — this is 
 single place that becomes per-backend once Lava's `LavaBackend` keeps its context.
 """
 vkcontext(::Any) = nothing
-vkcontext(::Lava.LavaBackend) = Lava.vk_context()
+vkcontext(b::Lava.LavaBackend) = Lava.vk_context(b)
 
 """
 Device facts for a backend that is not Lava's — the CPU verification path.
