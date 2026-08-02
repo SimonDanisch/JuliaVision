@@ -30,11 +30,15 @@ Kokoro — four models' worth of groundwork.
    alongside SAM 2 comfortably.
 3. **The mel front end** — an FFT. Host-side is acceptable to start; it is tiny
    next to the encoder. Device-side is what Demucs later wants.
-4. **The decoder** — this is why Whisper was chosen over the faster Parakeet. It
-   is the only model in the set that forces a **KV cache**, and that execution
-   mode transfers to every LLM or VLM after it. It also puts the engine in a
-   bandwidth-bound batch-1 GEMV regime that none of the GEMM tiling work applies
-   to — expect the existing tuning to be irrelevant and measure fresh.
+4. **The decoder** — autoregressive, so it needs a **KV cache**. That is the
+   first batch-1, bandwidth-bound GEMV workload this engine will have run, and
+   none of the GEMM tiling work applies to it: expect the existing tuning to be
+   irrelevant and measure fresh rather than assuming a shape carries over.
+
+   Note this is a *consequence* of picking Whisper, not the reason for it —
+   Whisper won on being multilingual, where Parakeet TDT 0.6B is English-only.
+   The earlier justification in `models-to-port.md` had that backwards and has
+   been corrected.
 
 Word-level timestamps need the cross-attention DTW trick — a second pass, and it
 can wait.

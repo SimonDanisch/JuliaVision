@@ -127,11 +127,38 @@ Two findings from doing it:
 Next on this one: run the graph on Lava and diff against PyTorch, then the mel
 front end, then the decoder.
 
-**Why this and not Parakeet.** NVIDIA's Parakeet TDT 0.6B is faster and scores
-higher on English leaderboards, but it is CC-BY-4.0, which drags attribution
-downstream, and being CTC/TDT it decodes in one shot. Whisper's autoregressive
-decoder is the reason to prefer it: it is the only model in this set that forces
-a KV cache, and that execution mode transfers to every LLM or VLM after it.
+**Why this and not Parakeet — corrected 2026-08-02.** NVIDIA's Parakeet TDT 0.6B
+is faster and scores higher on English leaderboards, and on the feature itself it
+would probably be the better pick. **It is English-only, and that decides it**:
+Whisper large-v3-turbo transcribes ~99 languages, and a transcript tool that
+works for one of them is a different, smaller product.
+
+The two reasons this paragraph used to give were both weak and are recorded here
+so they do not get re-used:
+
+- *"CC-BY-4.0 drags attribution downstream"* — inconsistent with our own list.
+  `ProPainter` is already here as **non-commercial**, which is far heavier than
+  attribution. If that is acceptable, CC-BY is.
+- *"Whisper forces a KV cache, and that execution mode transfers to every LLM or
+  VLM after it"* — true, and not a reason to pick a **product** feature. Nothing
+  else on this list needs a KV cache: DeepFilterNet, Demucs, Kokoro, NeuralLUT,
+  RIFE, Depth Anything, BasicVSR++ and ProPainter have no autoregressive decode,
+  and FLUX / Z-Image / Qwen-Image-Edit are diffusion, where a DiT has no causal
+  cache. It was engine-roadmap reasoning applied to a feature decision, which is
+  backwards from this file's own rule that the *editor budget* decides whether a
+  port was worth doing.
+
+The KV cache remains a genuine **side benefit** — it is the first batch-1,
+bandwidth-bound GEMV workload the engine will have run, and none of the GEMM
+tiling work applies to it — but it is not why Whisper won.
+
+**Parakeet is worth keeping on the shelf**, deprioritised rather than rejected: if
+an English-only fast path is ever wanted it is a strong candidate, and the mel
+front end is shared so the FFT work is not wasted either way. Two things would
+need checking first and neither is known: whether a **NeMo** model gives up an
+`ExportedProgram` as cleanly as a `transformers` one, and whether its TDT
+prediction network is an **LSTM** — which would put it behind the same fight
+Kokoro is deferred for.
 
 **New ground:** an FFT for the log-mel front end (host-side is acceptable to
 start — it is tiny next to the encoder), and incremental attention over a KV
