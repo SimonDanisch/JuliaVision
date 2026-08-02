@@ -35,7 +35,7 @@ module RIFERunner
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 using Lava: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback,
+using DNNKernels: loadgraph, execute!, readsafetensors, toback,
                   Model, planslab, fusableset, Workspace
 using GPUFiltering: tofloat, topixel
 using ColorTypes: AbstractRGB, RGB
@@ -56,23 +56,15 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where the exported graph and weights live.
+Where the model's graph and weights live: its artifact, downloaded on first use
+and cached across every environment on this machine.
 
-Three places, in order: `JULIA_RIFE_ASSETS` if it is set, the generated
-directory if this is a checkout that has run the exporter, and the lazy artifact
-otherwise. A developer re-exporting a graph gets their own copy without touching
-the artifact; a plain `Pkg.add` gets the published one.
-
-The artifact is bound in `../Artifacts.toml` by `tools/make_artifacts.jl`, and it
-carries the graph and weights only — `reference*.safetensors` is what
-`tools/verify_rife.jl` diffs against and the exporter regenerates it in one
-command, so it is not something a caller should have to download.
+**Changing these assets means re-binding the artifact**, not editing a directory.
+Re-export, then `julia --project=. tools/make_artifacts.jl rife` — that hashes
+the new content and rewrites `../Artifacts.toml`, so this call resolves to it
+immediately. Uploading is only needed to publish it to anyone else.
 """
-function assetdir()
-    p = assetpath(; generated = joinpath("gen", "graphs", "rife"),
-                  env = "JULIA_RIFE_ASSETS", from = @__DIR__)
-    return ispath(p) ? p : @artifact_str("rife")
-end
+assetdir() = @artifact_str("rife")
 
 """
     rifegraph(; dir = assetdir()) -> Graph
@@ -84,7 +76,8 @@ function rifegraph(; dir::AbstractString = assetdir())
     p = joinpath(dir, "rife.json")
     isfile(p) || throw(ArgumentError(
         "RIFE 4.x (Practical-RIFE) graph not found at $p. Generate it with " *
-        "`uv run tools/export_rife.py`, or set JULIA_RIFE_ASSETS."))
+        "`uv run tools/export_rife.py` and bind it with " *
+        "`julia --project=. tools/make_artifacts.jl rife`."))
     return loadgraph(p)
 end
 

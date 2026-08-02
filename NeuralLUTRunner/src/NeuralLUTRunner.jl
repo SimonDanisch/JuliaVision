@@ -40,7 +40,7 @@ module NeuralLUTRunner
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 using Lava: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback,
+using DNNKernels: loadgraph, execute!, readsafetensors, toback,
                   Model, planslab, fusableset, Workspace
 using GPUFiltering: lut3d!, resizeplanar!
 using ColorTypes: AbstractRGB, RGB
@@ -61,23 +61,15 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where the exported graph and weights live.
+Where the model's graph and weights live: its artifact, downloaded on first use
+and cached across every environment on this machine.
 
-Three places, in order: `JULIA_NEURALLUT_ASSETS` if it is set, the generated
-directory if this is a checkout that has run the exporter, and the lazy artifact
-otherwise. A developer re-exporting a graph gets their own copy without touching
-the artifact; a plain `Pkg.add` gets the published one.
-
-The artifact is bound in `../Artifacts.toml` by `tools/make_artifacts.jl`, and it
-carries the graph and weights only — `reference*.safetensors` is what
-`tools/verify_neurallut.jl` diffs against and the exporter regenerates it in one
-command, so it is not something a caller should have to download.
+**Changing these assets means re-binding the artifact**, not editing a directory.
+Re-export, then `julia --project=. tools/make_artifacts.jl neurallut` — that hashes
+the new content and rewrites `../Artifacts.toml`, so this call resolves to it
+immediately. Uploading is only needed to publish it to anyone else.
 """
-function assetdir()
-    p = assetpath(; generated = joinpath("gen", "graphs", "neurallut"),
-                  env = "JULIA_NEURALLUT_ASSETS", from = @__DIR__)
-    return ispath(p) ? p : @artifact_str("neurallut")
-end
+assetdir() = @artifact_str("neurallut")
 
 """
     neurallutgraph(; dir = assetdir()) -> Graph
@@ -89,7 +81,8 @@ function neurallutgraph(; dir::AbstractString = assetdir())
     p = joinpath(dir, "neurallut.json")
     isfile(p) || throw(ArgumentError(
         "Image-Adaptive 3D LUT graph not found at $p. Generate it with " *
-        "`uv run tools/export_neurallut.py`, or set JULIA_NEURALLUT_ASSETS."))
+        "`uv run tools/export_neurallut.py` and bind it with " *
+        "`julia --project=. tools/make_artifacts.jl neurallut`."))
     return loadgraph(p)
 end
 

@@ -41,15 +41,15 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where MatAnyone2's exported graphs live: the `matanyone` artifact, unless this
-checkout generates them itself or `JULIA_MATANYONE_ASSETS` says otherwise. See
-[`DNNKernels.assetpath`](@ref) for the order and why it is that order.
+Where the model's graph and weights live: its artifact, downloaded on first use
+and cached across every environment on this machine.
+
+**Changing these assets means re-binding the artifact**, not editing a directory.
+Re-export, then `julia --project=. tools/make_artifacts.jl matanyone` — that hashes
+the new content and rewrites `../Artifacts.toml`, so this call resolves to it
+immediately. Uploading is only needed to publish it to anyone else.
 """
-function assetdir()
-    p = assetpath(; generated = joinpath("gen", "graphs", "aten-autocast"),
-                  env = "JULIA_MATANYONE_ASSETS", from = @__DIR__)
-    return ispath(p) ? p : @artifact_str("matanyone")
-end
+assetdir() = @artifact_str("matanyone")
 
 """
 Path to the weights, which sit beside the graph directory in a generated tree

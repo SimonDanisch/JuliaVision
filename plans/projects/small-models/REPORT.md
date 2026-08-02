@@ -226,9 +226,25 @@ command so a re-export can redo it.
 | `rife` | 20.1 MiB | `b41f6be8ace2` |
 | `depthanything` | 87.7 MiB | `f33c510b8044` |
 
-Each `assetdir()` now consults three places in order — its env var, the generated
-directory, then the artifact — so a developer who re-exports keeps their own copy
-and a plain `Pkg.add` gets the published one.
+**A ported model now reads its assets from its artifact and from nowhere else** —
+`assetdir() = @artifact_str("rife")`, one line, no fallbacks. The first attempt
+kept an env-var override and a generated-tree branch in front of it; both are
+gone. Nothing in the repo ever set the six environment variables, and the
+generated-tree branch is precisely what made a *broken* artifact download
+invisible for as long as it was: on any machine with a `gen/` tree, the fallback
+always answered, so nobody could tell the artifact path had never worked.
+
+The consequence is a real workflow change and it is the right one: **changing a
+model's assets means re-binding its artifact.** Re-export, then
+`tools/make_artifacts.jl <name>` — that hashes the new tree and rewrites the
+`Artifacts.toml`, so `assetdir()` resolves to the new content immediately;
+uploading is only how it reaches anyone else. Verified: the runners now load from
+`~/.julia/artifacts/...` and produce byte-identical output to the `gen/`-backed
+runs, with `frozen_stats().misses == 0`.
+
+`DNNKernels.assetpath` survives with exactly one class of caller — the six
+runners for models that are **not ported yet**, which have no export to bind. Each
+stops using it the moment it is ported.
 
 The tarballs carry the graph, the weights and the op histogram, and deliberately
 **not** `reference*.safetensors`: those are what `tools/verify_*.jl` diffs

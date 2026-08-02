@@ -5,30 +5,36 @@ They are not source, and they are far too large to be: SAM 2.1's weights alone
 are 942 MB. So they are Julia *artifacts* — content-addressed, downloaded on
 first use, shared between every environment on the machine, and never in git.
 
-Three places are consulted, in this order, and the order is the design:
+**A ported model reads its assets from its artifact and from nowhere else:**
 
- 1. **An environment variable**, when the caller has them somewhere specific.
-    Precompilation has no running program to ask, so this is how a workload is
-    pointed at a checkout that is not the default one.
- 2. **A locally generated tree**, found by walking up from the package. On a
-    machine that *produces* these files — anything with `tools/export_sam2.py`
-    and a PyTorch checkout — the generated ones are the interesting ones, and
-    downloading a published copy over the top of work in progress would be
-    exactly wrong.
- 3. **The artifact** — and that step is not implemented here. `artifact"name"`
-    already downloads on first use, verifies the tree hash, caches across every
-    environment on the machine and hands back a path. Each package writes that
-    literal itself, because `@artifact_str` resolves the `Artifacts.toml` next to
-    the module that expands it, which is the one that binds the artifact.
+    assetdir() = @artifact_str("sam2-large")
 
-This file used to wrap step 3 in an `artifactpath(name, toml)` that called
-`Artifacts.ensure_artifact_installed` — which does not exist; downloading needs
-`LazyArtifacts` or `Pkg`. Every lazy artifact therefore raised `UndefVarError`
-into a `catch` that logged "could not install artifact" and returned `nothing`,
-so every caller silently fell through to the generated tree. On a developer
-machine, which always has one, that is invisible. The lesson is the reason the
-wrapper is gone rather than fixed: `@artifact_str` is the supported path and it
-does not need helping.
+That is the whole mechanism. `artifact"..."` downloads on first use, verifies the
+tree hash, caches across every environment on the machine and hands back a path.
+Each package writes the literal itself, because `@artifact_str` resolves the
+`Artifacts.toml` next to the module that expands it, which is the one that binds
+it.
+
+**Changing a model's assets means re-binding its artifact.** Re-export, then
+`tools/make_artifacts.jl <name>`: that hashes the new tree and rewrites the
+`Artifacts.toml`, so `assetdir()` resolves to the new content immediately, and
+uploading is only how it reaches anyone else. There is deliberately no "use the
+working copy instead" path — one source of truth, and the way to change it is to
+change it.
+
+Two earlier designs are worth not repeating. The first wrapped the download in an
+`artifactpath(name, toml)` calling `Artifacts.ensure_artifact_installed`, which
+does not exist — downloading needs `LazyArtifacts` or `Pkg`. Every lazy artifact
+raised `UndefVarError` into a `catch` that logged a warning and returned
+`nothing`. The second, fixing that, still consulted an environment variable and a
+locally generated tree first. Nothing ever set the environment variables, and the
+generated-tree branch is what made the broken download invisible for as long as
+it was: on a machine that has a `gen/` tree, the fallback always answered.
+
+[`assetpath`](@ref) below is what remains of that, and it has exactly one class
+of caller left — the runner packages for models that are **not ported yet**, which
+have no artifact to bind because they have no export to bind. Each one stops
+using it at the moment it is ported.
 
 Walking up rather than a fixed `../../../gen` because the depth of a generated
 tree above a package is a property of the checkout, not of the package: the
@@ -83,15 +89,12 @@ set, else the generated tree this checkout would have.
   * `from` — where to start walking up; pass `@__DIR__` from the caller, since
     `@__DIR__` here would be this package rather than the one asking.
 
-The returned path may not exist, and that is deliberate: a package with no
-artifact names it in the error so the message says where it looked.
+The returned path may not exist, and that is deliberate: the caller names it in
+the error so the message says where it looked.
 
-The artifact is deliberately not a case here. A package that binds one writes
-
-    assetdir() = (p = assetpath(...); ispath(p) ? p : artifact"name")
-
-and `artifact"..."` does the downloading, hashing and caching — see the module
-docstring for why this file no longer tries to.
+**Only for models that are not ported yet.** A ported one writes
+`assetdir() = @artifact_str("name")` and does not come here at all — see the
+module docstring.
 """
 function assetpath(; generated::AbstractString,
                    env::Union{Nothing,AbstractString} = nothing,

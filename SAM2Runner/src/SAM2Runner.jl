@@ -50,31 +50,24 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where the exported graphs and weights live: the `sam2-large` artifact, unless
-this checkout generates them itself or `JULIA_SAM2_ASSETS` says otherwise. See
-[`DNNKernels.assetpath`](@ref) for the order and why it is that order.
+Where the model's graph and weights live: its artifact, downloaded on first use
+and cached across every environment on this machine.
 
-942 MB of weights, so an artifact rather than anything in git, and lazy so that
-installing this package does not download them.
+**Changing these assets means re-binding the artifact**, not editing a directory.
+Re-export, then `julia --project=. tools/make_artifacts.jl sam2-large` — that hashes
+the new content and rewrites `../Artifacts.toml`, so this call resolves to it
+immediately. Uploading is only needed to publish it to anyone else.
 """
-function assetdir()
-    p = assetpath(; generated = joinpath("gen", "graphs", "sam2-large"),
-                  env = "JULIA_SAM2_ASSETS", from = @__DIR__)
-    return ispath(p) ? p : @artifact_str("sam2-large")
-end
+assetdir() = @artifact_str("sam2-large")
 
 """
     refsdir() -> String
 
-The PyTorch reference activations the test suite compares against — 1.2 GB, and
-*only* for tests, which is why they are a separate artifact from the weights. A
-caller that just wants to segment a picture should never fetch these.
+The PyTorch reference activations the test suite compares against — a separate
+artifact from the weights because they are 1.2 GB and only the tests read them.
+A caller that just wants to segment a picture never fetches these.
 """
-function refsdir()
-    p = assetpath(; generated = joinpath("gen", "graphs", "sam2-large"),
-                  env = "JULIA_SAM2_REFS", from = @__DIR__)
-    return ispath(p) ? p : @artifact_str("sam2-large-refs")
-end
+refsdir() = @artifact_str("sam2-large-refs")
 
 """
     sam2model(; backend, dir, res) -> SAM2
