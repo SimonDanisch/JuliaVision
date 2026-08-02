@@ -819,3 +819,43 @@ reachable from a recording batch on a different `BatchQueue` would not be seen.
 This device reports `max_queue_count = 1`, so it cannot be exercised here, but
 `async_queue_count` is 4 and the RT/async paths are where a second queue appears.
 Worth the desktop checking.
+
+#### 15a. Reproducer for the invalid SPIR-V, and one negative result
+
+No MWE needed — the existing regression test is already minimal, and the two
+spellings differ only by an environment variable:
+
+```
+$ julia --project=. dev/Lava/test/test_select_width_mismatch.jl
+  passes
+
+$ LAVA_VALIDATION=1 julia --project=. dev/Lava/test/test_select_width_mismatch.jl
+  Error During Test at test_select_width_mismatch.jl:22
+    Instruction may not have a logical pointer operand
+      %99 = OpBitcast %_ptr_Workgroup__arr_float_uint_128 %98
+  0 passed, 0 failed, 1 errored
+```
+
+Seconds to run, one testset, no GPU dispatch needed past shader-module creation.
+
+**Negative result, recorded so the next person does not repeat it.** I wrote a
+hand-rolled MWE with the same shape — `@localmem Float32 (128,)`, the same
+clamped ternary, `lava_local_invocation_index` instead of KA's `@index(Local)`,
+compiled via `lava_compile_gpu` — and it **validates cleanly** (`spirv-val`
+exit 0, 2012 bytes). So the illegal bitcast is not produced by the ternary alone;
+it depends on the exact lowering the KernelAbstractions `@kernel` wrapper
+produces. Anyone reducing this further should start from the KA path, not from a
+plain function.
+
+That is also why I stopped short of fixing it. The emitter has three pointer
+`OpBitcast` sites (`emit.jl:1362`, `:1378`, `:1414`) and the observed result type
+is a pointer-to-array, which matches none of the first two (both build
+pointer-to-scalar from `map_type!(eff_load_ty)`). Without a reduction I can step
+through, a fix here would be a guess at code `lava-core` owns. The bug is
+localised, reproducible in one command, and has a named VUID; that is a better
+handoff than a speculative patch.
+
+Note `emit.jl:1317` already carries the comment *"would emit an identity
+OpBitcast on a logical pointer, which Vulkan rejects
+(VUID-StandaloneSpirv-Logical pointer-OpBitcast)"* — so the constraint is known
+in the file, and guarded for the identity case only.
