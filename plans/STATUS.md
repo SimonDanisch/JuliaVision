@@ -29,8 +29,8 @@ existing one, so it does not collide with the refactor.
 | `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | phase 1a **done** (`3f59291`); 1b, 2, 3 not started |
 | `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–4 and 6 done, **globals 34 → 0**; step 5 declined with reasons; **multi-device blocked on Lava** |
 | `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
-| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | not started — **its capability dump is an input to the two refactors, so run it early**; it files bugs rather than fixing them |
-| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | not started |
+| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | **phase 1 + 2 done.** Capability dump, 3 hard crashes found and fixed, `Extruded` does NOT reproduce on RDNA 3.5, SAM 2 runs at 294 ms. Read its report before touching `Device` or any subgroup width |
+| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | **done.** Three models export, run and match; LUT meets budget, RIFE and Depth Anything miss by ~30x / ~15x with measured reasons |
 
 The three desktop projects were all killed mid-flight on 2026-08-02 and recovered
 by hand; see the *Process* section of each report, and `GUARDRAILS.md` §9, which
@@ -103,6 +103,39 @@ may depend on it.
 (`dev/Lava/test/run_lavapipe.sh`) is a two-device pair on all three machines.
 Assert correct results on both *and* that the two contexts' caches are disjoint —
 a shared entry can still produce a right answer by luck.
+
+## Cross-project, act on these first
+
+- **`VK_PIPELINE_COMPILE_REQUIRED` is discarded on Linux — this is live on the
+  DESKTOP, not just on AMD.** It is a *success*-class code, so Vulkan.jl does not
+  raise and Lava caches and binds a NULL pipeline. The check exists but sits
+  inside `if LARGE_STACK_PIPELINE`, which is `Sys.iswindows()`. Consequence
+  beyond the crash: `PIPELINE_COMPILES_REFUSED` is always 0 here and
+  `PIPELINE_COMPILE_MISSES` never fills, so **`no_pipeline_compilation` cannot
+  report a miss on Linux** — it either crashes or returns a false green. That is
+  the instrument the frozen-kernel-cache workflow verifies with, and it is the
+  third instrument-cannot-fire bug found on 2026-08-02. Fixed on Lava
+  `sd/portability` (`93e4765`); merge it.
+- **Subgroup width is not a device fact.** RDNA 3.5 reports min 32 / max 64 with
+  compute pipelines free to pin either, so `device_subgroup_size()` is a
+  *default*. Any plan object storing a width must pin it at pipeline creation
+  via `VK_EXT_subgroup_size_control` (`Lava.can_require_subgroup_size` exists),
+  or it is storing a guess the driver may contradict. `DNNKernels.Device.subgroup`
+  as committed in `4f43ba4` does not pin, and `flash.jl` still has literal `32`s
+  at `399`, `431`, `440`. Invisible on the desktop.
+- **A `Bool` capability predicate cannot express this hardware.**
+  `coopmat_gemm_available()` is `true` on RDNA 3.5, but its shape table has no
+  `Float32` A/B form at all — so a Float32 GEMM is told yes and emits
+  instructions the device does not implement. `portability`'s report sketches the
+  capability-as-type replacement (`CoopMatBasic` / `CoopMatMapped`, named after
+  capability levels and never after vendors) and shows the coopmat2 fallbacks are
+  constructible from KHR `getcomp`/`setcomp` rather than hypothetical.
+- **TF32 was on by default in every exporter but `dump_sam2_refs.py`**, so their
+  "PyTorch reference" was itself a 10-bit-mantissa approximation. RIFE read as
+  7.9e-3 and is actually 3.3e-4. Copy the three lines when writing a new
+  exporter: `EG.precision_ctx` looks like it covers precision and does not.
+- **Benchmark through `Model`, never `loadgraph` + `execute!`** — the latter
+  measures a graph nothing ships. Depth Anything 764 → 421 ms from that alone.
 
 ## Open bugs
 
