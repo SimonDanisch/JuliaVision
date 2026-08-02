@@ -102,9 +102,14 @@ function convolution!(out, x, w, bias, stride, padding, dilation, groups;
     # it is the only one with any data reuse. Grouped ones stay here — this model
     # has none, so that path is untuned.
     #
-    # Same kernel on every backend, CPU included: the CPU run is what validates
-    # the GPU run against the reference activations, so they have to be the same
-    # source or the verification means nothing.
+    # `convolution_direct!` (below) is the same kernel on every backend, CPU
+    # included, and that CPU run is what validates the GPU run against the
+    # reference activations, so it has to be the same source or the verification
+    # means nothing.
+    #
+    # This entry point is NOT that kernel. The branches below reach
+    # `conv_coopmat_applicable` and from there `Lava.coopmat_gemm!`, which exists
+    # only on Lava. Only the fallthrough is backend-independent.
     s = (stride[1], stride[2])
     p = (padding[1], padding[2])
     d = (dilation[1], dilation[2])
