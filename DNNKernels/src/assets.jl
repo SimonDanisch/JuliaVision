@@ -15,7 +15,20 @@ Three places are consulted, in this order, and the order is the design:
     and a PyTorch checkout — the generated ones are the interesting ones, and
     downloading a published copy over the top of work in progress would be
     exactly wrong.
- 3. **The artifact**, downloaded if `Artifacts.toml` binds one.
+ 3. **The artifact** — and that step is not implemented here. `artifact"name"`
+    already downloads on first use, verifies the tree hash, caches across every
+    environment on the machine and hands back a path. Each package writes that
+    literal itself, because `@artifact_str` resolves the `Artifacts.toml` next to
+    the module that expands it, which is the one that binds the artifact.
+
+This file used to wrap step 3 in an `artifactpath(name, toml)` that called
+`Artifacts.ensure_artifact_installed` — which does not exist; downloading needs
+`LazyArtifacts` or `Pkg`. Every lazy artifact therefore raised `UndefVarError`
+into a `catch` that logged "could not install artifact" and returned `nothing`,
+so every caller silently fell through to the generated tree. On a developer
+machine, which always has one, that is invisible. The lesson is the reason the
+wrapper is gone rather than fixed: `@artifact_str` is the supported path and it
+does not need helping.
 
 Walking up rather than a fixed `../../../gen` because the depth of a generated
 tree above a package is a property of the checkout, not of the package: the
@@ -59,62 +72,33 @@ function findasset(relative::AbstractString; env::Union{Nothing,AbstractString} 
 end
 
 """
-    artifactpath(name, toml) -> String or nothing
+    assetpath(; generated, env, from) -> String
 
-Where artifact `name` is installed, downloading it if `Artifacts.toml` binds it
-lazily; `nothing` when it is not bound at all.
+A model's *locally provided* asset directory: the environment override if it is
+set, else the generated tree this checkout would have.
 
-Returns `nothing` rather than throwing because an unbound artifact is the normal
-state of a working checkout — the assets are generated there, not fetched — and
-[`assetpath`](@ref) has already tried the generated tree by the time it asks.
-"""
-function artifactpath(name::AbstractString, toml::AbstractString)
-    isfile(toml) || return nothing
-    meta = Artifacts.artifact_meta(name, toml)
-    meta === nothing && return nothing
-    hash = Base.SHA1(meta["git-tree-sha1"])
-    try
-        Artifacts.artifact_exists(hash) ||
-            Artifacts.ensure_artifact_installed(name, meta, toml)
-        return Artifacts.artifact_path(hash)
-    catch err
-        # A download that fails must not take the whole session with it: the
-        # caller can still be pointed at a local copy, and every workload
-        # tolerates the asset being absent.
-        @warn "could not install artifact $name" exception = err
-        return nothing
-    end
-end
-
-"""
-    assetpath(; artifact, toml, generated, env, from) -> String
-
-A model's asset directory, by the three-step rule this file documents.
-
-  * `artifact` — the artifact name to fall back on, or `nothing` for none.
-  * `toml` — the `Artifacts.toml` that binds it, normally the package's own.
   * `generated` — the path, relative to some ancestor, that a machine which
     produces these files would have (e.g. `gen/graphs/sam2-large`).
   * `env` — an environment variable that overrides everything.
   * `from` — where to start walking up; pass `@__DIR__` from the caller, since
     `@__DIR__` here would be this package rather than the one asking.
 
-The returned path may not exist. That is deliberate — see the module docstring.
+The returned path may not exist, and that is deliberate: a package with no
+artifact names it in the error so the message says where it looked.
+
+The artifact is deliberately not a case here. A package that binds one writes
+
+    assetdir() = (p = assetpath(...); ispath(p) ? p : artifact"name")
+
+and `artifact"..."` does the downloading, hashing and caching — see the module
+docstring for why this file no longer tries to.
 """
-function assetpath(; artifact::Union{Nothing,AbstractString} = nothing,
-                   toml::AbstractString = "",
-                   generated::AbstractString,
+function assetpath(; generated::AbstractString,
                    env::Union{Nothing,AbstractString} = nothing,
                    from::AbstractString = @__DIR__)
     if env !== nothing
         p = get(ENV, env, "")
         isempty(p) || return p
     end
-    local_ = findasset(generated; from)
-    ispath(local_) && return local_
-    if artifact !== nothing
-        p = artifactpath(artifact, toml)
-        p === nothing || return p
-    end
-    return local_        # name the place we looked, so the error can say it
+    return findasset(generated; from)
 end

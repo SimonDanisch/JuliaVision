@@ -24,6 +24,7 @@ using Lava, DNNKernels, KernelAbstractions
 # The propagator reads the editor's frames, which are `Matrix{RGB{N0f8}}`.
 using ColorTypes: red, green, blue
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: Model, initstate, step!, toback
 
 export matanyonemodel, runmatanyone, matanyonepropagator
@@ -44,10 +45,11 @@ Where MatAnyone2's exported graphs live: the `matanyone` artifact, unless this
 checkout generates them itself or `JULIA_MATANYONE_ASSETS` says otherwise. See
 [`DNNKernels.assetpath`](@ref) for the order and why it is that order.
 """
-assetdir() = assetpath(; artifact = "matanyone",
-                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
-                       generated = joinpath("gen", "graphs", "aten-autocast"),
-                       env = "JULIA_MATANYONE_ASSETS", from = @__DIR__)
+function assetdir()
+    p = assetpath(; generated = joinpath("gen", "graphs", "aten-autocast"),
+                  env = "JULIA_MATANYONE_ASSETS", from = @__DIR__)
+    return ispath(p) ? p : @artifact_str("matanyone")
+end
 
 """
 Path to the weights, which sit beside the graph directory in a generated tree

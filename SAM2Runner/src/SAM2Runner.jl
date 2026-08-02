@@ -29,6 +29,7 @@ using ColorTypes: RGB, red, green, blue
 # editor's exact frame element type and nothing else from FixedPointNumbers.
 const N0f8 = ColorTypes.FixedPointNumbers.N0f8
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: SAM2, encode, decode, segment, prompt, toback
 
 # `segment` is `DNNKernels.segment` with methods added here, not a new function:
@@ -56,10 +57,11 @@ this checkout generates them itself or `JULIA_SAM2_ASSETS` says otherwise. See
 942 MB of weights, so an artifact rather than anything in git, and lazy so that
 installing this package does not download them.
 """
-assetdir() = assetpath(; artifact = "sam2-large",
-                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
-                       generated = joinpath("gen", "graphs", "sam2-large"),
-                       env = "JULIA_SAM2_ASSETS", from = @__DIR__)
+function assetdir()
+    p = assetpath(; generated = joinpath("gen", "graphs", "sam2-large"),
+                  env = "JULIA_SAM2_ASSETS", from = @__DIR__)
+    return ispath(p) ? p : @artifact_str("sam2-large")
+end
 
 """
     refsdir() -> String
@@ -68,10 +70,11 @@ The PyTorch reference activations the test suite compares against — 1.2 GB, an
 *only* for tests, which is why they are a separate artifact from the weights. A
 caller that just wants to segment a picture should never fetch these.
 """
-refsdir() = assetpath(; artifact = "sam2-large-refs",
-                      toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
-                      generated = joinpath("gen", "graphs", "sam2-large"),
-                      env = "JULIA_SAM2_REFS", from = @__DIR__)
+function refsdir()
+    p = assetpath(; generated = joinpath("gen", "graphs", "sam2-large"),
+                  env = "JULIA_SAM2_REFS", from = @__DIR__)
+    return ispath(p) ? p : @artifact_str("sam2-large-refs")
+end
 
 """
     sam2model(; backend, dir, res) -> SAM2

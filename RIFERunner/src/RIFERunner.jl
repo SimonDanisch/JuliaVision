@@ -9,7 +9,7 @@ Cheap for the runtime: the warping is `grid_sampler_2d`, which is already implem
 model and [`interpolate!`](@ref) produces one frame between two, at any `t` in
 [0, 1]. The interpolated frame matches PyTorch to **3.3e-4** max and 4.9e-7 mean.
 
-**Correct, and far off its target.** One 1080p frame costs ~500 ms on an RTX 3070
+**Correct, and far off its target.** One 1080p frame costs ~320 ms on an RTX 3070
 laptop against the 16.67 ms that 1080p60 needs. The port is not what is slow: the
 graph is **149 GFLOP of convolution per frame**, so even a kernel sustaining a
 plausible 10 TFLOP/s would spend 14.9 ms on convolution alone. 1080p60 is not
@@ -34,6 +34,7 @@ module RIFERunner
 
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback,
                   Model, planslab, fusableset, Workspace
 using GPUFiltering: tofloat, topixel
@@ -67,10 +68,11 @@ carries the graph and weights only — `reference*.safetensors` is what
 `tools/verify_rife.jl` diffs against and the exporter regenerates it in one
 command, so it is not something a caller should have to download.
 """
-assetdir() = assetpath(; artifact = "rife",
-                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
-                       generated = joinpath("gen", "graphs", "rife"),
-                       env = "JULIA_RIFE_ASSETS", from = @__DIR__)
+function assetdir()
+    p = assetpath(; generated = joinpath("gen", "graphs", "rife"),
+                  env = "JULIA_RIFE_ASSETS", from = @__DIR__)
+    return ispath(p) ? p : @artifact_str("rife")
+end
 
 """
     rifegraph(; dir = assetdir()) -> Graph
@@ -163,11 +165,8 @@ end
 A loaded interpolator: the prepared graph, its weights, the scratch it needs, and
 the padded input buffer.
 
-Built through `DNNKernels.Model`, which runs the host-side preparation passes.
-Note that on *this* graph they appear to cost rather than save time (~500 ms
-against 327 ms without them) — that is recorded and unexplained in
-`plans/projects/small-models/REPORT.md`; the driver path is kept because it is
-the one the editor uses and correctness is not in question.
+Built through `DNNKernels.Model`, which runs the host-side preparation passes
+the editor's own path gets.
 """
 struct RIFE{B,G,W,S,P,I,T}
     backend::B
@@ -225,7 +224,7 @@ back. `t` is any value in `[0, 1]` — it is a graph input rather than a baked
 constant, which is what makes retiming and 4x slow motion three calls that differ
 only in one scalar rather than three exports.
 
-Costs ~500 ms per frame at 1080p on an RTX 3070 laptop against a 16.67 ms budget
+Costs ~320 ms per frame at 1080p on an RTX 3070 laptop against a 16.67 ms budget
 for 1080p60. The port is correct and the target is not close; see
 `plans/projects/small-models/REPORT.md` for where the time goes and why fp32 on
 this card cannot reach it.

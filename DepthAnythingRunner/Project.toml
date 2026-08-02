@@ -3,6 +3,7 @@ uuid = "acf050f5-8d8b-44a6-839a-ace43aa41d7c"
 version = "0.1.0"
 
 [deps]
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 ColorTypes = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 GPUFiltering = "0d8d4a14-6fb1-4aec-8b08-0f10adea08ad"

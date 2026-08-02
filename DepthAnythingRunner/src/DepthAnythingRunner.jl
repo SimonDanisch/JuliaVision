@@ -11,8 +11,8 @@ A ViT with scaled-dot-product attention and nothing else unusual, so the runtime
 loads the model and [`depthmap!`](@ref) turns a frame into inverse relative
 depth. The map matches PyTorch to **4.2e-5**, which is 0.0025% of its own range.
 
-**Correct, and 15x off its target.** One 518² map costs ~421 ms on an RTX 3070
-laptop against PyTorch's 27.6 ms for the same forward, so the `≥ PyTorch` target
+**Correct, and 15x off its target.** One 518² map costs ~380 ms on an RTX 3070
+laptop against PyTorch's 24.7 ms for the same forward, so the `≥ PyTorch` target
 is not met and the gap is convolution and `bmm` throughput rather than anything
 in this package — see `plans/projects/small-models/REPORT.md`.
 
@@ -34,6 +34,7 @@ module DepthAnythingRunner
 
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors, assetpath, toback,
                   Model, planslab, fusableset, Workspace, Ctx, value
 using GPUFiltering: resizeplanar!
@@ -67,10 +68,11 @@ carries the graph and weights only — `reference*.safetensors` is what
 `tools/verify_depthanything.jl` diffs against and the exporter regenerates it in one
 command, so it is not something a caller should have to download.
 """
-assetdir() = assetpath(; artifact = "depthanything",
-                       toml = joinpath(@__DIR__, "..", "Artifacts.toml"),
-                       generated = joinpath("gen", "graphs", "depthanything"),
-                       env = "JULIA_DEPTHANYTHING_ASSETS", from = @__DIR__)
+function assetdir()
+    p = assetpath(; generated = joinpath("gen", "graphs", "depthanything"),
+                  env = "JULIA_DEPTHANYTHING_ASSETS", from = @__DIR__)
+    return ispath(p) ? p : @artifact_str("depthanything")
+end
 
 """
     depthanythinggraph(; dir = assetdir()) -> Graph
@@ -144,7 +146,7 @@ the graph needs.
 
 Built through `DNNKernels.Model` rather than `loadgraph`, which is what runs the
 host-side preparation passes — on this model they are worth 311 ops down to 290
-and **763 ms down to 421**, so skipping them is not a detail. The planned slab is
+and nearly 2x in wall clock, so skipping them is not a detail. The planned slab is
 the other half: 956 buffers left unplanned would each stay live for the whole
 graph.
 """
@@ -196,7 +198,7 @@ static graph cannot have that. The distortion is uniform across the frame and th
 network is scale-tolerant, but it is a real difference from upstream's own
 `infer_image` and is worth knowing when comparing against it.
 
-Costs ~421 ms at 518² on an RTX 3070 laptop, against PyTorch's 27.6 ms for the
+Costs ~380 ms at 518² on an RTX 3070 laptop, against PyTorch's 24.7 ms for the
 same forward — this port is correct but far off its `≥ PyTorch` target, and the
 gap is convolution throughput (`plans/projects/small-models/REPORT.md`).
 """

@@ -19,9 +19,12 @@ Every number below is **this machine's** and no engine comparison has been put i
 
 | model | exports | runs | vs PyTorch | editor budget | target |
 |---|---|---|---|---|---|
-| Neural 3D LUT | yes, 26 ops | yes | **3.6e-7** on the LUT | apply **0.88 ms** at 4K | < 2 ms — **met** |
-| RIFE 4.26 | yes, 366 ops | yes | **3.3e-4** max, 4.9e-7 mean | **~500 ms** at 1080p | 16.67 ms — **missed, ~30x** |
-| Depth Anything V2 S | yes, 311 ops | yes | **4.2e-5** (0.0025% of range) | **421 ms** at 518² | ≥ PyTorch (27.6 ms) — **missed, ~15x** |
+| Neural 3D LUT | yes, 26 ops | yes | **3.6e-7** on the LUT | apply **0.79 ms** at 4K | < 2 ms — **met** |
+| RIFE 4.26 | yes, 366 ops | yes | **3.3e-4** max, 4.9e-7 mean | **~320 ms** at 1080p | 16.67 ms — **missed, ~19x** |
+| Depth Anything V2 S | yes, 311 ops | yes | **4.2e-5** (0.0025% of range) | **~380 ms** at 518² | ≥ PyTorch (24.7 ms) — **missed, ~15x** |
+
+Timings are the median of 3 runs on an **uncontended** card; see the correction
+below, and treat them as one significant figure (`GUARDRAILS.md` §6).
 
 **No new runtime ops were needed**, as the brief predicted, with one exception:
 `_native_batch_norm_legit.no_stats` — what `nn.InstanceNorm2d` decomposes to —
@@ -54,28 +57,75 @@ host-side preparation passes (`foldbatchnorm`, `foldrelu`, `hoistcasts`,
 `hoistpermutes`, `hoistconstants`, `foldoutcasts`, `dropdead`) that the editor's
 path gets. Benchmarking `loadgraph` + `execute!` measures a graph nothing ships:
 
-- Depth Anything **763.56 → 421 ms**, 311 → 290 ops. Nearly 2x.
-- The neural LUT classifier **14.08 → ~8 ms**, almost all of it from passing a
+- Depth Anything **763.56 → 421 ms**, 311 → 290 ops. Nearly 2x. (Both contended;
+  the clean figure through `Model` is ~380 ms.)
+- The neural LUT classifier **14.08 → ~10 ms**, almost all of it from passing a
   planned slab rather than letting every intermediate allocate.
 
 Both benchmarks originally did the wrong thing and both numbers were wrong in the
 pessimistic direction. All three `tools/bench_*.jl` now build a `Model` and a
 planned slab.
 
-**RIFE is the exception, and it goes the wrong way.** Through `Model` it is
-478/500/516 ms across three runs; through plain `loadgraph` + a slab it was
-327 ms. The preparation passes appear to **cost** this graph ~50%, which is not
-what they do to the other two. Not chased further — it does not change the
-verdict (30x either way) and the desktop is the machine that should confirm it.
-Flagged rather than explained.
+**RIFE looked like an exception and was not** — see the correction above. The
+"passes cost this graph 50%" reading was soak contention, not the passes.
+
+### Correction: the first round of timings was measured against a running soak
+
+Every number in the first version of this entry was taken while
+`tools/soak_flush_hang.jl` was still hammering the same GPU. The soak had been
+stopped from the harness, and the *shell* died, but the Julia child survived and
+kept dispatching — 1 007 MiB resident and a continuous kernel stream. That is
+what the unexplained spread was: RIFE read 327 / 357 / 478 / 500 / 516 ms across
+runs and I wrote it up as an unexplained property of the preparation passes.
+
+Re-measured with nothing else on the card:
+
+| | contended | clean |
+|---|---|---|
+| RIFE, one frame | ~500 ms | **307 / 322 / 331 ms** |
+| Depth Anything, one map | 421 ms | **364 / 401 ms** |
+| Depth Anything, PyTorch | 27.6 ms | **24.7 ms** |
+| neural LUT classifier | 7.0 / 8.4 / 8.4 ms | **10.5 / 9.5 / 10.5 ms** |
+| neural LUT apply at 4K | 0.88 ms | **0.79 ms** |
+
+**The `Model`-is-slower-than-`loadgraph` finding does not survive this.** RIFE's
+327 ms "without the passes" and ~500 ms "with them" were the same code path
+measured against different amounts of soak. Clean, through `Model`, it is ~320
+ms. There is no evidence the preparation passes cost RIFE anything, and the claim
+is withdrawn rather than left standing with a caveat.
+
+Two lessons worth more than the numbers: a stopped background job is not
+necessarily a dead one — check `nvidia-smi --query-compute-apps` before timing,
+not just the task list — and an unexplained 50% spread is a symptom to chase, not
+a footnote to write.
+
+### Calibration: how fast is SAM 2 on this machine?
+
+The obvious question about a 15–30x gap is whether the laptop is simply slow.
+It is not, and SAM 2 is the control because the desktop has published numbers for
+it.
+
+| | this machine | desktop | ratio |
+|---|---|---|---|
+| SAM 2.1 encode, 1024² | **182.3 ms** | 100.4 ms | 1.8x |
+| SAM 2.1 decode, one click | 17.6 ms | 3.30 ms *(replayed)* | not comparable |
+| VRAM | 1 337 MiB | 1 181 MiB | 1.1x |
+
+**This card is ~1.8x the desktop, not 15x.** The desktop has SAM 2 encode at 87%
+of PyTorch; scaling both sides by 1.8 leaves it at about 87% here too. Depth
+Anything on the same engine, same machine, same session is at **6.5%** of
+PyTorch. That is a 13x spread *between models*, which is the finding: the gap is
+not the card and not the runtime as a whole — it is which kernels these two
+graphs land on. The decode figure is not a fair comparison in either direction:
+the desktop's 3.30 ms is a replayed captured command buffer and this is not.
 
 ### Why RIFE and Depth Anything miss
 
 Measured, not guessed (`GUARDRAILS.md` §5 — no unmeasured denominators).
 
 RIFE's 63 convolutions are **149.0 GFLOP** per interpolated frame at 1080p, of
-which one transposed convolution is 47.9 GF. At the measured ~500 ms that is
-**~0.3 TFLOP/s**, a low single-digit percentage of this card's fp32 peak. Even a
+which one transposed convolution is 47.9 GF. At the measured ~320 ms that is
+**~0.47 TFLOP/s**, a low single-digit percentage of this card's fp32 peak. Even a
 conv running at a *plausible* 10 TFLOP/s leaves 14.9 ms of convolution alone
 against a 16.67 ms frame — so **1080p60 is not reachable in fp32 on this card
 even with a good kernel**, and the target as written needs either fp16/tensor
@@ -97,8 +147,8 @@ card. Two models, two different conv pathologies, same kernel.
 ### What is fast enough
 
 The neural LUT port meets its target and is worth shipping. Applying a look at
-4K is **0.88 ms**, the 4K→256 reduce is **0.032 ms**, and predicting a new look
-is ~8 ms — so grading a shot at 60 fps costs 0.88 ms/frame and only re-prediction
+4K is **0.79 ms**, the 4K→256 reduce is **0.03 ms**, and predicting a new look
+is ~10 ms — so grading a shot at 60 fps costs 0.79 ms/frame and only re-prediction
 is expensive. That is the right shape for the feature: predict per shot or per
 keyframe, grade per frame. `NeuralLUTRunner` has a real workload and
 `Lava.frozen_stats().misses == 0` on a fresh process.
