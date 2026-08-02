@@ -163,7 +163,7 @@ changed to match anyway, because "today" is doing the work in that sentence.
 slab — without it the shipped runner would have been ~1.8x slower than the
 benchmark that measures it, which is its own kind of wrong.
 
-### Artifacts are bound but not uploaded
+### Artifacts are bound, uploaded and resolving
 
 All three packages now have an `Artifacts.toml` in the SAM 2 shape — lazy, with a
 `git-tree-sha1` and a `sha256` against `assets-v1` — written by
@@ -185,13 +185,12 @@ The tarballs carry the graph, the weights and the op histogram, and deliberately
 against and the exporter regenerates them in one command. It matters most for
 RIFE, whose references are ~80 MB against 22 MB of weights.
 
-**The tarballs are in `gen/artifacts/` and have not been uploaded.**
-`bind_artifact!` records a URL; it does not put anything there. Until they are
-attached to the release, a fresh clone resolves the artifact, fails the download
-and falls through to the generated directory — which is exactly today's
-behaviour, so nothing regresses by waiting. The upload is one
-`gh release upload assets-v1 gen/artifacts/*.tar.gz --repo SimonDanisch/JuliaVision`
-and is left to a human because it publishes to a public release.
+All three are **uploaded to `assets-v1` and verified end to end**: each URL serves
+bytes whose sha256 matches what `bind_artifact!` recorded, `Pkg` installs each one
+(which checks the `git-tree-sha1`, so that is confirmed too), and each unpacks to
+exactly the three intended files. A fresh clone with no `gen/` now gets working
+assets rather than an error naming a directory it does not have — which is the
+difference between a working port and an installable one.
 
 Note this supersedes `models-to-port.md`'s claim that RIFE is blocked on
 re-hosting `train_log/`: the artifact carries the *exported graph*, not upstream's
@@ -199,8 +198,6 @@ checkpoint, so nothing needed mirroring first.
 
 ### What is not done
 
-- **The three tarballs are not on the release** — see above. One command, but a
-  publishing one.
 - **The conv findings are not fixed**, per the brief — these three are bring-up,
   not kernel work. They are handed to whoever owns `kernels-to-port.md` item 1.
 
