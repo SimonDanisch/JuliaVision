@@ -26,11 +26,15 @@ existing one, so it does not collide with the refactor.
 
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
-| `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | not started |
-| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | not started |
-| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder exports, decoder not started |
+| `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | phase 1a **done** (`3f59291`); 1b, 2, 3 not started |
+| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–2 of 6 done, globals **34 → 20**; step 3 next |
+| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
 | `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | not started — **its capability dump is an input to the two refactors, so run it early**; it files bugs rather than fixing them |
 | `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | not started |
+
+The three desktop projects were all killed mid-flight on 2026-08-02 and recovered
+by hand; see the *Process* section of each report, and `GUARDRAILS.md` §9, which
+was rewritten because of it.
 
 ## Where the numbers stand
 
@@ -56,6 +60,16 @@ Only the desktop produces these. Last measured 2026-08-02.
   routes to stay under measured and all dead. See `FLASHCM_HELD`.
 - gelu into the GEMM epilogue; stem convolution padded onto the tensor cores;
   1×1 convolution routed to `matmul!`; decode capture/replay; click 16.7 → 5.05 ms.
+- **The scalar GEMM accumulated in the destination's precision** — an fp16
+  destination meant an fp16 accumulator over K = 5120. **234×** error, found by
+  the Whisper port, fixed by `gemmaccumtype` (Lava `a246295`). Affects every fp16
+  matmul missing the coopmat path, which in a raw exported graph is every
+  `addmm`. Whisper's encoder matches PyTorch at rel rms 6.30e-5 after it.
+- **`clear_kernel_cache!` silently did nothing** — `LAUNCH_PLAN_CACHE` is
+  consulted first and was not cleared (Lava `740d982`). It invalidated an A/B
+  over six SPIR-V variants. See `GUARDRAILS.md` §4.
+- DNNKernels globals **34 → 20**: nine settled toggles deleted, five diagnostics
+  `Ref`s moved onto `Ctx`.
 
 ## Standing constraint: multi-device
 
@@ -83,6 +97,15 @@ a shared entry can still produce a right answer by luck.
   currently living inside a predicate: blocking the decoder's lopsided shapes
   reproducibly hangs on `vkWaitSemaphores`. Sits under the decode work.
 - **Flush hang** — dominant path fixed, one recurrence after ~90 clean trials.
-- **`OpUDiv` in a shared-store index** and **narrow index + rank≥3 `Extruded`** —
-  both labelled "driver miscompile"; per Rule 0 that label is a suspect, not a
-  finding. Re-open against our own compiler.
+- **`OpUDiv` in a shared-store index** — labelled "driver miscompile"; per Rule 0
+  that label is a suspect, not a finding. Still to re-open against our own
+  compiler, and it cannot inherit the verdict below: that audit specifically
+  **disproved** `OpSDiv`-vs-`OpUDiv` as a mechanism. Needs its own GLSL
+  differential.
+- **narrow index + rank≥3 `Extruded`** — **settled 2026-08-02** (Lava
+  `3f59291`). The driver verdict stands, now on a glslang-produced module rather
+  than by elimination, and every previously asserted mechanism is disproved.
+  Re-read the test header before touching anything that divides twice: it is a
+  scheduling / register-allocation fault around **chained 64-bit division with
+  the first quotient re-used**, not a rule about any instruction. Blocks
+  narrowing Lava's broadcast kernels, which is worth ~3 ms.
