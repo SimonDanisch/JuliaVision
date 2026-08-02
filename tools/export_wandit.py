@@ -34,7 +34,8 @@ from safetensors.torch import save_file
 
 import export_graphs as EG
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 MODS = ROOT / "dev" / "Wan2.2" / "wan" / "modules"
 CFG = ROOT / "gen" / "wan22" / "config.json"
 

@@ -24,7 +24,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 GEN = ROOT / "gen"
 DEV = ROOT / "dev"
 

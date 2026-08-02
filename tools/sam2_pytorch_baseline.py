@@ -22,7 +22,8 @@ import torch
 import export_graphs as EG
 import export_sam2 as ES
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 
 
 def smclock():

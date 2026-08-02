@@ -16,7 +16,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 sys.path.insert(0, str(ROOT / "tools"))
 from basicvsrpp import load_basicvsrpp
 

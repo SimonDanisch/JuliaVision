@@ -34,7 +34,8 @@ import torch
 from safetensors.torch import save_file
 from torch.export import export
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 sys.path.insert(0, str(ROOT / "tools"))
 
 import export_graphs as EG  # noqa: E402

@@ -37,7 +37,8 @@ from safetensors.torch import save_file
 
 import export_graphs as EG
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 GEN = ROOT / "gen"
 WEIGHTS = GEN / "whisper"
 

@@ -9,10 +9,43 @@ checkout on sys.path keeps the venv to what is actually needed and keeps a
 `uv sync` from ever fighting an out-of-tree install.
 """
 
+import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+
+def find_root():
+    """The workspace root — the directory that owns `gen/` and `dev/`.
+
+    Not `tools/..`, and the reason is worth stating because it broke every script
+    at once. `tools/` lives in the JuliaVision repo but is reachable through a
+    symlink from the workspace root, so `Path(__file__).resolve()` follows the
+    symlink and `parent.parent` lands on `dev/JuliaVision` — where `gen/` does not
+    exist. Dropping `.resolve()` is not a fix either: it breaks the other
+    invocation, `dev/JuliaVision/tools/x.py` run directly.
+
+    And on a standalone clone of JuliaVision — which is what the laptops have —
+    there is no workspace root at all, so the repo itself is the answer and
+    `gen/` gets created inside it by the fetcher.
+
+    Order: an explicit `VIDEOEDIT_ROOT`; then the nearest ancestor that already
+    has `gen/` or `dev/JuliaVision/`; then the repo root. The walk is bounded so a
+    stray `~/gen` cannot capture it.
+
+    The marker is `dev/JuliaVision`, not `dev` — plain `dev` matches **`/dev`** on
+    any Linux box, so the walk ran to the filesystem root and returned `/`.
+    """
+    env = os.environ.get("VIDEOEDIT_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    here = Path(__file__).resolve().parent
+    for cand in [here, *list(here.parents)[:4]]:
+        if (cand / "gen").is_dir() or (cand / "dev" / "JuliaVision").is_dir():
+            return cand
+    return here.parent
+
+
+ROOT = find_root()
 UPSTREAM = ROOT / "dev" / "MatAnyone2"
 GEN = ROOT / "gen"
 CKPT_URL = "https://github.com/pq-yang/MatAnyone2/releases/download/v1.0.0/matanyone2.pth"

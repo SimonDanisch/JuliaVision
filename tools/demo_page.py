@@ -14,7 +14,8 @@ import html
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 OUT = ROOT / "media" / "model-demos"
 
 ORDER = ["whisper", "neurallut", "rife", "deepfilternet", "depthanything",

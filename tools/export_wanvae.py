@@ -32,7 +32,8 @@ from safetensors.torch import save_file
 
 import export_graphs as EG
 
-ROOT = Path(__file__).resolve().parent.parent
+from common import find_root  # tools/ is symlinked; see find_root
+ROOT = find_root()
 VAE_PY = ROOT / "dev" / "Wan2.2" / "wan" / "modules" / "vae2_2.py"
 CKPT = ROOT / "gen" / "wan22" / "Wan2.2_VAE.pth"
 ZDIM = 48
