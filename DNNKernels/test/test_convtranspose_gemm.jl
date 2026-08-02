@@ -23,6 +23,12 @@ const DK = DNNKernels
 @testset "transposed convolution via GEMM" begin
     back = LavaBackend()
     ws = DK.Workspace(back)
+    # The entry points take a context, not a `(backend, ws)` pair; `Ctx(backend)`
+    # is what a caller with no graph behind it builds. `nows` is the same context
+    # without a workspace, which is how the gather path is reached — the GEMM
+    # form needs scratch and declines without it.
+    ctx = DK.Ctx(back; ws)
+    nows = DK.Ctx(back)
 
     @testset "agrees with the gather" begin
         # The decoder's two shapes, plus a small one whose channel counts are
@@ -36,9 +42,9 @@ const DK = DNNKernels
             x, w, b = DK.toback(back, hx), DK.toback(back, hw), DK.toback(back, hb)
             ref = KA.allocate(back, T, 2Hi, 2Hi, Co, 1); fill!(ref, zero(T))
             got = KA.allocate(back, T, 2Hi, 2Hi, Co, 1); fill!(got, zero(T))
-            DK.convolutiontranspose!(ref, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
+            DK.convolutiontranspose!(nows, ref, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
             DK.reset!(ws)
-            DK.convolutiontranspose!(got, x, w, b, (2,2), (0,0), (1,1), (0,0), 1; ws)
+            DK.convolutiontranspose!(ctx, got, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
             KA.synchronize(back)
             r, g = Float32.(Array(ref)), Float32.(Array(got))
             # A shuffle that drops a sub-pixel phase leaves an exact lattice of
@@ -79,9 +85,9 @@ const DK = DNNKernels
         ox = DK.convtransposesize(Hi, 3, 2, 0, 1, 0)
         ref = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(ref, 0f0)
         got = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(got, 0f0)
-        DK.convolutiontranspose!(ref, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
+        DK.convolutiontranspose!(nows, ref, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
         DK.reset!(ws)
-        DK.convolutiontranspose!(got, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1; ws)
+        DK.convolutiontranspose!(ctx, got, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
         KA.synchronize(back)
         @test Array(ref) == Array(got)
         x = w = ref = got = nothing; GC.gc()
@@ -91,6 +97,7 @@ end
 @testset "1x1 convolution as a plain GEMM" begin
     back = LavaBackend()
     ws = DK.Workspace(back)
+    ctx = DK.Ctx(back; ws)
 
     @testset "agrees with the im2col path" begin
         # SAM 2's own 1x1 shapes plus one whose channel counts miss the GEMM
@@ -112,9 +119,9 @@ end
             # review's finding 7 names; the switch is gone.)
             @test DK.onebyone(w, (1,1), (0,0), (1,1), 1)
             DK.reset!(ws)
-            DK.convolution_coopmat!(ref, x, w, b, (1,1), (0,0), (1,1); ws)
+            DK.convolution_coopmat!(ctx, ref, x, w, b, (1,1), (0,0), (1,1))
             DK.reset!(ws)
-            DK.convolution!(got, x, w, b, (1,1), (0,0), (1,1), 1; ws)
+            DK.convolution!(ctx, got, x, w, b, (1,1), (0,0), (1,1), 1)
             KA.synchronize(back)
             r, g = Float32.(Array(ref)), Float32.(Array(got))
             @test any(!iszero, g)
@@ -162,10 +169,10 @@ end
                                     KW, KH, Cin, Cout)))
         o1 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o1, Float16(0))
         o2 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o2, Float16(0))
-        ws = DK.Workspace(back)
-        DK.reset!(ws)
-        DK.convolution_coopmat!(o1, x, w, nothing, (s, s), (p, p), (1, 1); ws)
-        DK.convolution_igemm!(o2, x, w, nothing, (s, s), (p, p), (1, 1))
+        ctx = DK.Ctx(back; ws = DK.Workspace(back))
+        DK.reset!(ctx.ws)
+        DK.convolution_coopmat!(ctx, o1, x, w, nothing, (s, s), (p, p), (1, 1))
+        DK.convolution_igemm!(ctx, o2, x, w, nothing, (s, s), (p, p), (1, 1))
         KA.synchronize(back)
         r = (Float64.(Array(o1)), Float64.(Array(o2)), DK.conv_coopmat_applicable(o1, x, w))
         x = w = o1 = o2 = nothing; GC.gc()

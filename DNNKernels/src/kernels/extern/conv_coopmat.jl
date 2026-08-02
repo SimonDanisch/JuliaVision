@@ -95,7 +95,7 @@ function conv_coopmat_applicable(out, x, w)
     # what makes the workspace OOM when anything else is on the card.
     # Both bounds used to exclude the full-resolution layers, on the estimate that
     # the implicit-GEMM fallback was cheaper for them than im2col's 35 MB of
-    # traffic. Measured in situ (`OPDOUBLEFILTER` + capture/replay) that estimate
+    # traffic. Measured in situ (`Diagnostics.opdoublefilter` + capture/replay) that estimate
     # was inverted: `3x3 64->16 @240x128` alone cost **1.411 ms at 0.40 TFLOP/s**,
     # 21% of the step's entire convolution budget, while coopmat reaches 5.1-5.6
     # TFLOP/s on `@120x64` shapes that have 4x LESS tile parallelism.
@@ -214,12 +214,12 @@ reshape — the rows past `NPQ` are dropped here.
 end
 
 """
-    convolution_coopmat!(out, x, w, bias, stride, padding, dilation) -> out
+    convolution_coopmat!(ctx, out, x, w, bias, stride, padding, dilation) -> out
 
 Tensor-core path. `conv_coopmat_applicable` decides whether it can run.
 """
-function convolution_coopmat!(out, x, w, bias, stride, padding, dilation;
-                              ws=nothing, act::Symbol=:none)
+function convolution_coopmat!(ctx, out, x, w, bias, stride, padding, dilation;
+                              act::Symbol=:none)
     KW, KH, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)
     OW, OH, _, N = size(out)
@@ -236,9 +236,9 @@ function convolution_coopmat!(out, x, w, bias, stride, padding, dilation;
     # pad has to be *written*, not merely reserved: reading uninitialised memory
     # there would multiply a possible NaN by zero and give NaN.
     CRSP = padtile(CRS)
-    backend = KernelAbstractions.get_backend(out)
+    backend = ctx.backend
 
-    col = scratch!(ws, backend, Float16, MP, CRSP)
+    col = scratch!(ctx, Float16, MP, CRSP)
     im2col_kernel!(backend)(col, x, Val(MP),
                             Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
                             Val(padding[1]), Val(padding[2]),
@@ -250,7 +250,7 @@ function convolution_coopmat!(out, x, w, bias, stride, padding, dilation;
     B = if CRSP == CRS
         w
     else
-        wp = scratch!(ws, backend, Float16, CRSP, Cout)
+        wp = scratch!(ctx, Float16, CRSP, Cout)
         fill!(wp, zero(Float16))
         copyto!(view(wp, 1:CRS, :), reshape(w, CRS, Cout))
         wp
@@ -259,7 +259,7 @@ function convolution_coopmat!(out, x, w, bias, stride, padding, dilation;
     _, splitk = Lava.coopmat_gemm_shape(MP, Cout, CRSP)
     # With a split there is no separate destination: the epilogue reads the
     # partial planes directly and sums them.
-    C = scratch!(ws, backend, Float32, MP, Cout, max(splitk, 1))
+    C = scratch!(ctx, Float32, MP, Cout, max(splitk, 1))
     Lava.coopmat_gemm!(C, col, B, MP, Cout, CRSP; partials = C, reduce = false)
 
     conv_epilogue_kernel!(backend)(out, C, bias, Val(MP), Val(act), Val(splitk),

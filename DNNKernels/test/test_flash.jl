@@ -25,6 +25,9 @@ end
 
 @testset "fused attention" begin
     back = LavaBackend()
+    # The kernel entry points take a context. `Ctx(backend)` builds one with no
+    # graph behind it, which is exactly the direct-call case this file is.
+    ctx = DNNKernels.Ctx(back)
 
     @testset "exact on the validated tiling" begin
         for (E, L, H, B) in ((72, 64, 1, 1), (72, 128, 2, 1), (72, 256, 2, 1))
@@ -123,7 +126,7 @@ end
                 NW * 32 <= Lava.WORKGROUP_LIMIT[] || continue
                 L % BR == 0 && L % BC == 0 || continue
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
-                @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                @test DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale;
                                               BR, BC, NW, rego, lazyrescale, held)
                 KA.synchronize(back)
                 got = Array(o)
@@ -186,7 +189,7 @@ end
                     t = DNNKernels.flashcm_tiling(E, Lq, Lk)
                     @test t !== nothing
                     o = KA.allocate(back, Float32, E, Lq, H, B); fill!(o, 0f0)
-                    @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                    @test DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale;
                                                   BR = t[1], BC = t[2], NW = t[3])
                     KA.synchronize(back)
                     got = Array(o)
@@ -218,8 +221,7 @@ end
                 scale = Float32(1/sqrt(E))
                 outs = map((false, true)) do op
                     o = KA.allocate(back, Float32, E, Lq, H, B); fill!(o, 0f0)
-                    @test DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
-                                                  onepass = op)
+                    @test DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale; onepass = op)
                     KA.synchronize(back)
                     Array(o)
                 end
@@ -240,7 +242,7 @@ end
             scale = Float32(1/sqrt(E))
             outs = map((false, true)) do lazy
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
-                DNNKernels.sdpaflashcm!(o, q, k, v, scale; backend = back,
+                DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale;
                                         lazyrescale = lazy, onepass = false)
                 KA.synchronize(back)
                 Array(o)
@@ -259,16 +261,16 @@ end
             E, L, H, B = 72, 256, 2, 2
             f16r(s) = DNNKernels.toback(back, Float16.(randn(Float32,E,L,H,B) .* 0.2f0))
             q, k, v = f16r(1), f16r(2), f16r(3)
-            ws = DNNKernels.Workspace(back)
+            wctx = DNNKernels.Ctx(back; ws = DNNKernels.Workspace(back))
             scale = Float32(1/sqrt(E))
             @test DNNKernels.flashcm_applicable(q, k, v, nothing, L, L)
-            DNNKernels.reset!(ws)
-            fused = Array(DNNKernels.sdpa(q, k, v, nothing, scale; backend = back, ws))
+            DNNKernels.reset!(wctx.ws)
+            fused = Array(DNNKernels.sdpa(wctx, q, k, v, nothing, scale))
             KA.synchronize(back)
             @test DNNKernels.coopmat_sdpa_applicable(q, k, v, nothing, L, L)
-            DNNKernels.reset!(ws)
+            DNNKernels.reset!(wctx.ws)
             o = KA.allocate(back, Float32, E, L, H, B); fill!(o, 0f0)
-            DNNKernels.sdpa_coopmat!(o, q, k, v, scale; backend = back, ws)
+            DNNKernels.sdpa_coopmat!(wctx, o, q, k, v, scale)
             KA.synchronize(back)
             twogemm = Array(o)
             @test maximum(abs, twogemm) > 1e-3

@@ -248,7 +248,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("arange.start_step")})
     step = something(get(op.attrs, "arg2", nothing), 1)
     T = dtypeof(ctx, op.out)
     n = length(T(start):T(step):T(stop - step))
-    launch!(arange_body, alloc(ctx, op.out, n), T(start), T(step))
+    launch!(ctx, arange_body, alloc(ctx, op.out, n), T(start), T(step))
 end
 
 shapeof(ctx::Ctx, id) = ctx.graph.buffers[id].shape
@@ -301,8 +301,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max.dim")})
     a = lhs(ctx, op)
     d = jdim(Int(op.attrs["arg1"]), ndims(a))
     sz = ntuple(k -> k == d ? 1 : size(a, k), ndims(a))
-    vals = launch!(maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(false))
-    inds = launch!(maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(true))
+    vals = launch!(ctx, maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(false))
+    inds = launch!(ctx, maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(true))
     keepdim(op) ? (vals, inds) : (dropdims(vals; dims=d), dropdims(inds; dims=d))
 end
 
@@ -434,7 +434,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
         groups = length(a) ÷ n
         μ = tupledest(ctx, 1, Float32, groups)
         r = tupledest(ctx, 2, Float32, groups)
-        layernorm!(out, μ, r, a, γ, β, n, eps; backend = ctx.backend)
+        layernorm!(ctx, out, μ, r, a, γ, β, n, eps)
         return (out, μ, r)
     end
     μ = sum(a; dims=d) ./ n
@@ -532,7 +532,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("repeat.default")})
     sz = size(a)
     r = ntuple(k -> k <= length(reps) ? Int(reps[k]) : 1, length(sz))
     out = dest(ctx, eltype(a), map(*, sz, r)...)
-    launch!(repeatouter, out, a, sz)
+    launch!(ctx, repeatouter, out, a, sz)
     out
 end
 
@@ -609,14 +609,14 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
         ox = convtransposesize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1], outpad[1])
         oy = convtransposesize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2], outpad[2])
         out = alloc(ctx, eltype(x), ox, oy, size(w, 3), size(x, 4))
-        convolutiontranspose!(out, x, w, bias, stride, pad, dil, outpad, groups; ws = ctx.ws)
+        convolutiontranspose!(ctx, out, x, w, bias, stride, pad, dil, outpad, groups)
         act === :relu && (out .= max.(out, zero(eltype(out))))
         return out
     end
     ox = convsize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1])
     if length(stride) == 1                       # aten::convolution covers 1-D too
         out = alloc(ctx, eltype(x), ox, size(w, 3), size(x, 3))
-        convolution1d!(out, x, w, bias, stride, pad, dil, groups)
+        convolution1d!(ctx, out, x, w, bias, stride, pad, dil, groups)
         # No epilogue to fold into here; correctness first, and the 1-D
         # convolutions are the 9 channel-attention layers, not a hot path.
         act === :relu && (out .= max.(out, zero(eltype(out))))
@@ -628,7 +628,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
     else
         oy = convsize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2])
         out = alloc(ctx, eltype(x), ox, oy, size(w, 4), size(x, 4))
-        convolution!(out, x, w, bias, stride, pad, dil, groups; ws=ctx.ws, act)
+        convolution!(ctx, out, x, w, bias, stride, pad, dil, groups; act)
     end
     out
 end
@@ -650,7 +650,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_adaptive_avg_pool2d.default")})
     oy = Int(value(ctx, op.ins[2]))       # torch (H, W) -> Julia (y, x)
     ox = Int(value(ctx, op.ins[3]))
     out = alloc(ctx, eltype(x), ox, oy, size(x, 3), size(x, 4))
-    adaptive_avg_pool2d!(out, x)
+    adaptive_avg_pool2d!(ctx, out, x)
     out
 end
 
@@ -659,7 +659,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("upsample_bilinear2d.vec")})
     target = evalshape(shapeof(ctx, op.out), ctx.dims)
     out = alloc(ctx, eltype(x), target...)
     # arg2 is align_corners; the graphs use both conventions
-    upsample_bilinear2d!(out, x; align_corners = Bool(something(get(op.attrs, "arg2", nothing), false)))
+    upsample_bilinear2d!(ctx, out, x;
+                         align_corners = Bool(something(get(op.attrs, "arg2", nothing), false)))
     out
 end
 
@@ -667,14 +668,14 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("upsample_nearest2d.vec")})
     x = lhs(ctx, op)
     target = evalshape(shapeof(ctx, op.out), ctx.dims)
     out = alloc(ctx, eltype(x), target...)
-    upsample_nearest2d!(out, x)
+    upsample_nearest2d!(ctx, out, x)
     out
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("cumsum.default")})
     a = lhs(ctx, op)
     out = alloc(ctx, op.out, size(a)...)
-    cumsum_dim!(out, a, jdim(Int(op.attrs["arg1"]), ndims(a)))
+    cumsum_dim!(ctx, out, a, jdim(Int(op.attrs["arg1"]), ndims(a)))
     out
 end
 
@@ -690,7 +691,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default"
     # Six of these missed their reservations for 32.9 MB per encode — allocated
     # fresh while the slab held space for them the whole time.
     out = tupledest(ctx, 0, eltype(x), ox, oy, size(x, 3), size(x, 4))
-    maxpool2d!(out, x, k, s, p)
+    maxpool2d!(ctx, out, x, k, s, p)
     (out, similar(out, Int64, 0))
 end
 
@@ -703,14 +704,14 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("addmm.default")})
     # `act` is set by `foldgelu`, which deleted the activation op and aliased its
     # buffer onto this one. It is applied inside the GEMM's store, so the fused
     # form reads and writes the result once instead of three times.
-    matmul!(out, b, a, bias; ws=ctx.ws, epi=actfn(Symbol(get(op.attrs, "act", "none"))))
+    matmul!(ctx, out, b, a, bias; epi=actfn(Symbol(get(op.attrs, "act", "none"))))
     out
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("mm.default")})
     a, b = lhs(ctx, op), value(ctx, op.ins[2])
     out = alloc(ctx, op.out, size(b, 1), size(a, 2))
-    matmul!(out, b, a; ws=ctx.ws)
+    matmul!(ctx, out, b, a)
     out
 end
 
@@ -719,7 +720,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_scaled_dot_product_efficient_at
     bias = length(op.ins) >= 4 ? value(ctx, op.ins[4]) : nothing
     s = get(op.attrs, "scale", nothing)
     scale = s === nothing ? inv(sqrt(size(q, 1))) : Float64(s)
-    out = sdpa(q, k, v, bias, scale; backend=ctx.backend, ws=ctx.ws,
+    out = sdpa(ctx, q, k, v, bias, scale;
                out=tupledest(ctx, 0, tupledtype(ctx, 0, accum(eltype(q))),
                              size(v, 1), size(q, 2), size(q, 3), size(q, 4)))
     # (output, logsumexp, philox_seed, philox_offset); only the first is read
@@ -733,7 +734,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_scaled_dot_product_flash_attent
     q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
     s = get(op.attrs, "scale", nothing)
     scale = s === nothing ? inv(sqrt(size(q, 1))) : Float64(s)
-    out = sdpa(q, k, v, nothing, scale; backend=ctx.backend, ws=ctx.ws,
+    out = sdpa(ctx, q, k, v, nothing, scale;
                out=tupledest(ctx, 0, tupledtype(ctx, 0, accum(eltype(q))),
                              size(v, 1), size(q, 2), size(q, 3), size(q, 4)))
     e = similar(out, 0)
@@ -746,7 +747,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("bmm.default")})
     a, b = lhs(ctx, op), value(ctx, op.ins[2])
     # a: torch (B,m,k) -> Julia (k,m,B); b: torch (B,k,n) -> Julia (n,k,B)
     out = alloc(ctx, op.out, size(b, 1), size(a, 2), size(a, 3))
-    batchedmatmul!(out, b, a)
+    batchedmatmul!(ctx, out, b, a)
     out
 end
 

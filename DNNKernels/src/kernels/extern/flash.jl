@@ -1409,12 +1409,12 @@ function flashcm_applicable(q, k, v, bias, Lq::Int, Lk::Int)
 end
 
 """
-    sdpaflashcm!(out, q, k, v, scale; backend, BR, BC, NW) -> Bool
+    sdpaflashcm!(ctx, out, q, k, v, scale; BR, BC, NW) -> Bool
 
 Run the cooperative-matrix fused kernel, or return `false` when the shape or the
 device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
 """
-function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
+function sdpaflashcm!(ctx, out, q, k, v, scale;
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
                       lazyrescale::Bool = true,
                       onepass::Bool = true,
@@ -1423,6 +1423,7 @@ function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_back
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       preonly::Bool = false, rscbar::Bool = false,
                       clamp::Bool = FLASHCM_CLAMP[])
+    backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE

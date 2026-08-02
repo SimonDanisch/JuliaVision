@@ -114,7 +114,7 @@ so the cost is noise.
 end
 
 """
-    layernorm!(out, mean, rstd, a, γ, β, C, eps) -> out
+    layernorm!(ctx, out, mean, rstd, a, γ, β, C, eps) -> out
 
 Launch [`layernorm_kernel!`](@ref) over `length(a) ÷ C` groups.
 
@@ -122,8 +122,8 @@ Launch [`layernorm_kernel!`](@ref) over `length(a) ÷ C` groups.
 reversed layout gives for `native_layer_norm`: torch normalises over trailing
 dims, and those are the leading Julia ones.
 """
-function layernorm!(out, mean, rstd, a, γ, β, C::Integer, eps::Real;
-                    backend = KernelAbstractions.get_backend(a))
+function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
+    backend = ctx.backend
     groups = length(a) ÷ C
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
     layernorm_kernel!(backend, LN_WG)(

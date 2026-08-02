@@ -49,7 +49,7 @@ astranspose(a) = a
 astranspose(a::PermutedDimsArray{T,2,(2, 1)}) where {T} = transpose(parent(a))
 
 """
-    matmul!(out, A, B, bias=nothing)
+    matmul!(ctx, out, A, B, bias=nothing)
 
 `out[i, j] = Σ_k A[i, k] B[k, j]`, plus `bias` broadcast over the output.
 
@@ -59,8 +59,8 @@ the operand types and its own device query. Nothing here knows tensor cores
 exist, which is the point: this file describes what the graph needs, not how a
 particular GPU provides it.
 """
-function matmul!(out, A, B, bias=nothing; ws=nothing, epi=identity)
-    mm_coopmat_applicable(out, A, B) && return matmul_coopmat!(out, A, B, bias, ws, epi)
+function matmul!(ctx, out, A, B, bias=nothing; epi=identity)
+    mm_coopmat_applicable(out, A, B) && return matmul_coopmat!(ctx, out, A, B, bias, epi)
     mul!(out, astranspose(A), astranspose(B))
     bias === nothing || (out .= out .+ bias)
     # The scalar path has no epilogue to fold into, so the activation is a second
@@ -144,15 +144,15 @@ end
 # output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
 # reference is the same to four significant figures on every shape.
 
-function matmul_coopmat!(out, A, B, bias, ws, epi)
+function matmul_coopmat!(ctx, out, A, B, bias, epi)
     M, K = size(A)
     N = size(B, 2)
     NP = padtile(N)
-    backend = KernelAbstractions.get_backend(out)
+    backend = ctx.backend
 
     Bp = B
     if NP != N
-        Bp = scratch!(ws, backend, Float16, K, NP)
+        Bp = scratch!(ctx, Float16, K, NP)
         padcols_kernel!(backend)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
     blk_split = Lava.coopmat_gemm_shape(M, NP, K)
@@ -169,7 +169,7 @@ function matmul_coopmat!(out, A, B, bias, ws, epi)
         Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi)
         return out
     end
-    C = scratch!(ws, backend, Float32, M, NP, max(splitk, 1))
+    C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
     Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
     mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
@@ -177,8 +177,8 @@ function matmul_coopmat!(out, A, B, bias, ws, epi)
 end
 
 """
-    batchedmatmul!(out, A, B)
+    batchedmatmul!(ctx, out, A, B)
 
 `out[i, j, b] = Σ_k A[i, k, b] B[k, j, b]`.
 """
-batchedmatmul!(out, A, B) = launch!(mm3, out, A, B)
+batchedmatmul!(ctx, out, A, B) = launch!(ctx, mm3, out, A, B)

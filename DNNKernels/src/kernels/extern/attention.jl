@@ -244,7 +244,7 @@ function applyblocked!(backend, tq, out, p, v, sums, ndrange)
 end
 
 """
-    densify(a, ws, backend) -> a, dense
+    densify(ctx, a) -> a, dense
 
 `a` itself when it is already dense, and a workspace copy of it when it is not.
 
@@ -261,9 +261,9 @@ feeds: 9 MB for `q` against 512 MB of scores in SAM 2's global attention.
 `AbstractGPUArray <: DenseArray` — it admits both a device array and the host
 `Array` the verification path uses, and rejects exactly the wrapper stack.
 """
-@inline function densify(a, ws, backend)
+@inline function densify(ctx, a)
     a isa DenseArray && return a
-    d = scratch!(ws, backend, eltype(a), size(a)...)
+    d = scratch!(ctx, eltype(a), size(a)...)
     d .= a
     d
 end
@@ -352,12 +352,13 @@ for T in (Float16, Float32)
 end
 
 """`(E, L, H, B)` operand as a dense `(L, E, H, B)` one in the workspace."""
-function transposeLE(a, ws, backend)
+function transposeLE(ctx, a)
     E, L, H, B = size(a)
-    d = scratch!(ws, backend, eltype(a), L, E, H, B)
+    backend = ctx.backend
+    d = scratch!(ctx, eltype(a), L, E, H, B)
     r = eltype(a) in (Float16, Float32) ? stridedroot(a) : nothing
     if r === nothing
-        launch!(toLE, d, a; backend)
+        launch!(ctx, toLE, d, a)
         return d
     end
     root, off = r
@@ -577,17 +578,18 @@ Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
 end
 
 """
-    attnsoftmax!(sums, p, s, scale) -> sums
+    attnsoftmax!(ctx, sums, p, s, scale) -> sums
 
 Launch [`attn_softmax_rows!`](@ref) over `s :: (Lq, Lk, H, B)`, flattening
 `(H, B)` so the kernel indexes three dimensions instead of four. Falls back to
 the one-thread-per-row form when `Lq` is not a multiple of `ATTN_SM_LQ`, which
 the tiling has no masking for.
 """
-function attnsoftmax!(sums, p, s, scale; backend = KernelAbstractions.get_backend(s))
+function attnsoftmax!(ctx, sums, p, s, scale)
+    backend = ctx.backend
     Lq, Lk, H, B = size(s)
     if !ATTN_SOFTMAX_ROWS[] || Lq % ATTN_SM_LQ != 0
-        launch!(attn_softmax16, sums, p, s, Float32(scale); backend)
+        launch!(ctx, attn_softmax16, sums, p, s, Float32(scale))
         return sums
     end
     s3 = reshape(s, Lq, Lk, H * B)
@@ -671,7 +673,7 @@ end
 @inline ondevice(a) = stridedroot(a) !== nothing
 
 """
-    sdpa_coopmat!(out, q, k, v, scale; backend, ws) -> out
+    sdpa_coopmat!(ctx, out, q, k, v, scale) -> out
 
 Attention as two batched cooperative-matrix GEMMs. `q`, `k`, `v` are `(E, L, H, B)`.
 
@@ -684,45 +686,46 @@ The second product is computed TRANSPOSED, `O(Lq x EP) = P(Lq x Lk) * vT(Lk x EP
 because `coopmat_gemm!` needs `M` on the tile and `E = 72` is not; `fromLEpad`
 puts it back.
 """
-function sdpa_coopmat!(out, q, k, v, scale; backend, ws)
+function sdpa_coopmat!(ctx, out, q, k, v, scale)
+    backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
     NB = H * B
     # k and v are needed whole (the softmax reduces over keys); only q is chunked.
-    kp = scratch!(ws, backend, Float16, EP, Lk, H, B)
-    vT = scratch!(ws, backend, Float16, Lk, EP, H, B)
-    launch!(padE, kp, k, E; backend)
-    launch!(toLEpad, vT, v, E; backend)
+    kp = scratch!(ctx, Float16, EP, Lk, H, B)
+    vT = scratch!(ctx, Float16, Lk, EP, H, B)
+    launch!(ctx, padE, kp, k, E)
+    launch!(ctx, toLEpad, vT, v, E)
 
     CH = min(Lq, max(Lava.GEMM_TILE, COOPMAT_QCHUNK[]))
     CH = cld(CH, Lava.GEMM_TILE) * Lava.GEMM_TILE      # the GEMM needs M on the tile
-    qc   = scratch!(ws, backend, Float16, CH, EP, H, B)
-    S    = scratch!(ws, backend, Float32, CH, Lk, H, B)
-    P    = scratch!(ws, backend, Float16, CH, Lk, H, B)
-    sums = scratch!(ws, backend, Float32, CH, H, B)
-    O    = scratch!(ws, backend, Float32, CH, EP, H, B)
+    qc   = scratch!(ctx, Float16, CH, EP, H, B)
+    S    = scratch!(ctx, Float32, CH, Lk, H, B)
+    P    = scratch!(ctx, Float16, CH, Lk, H, B)
+    sums = scratch!(ctx, Float32, CH, H, B)
+    O    = scratch!(ctx, Float32, CH, EP, H, B)
 
     for q0 in 0:CH:(Lq - 1)
         n = min(CH, Lq - q0)
-        launch!(toLEpadchunk, qc, q, E, q0, Lq; backend)
+        launch!(ctx, toLEpadchunk, qc, q, E, q0, Lq)
         Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
-        attnsoftmax!(sums, P, S, scale; backend)
+        attnsoftmax!(ctx, sums, P, S, scale)
         Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
         # `fromLEpad` unchanged: `launch!` indexes the VIEW, so its `l` already
         # starts at 1 for this chunk and no offset belongs in the kernel.
-        launch!(fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums; backend)
+        launch!(ctx, fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums)
     end
     out
 end
 
 """
-    sdpa(q, k, v, bias, scale; backend)
+    sdpa(ctx, q, k, v, bias, scale)
 
 `bias` may be `nothing` (flash) or an additive mask (mem-efficient).
 """
-function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), ws=nothing,
-              out=nothing)
+function sdpa(ctx, q, k, v, bias, scale; out=nothing)
+    backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     T = accum(eltype(q))
@@ -744,9 +747,9 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
         # workgroup touches them, so densifying it is a whole extra pass over the
         # array to save nothing.
         BR, BC, NW = flashcm_tiling(E, Lq, Lk, size(q, 3) * size(q, 4))
-        kd = FLASHCM_DENSIFY[] ? densify(k, ws, backend) : k
-        vd = FLASHCM_DENSIFY[] ? densify(v, ws, backend) : v
-        sdpaflashcm!(out, q, kd, vd, scale; backend, BR, BC, NW) && return out
+        kd = FLASHCM_DENSIFY[] ? densify(ctx, k) : k
+        vd = FLASHCM_DENSIFY[] ? densify(ctx, v) : v
+        sdpaflashcm!(ctx, out, q, kd, vd, scale; BR, BC, NW) && return out
     end
 
     if coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk)
@@ -758,16 +761,16 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
         # element EXACTLY ONCE, so the wrapper's four integer divisions are paid
         # once per element instead of once per pass. That is the opposite of
         # `attn_scores`, which reads `q` E times and is why `densify` exists.
-        return sdpa_coopmat!(out, q, k, v, scale; backend, ws)
+        return sdpa_coopmat!(ctx, out, q, k, v, scale)
     end
 
     # Before anything else, and before the big scratch allocations, so the
     # workspace hands these out at low offsets and the score matrix follows.
     # q and k are transposed on the way; v is already in the order `attn_apply`
     # wants and only needs to be dense.
-    q = transposeLE(q, ws, backend)
-    k = densify(k, ws, backend)
-    v = densify(v, ws, backend)
+    q = transposeLE(ctx, q)
+    k = densify(ctx, k)
+    v = densify(ctx, v)
 
     # The scores matrix and the (unused) softmax sums are pure working storage,
     # so they come from the op's `Workspace` — allocating them per call is what
@@ -775,17 +778,17 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
     # is a full device flush plus a GC each time it fires.
     # Stored as the operands' own type, accumulated in `T`. See `attn_softmax`.
     ST = eltype(q)
-    scores = scratch!(ws, backend, ST, Lq, Lk, H, B)
+    scores = scratch!(ctx, ST, Lq, Lk, H, B)
     tk = blockfor(Lk, Lq)
     if tk > 1
         scoresblocked!(backend, tk, scores, q, k, bias, T(scale), (Lq, Lk ÷ tk, H, B))
     else
-        launch!(attn_scores, scores, q, k, bias, scale; backend)
+        launch!(ctx, attn_scores, scores, q, k, bias, scale)
     end
 
     # normalises `scores` in place; the returned sums are unused
-    sums = scratch!(ws, backend, T, Lq, H, B)
-    launch!(attn_softmax, sums, scores; backend)
+    sums = scratch!(ctx, T, Lq, H, B)
+    launch!(ctx, attn_softmax, sums, scores)
 
     # `out` outlives the op, so it cannot come from the workspace — but it can
     # come from the caller, and when the caller is a graph that is the slot the
@@ -796,7 +799,7 @@ function sdpa(q, k, v, bias, scale; backend=KernelAbstractions.get_backend(q), w
     if tq > 1
         applyblocked!(backend, tq, out, scores, v, sums, (size(v, 1), Lq ÷ tq, H, B))
     else
-        launch!(attn_apply, out, scores, v, sums; backend)
+        launch!(ctx, attn_apply, out, scores, v, sums)
     end
     out
 end

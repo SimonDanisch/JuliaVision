@@ -19,7 +19,7 @@ in the padding copies.
 """
 
 using Test, Lava, DNNKernels, KernelAbstractions
-using DNNKernels: sdpa, coopmat_sdpa_applicable, COOPMAT_MINL, Workspace
+using DNNKernels: sdpa, coopmat_sdpa_applicable, COOPMAT_MINL, Workspace, Ctx
 const KA = KernelAbstractions
 const LD = DNNKernels
 
@@ -33,7 +33,7 @@ function bothpaths(E, L, H, B)
     old = COOPMAT_MINL[]
     outs = map((typemax(Int), 1)) do minl        # off, then on
         COOPMAT_MINL[] = minl
-        o = sdpa(q, k, v, nothing, scale; backend = back, ws = Workspace(back))
+        o = sdpa(Ctx(back; ws = Workspace(back)), q, k, v, nothing, scale)
         KA.synchronize(back)
         Array(o)
     end

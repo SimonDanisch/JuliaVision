@@ -48,6 +48,7 @@ const KERNELS_VERSION = "3"
 include("assets.jl")
 include("safetensors.jl")
 include("graph.jl")
+include("context.jl")
 include("workspace.jl")
 include("launch.jl")
 include("kernels/extern/conv.jl")

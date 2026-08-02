@@ -158,21 +158,18 @@ Note in particular the warning it carries about `kernel(backend, wg)` versus the
 @inline launchgroup(sz::Dims, target::Int = LAUNCH_GROUP[]) = Lava.launchgroup(sz, target)
 
 """
-    LAUNCH_PROBE[] :: Union{Nothing,Dict}
+    launch!(ctx, f, out, args...)
 
-Set to a dict to record every `launch!` as `(ndrange, workgroup) => (count, groups)`.
-Off by default and free when off.
-
-For finding launches that do not fill the device. A grid of 64 workgroups on a
-48-SM card leaves most of it idle however good the kernel is, and that is
-invisible in a per-op timing table — it shows up only as one op being
-inexplicably slow. `Lava.with_dispatch_timing` says *which dispatch*; this says
-*which launch site and what shape*.
+The form every op body and kernel entry point uses: the backend and the launch
+probe both come off the context, so a launch site needs no argument of its own to
+be measurable. See [`Diagnostics`](@ref).
 """
-const LAUNCH_PROBE = Ref{Any}(nothing)
+@inline launch!(ctx::Ctx, f::F, out, args...) where {F} =
+    launch!(f, out, args...; backend = ctx.backend, probe = ctx.diag.launches)
 
-function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)) where {F}
-    p = LAUNCH_PROBE[]
+function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out),
+                 probe=nothing) where {F}
+    p = probe
     if p !== nothing && ndims(out) <= 1
         sz = size(out); wg = Lava.staticgroup(sz)
         grp = ntuple(i -> cld(sz[i], wg[i]), length(sz))

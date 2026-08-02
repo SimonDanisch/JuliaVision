@@ -294,12 +294,12 @@ function convsplit(nbk::Int, nbn::Int, nblk::Int; cores::Int = 48)
 end
 
 """
-    convolution_igemm!(out, x, w, bias, stride, padding, dilation) -> out
+    convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation) -> out
 
 Implicit-GEMM path. Dense (`groups == 1`) convolutions only; the grouped case
 still goes through the direct kernel, and this model has none.
 """
-function convolution_igemm!(out, x, w, bias, stride, padding, dilation; act::Symbol=:none)
+function convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation; act::Symbol=:none)
     KWk, KHk, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)
     OW, OH, _, N = size(out)
@@ -309,7 +309,7 @@ function convolution_igemm!(out, x, w, bias, stride, padding, dilation; act::Sym
     nbk = cld(Cout, BS_K)
     nbn = cld(NPQ, BS_NPQ)
     splitk = convsplit(nbk, nbn, cld(CRS, BS_CRS))
-    backend = KernelAbstractions.get_backend(out)
+    backend = ctx.backend
     # Split-K accumulates with `Atomix.@atomic +=` on the destination, and
     # Vulkan 1.3 has no fp16 atomic add (`AtomicFloat16AddEXT` is not in the
     # allowed capability set), so an fp16 output accumulates into an fp32 scratch

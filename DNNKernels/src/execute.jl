@@ -15,37 +15,6 @@ Reading a slice out into a fresh array goes through `materialize`, never
 `getindex`; see its docstring.
 """
 
-# Parameterised on the backend AND the slab type — see the note on `Model` in
-# driver.jl. The slab matters as much as the backend: `slabview` has two methods,
-# and the `::Vector{UInt8}` one returns a HOST array. With `slab::Any` both are
-# live, so `dest` hands back something untyped, `get_backend(out)` in `launch!`
-# cannot be resolved, and inference explores `Kernel{CPU}` — which is how 3 948
-# CPU kernel specialisations (`cpu_ndmap!`, `cpu_conv2d_igemm!`, …) ended up in
-# SAM 2's package image despite nothing here ever running on the CPU. Their
-# `__run` takes every argument as `Any`, so their call edges span whole method
-# tables and any newly loaded package throws them away.
-struct Ctx{B,S}
-    values::Dict{String,Any}
-    graph::Graph
-    dims::NamedTuple
-    backend::B
-    slab::S                       # UInt8 scratch slab, or nothing
-    plan::Any                     # Slab (plan.jl), or nothing
-    outid::Base.RefValue{String}  # output id of the op currently running
-    ws::Any                       # Workspace for kernel-internal scratch, or nothing
-    lazy::Any                     # Set of ids that may stay unmaterialised (fuse.jl)
-    rec::Any                      # Recycler for unplanned allocations, or nothing
-end
-
-Ctx(values, graph, dims, backend) =
-    Ctx(values, graph, dims, backend, nothing, nothing, Ref(""), nothing, nothing, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, nothing, nothing, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, nothing, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, nothing)
-
 """
     Recycler
 
@@ -172,39 +141,12 @@ yet, so the two can coexist while the conversion proceeds.
             return slabview(T, sl, dims, off)
         end
     end
-    m = PLAN_MISSES[]
+    m = ctx.diag.planmisses
     if m !== nothing
         c, b = get(m, id, (0, 0))
         m[id] = (c + 1, b + prod(dims) * sizeof(T))
     end
     rawalloc(ctx, T, dims)
-end
-
-"""
-    PLAN_MISSES[] :: Union{Nothing,Dict{String,Tuple{Int,Int}}}
-
-Set to a dict to record every id `dest` could not place, as
-`id => (count, bytes)`. Off by default and free when off.
-
-The counterpart to Lava's allocation trace, which sees only what reaches the
-pool and is therefore blind to a `Recycler` hit — memory that is just as
-resident. This answers the question that one cannot: *which op* is still
-allocating outside the plan, and how much. Getting SAM 2's encoder from 1 649 MB
-of unplanned allocation per call to 106 MB was four rounds of reading this and
-`Lava.dump_alloc_trace()` together.
-
-A miss is not automatically a bug: a tuple output the planner skips, or a
-handler asking for a dtype the reservation was not sized for, both land here
-legitimately. It is a list of candidates, not of faults.
-"""
-const PLAN_MISSES = Ref{Any}(nothing)
-
-"""Ids `dest` could not place, largest first."""
-function planmisses()
-    m = PLAN_MISSES[]
-    m === nothing && return NamedTuple[]
-    [(; id, count = v[1], bytes = v[2]) for (id, v) in
-     sort(collect(m); by = x -> -x[2][2])]
 end
 
 """
@@ -545,16 +487,22 @@ end
 coerce(v::Base.Broadcast.Broadcasted, ::Buffer) = v
 
 """
-    execute!(graph, inputs, weights; dims, backend) -> Dict
+    execute!(graph, inputs, weights; dims, backend, diag) -> Dict
 
 Run every op in order. Returns the full value table so the verification pass can
 diff any intermediate, not just the outputs.
+
+`diag` is a [`Diagnostics`](@ref) this run writes its measurements into; it
+defaults to a fresh one with everything off. Pass the same object to two runs to
+accumulate over both, or two different ones to measure two things at once.
 """
 function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
                   dims, backend=KernelAbstractions.CPU(),
                   overrides::AbstractDict=Dict{String,Any}(),
-                  slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing)
-    ctx = Ctx(Dict{String,Any}(), graph, dims, backend, slab, plan, Ref(""), ws, lazy, rec)
+                  slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing,
+                  diag::Diagnostics=Diagnostics())
+    ctx = Ctx(Dict{String,Any}(), graph, dims, backend, slab, plan, Ref(""), ws, lazy,
+              rec, diag)
     for id in graph.order
         b = graph.buffers[id]
         if b.kind === :weight
@@ -598,42 +546,16 @@ end
 runop!(ctx::Ctx, op::Op, ::Val{T}) where {T} =
     error("unimplemented ATen op `$(op.aten)` (id $(op.id))")
 
-"""
-    OPTIMES :: Union{Nothing,Dict{String,Tuple{Int,Float64}}}
-
-Set to a dict to make `execute!` synchronise around every op and accumulate
-`aten name => (count, milliseconds)`. Off by default and free when off.
-
-This is deliberately a *serialising* measurement — it is the only kind that
-attributes device time to a source-level op — so the totals run longer than the
-step does. On this model the difference is small: removing every barrier from a
-step only buys ~3 ms of 46, i.e. the dispatches barely overlap anyway.
-"""
-const OPTIMES = Ref{Any}(nothing)
-
-"""
-    OPDOUBLEFILTER :: Ref{Any}
-
-Narrow `OPDOUBLE` to a subset of an op family: `(ctx, op) -> Bool`, or `nothing`
-for all of them.
-
-Attribution has to happen *in situ*. Standalone convolution microbenchmarks on
-this setup are unusable — identical code timed one shape at 16 us and 116 us in
-consecutive runs — while doubling an op inside a captured, replayed step has been
-stable all along, because the measurement is a whole step and the perturbation is
-the only thing that changes. This makes that technique reach a single shape
-instead of a whole family, which is what per-shape convolution cost needs.
-"""
-const OPDOUBLEFILTER = Ref{Any}(nothing)
-
 @inline function opdoublewanted(ctx::Ctx, op::Op)
-    f = OPDOUBLEFILTER[]
+    f = ctx.diag.opdoublefilter
     f === nothing && return true
     return f(ctx, op)::Bool
 end
 
+# The two instrumented ways to run an op, and the uninstrumented one. See
+# `Diagnostics` for what each measurement is for and why it is shaped this way.
 @inline function timeop!(ctx::Ctx, op::Op)
-    t = OPTIMES[]
+    t = ctx.diag.optimes
     if t !== nothing
         KernelAbstractions.synchronize(ctx.backend)
         t0 = time_ns()
@@ -644,26 +566,9 @@ end
         return r
     end
     # `isempty` first: the string compare is not free 640 times a step.
-    d = OPDOUBLE[]
+    d = ctx.diag.opdouble
     if !isempty(d) && (d == "*" || op.aten == d) && opdoublewanted(ctx, op)
         runop!(ctx, op, op.tag)
     end
     runop!(ctx, op, op.tag)
 end
-
-"""
-    OPDOUBLE :: String
-
-Name of an ATen op to run *twice* per step. The step's wall time then grows by
-that op's real cost, which is the only way to attribute device time here without
-the measurement swamping what it measures: syncing around each op costs ~0.4 ms
-a time and buries a 640-op step under 240 ms of its own barriers, and per-
-dispatch timestamps serialise and inflate just as badly. Running an idempotent
-op a second time perturbs nothing — the result is identical — and the difference
-is measured on an otherwise untouched step.
-
-`"*"` matches every aten, which is only useful together with `OPDOUBLEFILTER`:
-it costs a *set* of ops spanning several atens in one measurement instead of one
-run per aten, so the answer carries one run's error rather than the sum of eight.
-"""
-const OPDOUBLE = Ref{String}("")
