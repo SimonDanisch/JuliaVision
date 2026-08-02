@@ -1199,3 +1199,79 @@ branches, verified rather than assumed:
 - **`flashepad` / `flashrpad`, `sdpaflashcm!(; epad, rpad)`** — absent;
   `git log --all -S flashepad` finds nothing, and the current keywords are
   `ballast`, `shpad`, `nrsc`, `preonly`, `rscbar`.
+
+## 2026-08-02, independent work — LDS banking, and the decode gap
+
+### RDNA 3.5's LDS has 32 banks, and conflicts follow gcd(stride, 32)
+
+Measured, because this is the substance under `epad`/`rpad`: those knobs pad a
+shared tile's row stride to break bank conflicts, and the shipped values were
+tuned on NVIDIA. The bank count and the conflict-free strides are a hardware
+property and can be measured without the knobs existing.
+
+Every lane reads `lds[(lid*STRIDE + r) & MASK]` in a long loop, 64-lane
+workgroup, 32 KB of LDS. All lanes step together so the bank pattern is constant
+and STRIDE alone decides which banks collide. Minimum of 11 timed reps, swept in
+**both directions** so nothing carries an order bias, after warming until the
+clock stopped climbing (600 -> 927 MHz; the first sweep ramped mid-run and its
+absolute numbers were discarded — GUARDRAILS §6).
+
+| stride | fwd ms | rev ms | x vs stride 1 | gcd(s,32) |
+|---|---|---|---|---|
+| 1 | 0.5416 | 0.5252 | 1.00 | 1 |
+| 3 | 0.5441 | 0.5383 | 1.02 | 1 |
+| 17 | 0.5536 | 0.5376 | 1.02 | 1 |
+| 33 | 0.5486 | 0.5413 | 1.03 | 1 |
+| 65 | 0.5532 | 0.5362 | 1.02 | 1 |
+| 2 | 0.5506 | 0.5566 | 1.05 | 2 |
+| 4 | 0.5889 | 0.5834 | 1.11 | 4 |
+| 12 | 0.5768 | 0.5809 | 1.10 | 4 |
+| 8 | 0.6496 | 0.6346 | 1.21 | 8 |
+| 24 | 0.6336 | 0.6312 | 1.20 | 8 |
+| 16 | 0.8446 | 0.7440 | 1.42 | 16 |
+| 48 | 0.7556 | 0.7492 | 1.43 | 16 |
+| 32 | 0.9812 | 0.9651 | 1.84 | 32 |
+| 64 | 0.9820 | 0.9700 | 1.85 | 32 |
+
+**The cost is a function of `gcd(stride, 32)` and nothing else** — 48 matches 16,
+24 matches 8, 12 and 20 match 4, and every odd stride is free. That is 32 banks.
+
+Consequence for the padding knobs, whatever they end up called: **any odd row
+stride is conflict-free on this device.** Padding a power-of-two row stride by
+one element is sufficient and there is nothing to gain from padding further. A
+stride that stays a multiple of 32 is the worst case and costs ~1.85x on this
+probe.
+
+The absolute ratios understate a true k-way conflict (stride 32 puts all 64 lanes
+on one bank and costs 1.85x, not 32x) because the loop also pays its own
+arithmetic and wave64 issues LDS in halves. The **ordering** is what is being
+claimed here, and it is unambiguous and reproducible in both sweep directions.
+
+### SAM 2: the decode gap is nearly 3x worse than the encode gap
+
+The earlier 294 ms figure did not move after flash-decoding landed, and the
+reason is a flaw in **my** measurement, not in K2: `runsam2` is encode + decode,
+encode dominates, so a 3.55x decode win is invisible in the total. Measured
+separately:
+
+| | Radeon 8060S | desktop (RTX 4000 Ada) | ratio |
+|---|---|---|---|
+| encode | **278.2 ms** | 100.4 ms | 2.8x |
+| decode (the click path) | **17.28 ms** | 2.21 ms with K2 | **7.8x** |
+| total | 295.5 ms | ~103 ms | 2.9x |
+
+Encode is 2.8x off the desktop, which is roughly what a 40-CU iGPU on shared
+memory should be. **Decode is 7.8x off**, nearly three times the encode gap.
+
+That is the interesting number, and it points where the plan already suspects:
+decode is where the coopmat2-gated kernels live, and `coopmat2` is **eight
+`false`s** on this device, so the per-element flash path falls back wholesale.
+Flash-decoding's benefit is structurally smaller here for that reason.
+
+It makes an AMD fallback story for K3 (coopmat2 reductions) and K5 (tensor
+addressing / block loads) worth more than the raw NVIDIA speedups suggest: on
+this device those kernels are not choosing between fast and faster, they are
+choosing between a fallback and nothing.
+
+Caveats: synthetic input (a centred disc), one click, one click position. Frozen
+cache 106 hits / 0 misses on every run. Model build 42.8 s.
