@@ -859,3 +859,104 @@ Note `emit.jl:1317` already carries the comment *"would emit an identity
 OpBitcast on a logical pointer, which Vulkan rejects
 (VUID-StandaloneSpirv-Logical pointer-OpBitcast)"* — so the constraint is known
 in the file, and guarded for the identity case only.
+
+## 2026-08-02, final — two emitter/device bugs fixed, validation clean
+
+Committed to `dev/Lava` @ `sd/portability`: `be52353`, `332dc33`, `046b1ed`.
+
+#### 17. The invalid `OpBitcast` — FIXED
+
+`emit.jl`'s pointer-select reconciliation already knew a PhysicalStorageBuffer
+pointer cannot be `OpBitcast` and routed around it with a ptr→uint→ptr roundtrip.
+Every **other** storage class fell through to the bitcast, which is equally
+illegal: the Logical addressing model forbids `OpBitcast` on any pointer.
+
+Drilling is the legal direction, since an aggregate pointer can reach its first
+element with `OpAccessChain`. When the two select operands' pointees are
+array-of-T and T in a logical storage class, make both element pointers:
+
+```
+%98  = OpAccessChain %_ptr_Workgroup_float %shmem %uint_0 %97      ; &sh[lid-1]
+%99  = OpAccessChain %_ptr_Workgroup_float %shmem %uint_0 %uint_0  ; &sh[0]
+%100 = OpSelect      %_ptr_Workgroup_float %93 %99 %98
+%101 = OpLoad %float %100
+```
+
+Zero `OpBitcast` in the module, `spirv-val` passes, and the downstream
+`OpAccessChain [0]` collapses away because the pointee is already the element
+type.
+
+#### 18. `Int64Atomics` declared with no feature enabled — FIXED
+
+Found by the same run. The emitter declares the `Int64Atomics` SPIR-V capability
+while `vk_device!` hardcoded `shader_buffer_int_64_atomics` and
+`shader_shared_int_64_atomics` to `false`. A capability with no enabled feature
+behind it is undefined (VUID-VkShaderModuleCreateInfo-pCode-08740). Now queried
+from the device, which has to be right in both directions: enabling an
+unsupported feature fails device creation, and leaving a supported one off is
+what caused this. This device reports `true` for both.
+
+#### 19. The regression test, and a vacuous first attempt
+
+`046b1ed`. Verified in both directions: 3/3 with the fix, `Evaluated: 1 == 0`
+with it disabled.
+
+**My first attempt was vacuous and I nearly committed it** — the same failure
+this session already found twice in DNNKernels (finding 14). A Tier 1
+`compile_and_disasm` check on an equivalent hand-written function emits a
+**valid** module and passed with the fix reverted. The illegal bitcast depends on
+the exact KernelAbstractions `@kernel` lowering, not on the ternary. A pure
+runtime assertion is no better, because the driver accepts the invalid module and
+returns the right answer.
+
+The committed test launches the real KA kernel, captures what the compiler
+emitted via `LAVA_SPIRV_DUMP_DIR`, and walks the SPIR-V **binary** for an
+`OpBitcast` (124) whose result type was declared by `OpTypePointer` (32) — binary
+rather than disassembler text so it needs no `spirv-dis`. It also asserts the
+dump is non-empty, since a dump never written would assert nothing.
+
+### Suite state after the fixes
+
+Full suite, `LAVA_VALIDATION=1`:
+
+| | before | after |
+|---|---|---|
+| validation errors | 12 across 9 sites | **0** |
+| test failures | — | 2 |
+| unexpected passes | — | 6 |
+| segfaults | 1 | 1 |
+
+- **2 failures**, both `test_pipeline_cache_no_compile.jl:62,63` — finding 9, the
+  negative control that does not fire on RADV.
+- **6 unexpected passes**, all in the two miscompile families:
+  `test_shared_index_division.jl:156` (x3) and
+  `test_int32_cartesian_miscompile.jl:301,:334` (x3).
+- **1 segfault**, now at `test_pipeline_cache_no_compile.jl:40` — a **third**
+  distinct location for finding 16, which settles it as a floating GC race
+  rather than anything test-specific. The suite still does not complete, so
+  `test_static_workgroup.jl` did not run this time.
+
+### All three "driver miscompile" suspects fail to reproduce here
+
+This is the result to carry back to `lava-core` Phase 1, which lists two of them
+as root-caused, mitigated and "cannot be settled on this hardware":
+
+| item | test | on RDNA 3.5 |
+|---|---|---|
+| rank>=3 `Extruded` / static workgroup | `test_static_workgroup.jl` (13 asserts) | coverage 1.0 everywhere; the `min(1, b3/b2)` law does not hold |
+| `OpUDiv` in a shared-store index | `test_shared_index_division.jl:156` | `@test_broken` **Unexpected Pass** x3 |
+| narrow-index `CartesianIndices` | `test_int32_cartesian_miscompile.jl:301,:334` | `@test_broken` **Unexpected Pass** x3 |
+
+Each of those tests was written to signal exactly this — *"Turns into a failure
+the day it is fixed"*, *"if a driver update fixes it this turns into a failure,
+which is the signal that `splitidx` could be relaxed"*.
+
+Per Rule 0's own corollary this is evidence about **our** code, not exoneration
+of the NVIDIA driver: our modules depend on something the spec leaves open which
+one compiler exploits and the other does not. And that reading is now much
+better supported than it was this morning, because findings 17 and 18 show the
+same shared-memory paths were emitting **invalid** SPIR-V — an illegal pointer
+bitcast and an unbacked capability — in modules nobody had ever validated.
+
+Recommend re-opening all three against our own compiler, with `spirv-val` and
+GPU-AV on, before anything is reported upstream.
