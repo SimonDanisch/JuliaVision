@@ -1461,3 +1461,102 @@ and it asserts the property that replaced the five module-level `Ref`s
 (`OPTIMES`, `OPDOUBLE`, `OPDOUBLEFILTER`, `PLAN_MISSES`, `LAUNCH_PROBE`): two
 runs in one process can be instrumented differently and neither sees the other's
 measurements. **13 / 13**, bringing the standalone total to **380**.
+
+## 2026-08-03 — GPU-assisted validation, the other half of Rule 0 instrument 1
+
+`spirv-val` (via `LAVA_VALIDATION=1`) found two bugs earlier. **GPU-AV had never
+been turned on**, and Rule 0 names both: *"`spirv-val --target-env vulkan1.3`,
+then GPU-assisted validation (`Lava.enable_gpu_av`). Cheap, and neither is run by
+default."*
+
+### It found a third bug immediately
+
+```
+vkCreateShaderModule(): OpGroupNonUniformShuffle is using a 64-bit int scalar but
+VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures::shaderSubgroupExtendedTypes
+was not enabled.                          VUID-RuntimeSpirv-None-06275
+```
+
+SPIR-V group operations on 8-, 16- or 64-bit types require that feature. Lava
+binds `subgroup_shuffle` for `Int64`/`UInt64`/`Float64` and `vk_device!`
+hardcoded it `false`, so those shuffles were undefined — while
+`test_subgroup_shuffle.jl` passed **520/520**, because the driver ran them anyway.
+
+Fixed by querying the device (`559d499`). Now 520/520 *and* defined.
+
+**Three for three, one family:** a capability the emitter uses with no enabled
+feature behind it, invisible with validation off, correct answers on the driver.
+`be52353` (invalid logical-pointer `OpBitcast`), `332dc33` (`Int64Atomics`),
+`559d499` (`shaderSubgroupExtendedTypes`).
+
+### First fully crash-free full-suite run on this machine
+
+```
+23793 passed | 15 failed | 11 errored | 0 broken
+segfaults: 0                validation errors: 10
+```
+
+15 failures and 11 errors, all previously accounted for: the `Extruded`
+characterization tests and the `@test_broken` unexpected passes. The three
+per-device-cache test breakages are fixed and gone.
+
+### Four distinct VUIDs, of which two are real
+
+| VUID | count | verdict |
+|---|---|---|
+| `VkShaderModuleCreateInfo-pCode-08737` | 4 | **real — my earlier fix was incomplete** |
+| `RuntimeSpirv-PhysicalStorageBuffer64-11819` | 2 | **needs corroboration**, see below |
+| `VkBufferCreateInfo-size-06409` | 2 | benign |
+| `vkAllocateMemory-pAllocateInfo-01713` | 2 | benign |
+
+**Benign, both the same event:** a deliberate 40 GB buffer/allocation against a
+34 GB heap. That is an OOM-handling test doing its job.
+
+#### My `OpBitcast` fix was incomplete
+
+```
+%371 = OpBitcast %_ptr_Function_uint %160
+```
+
+**Function** storage class this time, not Workgroup, reached from GPUArrays'
+`sliced setindex, CPU source` (`indexing.jl:77`).
+
+`be52353` fixed the **`OpSelect` reconciliation** path only. I had already
+identified three pointer-`OpBitcast` sites — `emit.jl:1362`, `:1378`, `:1414` —
+and fixed one. The other two are in the **load** path, where the emitter bitcasts
+a pointer to change its pointee type for a differently-sized load, and they are
+still live. This is proof they are reachable from a real test rather than
+theoretical.
+
+Note the load path may not be fixable by the same "drill with `OpAccessChain`"
+trick: drilling reaches an aggregate's element, but a narrowing/widening load
+wants a *differently typed* pointer to the same address, which the Logical
+addressing model does not provide. That probably needs the load itself to change
+(load the pointee's true type, then convert the value), which is what the
+existing widening branch at `:1335` already does for one case.
+
+#### A GPU-AV out-of-bounds write, on lavapipe
+
+```
+vkCmdDispatch(): Out of bounds access: 1 bytes written at buffer device address
+0x7f1528703a7f. Stage = Compute. Global invocation ID (x, y, z) = (0, 0, 0)
+```
+
+**Not claimed as an emitter bug yet.** It appears immediately after a lavapipe
+context is initialised, i.e. inside `twodevice_probe.jl`, so it is on the CPU
+device rather than RADV. GPU-AV also reports that it forced several features on
+for its own instrumentation (`fragmentStoresAndAtomics`,
+`vulkanMemoryModelDeviceScope`, `storageBuffer8BitAccess`, a
+`VkPhysicalDevice16BitStorageFeatures` added to the chain), so the device
+configuration under GPU-AV is not the configuration under test.
+
+A one-byte overrun at global invocation `(0,0,0)` is a specific enough signature
+to chase, and it is exactly what GPU-AV exists to catch. But it needs
+reproducing on RADV, or on lavapipe without GPU-AV's forced features, before it
+is a finding rather than an artefact.
+
+### Operational note
+
+GPU-AV prints its own warning and it is right: *"Both GPU Assisted Validation and
+Normal Core Check Validation are enabled, this is not recommended as it will be
+very slow."* Run core validation first, fix what it reports, then GPU-AV alone.
