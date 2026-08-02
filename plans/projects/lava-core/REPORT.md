@@ -210,7 +210,43 @@ Fixed — `VkContext.cmd_pipeline_barrier_fptr`, reached through `barrier_fptr(b
 at the three recording sites. With it, the GPU dispatch goes from segfault to
 correct, and the crash moves to the lavapipe dispatch.
 
-### The phase-2 worklist, produced by running rather than reading
+### RESOLVED since: three more fixed, and the real blocker found
+
+`PREPARE_INDIRECT_*` (four `Ref`s holding one pipeline) and the two subgroup
+properties are now per device. The properties matter differently from the
+handles: a stale pipeline crashes, a stale *property* returns the wrong number —
+32 here, 64 on RDNA 3.5 — so every tiling decision keyed on it would silently be
+made for the other card.
+
+### THE BLOCKER: the memory pool is global (Lava `d7449f7`)
+
+```
+mutable struct PoolBlock
+    buffer, memory, base_address, capacity, bump, live_count
+end
+```
+
+No device, and `POOL_BLOCKS` is module-level. **Measured:** allocate on the GPU
+(one 64 MiB block is created), then allocate on lavapipe — `length(POOL_BLOCKS)`
+is *still 1*. The lavapipe array is carved out of the NVIDIA device's block.
+`buf.ctx` correctly says `cpu`; the memory under it belongs to the other device.
+
+That is both observed symptoms in one cause: `fill!` on the second context reads
+back **0.0** (it wrote into memory that device does not own), and in a different
+call order the same thing segfaults.
+
+**This is a larger class than `GUARDRAILS.md` §8 describes.** §8 lists four
+caches holding pipeline *handles*. The allocator hands out *memory*, so the
+failure is silent data corruption, and no amount of cache keying reaches it.
+
+The headline for phase 2: **all four caches the review found by reading are now
+keyed, and not one of them is what actually breaks two devices.** The blocker is
+a per-device allocator, which is its own piece of work.
+
+Unaudited after that: `TIMESTAMP_POOL`, `BLIT_PIPELINE`, `GEMM_SPLIT_SCRATCH`,
+`WORKGROUP_LIMIT`.
+
+### The original worklist, produced by running rather than reading
 
 The review's list was four caches. The real list is longer, and the probe is how
 to enumerate it honestly. In descending order of suspicion:

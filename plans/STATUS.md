@@ -115,6 +115,14 @@ that one kernel compiles **twice** — a single new `PIPELINE_CACHE` entry means
 the devices shared a pipeline, which can still produce a right answer by luck.
 
 It does **not pass yet**, and is not in `runtests.jl` because it segfaults.
+
+**The blocker is the allocator, not the caches.** `POOL_BLOCKS` is module-level
+and `PoolBlock` carries no device, so a second device's allocation is served from
+the first device's 64 MiB block — measured: `length(POOL_BLOCKS)` stays at 1
+across an allocation on each device. `fill!` on the second context then reads
+back 0.0. All four caches §8 names are now keyed per device and **none of them is
+what actually breaks two devices**; the allocator is a bigger class, because it
+hands out memory rather than handles and so corrupts silently.
 Keying the caches was necessary and not sufficient: the first thing it caught was
 `CMD_PIPELINE_BARRIER_FPTR`, a module-global **device function pointer**, which
 §8's four-cache list does not cover and which is worse than any of them — a stale
