@@ -1454,3 +1454,10 @@ transposeLE 16 · coopmat_attention 11 · flash 216 + 11 + 15
 
 That is the whole asset-independent DNNKernels surface green on RDNA 3.5
 post-refactor. It was not, before the `dev.subgroup` correction.
+
+**Plus a seventh I had missed.** My standalone list predated the refactor, which
+added `test_diagnostics.jl` — host-only on the CPU backend, so it runs anywhere,
+and it asserts the property that replaced the five module-level `Ref`s
+(`OPTIMES`, `OPDOUBLE`, `OPDOUBLEFILTER`, `PLAN_MISSES`, `LAUNCH_PROBE`): two
+runs in one process can be instrumented differently and neither sees the other's
+measurements. **13 / 13**, bringing the standalone total to **380**.
