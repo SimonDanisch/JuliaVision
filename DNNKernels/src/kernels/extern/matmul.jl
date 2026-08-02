@@ -128,23 +128,21 @@ so a separate reduction kernel would be a second full traversal for nothing.
     end
 end
 
-"""
-    MATMUL_FUSED[] :: Bool
-
-Whether the GEMM writes `out` directly — bias in the accumulator's initial value,
-fp32→fp16 conversion in registers — instead of an fp32 scratch plus
-`mm_epilogue_kernel!`.
-
-A switch rather than a constant for the same reason as `LAUNCH_FLAT`: it is the
-only way to compare the two **inside one session**, and cross-session encode
-numbers on this machine have disagreed by 40 ms in both directions.
-
-The two are not bit-identical and are not meant to be: the bias joins the fp32
-accumulation chain rather than being added after it, so 31 elements of a 2.36 M
-output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
-reference is the same to four significant figures on every shape.
-"""
-const MATMUL_FUSED = Ref(true)
+# ── Why the GEMM writes `out` directly ───────────────────────────────────────
+#
+# Bias in the accumulator's initial value, fp32→fp16 conversion in registers,
+# instead of an fp32 scratch plus `mm_epilogue_kernel!`. This was a switch
+# (`MATMUL_FUSED`), on by default; the winner is inlined below and the switch is
+# gone (`kernel-library-review.md` finding 3, tier two). It was a switch because
+# that is the only way to compare the two **inside one session**, and
+# cross-session encode numbers on this machine have disagreed by 40 ms in both
+# directions — so any re-measurement has to A/B the two branches in one process,
+# not two runs.
+#
+# The two are not bit-identical and are not meant to be: the bias joins the fp32
+# accumulation chain rather than being added after it, so 31 elements of a 2.36 M
+# output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
+# reference is the same to four significant figures on every shape.
 
 function matmul_coopmat!(out, A, B, bias, ws, epi)
     M, K = size(A)
@@ -167,7 +165,7 @@ function matmul_coopmat!(out, A, B, bias, ws, epi)
     #
     # `NP != N` still needs the epilogue: the GEMM writes the padded width and
     # the padding columns must not reach `out`.
-    if MATMUL_FUSED[] && splitk == 1 && NP == N
+    if splitk == 1 && NP == N
         Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi)
         return out
     end

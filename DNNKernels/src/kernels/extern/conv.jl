@@ -51,9 +51,16 @@ few thousand products in fp16 instead drifts by percent, not ulps.
 end
 
 """
-    CONV_1X1_GEMM[] :: Bool
+    onebyone(w, stride, padding, dilation, groups) -> Bool
 
-Route a 1x1 convolution straight to `matmul!`, with no `im2col` and no scatter.
+Whether this convolution is the 1x1 case that is a plain GEMM: unit kernel, unit
+stride, no padding, no dilation, one group. `convolution!` routes those straight
+to `matmul!`, with no `im2col` and no scatter.
+
+A question about the *problem*, and nothing else. It used to begin with
+`CONV_1X1_GEMM[] &&`, so with the switch off a 1x1 convolution reported that it
+was not one (`kernel-library-review.md` finding 7); the switch was settled and is
+gone (finding 3, tier two).
 
 A 1x1 kernel at stride 1 with no padding is a matrix multiply and nothing else.
 `im2col` exists to gather each output pixel's receptive field into a row; when
@@ -79,14 +86,8 @@ per-*row* of `C` — per pixel here — and a convolution's is per output channe
 which is per column. So it stays a separate broadcast; that is one pass over the
 output against the two this removes.
 """
-const CONV_1X1_GEMM = Ref(true)
-
-"""
-Whether this convolution is the 1x1 case that is a plain GEMM: unit kernel, unit
-stride, no padding, no dilation, one group.
-"""
 @inline onebyone(w, stride, padding, dilation, groups) =
-    CONV_1X1_GEMM[] && groups == 1 && length(stride) == 2 &&
+    groups == 1 && length(stride) == 2 &&
     size(w, 1) == 1 && size(w, 2) == 1 &&
     all(==(1), stride) && all(==(0), padding) && all(==(1), dilation)
 
@@ -110,7 +111,7 @@ function convolution!(out, x, w, bias, stride, padding, dilation, groups;
     d = (dilation[1], dilation[2])
     if groups == 1
         # A 1x1 convolution is a GEMM on the input as it already lies — see
-        # `CONV_1X1_GEMM`. Checked before the coopmat path because it is the same
+        # `onebyone`. Checked before the coopmat path because it is the same
         # product with two passes removed.
         if ws !== nothing && onebyone(w, stride, padding, dilation, groups) &&
            conv_coopmat_applicable(out, x, w)
@@ -200,11 +201,14 @@ which is a GEMM over `(H*W) x C_in x (C_out*S*S)` followed by a depth-to-space
 interleave — the pixel-shuffle identity. SAM 2's mask decoder upsamples with two
 of these, and they were **3.73 ms of an 8.44 ms decode**, 44%, because the
 gather kernel below computes each output element from scratch with no reuse.
-"""
-const CONVT_GEMM = Ref(true)
 
+Like [`onebyone`](@ref) this asks about the problem only. It used to begin with
+`CONVT_GEMM[] &&` — and, because the `const` sat between this docstring and the
+function, the prose was attached to the *switch*, so `?shufflecase` answered
+nothing. Deleting the settled switch (review finding 3) put the docstring back on
+the function it describes.
+"""
 @inline shufflecase(w, stride, padding, dilation, outpad, groups) =
-    CONVT_GEMM[] &&
     groups == 1 && length(stride) == 2 &&
     all(==(1), dilation) && all(==(0), padding) && all(==(0), outpad) &&
     size(w, 1) == stride[1] && size(w, 2) == stride[2]

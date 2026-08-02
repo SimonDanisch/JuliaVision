@@ -201,7 +201,7 @@ end
         end
 
         @testset "the one-pass softmax agrees, including past its headroom" begin
-            # `FLASHCM_ONEPASS` exponentiates against the PREVIOUS block's
+            # `onepass` exponentiates against the PREVIOUS block's
             # maximum and defers the correction, which is exact in exact
             # arithmetic but not bit-identical: `ps` is fp16 and now rounds at a
             # different scale, so this is a tolerance and not `==`.
@@ -230,7 +230,7 @@ end
         end
 
         @testset "skipping the rescale is exact, not approximate" begin
-            # `FLASHCM_LAZYRESCALE` skips `O *= exp(m_old - m_new)` on blocks
+            # `lazyrescale` skips `O *= exp(m_old - m_new)` on blocks
             # where no row's max moved, i.e. where the factor is exactly one. If
             # that reasoning is ever wrong the two answers differ, so they are
             # compared to each other rather than to a tolerance.
@@ -250,23 +250,30 @@ end
         end
 
         @testset "cooperative-matrix flash agrees with the path it replaces" begin
-            # Same call through `sdpa`, switch flipped: this is what guards the
-            # routing rather than the kernel.
+            # This guards the ROUTING, not the kernel: `sdpa` must recognise the
+            # shape and fuse it, and the fused answer must match the two-GEMM
+            # path it displaced. It used to flip `FLASHCM` to get the second
+            # answer; that switch was settled and deleted, so the alternative
+            # path is now called by name — which also makes the comparison
+            # independent of what `sdpa` would fall through to next.
             E, L, H, B = 72, 256, 2, 2
             f16r(s) = DNNKernels.toback(back, Float16.(randn(Float32,E,L,H,B) .* 0.2f0))
             q, k, v = f16r(1), f16r(2), f16r(3)
             ws = DNNKernels.Workspace(back)
             scale = Float32(1/sqrt(E))
-            outs = map((true, false)) do on
-                DNNKernels.FLASHCM[] = on
-                DNNKernels.reset!(ws)
-                o = DNNKernels.sdpa(q, k, v, nothing, scale; backend = back, ws)
-                KA.synchronize(back)
-                Array(o)
-            end
-            DNNKernels.FLASHCM[] = true
-            @test maximum(abs, outs[1] .- outs[2]) / maximum(abs, outs[2]) < 5e-3
-            q = k = v = nothing; GC.gc()
+            @test DNNKernels.flashcm_applicable(q, k, v, nothing, L, L)
+            DNNKernels.reset!(ws)
+            fused = Array(DNNKernels.sdpa(q, k, v, nothing, scale; backend = back, ws))
+            KA.synchronize(back)
+            @test DNNKernels.coopmat_sdpa_applicable(q, k, v, nothing, L, L)
+            DNNKernels.reset!(ws)
+            o = KA.allocate(back, Float32, E, L, H, B); fill!(o, 0f0)
+            DNNKernels.sdpa_coopmat!(o, q, k, v, scale; backend = back, ws)
+            KA.synchronize(back)
+            twogemm = Array(o)
+            @test maximum(abs, twogemm) > 1e-3
+            @test maximum(abs, fused .- twogemm) / maximum(abs, twogemm) < 5e-3
+            q = k = v = o = nothing; GC.gc()
         end
     end
 end

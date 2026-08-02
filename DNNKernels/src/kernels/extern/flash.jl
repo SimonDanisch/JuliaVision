@@ -903,16 +903,6 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 end
 
 """
-    FLASHCM[]
-
-Whether `sdpa` may take the cooperative-matrix fused path.
-
-A `Ref` rather than a constant because it is the only way to measure the two
-paths **inside one session**, which is the only measurement this project trusts.
-"""
-const FLASHCM = Ref(true)
-
-"""
     FLASHCM_DENSIFY[]
 
 Whether `sdpa` copies `k` and `v` into dense scratch before the fused kernel.
@@ -1009,8 +999,13 @@ fold to become part of the store, not a cheaper sweep.
 """
 const FLASHCM_REGO = Ref(false)
 
-"""
-    FLASHCM_LAZYRESCALE[]
+#=
+── `lazyrescale`: skip the rescale on blocks where no row's maximum moved ──────
+
+A settled decision, on. It was a global (`FLASHCM_LAZYRESCALE`) supplying
+`sdpaflashcm!`'s keyword default and is now the literal default there
+(`kernel-library-review.md` finding 3, tier two). The keyword survives, so the
+A/B is still one call away — which is how `test_flash.jl` compares the two.
 
 Skip the `O *= exp(m_old - m_new)` pass on key blocks where no row's running
 maximum moved.
@@ -1038,13 +1033,13 @@ to set it all write the same value, and the branch is uniform because every
 thread reads it after the same barrier.
 
 Exact, not approximate — the skipped work is a multiplication by one.
-"""
-const FLASHCM_LAZYRESCALE = Ref(true)
+=#
 
-"""
-    FLASHCM_ONEPASS[]
+#=
+── `onepass`: read each score once in the softmax instead of twice ─────────────
 
-Read each score once in the softmax instead of twice.
+The other settled `sdpaflashcm!` keyword (was `FLASHCM_ONEPASS`), on, literal
+default, keyword kept for the A/B.
 
 The two-pass form reads `ss` for the row maximum and again for the exponential —
 `2 * BR * BC * 4` bytes a key block, and the softmax is a third of the kernel.
@@ -1060,8 +1055,7 @@ the one thread that owns it rather than by the sweep. `mo = -Inf`, which is ever
 row on the first key block, always takes that path.
 
 Exact either way: the tests compare the two settings with `==`.
-"""
-const FLASHCM_ONEPASS = Ref(true)
+=#
 
 """
     FLASHCM_HELD[]
@@ -1185,10 +1179,16 @@ is the largest measured win left in this kernel.
 const FLASHCM_HELD = Ref(false)
 
 """
-    FLASHCM_PERELEM[]
+    flashcm_perelem_available() -> Bool
 
-Rescale a held `O` with `OpCooperativeMatrixPerElementOpNV` instead of a chain of
-`coopmat_getcomp`/`coopmat_setcomp`.
+Whether the device can rescale a held `O` in place — `VK_NV_cooperative_matrix2`
+with `cooperativeMatrixPerElementOperations`.
+
+Rescaling with `OpCooperativeMatrixPerElementOpNV` instead of a chain of
+`coopmat_getcomp`/`coopmat_setcomp` was a switch (`FLASHCM_PERELEM`) on top of
+the device query. It is settled — where the extension exists the per-element form
+is what runs — so the switch is gone and this asks the device only (review
+finding 3, tier two).
 
 This is the missing piece [`FLASHCM_HELD`](@ref) documents: the 31% is real, and
 what stopped it was that the portable component access costs +69 registers (123
@@ -1206,16 +1206,7 @@ still needs no barrier.
 NVIDIA-only. Gated on `vk_context().coopmat2.per_element_operations`; with it
 false the `getcomp`/`setcomp` path is what runs, and `held` stays off there.
 """
-const FLASHCM_PERELEM = Ref(true)
-
-"""
-    flashcm_perelem_available() -> Bool
-
-Whether the device can rescale a held `O` in place — `VK_NV_cooperative_matrix2`
-with `cooperativeMatrixPerElementOperations`.
-"""
-flashcm_perelem_available() =
-    FLASHCM_PERELEM[] && Lava.vk_context().coopmat2.per_element_operations
+flashcm_perelem_available() = Lava.vk_context().coopmat2.per_element_operations
 
 """
     FLASHCM_RESCALE[]
@@ -1402,9 +1393,15 @@ Whether [`sdpa`](@ref) may fuse this call.
 `bias` must be absent for the same reason the two-GEMM path refuses it: the mask
 would have to be added between the score product and the softmax, and here that
 is inside a cooperative-matrix accumulator.
+
+A question about the problem and the device, and nothing else. It used to begin
+with `FLASHCM[] &&`, a switch that existed to measure the fused path against the
+two-GEMM one **inside one session**, which is the only measurement this project
+trusts. The fused path won everywhere it applies, so the switch is gone (review
+finding 3, tier two) and the A/B is now "call `sdpa_coopmat!` directly", which is
+what `test_flash.jl` does.
 """
 function flashcm_applicable(q, k, v, bias, Lq::Int, Lk::Int)
-    FLASHCM[] || return false
     bias === nothing || return false
     eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
     Lava.coopmat_gemm_available() || return false
@@ -1419,8 +1416,8 @@ device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
 """
 function sdpaflashcm!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
-                      lazyrescale::Bool = FLASHCM_LAZYRESCALE[],
-                      onepass::Bool = FLASHCM_ONEPASS[],
+                      lazyrescale::Bool = true,
+                      onepass::Bool = true,
                       held::Bool = FLASHCM_HELD[],
                       rescale::Symbol = FLASHCM_RESCALE[],
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,

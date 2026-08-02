@@ -423,7 +423,13 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # `LavaArray` rather than `AbstractArray`: dense and contiguous by
     # construction, which is what the kernel indexes on, and it keeps a lazy
     # `Broadcasted` or a permuted view out of a path that cannot take them.
-    if LN_FUSED[] && a isa Lava.LavaArray && d == Tuple(1:length(d)) && length(a) % n == 0
+    #
+    # The two forms do not produce identical bits — the kernel accumulates in
+    # fp32, the expression below sums in the element type — so "does the mask
+    # still match" is a question about the whole model, not about the kernel.
+    # This was a switch (`LN_FUSED`) so the two could be compared end to end in
+    # one session; the fused form won and the switch is gone (review finding 3).
+    if a isa Lava.LavaArray && d == Tuple(1:length(d)) && length(a) % n == 0
         out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
         groups = length(a) ÷ n
         μ = tupledest(ctx, 1, Float32, groups)

@@ -31,17 +31,6 @@ is 1152, which is nine elements per lane."""
 const LN_WG = 128
 
 """
-    LN_FUSED[]
-
-Use the fused kernel. Switchable so it can be compared against the expression
-form end to end in one session — the two do not produce identical bits (this one
-accumulates in fp32, the expression sums in the element type), so "does the mask
-still match" is a question that has to be asked of the whole model, not of the
-kernel.
-"""
-const LN_FUSED = Ref(true)
-
-"""
     layernorm_kernel!(out, mean, rstd, a, γ, β, C, eps)
 
 One workgroup per normalisation group. `γ`/`β` are indexed along the normalised

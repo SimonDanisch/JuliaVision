@@ -104,15 +104,17 @@ end
             b = DK.toback(back, T.(randn(Float32, Cout) .* 0.1f0))
             ref = KA.allocate(back, T, Wi, Hi, Cout, 1); fill!(ref, zero(T))
             got = KA.allocate(back, T, Wi, Hi, Cout, 1); fill!(got, zero(T))
-            old = DK.CONV_1X1_GEMM[]
-            try
-                DK.CONV_1X1_GEMM[] = false; DK.reset!(ws)
-                DK.convolution!(ref, x, w, b, (1,1), (0,0), (1,1), 1; ws)
-                DK.CONV_1X1_GEMM[] = true; DK.reset!(ws)
-                DK.convolution!(got, x, w, b, (1,1), (0,0), (1,1), 1; ws)
-            finally
-                DK.CONV_1X1_GEMM[] = old
-            end
+            # The routing is half the test: `convolution!` must recognise the
+            # shape and take the GEMM. Asserted rather than assumed, because
+            # `onebyone` returning `false` would silently compare the im2col path
+            # against itself. (It used to be switched off with `CONV_1X1_GEMM`,
+            # which is exactly the predicate-that-answers-configuration the
+            # review's finding 7 names; the switch is gone.)
+            @test DK.onebyone(w, (1,1), (0,0), (1,1), 1)
+            DK.reset!(ws)
+            DK.convolution_coopmat!(ref, x, w, b, (1,1), (0,0), (1,1); ws)
+            DK.reset!(ws)
+            DK.convolution!(got, x, w, b, (1,1), (0,0), (1,1), 1; ws)
             KA.synchronize(back)
             r, g = Float32.(Array(ref)), Float32.(Array(got))
             @test any(!iszero, g)
