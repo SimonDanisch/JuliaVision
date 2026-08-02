@@ -41,8 +41,12 @@ was rewritten because of it.
 Only the desktop produces these. Last measured 2026-08-02.
 
 - SAM 2 encode **100.4 ms** vs PyTorch 87.64 → **87.0%**. Target 90% = 97.4 ms.
-- SAM 2 decode **3.30 ms** replayed vs 2.10 → **64%**. 36% of it is one attention
-  shape at 0.10 TF/s, which `kernels-to-port.md` item 1 targets.
+- SAM 2 click **2.21 ms** replayed vs 2.10 → **95%**, and decode 3.13 vs 2.10 →
+  **61%**. `kernels-to-port.md` item 1 (flash-decoding) is **done**: the
+  decoder's cross-attention went 0.4279 → 0.1204 ms, 3.55x, by splitting the key
+  axis six ways and merging the partial softmaxes. Ported from llama.cpp's
+  `flash_attn_split_k_reduce.comp`; the measured optimum is 8 splits at 0.1096,
+  so the reference's "two workgroups per core" constant is within 10% here.
 - VRAM **1181 MiB** vs PyTorch 1756 — 33% under, goal met, nothing to do.
 - Device cooperative-matrix ceiling **107.3 TF/s** measured; `addmm` at 38.0 = 35%.
 
