@@ -164,6 +164,7 @@ end
     grp = @index(Group, NTuple)
     qb, h, b = grp[1], grp[2], grp[3]
 
+
     # `Float32` written out, NOT a local `T = Float32`: Lava miscompiles an
     # `@localmem`/`@private` whose element type comes from a local binding, and
     # the failure is silent — the kernel runs, writes nothing, and every output
@@ -400,9 +401,10 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
-        ::Val{PREONLY}, ::Val{RSCBAR}, Lq::Int32, Lk::Int32, alwaysrescale::Int32,
-        onepass::Int32) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,RSC,BALLAST,SHPAD,
-                               NRSC,PREONLY,RSCBAR}
+        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{NSPLIT},
+        Lq::Int32, Lk::Int32, alwaysrescale::Int32,
+        onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,RSC,
+                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT}
     NT = NW * 32
     qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
     kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
@@ -443,7 +445,13 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 
     tid = @index(Local, Linear) - 1
     grp = @index(Group, NTuple)
-    qb, h, b = grp[1], grp[2], grp[3]
+    # The split index rides in the FIRST grid dimension rather than a fourth:
+    # `grp[1]` runs over `Tr * NSPLIT`. Folding it keeps the launch 3-D, which is
+    # what `ndrange` and every index helper below already assume.
+    gq, h, b = grp[1], grp[2], grp[3]
+    Tr = cld(Lq, Int32(BR))
+    qb = (gq - 1) % Tr + 1
+    sp = (gq - 1) ÷ Tr                      # 0-based split index
     w = tid ÷ 32                            # subgroup within the workgroup
 
     @inbounds begin
@@ -529,7 +537,13 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         # `Lk = 23 < BC = 32` — the decoder's self-attention — `div` gives ZERO
         # blocks and the loop never runs. Identical to `div` when `BC` divides
         # `Lk`, which is every non-clamped call.
-        for kb in 0:(cld(Lk, BC) - 1)
+        # This split's slice of the key axis. With `NSPLIT == 1` these are
+        # `0` and `cld(Lk, BC)`, i.e. exactly the loop that was here before.
+        nkb = cld(Lk, Int32(BC))
+        kbper = cld(nkb, Int32(NSPLIT))
+        kbeg = sp * kbper
+        kend = min(nkb, kbeg + kbper)
+        for kb in kbeg:(kend - 1)
             k0 = kb * BC
             if tid == 0
                 grew[1] = Float32(alwaysrescale)
@@ -903,7 +917,25 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             if !CLAMP || q0 + lq < Lq
                 l = ls[1 + lq]
                 o = REGO ? acco[s] : pvs[1 + idx]
-                out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
+                if NSPLIT == 1
+                    out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
+                else
+                    # UNNORMALISED, plus this split's row max and sum. The merge
+                    # cannot divide yet: `l` here is only this slice's sum, and
+                    # the rows' maxima differ between splits, so the rescale has
+                    # to happen after every split's `m` is known. Same split as
+                    # llama.cpp's `flash_attn_split_k_reduce.comp`.
+                    partial[1 + e, 1 + q0 + lq, h, b, 1 + sp] = o
+                end
+            end
+        end
+        # One thread per row writes the pair the merge reduces over.
+        if NSPLIT > 1
+            for lq in tid:NT:(BR - 1)
+                if !CLAMP || q0 + lq < Lq
+                    ml[1 + q0 + lq, h, b, 1 + sp, 1] = ms[1 + lq]
+                    ml[1 + q0 + lq, h, b, 1 + sp, 2] = ls[1 + lq]
+                end
             end
         end
     end
@@ -1134,6 +1166,49 @@ end
 
 
 """
+    splitcount(dev, Lq, Lk, BR, BC, nbatch; allow = true) -> Int
+
+How many ways to split the key axis, from llama.cpp's rule rather than ours.
+
+    split = cores * 2 / workgroups_without_split      # aim at 2 wg per core
+    chunk = align_up(Lk / split, alignment)           # a whole number of blocks
+    split = cld(Lk, chunk)                            # re-derive from the chunk
+
+Two workgroups per core, not one: a single workgroup per core leaves no other
+warp to cover a stall, and this kernel is latency-bound at the decoder's shape.
+
+Re-deriving the count from the rounded chunk is what keeps every split a whole
+number of `BC`-wide key blocks, so no split gets a ragged remainder.
+
+**`ROUNDUP_POW2` in ggml is not what its name says**, and reading it as written
+costs a third of the win. It is
+
+    #define ROUNDUP_POW2(M, N) (((M) + (N) - 1) & ~((N) - 1))
+
+i.e. round `M` up to a **multiple of** `N`, where `N` happens to be a power of
+two — not "round `M` to the next power of two". Ported the second way this
+returned 4 splits for the decoder's shape where the rule wants 6, and 4 measures
+0.159 ms against 0.095 for 8. Counting the chunk in whole key blocks here makes
+the alignment implicit, so there is nothing left to round.
+"""
+function splitcount(dev::Device, Lq::Int, Lk::Int, BR::Int, BC::Int, nbatch::Int;
+                    allow::Bool = true)
+    allow || return 1
+    dev.cores > 0 || return 1
+    base = cld(Lq, BR) * nbatch
+    base >= 2 * dev.cores && return 1          # already fills the device
+    want = max(1, (2 * dev.cores) ÷ base)
+    want == 1 && return 1
+    nkb = cld(Lk, BC)                          # key blocks available to split
+    nkb <= 1 && return 1
+    chunk = max(1, cld(nkb, want))     # already in whole BC-wide key blocks
+    n = cld(nkb, chunk)
+    # A split that cannot pay for its merge is not worth the extra global traffic.
+    n <= 1 && return 1
+    return n
+end
+
+"""
     flashcm_plan(dev, q, k, v, bias; kw...) -> FlashCMPlan | Decline
 
 Whether [`sdpa`](@ref) may fuse this call, and with what.
@@ -1153,7 +1228,7 @@ that launches and writes nothing.
 function flashcm_plan(dev::Device, q, k, v, bias;
                       clamp::Bool = false, rego::Bool = false, held::Bool = false,
                       rescale::Symbol = :fmul, onepass::Bool = true,
-                      lazyrescale::Bool = true,
+                      lazyrescale::Bool = true, split::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
     bias === nothing || return Decline(:bias)
     dev.coopmat || return Decline(:nocoopmat)
@@ -1195,7 +1270,60 @@ function flashcm_plan(dev::Device, q, k, v, bias;
     (stridedroot(q) === nothing || stridedroot(k) === nothing ||
      stridedroot(v) === nothing) && return Decline(:wrapped)
 
-    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, rego, held, rescale, onepass, lazyrescale)
+    # Decided last, because it depends on the tiling that was just chosen: `BR`
+    # fixes how many query blocks there are, and `BC` fixes how finely the key
+    # axis can be cut.
+    nsplit = splitcount(dev, Lq, Lk, BR, BC, H * B; allow = split)
+
+    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, rego, held, rescale, onepass,
+                lazyrescale, nsplit)
+end
+
+"""
+Merge the per-split partial attentions into the final output.
+
+A port of `flash_attn_split_k_reduce.comp` from llama.cpp
+(`ggml/src/ggml-vulkan/vulkan-shaders/`), which is the same algorithm in the same
+API. Its structure rather than its indexing: two passes over the splits — first
+the row's true maximum, then the rescaled sum — instead of a sequential online
+update. Fewer dependencies, and the merge itself parallelises.
+
+Each split wrote `O_s` unnormalised together with the row max `m_s` and row sum
+`l_s` it was computed under. Restoring the true value needs the *global* row max,
+which no split knew:
+
+    m  = maxₛ m_s
+    L  = Σₛ exp(m_s − m) · l_s
+    O  = Σₛ exp(m_s − m) · O_s   /   L
+
+One thread per (row, head, batch), walking the splits. `NSPLIT` arrives as a
+`Val`, so every loop bound here is a compile-time constant and the split loops
+unroll without needing `@nexprs` — which could not be used anyway, since it
+wants a literal at macro-expansion time and this is a type parameter.
+"""
+@kernel cpu=false function attn_flash_cm_merge!(out, @Const(partial), @Const(ml),
+                                                ::Val{E}, ::Val{NSPLIT}) where {E, NSPLIT}
+    lq, h, b = @index(Global, NTuple)
+    @inbounds begin
+        # pass 1: the row's true maximum across splits
+        m = -Inf32
+        for sp in 1:NSPLIT
+            m = max(m, ml[lq, h, b, sp, 1])
+        end
+        # pass 2: the sum, every split rescaled onto that maximum
+        L = 0.0f0
+        for sp in 1:NSPLIT
+            L += exp(ml[lq, h, b, sp, 1] - m) * ml[lq, h, b, sp, 2]
+        end
+        inv = L == 0.0f0 ? 1.0f0 : 1.0f0 / L
+        for e in 1:E
+            o = 0.0f0
+            for sp in 1:NSPLIT
+                o += exp(ml[lq, h, b, sp, 1] - m) * partial[e, lq, h, b, sp]
+            end
+            out[e, lq, h, b] = o * inv
+        end
+    end
 end
 
 """
@@ -1226,6 +1354,13 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
     st(a) = map(Int32, strides(a))
     sq, sk, sv = st(q), st(k), st(v)
     flat(r) = reshape(r[1], length(r[1]))
+
+    # Flash-decoding scratch. Only allocated when the plan asks for a split, so
+    # the single-split path is byte-for-byte the launch it always was.
+    ns = plan.nsplit
+    partial = ns == 1 ? out : scratch!(ctx, Float32, size(v, 1), Lq, H, B, ns)
+    ml      = ns == 1 ? out : scratch!(ctx, Float32, Lq, H, B, ns, 2)
+
     attn_flash_cm!(backend, NT)(out, flat(rq), flat(rk), flat(rv), Float32(scale),
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
                                 Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
@@ -1237,9 +1372,18 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
                                 Val(rscbar),
+                                Val(ns),
                                 Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
-                                Int32(plan.onepass && !rego ? 1 : 0);
-                                ndrange = (NT * cld(Lq, BR), H, B))
+                                Int32(plan.onepass && !rego ? 1 : 0), partial, ml;
+                                ndrange = (NT * cld(Lq, BR) * ns, H, B))
+    if ns > 1
+        # The merge is a separate dispatch because every split has to have
+        # finished before any row's true maximum is known — that is the one real
+        # dependency flash-decoding introduces, and it is why the split has to
+        # pay for a second pass over `Lq * H * B * E` to buy its parallelism.
+        attn_flash_cm_merge!(backend)(out, partial, ml, Val(plan.E), Val(ns);
+                                      ndrange = (Lq, H, B))
+    end
     return out
 end
 

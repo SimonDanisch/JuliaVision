@@ -289,6 +289,33 @@ struct FlashCMPlan
     # fields only because `test_flash.jl` A/Bs them.
     onepass::Bool
     lazyrescale::Bool
+
+    # ── Splits of the KEY axis, i.e. flash-decoding. 1 disables it.
+    #
+    # `Lq = 23` against `Lk = 4096` is two query blocks, so the launch is
+    # `2 * H*B` = 16 workgroups on 48 shader cores and the kernel is
+    # latency-bound rather than anything else. Splitting the key axis gives every
+    # split its own workgroup and merges the partial softmaxes afterwards.
+    #
+    # Measured on that shape, same arithmetic rearranged to the parallelism each
+    # split count would produce (200 runs, min):
+    #
+    #     splits   Lk each   workgroups   min ms
+    #       1       4096         16       0.4239
+    #       4       1024         64       0.1589
+    #       8        512         64       0.0948
+    #      16        256        128       0.0721
+    #
+    # The count comes from llama.cpp's own rule (`ggml-vulkan.cpp`, the
+    # flash-attention path), which aims at **two workgroups per shader core** —
+    # not one, which is what our earlier grid floor assumed:
+    #
+    #     split = cores * 2 / workgroups_without_split
+    #     chunk = roundup_pow2(Lk / split)      then re-derive split from chunk
+    #
+    # Re-deriving from the chunk is what keeps the key range a multiple of `BC`,
+    # so the last split is not a ragged remainder.
+    nsplit::Int
 end
 
 """
