@@ -960,3 +960,115 @@ bitcast and an unbacked capability — in modules nobody had ever validated.
 
 Recommend re-opening all three against our own compiler, with `spirv-val` and
 GPU-AV on, before anything is reported upstream.
+
+## 2026-08-02, later — the vkCmdCopyBuffer fault is a GC lifetime bug
+
+Rebased onto the merged `sd/nvidia` (`046b1ed`); the four fixes are upstream.
+
+### A fast reproducer
+
+The fault used to need a 15-minute suite and moved between tests. It reproduces
+in **three files in one process, about two minutes**:
+
+```
+test_pipeline_cache_no_compile.jl
+test_static_workgroup.jl
+test_closesthit_via_rayquery.jl     <- SIGSEGV early in this one
+```
+
+Always at `Vulkan.cmd_copy_buffer`, `command.jl:1549`. The full path is now
+known, and it is the **staging** path rather than anything kernel-related:
+
+```
+upload!          memory.jl:1644
+copy_buffer!     memory.jl:1594 -> :1633     (host -> staging -> device)
+cmd_copy_buffer! command.jl:1504 -> :1549
+  -> vkCmdCopyBuffer -> SIGSEGV inside libvulkan_radeon.so
+```
+
+### It is a GC/finalizer bug — proved by elimination
+
+Same reproducer, one line changed:
+
+| | result |
+|---|---|
+| default | SIGSEGV at the third file |
+| `GC.enable(false)` | **exit 0, all five files complete** |
+
+That settles the class. It is not a driver defect, not recording order, and not
+anything about the ray-query test it happens to land in. A finalizer destroys
+something that a recorded-but-unsubmitted copy still refers to.
+
+### Why Lava's own use-after-free scanner cannot see it
+
+`FREED_BDA_SCAN_ENABLED` checks, before every destroy, whether the buffer's BDA
+still appears in a live arg slab. Run over the crashing files it reports **zero
+hits**, and that is structural rather than reassuring: a **staging buffer is a
+transfer source, never a kernel argument**, so its address never enters an arg
+slab at all. The scanner is blind to this entire class by construction.
+
+Two warnings for anyone else reaching for it:
+
+- It is far too slow for a full-suite run. `scan_arg_slabs_for_bda!` is linear in
+  arg-slab size and runs on every destroy; with Tier 4 GPUArrays it took **50
+  minutes to get from Tier 1 into `reductions`** and never reached the crash. Use
+  it on a targeted file list.
+- Both it and `FREE_DEBUG_LOG` only print at exit, which a SIGSEGV skips. Drain
+  them from a `Timer` if you want the entries that precede the fault.
+
+### The destroy trace, and the actionable detail
+
+With `FREE_DEBUG_ENABLED` drained incrementally, the last twelve destroys before
+the fault are all:
+
+```
+pool=true   lw=SET   active_recording=false
+```
+
+`active_recording = false` is the lead. `vk_free!` defers destruction when
+`bq.active_batch !== nothing && bq.active_batch.recording`; here that check said
+"no batch is recording", so the buffer was destroyed inline — while a copy that
+refers to it is about to be, or has just been, recorded.
+
+That is exactly the residual `vk_free!`'s own comment anticipates:
+
+> *"Not certainly the last of it ... either a second window exists or something
+> rarer shares this one. If it recurs, the next thing to check is whether a
+> buffer can be reached by an open batch through something `pins` does not count
+> either."*
+
+A staging buffer reached through `get_staging`'s **raw tuple** is precisely such
+a path. `get_staging` (`memory.jl:1526`) returns
+`(buf.buffer, buf.memory, buf.mapped_ptr, buf.size)` — handles snapshotted off
+the `VkManagedBuffer`, with no reference to the owner. Holding the tuple does not
+keep the owner alive, and `destroy_buffer!` calls `buf.buffer.destructor()`
+**explicitly**, so holding the Julia `Vulkan.Buffer` wrapper does not protect the
+underlying `VkBuffer` either.
+
+### Ruled out, so nobody re-walks it
+
+**The pool recycle path is not the `mapped_ptr` divergence.** It looks like the
+answer: `return_to_pool!` (`memory.jl:1497`) reuses the `VkManagedBuffer` object,
+zeroing `mapped_ptr`, while `pool_alloc`'s free-list path restores `address`,
+`size` and `state` but **not** `mapped_ptr`. That reads as a textbook divergence
+and it is not one: pooled chunks are constructed with `mapped_ptr = 0`
+(`memory.jl:1399`) and `PoolBlock` holds no mapping, so a pooled buffer is never
+mapped. Zeroing an already-zero field is a no-op and not restoring it is correct.
+
+So the finding-10 divergence, if it is separate from this, lives in the
+non-pooled `vk_alloc` path (`memory.jl:592`), the only place `mapped_ptr` becomes
+non-zero.
+
+### Relation to the desktop's flush hang
+
+Consistent with these being one bug, per the desktop's suggestion. The shape here
+is "a buffer is destroyed while an unsubmitted batch still refers to it"; a hang
+on `vkWaitSemaphores` is what the same defect looks like when the batch does get
+submitted and waits on a timeline value for work referencing freed memory.
+
+One structural gap supports that reading and **cannot be tested here**: `vk_free!`
+consults `ctx.default_bq` only (`memory.jl:732`). A buffer reachable from a
+recording batch on a different `BatchQueue` is invisible to the deferral check.
+This device reports `max_queue_count = 1`; the desktop has `async_queue_count` 4
+and the RT/async paths are where a second queue appears. If the desktop's
+reproducer uses one, that is the first thing to instrument.
