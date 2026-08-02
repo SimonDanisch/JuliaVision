@@ -736,20 +736,34 @@ function sdpa(ctx, q, k, v, bias, scale; out=nothing)
     # second GEMM 4.0, first GEMM 2.2 — the two passes over `Lq x Lk` cost more
     # than the arithmetic — and on the windowed blocks the padding kernels alone
     # were half the op.
-    if flashcm_applicable(q, k, v, bias, Lq, Lk)
+    # One decision, once. This used to be `flashcm_applicable` (which ran
+    # `flashcm_tiling` and threw the answer away), then `flashcm_tiling` again for
+    # the tiling, then six more checks inside `sdpaflashcm!` that could still
+    # decline — after `out` had been allocated. See `FlashCMPlan`.
+    plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
+
+    # The one refusal that is recoverable, and now it actually recovers. An
+    # operand stack `stridedroot` cannot account for used to need someone to set
+    # `FLASHCM_DENSIFY` by hand, which is to say it never happened and the call
+    # silently took a slower path instead.
+    #
+    # `k` and `v` are the ones worth densifying and `q` is not, which is not an
+    # oversight. Flash re-reads the whole of `k` and `v` once per query block — 64
+    # times over for a 4096-query global block — so a `PermutedDimsArray`'s four
+    # integer divisions per element get paid 64 times. **`q` is read exactly
+    # once**: each workgroup stages its own `BR` queries and no other workgroup
+    # touches them, so densifying it is a whole extra pass over the array to save
+    # nothing. Densifying when it is *not* needed costs 646.4 MB of copies per
+    # encode and 8.35 ms, which is why this is a fallback and not the default.
+    if plan isa Decline && plan.reason === :wrapped
+        k, v = densify(ctx, k), densify(ctx, v)
+        plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
+    end
+
+    if plan isa FlashCMPlan
         out === nothing &&
             (out = KernelAbstractions.allocate(backend, T, size(v, 1), Lq, H, B))
-        # `k` and `v` are densified and `q` is not, which is not an oversight.
-        # Flash re-reads the whole of `k` and `v` once per query block — 64 times
-        # over for a 4096-query global block — so a `PermutedDimsArray`'s four
-        # integer divisions per element get paid 64 times. **`q` is read exactly
-        # once**: each workgroup stages its own `BR` queries and no other
-        # workgroup touches them, so densifying it is a whole extra pass over the
-        # array to save nothing.
-        BR, BC, NW = flashcm_tiling(E, Lq, Lk, size(q, 3) * size(q, 4))
-        kd = FLASHCM_DENSIFY[] ? densify(ctx, k) : k
-        vd = FLASHCM_DENSIFY[] ? densify(ctx, v) : v
-        sdpaflashcm!(ctx, out, q, kd, vd, scale; BR, BC, NW) && return out
+        return sdpaflashcm!(ctx, out, plan, q, k, v, scale)
     end
 
     if coopmat_sdpa_applicable(q, k, v, bias, Lq, Lk)

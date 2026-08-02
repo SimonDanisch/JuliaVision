@@ -176,7 +176,7 @@ end
 
 
 """Run one graph and return its outputs in declaration order."""
-function call(m::Model, name::AbstractString, args...; dims)
+function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = false)
     g = m.graphs[name]
     length(args) == length(g.inputs) ||
         error("$name expects $(length(g.inputs)) inputs, got $(length(args))")
@@ -184,13 +184,13 @@ function call(m::Model, name::AbstractString, args...; dims)
     rec = startcall!(recs[name])
     vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
                     dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
-                    lazy=lazies[name], rec=rec, diag=m.diag)
+                    lazy=lazies[name], rec=rec, diag=m.diag, clampattn)
     # The same recycler resolves the outputs: an output that is a view gets
     # materialised right here, and that copy needs a stable address as much as
     # anything inside the graph did. Ordinals carry on from where `execute!` left
     # them, which is deterministic because the op sequence is.
     ctx = Ctx(vals, g, dims, m.backend, slab, plans[name], Ref(""), ws, lazies[name], rec,
-              m.diag)
+              m.diag; clampattn)
     Tuple(value(ctx, o) for o in g.outputs)
 end
 

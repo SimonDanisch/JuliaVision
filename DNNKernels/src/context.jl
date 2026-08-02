@@ -9,6 +9,85 @@ defined. `graph.jl` is the only thing above this file.
 """
 
 """
+    Device(backend) -> Device
+
+What the kernels need to know about the device they are about to run on,
+answered **once per context**, at construction, from a live device.
+
+This is `kernel-library-review.md` finding 9. Five numbers were hardcoded at
+their call sites — 48 shader cores, 32 lanes to a subgroup, a 48 KB shared
+budget, a 256-thread launch group, a 48-workgroup occupancy floor — each written
+while there was one card to be wrong about. Across an Ada desktop, an RDNA3 iGPU
+whose compute subgroup may be 64, and lavapipe, they are wrong in fact and not
+merely in principle: `NW * 32` computes the wrong workgroup size on a wave64
+device, and every tiling decision keyed on it inherits the error.
+
+None of these may be captured at module scope (`GUARDRAILS.md` §8): they describe
+a device, so a second device must get its own answers.
+
+## What is still single-device, and why it is one function
+
+`vkcontext` below resolves the *default* context for an unpinned backend, which
+is correct today because a pinned one cannot be resolved at all:
+
+    struct LavaBackend <: KA.GPU
+        dispatch_bq::Union{BatchQueue, Nothing}
+        upload_bq::Union{BatchQueue, Nothing}
+    end
+
+`LavaBackend(ctx)` keeps `ctx.default_bq` and **discards `ctx`**, and `BatchQueue`
+holds a `Vulkan.Device`, not the `VkContext` that owns it. So there is no path
+from a backend to its context, and both project briefs are wrong where they say
+"the carrier already exists — `BatchQueue` carries `ctx`". It does not.
+
+The fix is one field in Lava (`LavaBackend` keeping the context it is handed) and
+it belongs to `lava-core` phase 2, not here. When it lands, `vkcontext` is the
+only thing in this package that changes, and every value below becomes per-device
+without another edit. Until then a second device would silently receive the
+first's numbers — which is exactly why this is written down at the one place that
+would have to change, rather than left as a comment on the branch.
+"""
+struct Device
+    coopmat::Bool          # cooperative-matrix GEMM usable here
+    tile::Int              # its tile extent
+    subgroup::Int          # lanes per subgroup — 32 on NVIDIA, 32 *or* 64 on RDNA3
+    sharedbudget::Int      # bytes of `@localmem` one workgroup may claim
+    workgrouplimit::Int    # threads per workgroup
+    cores::Int             # shader cores / SMs; 0 when the device will not say
+    launchgroup::Int       # threads `launch!` asks for by default
+end
+
+"""
+The `VkContext` a backend runs on. See the note in [`Device`](@ref) — this is the
+single place that becomes per-backend once Lava's `LavaBackend` keeps its context.
+"""
+vkcontext(::Any) = nothing
+vkcontext(::Lava.LavaBackend) = Lava.vk_context()
+
+"""
+Device facts for a backend that is not Lava's — the CPU verification path.
+
+Deliberately not "the RTX 4000 Ada's numbers minus the GPU bits": a CPU run must
+not take a tensor-core path, and the shared budget is the portable Vulkan floor
+so that anything computed from it stays valid rather than merely plausible.
+"""
+Device(::Any) = Device(false, 16, 1, 48 * 1024, 1024, 0, 256)
+
+function Device(backend::Lava.LavaBackend)
+    ctx = vkcontext(backend)
+    Device(Lava.coopmat_gemm_available(ctx),
+           Lava.GEMM_TILE,
+           Lava.device_subgroup_size(ctx),
+           Lava.max_shared_memory(ctx),
+           Lava.WORKGROUP_LIMIT[],
+           Lava.shader_core_count(ctx),
+           # 256 measured best for `launch!`; see `launchgroup`. Kept as a number
+           # on the device rather than a global because it is a workgroup size,
+           # and the limit it must respect is the device's.
+           min(256, Lava.WORKGROUP_LIMIT[]))
+end
+
+"""
     Diagnostics(; optimes, opdouble, opdoublefilter, planmisses, launches)
 
 Per-run instrumentation. Every field is off by default and free when off: the
@@ -117,6 +196,28 @@ struct Ctx{B,S}
     graph::Graph
     dims::NamedTuple
     backend::B
+    dev::Device                   # what this backend's device can do — see `Device`
+
+    # ── Let an attention whose extents do not divide the tile take the fused
+    # cooperative-matrix path anyway, padded and masked.
+    #
+    # A property of *this graph run*, which is why it is here and not on `Device`
+    # (it is not a device fact) and not in a plan (the plan is per call). SAM 2's
+    # decoder wants it and its encoder does not: the decoder's attentions are 23
+    # tokens and want exactly this, while the encoder has six `Lq = 16` calls that
+    # would go along at 50% waste and cost **+2.12 ms of encode** for nothing.
+    # Measured interleaved in one process on the autocast export, which is the
+    # only form that means anything for a 4 ms call on a shared card: decode
+    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75.
+    #
+    # This was a `Ref` that `sam2.jl` set around the decode and restored in a
+    # `finally`, defended on the grounds that "`flashcm_tiling` reads it six
+    # frames down, inside `runop!`". That is the same defence the five diagnostics
+    # `Ref`s made, and it has the same answer: `Ctx` already reaches every
+    # `runop!`. Being a field also removes the hazard the `finally` existed for —
+    # there is no longer any state that a decoder error could leave switched on
+    # for the next encode.
+    clampattn::Bool
     slab::S                       # UInt8 scratch slab, or nothing
     plan::Any                     # Slab (plan.jl), or nothing
     outid::Base.RefValue{String}  # output id of the op currently running
@@ -126,16 +227,29 @@ struct Ctx{B,S}
     diag::Diagnostics             # per-run instrumentation, all off by default
 end
 
-Ctx(values, graph, dims, backend) =
-    Ctx(values, graph, dims, backend, nothing, nothing, Ref(""), nothing, nothing, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, nothing, nothing, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, nothing, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, nothing)
-Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec) =
-    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec, Diagnostics())
+# `dev` is derived from `backend` and never passed in, so every constructor below
+# keeps the signature it had. It costs one query per context — that is, once per
+# graph execution — and each of those reads a field Lava filled at device
+# creation, so it does not go near the driver on the hot path.
+#
+# `clampattn` is a keyword rather than the twelfth positional argument: it is a
+# per-run policy that one caller sets, and the positional forms are already at
+# the length where an extra `false` in the middle is a bug waiting to happen.
+Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec, diag;
+    clampattn::Bool = false) =
+    Ctx(values, graph, dims, backend, Device(backend), clampattn,
+        slab, plan, outid, ws, lazy, rec, diag)
+Ctx(values, graph, dims, backend; kw...) =
+    Ctx(values, graph, dims, backend, nothing, nothing, Ref(""), nothing, nothing,
+        nothing; kw...)
+Ctx(values, graph, dims, backend, slab, plan, outid; kw...) =
+    Ctx(values, graph, dims, backend, slab, plan, outid, nothing, nothing, nothing; kw...)
+Ctx(values, graph, dims, backend, slab, plan, outid, ws; kw...) =
+    Ctx(values, graph, dims, backend, slab, plan, outid, ws, nothing, nothing; kw...)
+Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy; kw...) =
+    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, nothing; kw...)
+Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec; kw...) =
+    Ctx(values, graph, dims, backend, slab, plan, outid, ws, lazy, rec, Diagnostics(); kw...)
 
 """
     Ctx(backend; ws = nothing, rec = nothing, diag = Diagnostics())
@@ -151,7 +265,8 @@ test does, and the reason `sdpa(ctx, …)` is as reachable from a test as
 The empty `Graph` costs one small allocation and is never read: nothing on this
 path asks for `ctx.graph`, because nothing on it has an op id.
 """
-Ctx(backend; ws = nothing, rec = nothing, diag = Diagnostics()) =
+Ctx(backend; ws = nothing, rec = nothing, diag = Diagnostics(), clampattn = false) =
     Ctx(Dict{String,Any}(), Graph("", String[], String[], String[],
                                   Dict{String,Buffer}(), String[], Op[]),
-        NamedTuple(), backend, nothing, nothing, Ref(""), ws, nothing, rec, diag)
+        NamedTuple(), backend, Device(backend), clampattn,
+        nothing, nothing, Ref(""), ws, nothing, rec, diag)

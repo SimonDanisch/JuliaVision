@@ -99,17 +99,15 @@ beats having no shared memory at all. It would pay off at a smaller head
 dimension, or on a device with more shared memory per SM.
 """
 
-"""
-    FLASH_SHARED_BUDGET[]
 
-Shared memory a workgroup may claim, in bytes. 48 KB is the floor every Vulkan
-implementation guarantees.
-
-Enforced rather than assumed: a tiling that asks for more does not fail to
-launch, it launches and **writes nothing**, which reads as an attention that
-returns zeros. `BQ = BK = 64` at `E = 72` wants 70 KB and does exactly that.
 """
-const FLASH_SHARED_BUDGET = Ref(48 * 1024)
+The shared memory every Vulkan implementation guarantees a workgroup, in bytes.
+
+Only for the callers that have no [`Device`](@ref) in hand — the scalar flash
+kernel is reachable with a bare backend. Anything holding a context asks
+`ctx.dev.sharedbudget`, which is what the device actually reports.
+"""
+const PORTABLE_SHARED_FLOOR = 48 * 1024
 
 """Bytes of `@localmem` the kernel needs for a tiling."""
 @inline flashshared(E, BQ, BK) = 4 * (E * BQ + 2 * E * BK + BQ * BK + 3 * BQ)
@@ -124,10 +122,15 @@ validated against a CPU reference to 3e-8 — see `test_flash.jl`. Other shapes
 that pass the arithmetic have measured *wrong* (5e-3), so they are refused here
 rather than used: the three-pass path is always available and always right.
 """
-@inline function flashfits(E::Int, BQ::Int, BK::Int, NT::Int)
+@inline function flashfits(E::Int, BQ::Int, BK::Int, NT::Int,
+                           sharedbudget::Int = PORTABLE_SHARED_FLOOR)
     (BQ * E) % NT == 0 && (BK * E) % NT == 0 && (BQ * BK) % NT == 0 || return false
     BQ <= NT || return false
-    flashshared(E, BQ, BK) <= FLASH_SHARED_BUDGET[] || return false
+    # Enforced rather than assumed: a tiling that asks for more than the device
+    # has does not fail to launch, it launches and **writes nothing**, which reads
+    # as an attention that returns zeros. `BQ = BK = 64` at `E = 72` wants 70 KB
+    # and does exactly that.
+    flashshared(E, BQ, BK) <= sharedbudget || return false
     # There used to be an `iseven(div(BQ * E, NT))` refusal here, because
     # `BQ = 32, NT = 256` computed wrong results from query row 4 on (9.4e-02)
     # while every even slot count was exact — including `BQ = 32` at `NT = 128`,
@@ -276,10 +279,11 @@ caller to use the three-pass path in that case, which is always correct.
 `q`, `k`, `v` are `(E, L, H, B)` — the graph's own layout, no transpose.
 """
 function sdpaflash!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
-                    BQ::Int = 64, BK::Int = 32, NT::Int = 256)
+                    BQ::Int = 64, BK::Int = 32, NT::Int = 256,
+                    sharedbudget::Int = PORTABLE_SHARED_FLOOR)
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
-    (Lq % BQ == 0 && Lk % BK == 0 && flashfits(E, BQ, BK, NT)) || return false
+    (Lq % BQ == 0 && Lk % BK == 0 && flashfits(E, BQ, BK, NT, sharedbudget)) || return false
     attn_flash!(backend, NT)(out, q, k, v, Float32(scale),
                              Val(BQ), Val(BK), Val(E), Val(NT), Int32(Lk);
                              ndrange = (NT * div(Lq, BQ), H, B))
@@ -336,18 +340,21 @@ at the margin.
     12 * BR + 8
 
 """
-Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run.
+Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run **on this
+device**. `dev` supplies the tile, the subgroup width and the shared budget; every
+one of those was a literal or a module-level `Ref` before, and each is a property
+of the device rather than of the kernel.
 """
-@inline function flashcmfits(EP::Int, BR::Int, BC::Int, NT::Int)
-    BR % Lava.GEMM_TILE == 0 && BC % Lava.GEMM_TILE == 0 && EP % Lava.GEMM_TILE == 0 || return false
+@inline function flashcmfits(dev::Device, EP::Int, BR::Int, BC::Int, NT::Int)
+    BR % dev.tile == 0 && BC % dev.tile == 0 && EP % dev.tile == 0 || return false
     # The softmax gives one thread a whole query row.
     BR <= NT || return false
     # `attn_flash_cm!` holds `O` in exactly three accumulators a subgroup, and
     # `@nexprs` needs that count to be a literal. A tiling wanting a fourth
     # would silently drop its tiles, so it is refused instead.
-    cld((BR ÷ Lava.GEMM_TILE) * (EP ÷ Lava.GEMM_TILE), NT ÷ 32) <= 3 || return false
+    cld((BR ÷ dev.tile) * (EP ÷ dev.tile), NT ÷ dev.subgroup) <= 3 || return false
     (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
-    flashcmshared(EP, BR, BC) <= FLASH_SHARED_BUDGET[]
+    flashcmshared(EP, BR, BC) <= dev.sharedbudget
 end
 
 """
@@ -902,102 +909,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
     end
 end
 
-"""
-    FLASHCM_DENSIFY[]
 
-Whether `sdpa` copies `k` and `v` into dense scratch before the fused kernel.
-**Off**, and the reason it was ever on is gone.
-
-It arrived as a precondition, not an optimisation. `k` and `v` reach attention as
-a `PermutedDimsArray` over a `ReshapedArray` over a `SubArray`, and the kernel
-indexed them as 4-D arrays — so every staged element paid the wrapper's four
-`SignedMultiplicativeInverse` divisions, once per *query block*, which is 64
-times over for a 4096-query global block. Copying twice beat that comfortably:
-
-    coopmat path (replaced)   162.75 ms
-    flash, k/v densified      137.64
-    flash, k/v as they arrive 169.42   <- slower than the path it replaced
-
-**The wrapper was the problem, not the copy.** The kernel now takes each operand
-as a root array plus strides — `stridedroot` for the base, `strides()` for the
-rest, the same shape `transposeLE` uses and the same trick Lava's scalar GEMM
-uses on its operands — so the staging index is a dot product with no divisions
-and no wrapper type inside the kernel. A dense array's strides are
-`(1, E, E*L, E*L*H)`, so this is exactly the arithmetic it used to do.
-
-Measured interleaved in one process on SAM 2's encoder:
-
-    encode     densify on 115.60 ms   off 107.26   -8.35
-    attention  densify on  42.36       off  33.61   -8.75
-
-The copies were **646.4 MB per encode, 96 of them, and not one operand was
-already dense** — two per attention, every one materialised and thrown away.
-`q` was never copied and gains separately: it was read through the wrapper all
-along, and taking it by strides is worth about 2.7 ms on its own, which is most
-of the difference between the 118.3 ms this started at and the 115.60 above.
-
-Kept as a `Ref` because it is still the only way to A/B the two, and because a
-future operand stack `stridedroot` cannot account for falls back to the copy —
-`sdpaflashcm!` refuses rather than guessing, and `sdpa` then has to provide dense
-operands itself.
-"""
-const FLASHCM_DENSIFY = Ref(false)
-
-"""
-    FLASHCM_REGO[]
-
-Where `O` lives across key blocks: `true` puts it in registers, `false` in
-shared memory as the value product's accumulator.
-
-**`false`, and that is the opposite of the reference.** `flash_attn_cm1.comp`
-keeps `O` in registers and round-trips each `P·V` tile through shared memory to
-add it. The shared form does twice the shared traffic on paper — a rescale pass
-that reads and writes `BR x EP`, plus an accumulator load on top of the store,
-80 KB a key block against 40 — and loses anyway. See the measurement in
-`FLASHCM_TILINGS`.
-
-Kept as a switch rather than deleted, because the paper argument for registers is
-sound. Interleaved, one session, both forms of the same kernel:
-
-    tiling      floats/thread    shared      registers
-    64x32/8w         20          5.032 ms     6.347 ms     <- shipped
-    64x32/8w         20          0.457        0.537
-    32x32/8w         10          7.284        6.696
-    32x32/8w         10          0.567        0.560
-
-**The register form wins at `32x32` and loses at `64x32`, crossing where
-`BR*EP/NT` goes from 10 floats a thread to 20.** The obvious reading is register
-pressure, and the driver says it is not:
-`VK_KHR_pipeline_executable_properties` reports **128 registers for the shared
-form and 122 for the register form, stack size 0 in both** — the register form
-uses *fewer* registers and neither spills.
-
-~~What it actually costs is the `splitidx` per element in the sweep.~~ **Tested
-on 2026-08-02, and that was wrong.** The row index is loop-*invariant* whenever
-`NT` is a multiple of `BR`, which every shipped tiling is — `idx = tid + (s-1)*NT`
-gives `idx % BR == tid % BR` for every `s` — and `BR` is a power of two, so the
-call was a mask, not a division, and the compiler was recomputing a constant.
-Hoisting it out of the loop is free and changes **nothing**: the register form
-still loses by 9.5% on the encoder (107.12 ms against 117.32, interleaved, one
-session). An attribution that survived because nobody removed the thing it named.
-
-What it actually costs is a pass that the shared form does not have at all. With
-`O` in shared, `pvs` **is** the cooperative-matrix accumulator: each key block
-loads it, `MulAdd`s into it and stores it back, so accumulating across blocks is
-free inside the store, and the rescale on top is *lazy* — skipped entirely on the
-third of blocks where no row's maximum grew. With `O` in registers, `pvs` holds
-one block's `P·V` and a separate, **unconditional** `BR x EP` sweep has to fold
-it into the registers on every block, behind a barrier. The register form does
-not save a pass, it adds one.
-
-So the reference is not wrong, it is answering a different constraint: in an LLM
-decode `HSV` reaches 256 and shared memory is what binds, so `Of` has to live in
-registers and the round-trip is the price of fitting. Here shared is not binding
-— 48 900 of ~100 KB per SM — and the accumulator is better off where the
-cooperative-matrix store can reach it. Flipping the switch back would need the
-fold to become part of the store, not a cheaper sweep.
-"""
-const FLASHCM_REGO = Ref(false)
 
 #=
 ── `lazyrescale`: skip the rescale on blocks where no row's maximum moved ──────
@@ -1057,126 +969,6 @@ row on the first key block, always takes that path.
 Exact either way: the tests compare the two settings with `==`.
 =#
 
-"""
-    FLASHCM_HELD[]
-
-Keep each subgroup's `O` tiles in cooperative-matrix accumulators for the whole
-key loop, instead of loading and storing them through shared memory every block.
-
-`P·V` was a third of the kernel and almost none of that was arithmetic: it has
-`RT*ET` accumulator tiles against the score product's `RT*CT`, each given only
-`CT` muladds to amortise a load and a store — five times the accumulator traffic
-for the same FLOPs. Held, the muladds add straight into the tile the subgroup has
-been carrying, and the load and store are simply not issued.
-
-Three accumulators a subgroup, because `cld(RT*ET, NW)` is 3 at every tiling
-[`flashcmfits`](@ref) admits (it refuses a fourth rather than silently dropping
-tiles, since `@nexprs` needs a literal count).
-
-**Off, and the reason is worth more than the switch.** A version that never
-rescales — `heldacc()` in `tools/attn_lab.jl` — measures **+31.1% / +21.4%**
-(3.025 ms against 4.393, and 0.334 against 0.425), which is the prize this idea
-is chasing and it is real. The version that does rescale loses:
-
-    shape        shared O   held O   registers (shared -> held)
-    4096x4096    4.386 ms   4.950     123 -> 192
-    256x256      0.423      0.506
-
-**The cause is register pressure, and two earlier explanations of it were
-wrong.** Both are recorded here because they were confident and cost time:
-
-  * *"it is the flush, the reload and the two extra barriers on a block that
-    grows."* Reaching a component of a cooperative matrix used to be impossible,
-    so rescaling a held tile meant storing it to `pvs`, sweeping, and loading it
-    back. `Lava.coopmat_setcomp` (built for the GEMM's gelu epilogue) removes all
-    of that — the tile is scaled where it lives, no barrier. **The number did not
-    move**: 4.950 against the flush-and-reload form's 5.183, the same loss.
-  * *"`getcomp`/`setcomp` each spill the whole tile, so an eight-component
-    rescale spills eight times."* True of the emitted SPIR-V, and Lava now emits
-    one store for a chain of accesses instead of one per access. **The number did
-    not move either**: 4.955 before, 4.950 after.
-
-What it actually is, from `Lava.pipeline_exec_stats`: the rescale costs **+69
-registers**, 123 to 192. At 256 threads that is 49 152 of the SM's 65 536, so
-**one workgroup per SM instead of two**. Stack size is 0 and local memory 16
-bytes in both, so nothing spills — the component access simply materialises a
-second copy of each held tile, and register allocation is static, so a path taken
-on two thirds of blocks and a path taken on none cost the same occupancy.
-
-That also retires the `grew` frequency table this docstring used to lead with. It
-is still true that `grew` fires on 67.3% of blocks at `BR = 64` and 31.7% at
-`BR = 16`, and it is still irrelevant: a rarely-taken expensive path halves
-occupancy exactly as much as a always-taken one. A per-row-tile flag would not
-have helped, which settles the "obvious next move" this used to recommend.
-
-Swept over every tiling `flashcmfits` admits, held only wins where the tiling is
-itself slow — `32x16x8` at -2.8% and `32x32x4` at -11.9%, both against a shared-O
-baseline 40% worse than `64x32x8`'s. `REGO` is not the way round it either: it
-costs *fewer* registers than shared `O` (119 against 123) and is 44% slower, so
-whatever it pays is not occupancy.
-
-**And the way to the 31% is closed too — measured, on real activations.** The
-31% needs a rescale that is free in *registers*, and the only such rescale is one
-that never runs: fix each row's reference once so the running maximum never
-grows. `p` is fp16, so a reference works exactly while it stays within ~11.09
-nats of the row's true maximum — in *either* direction, since scaling a row of
-`P` by any constant cancels in `O/l`. Two candidates, both measured over SAM 2's
-encoder run on the reference image, on the two shapes that are 95% of the work:
-
-| reference | `|reference − true row max|`, nats | rows outside fp16's window |
-|---|---|---|
-| `scale·‖q_r‖·max_k‖k_k‖` (Cauchy-Schwarz), L=4096 | median 7.16, p99 14.11, max 17.40 | **20.4%** |
-| the same, L=256 | median 6.49, p99 11.94, max 13.00 | 4.7% |
-| the first key block's own maximum, L=4096 | median 4.57, p99 19.98, max 24.23 | **21.1%** |
-| the same, L=256 | median 2.57, p99 16.33, max 20.81 | 12.3% |
-
-A fifth of the rows drift out of representable range either way, and a row that
-does returns zeros. The online rescale is not overhead on this data, it is
-load-bearing, and both cheap references are dead. Note the shape dependence
-before generalising: the same Cauchy-Schwarz bound on the `L = 64` windows is
-tight — median 0.98 nats, max 5.56 — so a measurement on the small blocks alone
-would have said yes.
-
-**The rescale primitive was never the problem, and the prize is bigger than the
-31% above.** Three ways of applying the factor were built — `:comp`
-(`getcomp`/`setcomp`), `:perelem` (`OpCooperativeMatrixPerElementOpNV`), and
-`:fmul` (a stride-0 factor matrix and one component-wise `OpFMul`, which names no
-component at all). All three are bit-identical to shared `O`, and all three land
-within 1.5% of each other: **the primitive does not matter.**
-
-What matters is one number. Pinned clock, interleaved, `nrsc` rescaling only the
-first N of the three held tiles (numerically wrong below 3 — it prices registers,
-not results):
-
-| variant | registers | workgroups/SM | 4096x4096 |
-|:--|--:|--:|--:|
-| shared `O` (shipped) | 123 | 2 | 5.087 ms |
-| held, 0 rescales | 127 | 2 | 4.150 (**-18.4%**) |
-| held, 1 rescale | 128 | 2 | 4.093 (**-19.5%**) |
-| held, 2 rescales | 231 | 1 | 5.575 (+9.6%) |
-| held, 3 rescales | 172 | 1 | 5.601 (+10.1%) |
-
-A step function at exactly 128 registers — `128 * 256 * 2 = 65536`, the file
-size. Residency is *measured*, not derived: an atomic entry/exit probe at this
-kernel's 48904-byte shared footprint reports 97 concurrent workgroups on 48 SMs,
-so shared memory allows two and registers are what decide.
-
-So holding `O` is worth **-19.5%** for as long as the allocator stays under 128,
-and the entire question is how to rescale three tiles without crossing it. Note
-the count is not per-tile and not even monotone (128 -> 231 -> 172): this is an
-allocation *decision*, not a countable set of live values, and nothing spills
-(local memory 16 bytes, stack 0, in every row above).
-
-Two things that do NOT work, both measured: hoisting the factor matrix so one
-serves all three tiles (correct — `t_j % RT == w % RT` for every `j` when `RT`
-divides `NW` — but 220 registers, worse than reloading), and the register ballast
-that would have priced this directly (the driver caps itself at 128 no matter how
-many live values it is handed, which is itself the finding).
-
-Held `O` stays off until three rescales fit under 128. It is not a dead end; it
-is the largest measured win left in this kernel.
-"""
-const FLASHCM_HELD = Ref(false)
 
 """
     flashcm_perelem_available() -> Bool
@@ -1208,21 +1000,6 @@ false the `getcomp`/`setcomp` path is what runs, and `held` stays off there.
 """
 flashcm_perelem_available() = Lava.vk_context().coopmat2.per_element_operations
 
-"""
-    FLASHCM_RESCALE[]
-
-How a held `O` gets its per-row factor: `:comp`, `:perelem` or `:fmul`.
-
-Inert unless [`FLASHCM_HELD`](@ref) is on, which it is not — see there for the
-measured table, which is the reason. `:fmul` is the default of the three because
-it is the only one that never names a component, needs no extra shared memory
-(`cs` already holds the factors) and is plain SPV_KHR_cooperative_matrix rather
-than `VK_NV_cooperative_matrix2`, so it is the one that also runs on AMD.
-
-`:perelem` requires [`flashcm_perelem_available`](@ref); selecting it on a device
-without the extension will fail to compile rather than silently fall back.
-"""
-const FLASHCM_RESCALE = Ref(:fmul)
 
 """
 How far a block's maximum may exceed the running one before the one-pass softmax
@@ -1231,41 +1008,6 @@ fact that `ps` rounds.
 """
 const FLASH_EXP_HEADROOM = 10.0f0
 
-"""
-    FLASHCM_CLAMP[]
-
-Let a sequence length that does not divide the tile take the fused path, by
-padding it and masking what is past the end.
-
-`flash_attn_cm1.comp` carries this as its `Clamp` spec constant and
-`KV_bounds_check`; our port dropped it because SAM 2's **encoder** shapes all
-land on 16. The **decoder's** do not: every one of its seven attentions has a 23
-in it — the mask prompt's token count — and that is why they run the three-pass
-path at 39.8 GFLOP/s, about 0.2% of what this kernel reaches on the encoder.
-
-Masking is not optional decoration. Staging already writes zeros past the end,
-which gives a padded key a score of zero and therefore a weight of `exp(-m)` —
-small, but not nothing, and it would land in `l` and in `O`. The softmax has to
-exclude those keys from the maximum and write their weight as an explicit zero.
-
-**Off by default, and the default is a measurement not a preference.** Turning it
-on lets the *encoder's* seven leftover calls onto the fused path too, and they
-are tiny on **both** axes — `Lq` of 4 and 16 against `Lk` of 16 and 64 — so the
-padding buys nothing and costs launches. Encode measured 133.7 -> 137.97 ms with
-it on and no occupancy floor, and still 135.5 with a half-tile floor. The
-decoder's shapes are the opposite: a 23 against a 4096, so the padded axis is
-tiny beside the work it amortises.
-
-A single global cannot express "clamp the decoder, not the encoder", and a
-heuristic tuned against two workloads is a heuristic that will be wrong on the
-third. So this ships **off**, the capability tested, and turns on together with
-`--decoder-precision autocast` — the change that makes the decoder's attention
-fp16 and therefore eligible at all. Neither is any use without the other.
-
-Costs nothing when off: `CLAMP` is a `Val`, so the encoder compiles the same code
-it did before.
-"""
-const FLASHCM_CLAMP = Ref(false)
 
 """
     FLASHCM_TILINGS
@@ -1318,19 +1060,28 @@ const FLASHCM_TILINGS = [(64, 32, 8), (32, 32, 8), (64, 16, 8), (32, 16, 8),
                          (32, 32, 4), (16, 32, 4)]
 
 """
-    flashcm_tiling(E, Lq, Lk, nbatch = 0) -> (BR, BC, NW) | nothing
+    flashcm_tiling(dev, E, Lq, Lk, nbatch = 0; clamp = false) -> (BR, BC, NW) | nothing
 
-The first tiling in [`FLASHCM_TILINGS`](@ref) that divides this shape and fits.
-`nothing` means the caller keeps whatever path it would otherwise have used.
+The first tiling in [`FLASHCM_TILINGS`](@ref) that divides this shape and fits
+`dev`. `nothing` means the caller keeps whatever path it would otherwise have
+used.
+
+Takes a [`Device`](@ref) rather than reading one, which is what makes it
+answerable without a GPU: `flashcm_tiling(Device(false, 16, 64, 65536, 1024, 40,
+256), …)` asks what this chooser would do on a wave64 RDNA3 part from a machine
+that has none. Every table below was measured on one card, and `NW * 32` was
+written as a literal in three places — on a device whose compute subgroup is 64
+that is half the workgroup the tiling assumes.
 """
-function flashcm_tiling(E::Int, Lq::Int, Lk::Int, nbatch::Int = 0)
-    EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
+function flashcm_tiling(dev::Device, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
+                        clamp::Bool = false)
+    EP = cld(E, dev.tile) * dev.tile
     fits = NTuple{3,Int}[]
     for (BR, BC, NW) in FLASHCM_TILINGS
-        NT = NW * 32
-        NT <= Lava.WORKGROUP_LIMIT[] || continue
-        # Without `FLASHCM_CLAMP` the extents have to divide the tile; with it
-        # they are padded and masked, which is what puts the decoder's 23-token
+        NT = NW * dev.subgroup
+        NT <= dev.workgrouplimit || continue
+        # Without `clamp` the extents have to divide the tile; with it they are
+        # padded and masked, which is what puts the decoder's 23-token
         # attentions on this path at all.
         #
         # **But padding is wasted arithmetic, so it has to earn its place.** A
@@ -1341,10 +1092,10 @@ function flashcm_tiling(E::Int, Lq::Int, Lk::Int, nbatch::Int = 0)
         # absent. It also makes the chooser prefer `BR = 32` over `BR = 64` for
         # `Lq = 23`, which is 72% occupied rather than 36%.
         if Lq % BR != 0 || Lk % BC != 0
-            FLASHCM_CLAMP[] || continue
+            clamp || continue
             2 * Lq >= BR && 2 * Lk >= BC || continue
         end
-        flashcmfits(EP, BR, BC, NT) && (BR * E) % NT == 0 && push!(fits, (BR, BC, NW))
+        flashcmfits(dev, EP, BR, BC, NT) && (BR * E) % NT == 0 && push!(fits, (BR, BC, NW))
     end
     isempty(fits) && return nothing
     # `FLASHCM_TILINGS` is ordered fastest-first *for a grid that fills the
@@ -1365,7 +1116,11 @@ function flashcm_tiling(E::Int, Lq::Int, Lk::Int, nbatch::Int = 0)
     # decode rather than 0.24. See `perf-plan.md`.
     nbatch <= 0 && return fits[1]
     grid(c) = cld(Lq, c[1]) * nbatch
-    grid(fits[1]) >= FLASHCM_MINGRID[] && return fits[1]
+    # One workgroup per shader core is the floor for "this launch fills the
+    # device". It was the literal 48 — this card's SM count — which is the number
+    # every encoder shape is far above (the windowed blocks launch 512) and only
+    # the decoder's `Lq = 23` cross-attentions fall under, at 8.
+    grid(fits[1]) >= max(1, dev.cores) && return fits[1]
     best = fits[1]
     for c in fits
         grid(c) > grid(best) && (best = c)
@@ -1374,67 +1129,325 @@ function flashcm_tiling(E::Int, Lq::Int, Lk::Int, nbatch::Int = 0)
 end
 
 """
-    FLASHCM_MINGRID[] :: Int
+    FlashCMPlan
 
-The workgroup count below which [`flashcm_tiling`](@ref) stops trusting the
-table's order and picks for occupancy instead.
+Everything the cooperative-matrix flash kernel needs to launch, decided once.
 
-48, one per SM on this card. Every encoder shape is far above it — the windowed
-blocks launch 512 — so the rule is inert there and fires only on the decoder's
-`Lq = 23` cross-attentions, which launch 8.
+`kernel-library-review.md` finding 2. What this replaces was two predicates that
+had to agree and could not be made to: `sdpa` asked `flashcm_applicable`, which
+ran [`flashcm_tiling`](@ref) and threw the answer away to return a `Bool`; `sdpa`
+then ran `flashcm_tiling` **again** for the tiling; and `sdpaflashcm!` re-checked
+six more conditions and returned `false` from six places to mean "declined" —
+*after* the caller had already allocated `out`. The symptom of the two drifting
+apart is not an error, it is a **silent change of algorithm**, which is the kind
+of bug this project has repeatedly spent days on.
+
+Now there is one decision, one place, one object, and
+[`sdpaflashcm!`](@ref) cannot decline: if you hold a `FlashCMPlan`, it runs.
 """
-const FLASHCM_MINGRID = Ref(48)
+struct FlashCMPlan
+    BR::Int
+    BC::Int
+    NW::Int
+    NT::Int          # NW * dev.subgroup — never `NW * 32`
+    E::Int
+    EP::Int          # E rounded up to the cooperative-matrix tile
+
+    # ── Pad and mask a block the extents do not divide.
+    #
+    # Let a sequence length that does not divide the tile take the fused path, by
+    # padding it and masking what is past the end.
+    #
+    # `flash_attn_cm1.comp` carries this as its `Clamp` spec constant and
+    # `KV_bounds_check`; our port dropped it because SAM 2's **encoder** shapes all
+    # land on 16. The **decoder's** do not: every one of its seven attentions has a 23
+    # in it — the mask prompt's token count — and that is why they run the three-pass
+    # path at 39.8 GFLOP/s, about 0.2% of what this kernel reaches on the encoder.
+    #
+    # Masking is not optional decoration. Staging already writes zeros past the end,
+    # which gives a padded key a score of zero and therefore a weight of `exp(-m)` —
+    # small, but not nothing, and it would land in `l` and in `O`. The softmax has to
+    # exclude those keys from the maximum and write their weight as an explicit zero.
+    #
+    # **Off by default, and the default is a measurement not a preference.** Turning it
+    # on lets the *encoder's* seven leftover calls onto the fused path too, and they
+    # are tiny on **both** axes — `Lq` of 4 and 16 against `Lk` of 16 and 64 — so the
+    # padding buys nothing and costs launches. Encode measured 133.7 -> 137.97 ms with
+    # it on and no occupancy floor, and still 135.5 with a half-tile floor. The
+    # decoder's shapes are the opposite: a 23 against a 4096, so the padded axis is
+    # tiny beside the work it amortises.
+    #
+    # A single global cannot express "clamp the decoder, not the encoder", and a
+    # heuristic tuned against two workloads is a heuristic that will be wrong on the
+    # third. So this ships **off**, the capability tested, and turns on together with
+    # `--decoder-precision autocast` — the change that makes the decoder's attention
+    # fp16 and therefore eligible at all. Neither is any use without the other.
+    #
+    # Costs nothing when off: `CLAMP` is a `Val`, so the encoder compiles the same code
+    # it did before.
+
+    clamp::Bool
+
+    # ── Keep `O` in registers rather than shared memory.
+    #
+    # Where `O` lives across key blocks: `true` puts it in registers, `false` in
+    # shared memory as the value product's accumulator.
+    #
+    # **`false`, and that is the opposite of the reference.** `flash_attn_cm1.comp`
+    # keeps `O` in registers and round-trips each `P·V` tile through shared memory to
+    # add it. The shared form does twice the shared traffic on paper — a rescale pass
+    # that reads and writes `BR x EP`, plus an accumulator load on top of the store,
+    # 80 KB a key block against 40 — and loses anyway. See the measurement in
+    # `FLASHCM_TILINGS`.
+    #
+    # Kept as a switch rather than deleted, because the paper argument for registers is
+    # sound. Interleaved, one session, both forms of the same kernel:
+    #
+    #     tiling      floats/thread    shared      registers
+    #     64x32/8w         20          5.032 ms     6.347 ms     <- shipped
+    #     64x32/8w         20          0.457        0.537
+    #     32x32/8w         10          7.284        6.696
+    #     32x32/8w         10          0.567        0.560
+    #
+    # **The register form wins at `32x32` and loses at `64x32`, crossing where
+    # `BR*EP/NT` goes from 10 floats a thread to 20.** The obvious reading is register
+    # pressure, and the driver says it is not:
+    # `VK_KHR_pipeline_executable_properties` reports **128 registers for the shared
+    # form and 122 for the register form, stack size 0 in both** — the register form
+    # uses *fewer* registers and neither spills.
+    #
+    # ~~What it actually costs is the `splitidx` per element in the sweep.~~ **Tested
+    # on 2026-08-02, and that was wrong.** The row index is loop-*invariant* whenever
+    # `NT` is a multiple of `BR`, which every shipped tiling is — `idx = tid + (s-1)*NT`
+    # gives `idx % BR == tid % BR` for every `s` — and `BR` is a power of two, so the
+    # call was a mask, not a division, and the compiler was recomputing a constant.
+    # Hoisting it out of the loop is free and changes **nothing**: the register form
+    # still loses by 9.5% on the encoder (107.12 ms against 117.32, interleaved, one
+    # session). An attribution that survived because nobody removed the thing it named.
+    #
+    # What it actually costs is a pass that the shared form does not have at all. With
+    # `O` in shared, `pvs` **is** the cooperative-matrix accumulator: each key block
+    # loads it, `MulAdd`s into it and stores it back, so accumulating across blocks is
+    # free inside the store, and the rescale on top is *lazy* — skipped entirely on the
+    # third of blocks where no row's maximum grew. With `O` in registers, `pvs` holds
+    # one block's `P·V` and a separate, **unconditional** `BR x EP` sweep has to fold
+    # it into the registers on every block, behind a barrier. The register form does
+    # not save a pass, it adds one.
+    #
+    # So the reference is not wrong, it is answering a different constraint: in an LLM
+    # decode `HSV` reaches 256 and shared memory is what binds, so `Of` has to live in
+    # registers and the round-trip is the price of fitting. Here shared is not binding
+    # — 48 900 of ~100 KB per SM — and the accumulator is better off where the
+    # cooperative-matrix store can reach it. Flipping the switch back would need the
+    # fold to become part of the store, not a cheaper sweep.
+
+    rego::Bool
+
+    # ── Hold `O` across the key loop and rescale it in place.
+    #
+    # Keep each subgroup's `O` tiles in cooperative-matrix accumulators for the whole
+    # key loop, instead of loading and storing them through shared memory every block.
+    #
+    # `P·V` was a third of the kernel and almost none of that was arithmetic: it has
+    # `RT*ET` accumulator tiles against the score product's `RT*CT`, each given only
+    # `CT` muladds to amortise a load and a store — five times the accumulator traffic
+    # for the same FLOPs. Held, the muladds add straight into the tile the subgroup has
+    # been carrying, and the load and store are simply not issued.
+    #
+    # Three accumulators a subgroup, because `cld(RT*ET, NW)` is 3 at every tiling
+    # [`flashcmfits`](@ref) admits (it refuses a fourth rather than silently dropping
+    # tiles, since `@nexprs` needs a literal count).
+    #
+    # **Off, and the reason is worth more than the switch.** A version that never
+    # rescales — `heldacc()` in `tools/attn_lab.jl` — measures **+31.1% / +21.4%**
+    # (3.025 ms against 4.393, and 0.334 against 0.425), which is the prize this idea
+    # is chasing and it is real. The version that does rescale loses:
+    #
+    #     shape        shared O   held O   registers (shared -> held)
+    #     4096x4096    4.386 ms   4.950     123 -> 192
+    #     256x256      0.423      0.506
+    #
+    # **The cause is register pressure, and two earlier explanations of it were
+    # wrong.** Both are recorded here because they were confident and cost time:
+    #
+    #   * *"it is the flush, the reload and the two extra barriers on a block that
+    #     grows."* Reaching a component of a cooperative matrix used to be impossible,
+    #     so rescaling a held tile meant storing it to `pvs`, sweeping, and loading it
+    #     back. `Lava.coopmat_setcomp` (built for the GEMM's gelu epilogue) removes all
+    #     of that — the tile is scaled where it lives, no barrier. **The number did not
+    #     move**: 4.950 against the flush-and-reload form's 5.183, the same loss.
+    #   * *"`getcomp`/`setcomp` each spill the whole tile, so an eight-component
+    #     rescale spills eight times."* True of the emitted SPIR-V, and Lava now emits
+    #     one store for a chain of accesses instead of one per access. **The number did
+    #     not move either**: 4.955 before, 4.950 after.
+    #
+    # What it actually is, from `Lava.pipeline_exec_stats`: the rescale costs **+69
+    # registers**, 123 to 192. At 256 threads that is 49 152 of the SM's 65 536, so
+    # **one workgroup per SM instead of two**. Stack size is 0 and local memory 16
+    # bytes in both, so nothing spills — the component access simply materialises a
+    # second copy of each held tile, and register allocation is static, so a path taken
+    # on two thirds of blocks and a path taken on none cost the same occupancy.
+    #
+    # That also retires the `grew` frequency table this docstring used to lead with. It
+    # is still true that `grew` fires on 67.3% of blocks at `BR = 64` and 31.7% at
+    # `BR = 16`, and it is still irrelevant: a rarely-taken expensive path halves
+    # occupancy exactly as much as a always-taken one. A per-row-tile flag would not
+    # have helped, which settles the "obvious next move" this used to recommend.
+    #
+    # Swept over every tiling `flashcmfits` admits, held only wins where the tiling is
+    # itself slow — `32x16x8` at -2.8% and `32x32x4` at -11.9%, both against a shared-O
+    # baseline 40% worse than `64x32x8`'s. `REGO` is not the way round it either: it
+    # costs *fewer* registers than shared `O` (119 against 123) and is 44% slower, so
+    # whatever it pays is not occupancy.
+    #
+    # **And the way to the 31% is closed too — measured, on real activations.** The
+    # 31% needs a rescale that is free in *registers*, and the only such rescale is one
+    # that never runs: fix each row's reference once so the running maximum never
+    # grows. `p` is fp16, so a reference works exactly while it stays within ~11.09
+    # nats of the row's true maximum — in *either* direction, since scaling a row of
+    # `P` by any constant cancels in `O/l`. Two candidates, both measured over SAM 2's
+    # encoder run on the reference image, on the two shapes that are 95% of the work:
+    #
+    # | reference | `|reference − true row max|`, nats | rows outside fp16's window |
+    # |---|---|---|
+    # | `scale·‖q_r‖·max_k‖k_k‖` (Cauchy-Schwarz), L=4096 | median 7.16, p99 14.11, max 17.40 | **20.4%** |
+    # | the same, L=256 | median 6.49, p99 11.94, max 13.00 | 4.7% |
+    # | the first key block's own maximum, L=4096 | median 4.57, p99 19.98, max 24.23 | **21.1%** |
+    # | the same, L=256 | median 2.57, p99 16.33, max 20.81 | 12.3% |
+    #
+    # A fifth of the rows drift out of representable range either way, and a row that
+    # does returns zeros. The online rescale is not overhead on this data, it is
+    # load-bearing, and both cheap references are dead. Note the shape dependence
+    # before generalising: the same Cauchy-Schwarz bound on the `L = 64` windows is
+    # tight — median 0.98 nats, max 5.56 — so a measurement on the small blocks alone
+    # would have said yes.
+    #
+    # **The rescale primitive was never the problem, and the prize is bigger than the
+    # 31% above.** Three ways of applying the factor were built — `:comp`
+    # (`getcomp`/`setcomp`), `:perelem` (`OpCooperativeMatrixPerElementOpNV`), and
+    # `:fmul` (a stride-0 factor matrix and one component-wise `OpFMul`, which names no
+    # component at all). All three are bit-identical to shared `O`, and all three land
+    # within 1.5% of each other: **the primitive does not matter.**
+    #
+    # What matters is one number. Pinned clock, interleaved, `nrsc` rescaling only the
+    # first N of the three held tiles (numerically wrong below 3 — it prices registers,
+    # not results):
+    #
+    # | variant | registers | workgroups/SM | 4096x4096 |
+    # |:--|--:|--:|--:|
+    # | shared `O` (shipped) | 123 | 2 | 5.087 ms |
+    # | held, 0 rescales | 127 | 2 | 4.150 (**-18.4%**) |
+    # | held, 1 rescale | 128 | 2 | 4.093 (**-19.5%**) |
+    # | held, 2 rescales | 231 | 1 | 5.575 (+9.6%) |
+    # | held, 3 rescales | 172 | 1 | 5.601 (+10.1%) |
+    #
+    # A step function at exactly 128 registers — `128 * 256 * 2 = 65536`, the file
+    # size. Residency is *measured*, not derived: an atomic entry/exit probe at this
+    # kernel's 48904-byte shared footprint reports 97 concurrent workgroups on 48 SMs,
+    # so shared memory allows two and registers are what decide.
+    #
+    # So holding `O` is worth **-19.5%** for as long as the allocator stays under 128,
+    # and the entire question is how to rescale three tiles without crossing it. Note
+    # the count is not per-tile and not even monotone (128 -> 231 -> 172): this is an
+    # allocation *decision*, not a countable set of live values, and nothing spills
+    # (local memory 16 bytes, stack 0, in every row above).
+    #
+    # Two things that do NOT work, both measured: hoisting the factor matrix so one
+    # serves all three tiles (correct — `t_j % RT == w % RT` for every `j` when `RT`
+    # divides `NW` — but 220 registers, worse than reloading), and the register ballast
+    # that would have priced this directly (the driver caps itself at 128 no matter how
+    # many live values it is handed, which is itself the finding).
+    #
+    # Held `O` stays off until three rescales fit under 128. It is not a dead end; it
+    # is the largest measured win left in this kernel.
+
+    held::Bool
+
+    # ── Which primitive applies the held rescale.
+    #
+    # How a held `O` gets its per-row factor: `:comp`, `:perelem` or `:fmul`.
+    #
+    # Inert unless [`FLASHCM_HELD`](@ref) is on, which it is not — see there for the
+    # measured table, which is the reason. `:fmul` is the default of the three because
+    # it is the only one that never names a component, needs no extra shared memory
+    # (`cs` already holds the factors) and is plain SPV_KHR_cooperative_matrix rather
+    # than `VK_NV_cooperative_matrix2`, so it is the one that also runs on AMD.
+    #
+    # `:perelem` requires [`flashcm_perelem_available`](@ref); selecting it on a device
+    # without the extension will fail to compile rather than silently fall back.
+
+    rescale::Symbol
+
+    # ── One pass over the key block instead of two, and defer the
+    # rescale to the write-out. Both won everywhere and are kept as
+    # fields only because `test_flash.jl` A/Bs them.
+    onepass::Bool
+    lazyrescale::Bool
+end
 
 """
-    flashcm_applicable(q, k, v, bias, Lq, Lk) -> Bool
+    Decline(reason)
 
-Whether [`sdpa`](@ref) may fuse this call.
+A refused plan, and *why*.
+
+`nothing` says only that something did not apply, and a caller that wants to
+react — or a test that wants to assert *which* rule fired — cannot. Two of those
+reactions are live already: `:wrapped` is recoverable by densifying the operands
+(see [`sdpa`](@ref)), and a refusal that exists because of a **known bug** must
+say so rather than looking like a design decision, which is what
+`blockfor`'s refusal of non-square attention needs when it lands here.
+"""
+struct Decline
+    reason::Symbol
+end
+
+"""
+    flashcm_plan(dev, q, k, v, bias; kw...) -> FlashCMPlan | Decline
+
+Whether [`sdpa`](@ref) may fuse this call, and with what.
 
 `bias` must be absent for the same reason the two-GEMM path refuses it: the mask
 would have to be added between the score product and the softmax, and here that
 is inside a cooperative-matrix accumulator.
 
-A question about the problem and the device, and nothing else. It used to begin
-with `FLASHCM[] &&`, a switch that existed to measure the fused path against the
-two-GEMM one **inside one session**, which is the only measurement this project
-trusts. The fused path won everywhere it applies, so the switch is gone (review
-finding 3, tier two) and the A/B is now "call `sdpa_coopmat!` directly", which is
-what `test_flash.jl` does.
-"""
-function flashcm_applicable(q, k, v, bias, Lq::Int, Lk::Int)
-    bias === nothing || return false
-    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
-    Lava.coopmat_gemm_available() || return false
-    flashcm_tiling(size(q, 1), Lq, Lk, size(q, 3) * size(q, 4)) !== nothing
-end
+A question about the problem and the device, and nothing else — so it takes a
+[`Device`](@ref) and can be answered for a device the caller does not have.
 
+`BR`/`BC`/`NW` default to the chooser's pick; passing them selects a tiling
+explicitly, which is what the A/B in `test_flash.jl` does. They are still
+*validated*: an explicit tiling that does not fit gets a `Decline`, not a kernel
+that launches and writes nothing.
 """
-    sdpaflashcm!(ctx, out, q, k, v, scale; BR, BC, NW) -> Bool
-
-Run the cooperative-matrix fused kernel, or return `false` when the shape or the
-device does not admit it. `q`, `k`, `v` are `(E, L, H, B)`.
-"""
-function sdpaflashcm!(ctx, out, q, k, v, scale;
-                      BR::Int = 64, BC::Int = 32, NW::Int = 8, rego::Bool = FLASHCM_REGO[],
+function flashcm_plan(dev::Device, q, k, v, bias;
+                      clamp::Bool = false, rego::Bool = false, held::Bool = false,
+                      rescale::Symbol = :fmul, onepass::Bool = true,
                       lazyrescale::Bool = true,
-                      onepass::Bool = true,
-                      held::Bool = FLASHCM_HELD[],
-                      rescale::Symbol = FLASHCM_RESCALE[],
-                      ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
-                      preonly::Bool = false, rscbar::Bool = false,
-                      clamp::Bool = FLASHCM_CLAMP[])
-    backend = ctx.backend
+                      BR::Int = 0, BC::Int = 0, NW::Int = 0)
+    bias === nothing || return Decline(:bias)
+    dev.coopmat || return Decline(:nocoopmat)
+    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 ||
+        return Decline(:eltype)
+
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
-    EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
-    NT = NW * 32
-    eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 || return false
-    Lava.coopmat_gemm_available() || return false
-    (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return false
-    flashcmfits(EP, BR, BC, NT) || return false
+    EP = cld(E, dev.tile) * dev.tile
+
+    tiling = if BR == 0
+        flashcm_tiling(dev, E, Lq, Lk, H * B; clamp)
+    else
+        (BR, BC, NW)
+    end
+    tiling === nothing && return Decline(:notiling)
+    BR, BC, NW = tiling
+    NT = NW * dev.subgroup
+
+    NT <= dev.workgrouplimit || return Decline(:workgroup)
+    (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)
+    flashcmfits(dev, EP, BR, BC, NT) || return Decline(:tiling)
     # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
     # because it does not see the unpadded head dimension.
-    (BR * E) % NT == 0 || return false
+    (BR * E) % NT == 0 || return Decline(:writeout)
+
     # Operands as a root array plus strides, not as the wrapper. Attention's q, k
     # and v arrive as `PermutedDimsArray -> ReshapedArray -> SubArray -> LavaArray`,
     # and the two things that costs are the same two `transposeLE` already fixed:
@@ -1443,8 +1456,40 @@ function sdpaflashcm!(ctx, out, q, k, v, scale;
     # **646.4 MB of copies per encode, 96 of them, not one operand already dense**.
     # A dense array's strides are `(1, E, E*L, E*L*H)`, so this is the same
     # arithmetic it was doing, minus the divisions and minus the copy.
+    #
+    # An operand stack `stridedroot` cannot account for is the one refusal the
+    # caller can recover from, hence its own reason.
+    (stridedroot(q) === nothing || stridedroot(k) === nothing ||
+     stridedroot(v) === nothing) && return Decline(:wrapped)
+
+    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, rego, held, rescale, onepass, lazyrescale)
+end
+
+"""
+    sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale) -> out
+
+Run the cooperative-matrix fused kernel. `q`, `k`, `v` are `(E, L, H, B)`.
+
+**This cannot decline.** Every condition it used to re-test is settled by
+[`flashcm_plan`](@ref), which is the whole point of holding a plan: the six
+`return false`s that used to live here ran *after* the caller had allocated `out`
+and committed to the fused path, and they had to agree with a separate predicate
+that had already said yes.
+
+`ballast`, `shpad`, `nrsc`, `preonly` and `rscbar` are the diagnostics from the
+held-`O` investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords
+rather than plan fields because they describe an experiment, not a routing
+decision, and nothing in the library sets them.
+"""
+function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
+                      ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
+                      preonly::Bool = false, rscbar::Bool = false)
+    backend = ctx.backend
+    E, Lq, H, B = size(q)
+    Lk = size(k, 2)
+    BR, BC, NW, NT = plan.BR, plan.BC, plan.NW, plan.NT
+    rego, held = plan.rego, plan.held
     rq, rk, rv = stridedroot(q), stridedroot(k), stridedroot(v)
-    (rq === nothing || rk === nothing || rv === nothing) && return false
     st(a) = map(Int32, strides(a))
     sq, sk, sv = st(q), st(k), st(v)
     flat(r) = reshape(r[1], length(r[1]))
@@ -1452,15 +1497,36 @@ function sdpaflashcm!(ctx, out, q, k, v, scale;
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
                                 Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
                                 Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
-                                Val(BR), Val(BC), Val(E), Val(EP), Val(NW), Val(rego),
-                                Val(held && !rego), Val(clamp),
+                                Val(BR), Val(BC), Val(plan.E), Val(plan.EP), Val(NW),
+                                Val(rego), Val(held && !rego), Val(plan.clamp),
                                 # Normalised, so a `rescale` setting cannot key a
                                 # second identical pipeline when nothing rescales.
-                                Val(held && !rego ? rescale : :comp), Val(ballast),
-                                Val(shpad), Val(nrsc), Val(preonly && !onepass),
+                                Val(held && !rego ? plan.rescale : :comp), Val(ballast),
+                                Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
                                 Val(rscbar),
-                                Int32(Lq), Int32(Lk), Int32(lazyrescale ? 0 : 1),
-                                Int32(onepass && !rego ? 1 : 0);
+                                Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
+                                Int32(plan.onepass && !rego ? 1 : 0);
                                 ndrange = (NT * cld(Lq, BR), H, B))
+    return out
+end
+
+"""
+    sdpaflashcm!(ctx, out, q, k, v, scale; kw...) -> Bool
+
+Plan and run in one call, for direct callers that have no plan in hand — which is
+every A/B in `test_flash.jl`. `false` means the keywords describe a launch this
+device cannot make; ask [`flashcm_plan`](@ref) directly to find out *which* rule
+refused.
+"""
+function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
+                      nrsc::Int = 3, preonly::Bool = false, rscbar::Bool = false,
+                      BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
+    # The shipped tiling by default rather than the chooser's pick, because this
+    # form exists for A/Bs that name their own and the ones that do not were
+    # written against these three numbers.
+    plan = flashcm_plan(ctx.dev, q, k, v, nothing; BR, BC, NW, kw...)
+    plan isa Decline && return false
+    sdpaflashcm!(ctx, out, plan, q, k, v, scale;
+                 ballast, shpad, nrsc, preonly, rscbar)
     return true
 end

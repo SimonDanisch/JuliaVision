@@ -178,45 +178,39 @@ function decode(s::SAM2, feats, point, label)
         a
     end
     # Padded attention tiles are the decoder's business, not the encoder's.
-    # `FLASHCM_CLAMP` lets an attention whose extents do not divide the tile take
-    # the cooperative-matrix path anyway, padded and masked. The decoder's are 23
-    # tokens and want exactly that; the encoder has six `Lq = 16` calls that
-    # would go along at 50% waste, and they cost **+2.12 ms of encode** for
-    # nothing. Measured interleaved in one process on the autocast export, which is
-    # the only form that means anything for a 4 ms call on a shared card: decode
-    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75. Scoped here, both.
+    # `clampattn` lets an attention whose extents do not divide the tile take the
+    # cooperative-matrix path anyway, padded and masked. The decoder's are 23
+    # tokens and want exactly that; the encoder has six `Lq = 16` calls that would
+    # go along at 50% waste, and they cost **+2.12 ms of encode** for nothing.
+    # Measured interleaved in one process on the autocast export, which is the only
+    # form that means anything for a 4 ms call on a shared card: decode 8.24 ->
+    # 4.22 ms with the clamp, encode 118.63 -> 120.75.
     #
-    # A `Ref` set around the call rather than a parameter because
-    # `flashcm_tiling` reads it six frames down, inside `runop!`; threading a
-    # keyword through `execute!` for one graph's benefit would be worse. Restored
-    # in a `finally`, so a decoder error cannot leave it on for the next encode.
-    old = FLASHCM_CLAMP[]
-    FLASHCM_CLAMP[] = true
-    try
-        run() = call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label;
-                     dims=s.dims)
-        REPLAY_DECODE[] && replayable(s, feats, point, label) || return run()
+    # It was a `Ref` set here and restored in a `finally`, on the grounds that
+    # `flashcm_tiling` reads it six frames down inside `runop!`. It is now an
+    # argument to the one call that wants it: the context carries it those six
+    # frames, which is what the context is for. Nothing to restore, so nothing an
+    # error can leave switched on for the next encode.
+    run() = call(s.model, "sam2_decoder", args[1], args[2], args[3], point, label;
+                 dims=s.dims, clampattn=true)
+    REPLAY_DECODE[] && replayable(s, feats, point, label) || return run()
 
-        r = s.replay[]
-        if r !== nothing && r[1] === feats && r[2] === point && r[3] === label
-            Lava.replay!(r[4])
-            return r[5]
-        end
-        # First click on this embedding: `capture` RUNS the body, so this costs
-        # one decode and not two. Everything it records must keep its addresses —
-        # the slab is statically planned, the weights are fixed, `args` comes
-        # from the cache above and `point`/`label` are the persistent pair
-        # `prompt` writes into.
-        bq = Lava.VK_CONTEXT_REF[].default_bq
-        out = nothing
-        seq = Lava.capture(bq) do
-            out = run()
-        end
-        s.replay[] = (feats, point, label, seq, out)
-        return out
-    finally
-        FLASHCM_CLAMP[] = old
+    r = s.replay[]
+    if r !== nothing && r[1] === feats && r[2] === point && r[3] === label
+        Lava.replay!(r[4])
+        return r[5]
     end
+    # First click on this embedding: `capture` RUNS the body, so this costs one
+    # decode and not two. Everything it records must keep its addresses — the slab
+    # is statically planned, the weights are fixed, `args` comes from the cache
+    # above and `point`/`label` are the persistent pair `prompt` writes into.
+    bq = Lava.VK_CONTEXT_REF[].default_bq
+    out = nothing
+    seq = Lava.capture(bq) do
+        out = run()
+    end
+    s.replay[] = (feats, point, label, seq, out)
+    return out
 end
 
 """
