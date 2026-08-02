@@ -520,3 +520,42 @@ small ports.
 
 Soak, meanwhile: **221 450 trials, zero hangs** since the restart, on top of the
 508 740 recorded yesterday.
+
+### A standalone reproducer: it is lifetime mixing, and reclaim is only a mitigation
+
+`tools/pool_fragmentation_probe.jl` — no model, no weights, no export, ~90 lines
+of `KA.allocate`. Three patterns over SAM 2's exact size distribution:
+
+    909 buffers, 941 MiB total, median 2.2 KiB — minimum 15 blocks
+
+    1. hold all live (control)             grew 16 blocks (1024 MiB),  0 empty,  16 PINNED
+    2. allocate and drop each immediately  grew 16 blocks (1024 MiB), 16 empty,   0 PINNED
+    3. interleave transient + resident     grew 32 blocks (2048 MiB),  1 empty,  31 PINNED
+
+Reading them together:
+
+- **(1) the allocator is fine.** Same sizes, every buffer live, 16 blocks against
+  a 15-block minimum — 1.1x on a 2 KiB median.
+- **(2) transient churn strands everything.** The pool grows to the whole working
+  set and every block ends up *empty*. This is the part `reclaim_empty_pool_blocks!`
+  can fix, and it is the 51 blocks / 3.2 GB it recovered on SAM 2.
+- **(3) a weight upload's actual shape doubles the pool, and reclaim cannot
+  touch it.** 31 of 32 blocks are **pinned** — each holds at least one live
+  tensor, so no scan can return them however empty they are.
+
+**So the one-line mitigation is not the fix.** It recovers the wholly-transient
+blocks and is worth doing, but pattern 3 says the pool will still sit at ~2x the
+resident set on any load that allocates a transient beside each keeper. The
+allocator has no notion of separating a short-lived allocation from one that
+lives as long as the model, and a bump allocator cannot recover from that after
+the fact — the placement decision is where it is lost.
+
+Worth stating precisely what this is **not**, because two of them were my own
+earlier guesses: not fragmentation by size (pattern 1 has the identical
+distribution and wastes 6%), not a leak (every buffer is freed, with `GC.gc(true)`
+and `drain_deferred_frees!` before each count), and not the per-device pool split
+(`POOL_BLOCKS` → `pool(ctx).blocks` is equivalent with one device).
+
+The probe exits non-zero when pattern 3 pins more than the minimum, so it can go
+straight into a test suite once the behaviour is decided on. It is filed from
+here rather than fixed because the allocator is `lava-core`'s.
