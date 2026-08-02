@@ -1,0 +1,50 @@
+[project]
+name = "videoedit-tools"
+version = "0.1.0"
+description = "Dev-only Python tooling: export MatAnyone2 to DNNKernels (see lava-dnn.md)"
+requires-python = ">=3.12,<3.13"
+
+# Only what matanyone2's inference path actually imports, plus the exporter's own
+# needs. The upstream pyproject additionally pulls gradio/PySide6/pycocotools/
+# thinplate/cchardet for training + the demo app; none of that is on the
+# inference path, so matanyone2 itself is installed --no-deps.
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "numpy",
+    "opencv-python-headless",
+    "pillow",
+    "imageio[ffmpeg]",
+    "hydra-core",
+    "omegaconf",
+    "tqdm",
+    "typer",
+    "huggingface-hub",
+    "requests",
+    "safetensors",
+    "duckdb>=1.5.5",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.0",
+    "gdown>=6.1.0",
+    "demucs>=4.0.1",
+    "deepfilternet>=0.5.6",
+    "kokoro>=0.9.4",
+    "soundfile>=0.14.0",
+    "matplotlib>=3.11.1",
+    "scipy>=1.17.1",
+    "diffusers>=0.39.0",
+    "accelerate>=1.14.0",
+    "sentencepiece>=0.2.2",
+    "protobuf>=7.35.1",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
