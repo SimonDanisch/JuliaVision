@@ -9,6 +9,29 @@ and RDNA3 WMMA. Its first job is not to write fallbacks — it is to find out wh
 is actually broken, because several things were *claimed* portable on 2026-08-02
 and have never run here.
 
+## Where this sits relative to the refactor
+
+Not downstream of it — **upstream**. `kernels-refactor` step 3 has to make plan
+objects per-device, and `lava-core` phase 2 has to make the caches per-device;
+both are being designed against a single card's answers because that is all
+anyone has. Your capability dump is what they need, and the sooner it exists the
+less of that design is guesswork.
+
+So: **measure now, do not wait.** But because the two desktop projects are
+rewriting the same files:
+
+- **Pin your baseline.** Record the exact commits you tested (`git -C dev/Lava
+  rev-parse HEAD` and the same for JuliaVision) at the top of your report. A
+  finding without a commit is unactionable once the refactor lands.
+- **Do not fix library source.** Test-level fixes are fine — a test that
+  hardcodes 32 where it should ask `subgroup_size()`, a skip condition that is
+  wrong. Anything in `src/` gets *filed*, not patched: it will land in
+  `kernels-refactor` or `lava-core`, and a parallel fix on this branch will
+  conflict with a rewrite of the same function.
+- **A crash at device creation is the exception** — if Lava will not initialise
+  on RDNA3 at all, nothing else can be measured, so fix that minimally and say so
+  loudly.
+
 ## Phase 1 — run everything, believe nothing
 
 Three claims went into committed docstrings on 2026-08-02 on the strength of "it

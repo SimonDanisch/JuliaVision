@@ -29,7 +29,7 @@ existing one, so it does not collide with the refactor.
 | `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | not started |
 | `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | not started |
 | `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder exports, decoder not started |
-| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | not started |
+| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | not started — **its capability dump is an input to the two refactors, so run it early**; it files bugs rather than fixing them |
 | `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | not started |
 
 ## Where the numbers stand
