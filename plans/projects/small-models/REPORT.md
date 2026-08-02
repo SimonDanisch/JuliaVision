@@ -410,7 +410,8 @@ Located, not guessed:
 - All 63 blocks are allocated inside **`sam2model()`** — the weight upload.
   `encode` adds **zero** blocks, and a second encode adds zero. So this is
   residency, not transients, and not a leak per call.
-- SAM 2's weights are ~942 MB. 4 032 MiB to hold them is **4.3x**.
+- SAM 2's weights are ~942 MB. 4 032 MiB to hold them is **4.3x** — but see
+  the entry below: that framing is wrong, the blocks are mostly *empty*.
 
 The mechanism is visible in `memory.jl`: past `POOL_SOFT_CAP` the allocator asks
 the GC and then **cuts a new block anyway**, and `reclaim_empty_pool_blocks!` is
@@ -430,3 +431,67 @@ rather than a guess.
 Worth pairing with `GUARDRAILS.md` §6's own advice: this is a *memory* number,
 and the only reason it was caught is that this machine has 8 GB. The desktop's
 1 181 MiB "goal met, nothing to do" may no longer be true there either.
+
+---
+
+## 2026-08-03 (third entry) — the 4 GB is 81% empty blocks, and `POOL_SOFT_CAP` never reclaims
+
+Chased the VRAM finding above to a mechanism. **It is not fragmentation, not
+residency, and not the allocator's packing** — all three of which I named as
+suspects, and all three are wrong.
+
+### Pure Lava packs this shape fine
+
+SAM 2's checkpoint is 909 tensors, 941 MiB, median **2 KiB**, largest exactly
+64.0 MiB (right at `POOL_LARGE_THRESHOLD`, so it does *not* bypass the pool).
+Allocating that exact size distribution through `KA.allocate` and holding every
+buffer live:
+
+    909 buffers, 941 MiB, minimum blocks = 15
+    all held live: 16 blocks (1024 MiB) -> 1.1x minimum
+
+So the bump allocator packs a 2 KiB median at 1.1x. Nothing wrong with it.
+
+### The blocks are empty
+
+    after load          : 63 blocks (4032 MiB)   nvidia-smi 3591 MiB
+    after drain + GC(true): 63 blocks (4032 MiB)   <- neither helps
+    reclaim_empty_pool_blocks! freed 51 blocks, 3264 MiB
+    after reclaim       : 12 blocks ( 768 MiB)   nvidia-smi  326 MiB
+    after encode        : 12 blocks ( 768 MiB)   nvidia-smi  752 MiB
+
+**81% of the pool was empty.** SAM 2's true steady-state footprint is 768 MiB of
+pool and 752 MiB by `nvidia-smi` — *under* the 1 181 MiB the goal is stated in,
+not 3.8x over it. The number in the entry above is real as a measurement of what
+the process holds, and wrong as a description of what SAM 2 needs.
+
+`Model.scratch` is still empty at this point (`n = 0`, the slab is allocated
+lazily on first `encode`), so every one of those 63 blocks comes from uploading
+734 weight entries — and `encode` afterwards adds **zero** blocks.
+
+### Why nothing gives them back
+
+`reclaim_empty_pool_blocks!` is documented as "called from `vk_alloc` /
+`alloc_pool_block` **only on the OOM retry path**, so steady-state allocations
+don't pay the scan cost". And past `POOL_SOFT_CAP` the allocator calls
+`collect_for_pool!` — a *garbage collection*, which does nothing here because
+nothing is garbage — and then cuts a new block regardless.
+
+So the cap does not cap. It gates a GC, and the one thing that would actually
+return memory runs only when an allocation is already failing. A bulk upload of
+909 buffers walks the pool up to 4 GB and it stays there until something OOMs —
+which is exactly what happened here earlier today, at 2 246 MiB of free budget.
+
+### Two things worth doing, neither of them mine
+
+1. **Call `reclaim_empty_pool_blocks!` after a bulk upload.** One line at the end
+   of model loading recovers 3.2 GB on an 8 GB card. This is the cheap fix and it
+   needs no design.
+2. **Make `POOL_SOFT_CAP` reclaim before it collects.** Asking the GC for memory
+   that is not garbage cannot work; the empty-block scan is the operation that
+   matches the situation. That is a change to Lava's allocator policy and belongs
+   to `lava-core`, whose report already owns the worklist.
+
+Filed here rather than acted on because these three models are bring-up, and
+because the desktop should confirm the numbers — but the mechanism is not
+machine-specific and its own `1 181 MiB` figure was measured the same way.
