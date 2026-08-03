@@ -106,6 +106,24 @@ trusting a second device for graphics or dispatch profiling.
   summary. The AMD laptop filed the same thing from three different call sites
   as "a floating GC race" — it floats because the crash lands wherever the next
   GC does. Now `mark_device_lost!`, with `test_device_reset_finalizer.jl`.
-- **`OpUDiv` in a shared-store index** and **narrow index + rank≥3 `Extruded`** —
-  both labelled "driver miscompile"; per Rule 0 that label is a suspect, not a
-  finding. Re-open against our own compiler.
+- **`OpUDiv` in a shared-store index — SETTLED 2026-08-02, and the label was
+  earned after all.** The file closing it said the question could not be settled
+  here because "lavapipe reports `coopmat available: false`". Measurably wrong:
+  lavapipe has four 8x8x8 cooperative-matrix shapes, `Float16` among them, so the
+  second consumer was on this box the whole time. Running the same kernel and
+  geometry on both, with only the tile extent taken from the device:
+
+      device      form       K=32    K=64   K=128   K=256
+      NVIDIA      udiv       3072     256     240     240    DROPS
+      lavapipe    udiv       3072    3072    3072    3072    exact
+      both        fastdiv    3072    3072    3072    3072    exact   (control)
+
+  So the module is runnable as written and NVIDIA's compilation of it loses the
+  stores. Limits stated in the file: the modules are not byte-identical (no
+  16x16x16 on lavapipe) and llvmpipe is a software rasteriser. The AMD laptop can
+  run it byte-identically and would settle the remainder. Now a permanent testset.
+
+- **Narrow index + rank≥3 `Extruded`** — still labelled "driver miscompile"; per
+  Rule 0 that label is a suspect, not a finding. Re-open against our own compiler.
+  Note the sibling above was settled by varying the consumer, which is the cheap
+  move that works, and it is available for this one too.
