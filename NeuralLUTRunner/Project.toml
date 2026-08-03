@@ -14,10 +14,16 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 # Lava is not in the General registry, so a fresh clone cannot resolve without
 # being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
 # fetches it from the URL below instead of failing with "package not found".
-#
-# GPUFiltering is a path dep for the same reason and holds the other half of this
-# port: `lut3d!` applies the table the graph predicts, and `resizeplanar!` builds
-# the classifier's input. Neither is a graph op, so neither belongs in DNNKernels.
+
 [sources]
-GPUFiltering = {path = "../GPUFiltering"}
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
+
+# `Pkg.test` runs the suite in its own environment, which gets the package's deps
+# plus whatever `[targets] test` names — and nothing else. Without this, every
+# `runtests.jl` here dies on `using Test` before asserting anything, which is why
+# these suites had never been run.
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

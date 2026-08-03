@@ -39,6 +39,14 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 # fetches it from the URL below instead of failing with "package not found".
 [sources]
 Lava = {{url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}}
+
+# Without this `Pkg.test` gives the suite an environment with no `Test`, and
+# every generated runtests.jl dies on `using Test` before it asserts anything.
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
 """
 
 MODULE = '''\
