@@ -1039,6 +1039,31 @@ about repeated small submissions defeats it.
 
 Every diagnostic edit was reverted; both worktrees are clean.
 
+### Survives lava-core's globals refactor — and the fault point MOVED
+
+Re-verified against Lava `49f3f17` (seven new commits: pool and queue policy off
+the globals onto `VkContext` fields, per-device caches, diagnostics onto
+`ctx.diag` — 223 lines of `command.jl`, 398 of `memory.jl`, 85 of `launch.jl`,
+i.e. exactly the code under investigation).
+
+    96 x 128:  ERROR_DEVICE_LOST after 64 dispatches in batch (2368 total)
+    96 x 96 :  OK, 23.8 s
+
+**The bug survives, the signature is identical, and the fault point moved from
+256 to 2368 total dispatches.** That is what alignment-sensitivity predicts: the
+refactor perturbs the dispatch stream slightly, so the fatal cut lands somewhere
+else — and it is independent evidence for the alignment reading, arrived at
+without looking for it.
+
+Two consequences for what is written above:
+
+- The **128-dispatch truncated reproducer was measured on Lava `328827f`** and
+  should not be assumed to carry; the prefix bisect needs redoing on `49f3f17`.
+- Everything that varies with alignment — the threshold table, the prepended-
+  dispatch table, "fifth submit" — is *relative to a given Lava*. The invariants
+  are: it needs repeated auto-submits, one alignment is fatal and its neighbours
+  are not, and a drain cures it.
+
 ### No MWE for a GLSL differential — and that instrument does not fit anyway
 
 Asked whether I had a minimal example for the GLSL differential I proposed. I did
