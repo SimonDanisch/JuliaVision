@@ -882,7 +882,16 @@ points.
 /16 token grid the attention actually sees:
 
     hangs:  6 x 8,  8 x 6
-    passes: 6 x 6,  6 x 10,  7 x 8,  8 x 8,  10 x 6,  10 x 8
+    passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
+            7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
+
+**Every immediate neighbour of the hanging point passes.** Twelve shapes tested;
+holding the grid at 6 and stepping the other axis gives 6x6, 6x7, **6x8 HANGS**,
+6x9, 6x10 — the hang is a single value with clean neighbours on both sides. Same
+on the other axis: 5x8, **6x8 HANGS**, 7x8, 8x8, 10x8.
+
+It is an isolated point, not a region or a ratio. Whatever decides this is
+picking something different for exactly one shape.
 
 Sweeping W against H = 128 (grid height 8): 6 hangs, 7 passes, 8 passes, 10
 passes — so it is not a magnitude threshold. Sweeping H against W = 96 (grid
