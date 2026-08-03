@@ -1,0 +1,15 @@
+name = "KokoroRunner"
+uuid = "31480c1c-f298-4848-9ae9-978a73fb95d8"
+version = "0.1.0"
+
+[deps]
+DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+
+# Lava is not in the General registry, so a fresh clone cannot resolve without
+# being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
+# fetches it from the URL below instead of failing with "package not found".
+[sources]
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}

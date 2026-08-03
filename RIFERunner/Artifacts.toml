@@ -1,0 +1,7 @@
+[rife]
+git-tree-sha1 = "b41f6be8ace2149241babaeb1364c3b992561168"
+lazy = true
+
+    [[rife.download]]
+    sha256 = "1b375b7526d520d17bf614c5d2a7aa135d3db8b323b20160235861bcac290f95"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/rife.tar.gz"

@@ -28,8 +28,10 @@ using Test, DNNKernels, KernelAbstractions
 const DK = DNNKernels
 const KA = KernelAbstractions
 
-const CFDIR = normpath(joinpath(@__DIR__, "..", "..", "..", "..",
-                                "gen", "graphs", "sam2-large"))
+# See test_foldoutcasts.jl: a fixed `../../../../gen` silently resolves to a path
+# that does not exist once this package is in a monorepo, and the guarded testset
+# then reports `Total 0` rather than skipping visibly.
+const CFDIR = DNNKernels.findasset(joinpath("gen", "graphs", "sam2-large"); from = @__DIR__)
 
 cfbuf(id, kind, shape, dtype; key = "") =
     DK.Buffer(id, kind, Any[shape...], dtype, key, (0, 0), "", "", Dict{String,Any}())

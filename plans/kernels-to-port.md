@@ -106,10 +106,41 @@ what has closed since, so nothing here sends you down a path already measured ou
 
 **Ours.** `attn_flash_cm!` walks the whole key axis in one workgroup per query
 block. SAM 2's decode is 95% one shape — `Lq=23, Lk=4096, E=16, H=8` — and
-`Lq=23` is a single query block, so the launch is `1 × H·B` = **8 workgroups on
-48 SMs**, running 0.242 GFLOP in 1.456 ms = 0.17 TF/s. `FLASHCM_MINGRID = 48`
-already prefers a smaller tiling to raise the grid; that bought −12.8% and does
-not change the shape of the problem.
+`Lq=23` is a single query block, so the launch is small relative to 48 SMs. The
+grid rule already prefers a smaller tiling to raise it; that bought −12.8% and
+does not change the shape of the problem.
+
+### MEASURED, 2026-08-02 — the denominator this item never had
+
+Directly benchmarked (200 runs, min), not read off the serialised per-op table:
+
+    splits   Lk each   workgroups   min ms
+      1       4096         16       0.4239   <- today
+      2       2048         32       0.2339
+      4       1024         64       0.1589
+      8        512         64       0.0948   <- llama.cpp's rule picks this
+     16        256        128       0.0721
+
+**4.5x at 8 splits**, and that is an UPPER BOUND: it is the same total
+arithmetic rearranged to the parallelism split-K would produce, with no reduce
+pass and none of the extra global traffic for the partial `O` and per-row
+`(m, l)`. The real number will be lower; the headroom is not in doubt.
+
+Two corrections to the paragraph above, both worth keeping:
+
+* **The cost is 0.4239 ms, not 1.456.** The old figure came from the serialised
+  per-op table, which measures itself (`perf-plan.md`, and
+  `lavadnn-perf-attribution`). A 3.4x error in the denominator is exactly what
+  `GUARDRAILS.md` §5 is about, and it was *pessimistic* here — the item is still
+  worth doing, but ranking against 1.456 would have overstated it.
+* **The launch is 16 workgroups, not 8.** `Lq = 23` against `BR = 16` is two
+  query blocks, not one, so the grid is `2 × H·B`. The chooser picks `16x32/4`
+  for this shape today.
+
+Note the tiling flips to `32x32/8` once the key range is short enough (8 splits
+and beyond), so the split count and the tiling are not independent — whatever
+decides one has to re-ask the other, which is an argument for deciding both in
+the plan object rather than in the kernel.
 
 **Read this first — it is in our own API.**
 `dev/llama.cpp/ggml/src/ggml-vulkan/vulkan-shaders/flash_attn_split_k_reduce.comp`

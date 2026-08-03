@@ -30,6 +30,8 @@ export lucaskanade!
 export nv12torgb!, lumatogray!
 export blend!
 export pointwise!, stencil!
+export lut3d!
+export resizeplanar!
 export tofloat, topixel
 
 "Convert any RGB pixel to Float32 components for in-kernel math."
@@ -55,6 +57,8 @@ function todevice(like::AbstractArray, host::Vector{Float32})
 end
 
 include("coloradjust.jl")
+include("lut3d.jl")
+include("resizeplanar.jl")
 include("blur.jl")
 include("transform.jl")
 include("flow.jl")

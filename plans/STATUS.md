@@ -13,7 +13,7 @@ belief or writes code the next phase deletes.
 | phase | contents | exit criterion |
 |---|---|---|
 | **1 — bugs** | Rule-0 re-audit of the two "driver bugs"; the `blockfor` hang; the flush-hang soak | no tracker item says "driver bug" without having passed all three Rule-0 instruments |
-| **2 — refactors** | `kernel-library-review.md` steps 2–7 (DNNKernels) and step 8 (Lava) | globals **34 → 0** in DNNKernels and **84 → 0** module-level in Lava, **and the two-device test passes** |
+| **2 — refactors** | `kernel-library-review.md` steps 2–7 (DNNKernels) and step 8 (Lava) | globals **34 → 0** in DNNKernels ✅ and **84 → 0** module-level in Lava, **and the two-device test passes** ✅ |
 | **3 — instructions** | the missing SPIR-V surface, each landing as a plan-type method | section D of `dev/Lava/spirv-intrinsics.md` is empty |
 | **4 — the work** | model ports and the kernel items | — |
 
@@ -27,37 +27,52 @@ existing one, so it does not collide with the refactor.
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
 | `lava-core` | Desktop | `Lava.jl` @ `sd/nvidia` | 1 → 2 → 3 | phases 1–2 done; phase 3 (section D) **not started** |
-| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–5, 7 done; **6 and 9 open** |
-| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder exports, decoder not started |
-| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | phase 1 run; **Phase 3 brief written, awaiting a rebase** |
-| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | artifacts refactor landed |
+| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–8 done; **step 9 in progress** (moving the model drivers out) |
+| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
+| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | **phase 1 + 2 done.** Capability dump, 3 hard crashes found and fixed, `Extruded` does NOT reproduce on RDNA 3.5, SAM 2 runs at 294 ms. Read its report before touching `Device` or any subgroup width |
+| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | **done.** Three models export, run and match; LUT meets budget, RIFE and Depth Anything miss by ~30x / ~15x with measured reasons |
+
+The three desktop projects were all killed mid-flight on 2026-08-02 and recovered
+by hand; see the *Process* section of each report, and `GUARDRAILS.md` §9, which
+was rewritten because of it.
 
 Step-by-step against `kernel-library-review.md`'s suggested order:
 
 | step | what | state |
 |---|---|---|
-| 1 | expose the device properties | done — leftovers: `NW * 32` is still a literal at `flash.jl:471`/`:519` where it should be `dev.coopmatsubgroup`; `convtiles`/`convsplit`/`FLASH_SHARED_BUDGET`/`FLASHCM_MINGRID` unwired |
+| 1 | expose the device properties | done — leftovers: `convtiles`/`convsplit`/`FLASH_SHARED_BUDGET`/`FLASHCM_MINGRID` unwired |
 | 2 | delete the settled toggles | done |
 | 3 | diagnostics onto `Ctx` | done |
 | 4 | one plan object per kernel family | done |
 | 5 | dispatch the entry functions on the plan type | done |
-| 6 | **generate the dispatchers alongside the kernels** | **open** — the hand-written chain is still at `attention.jl:233`/`:242`. It covers all five block sizes today, so nothing is broken, but finding 5's trap is live |
+| 6 | generate the dispatchers alongside the kernels | done — `ATTN_BLOCKS` folds into both arms |
 | 7 | type `Ctx`'s remaining fields | done |
 | 8 | device caches onto `VkContext` | done — see below |
-| 9 | **portability decision + move the model drivers out** | **open** — `sam2.jl`, `wan.jl`, `driver.jl` are still inside the kernel library; finding 8's "what is DNNKernels" decision is the AMD machine's |
+| 9 | **portability decision + move the model drivers out** | **in progress** — the history answered the "what is DNNKernels" question: `sam2.jl`, `wan.jl` and `driver.jl` arrived wholesale in `7273481` "Import LavaDNN as DNNKernels", so the rename described half the contents and moved nothing. Eleven `*Runner` packages already establish the convention |
 
-Exit criteria: DNNKernels globals **34 → 0** ✅ (the six remaining `const`s are
-immutable lookup tables), two-device test ✅, Lava module-level device caches
-**12 → 0** ✅. Lava's `Ref` count is 77 → 73; the rest are tunables and
-diagnostics, which is a different question from device-owned state.
+Exit criteria: DNNKernels globals **34 → 0** ✅ (verified by mutation, not by the
+`= Ref` grep — 20 `const`s, none ever written), two-device test ✅, Lava
+module-level device caches **12 → 0** ✅.
+
+**Lava's global count, corrected.** The review's metric was
+`grep "^const [A-Z_0-9]* = Ref"`, which cannot see `Threads.Atomic`, `Dict`,
+`IdDict` or `UInt64[]`. Counted by mutation the starting point was **70**, not the
+77/73 reported against it, and three of the invisible ones were the per-device
+defect finding 3 exists to name. Now **27**, and the floor is about three
+(`VK_CONTEXT_REF`, the atexit flag, `FROZEN_RT_MEM`) rather than the 1 the review
+set — see `kernel-library-review.md`'s correction section.
 
 ## Where the numbers stand
 
 Only the desktop produces these. Last measured 2026-08-02.
 
 - SAM 2 encode **100.4 ms** vs PyTorch 87.64 → **87.0%**. Target 90% = 97.4 ms.
-- SAM 2 decode **3.30 ms** replayed vs 2.10 → **64%**. 36% of it is one attention
-  shape at 0.10 TF/s, which `kernels-to-port.md` item 1 targets.
+- SAM 2 click **2.21 ms** replayed vs 2.10 → **95%**, and decode 3.13 vs 2.10 →
+  **61%**. `kernels-to-port.md` item 1 (flash-decoding) is **done**: the
+  decoder's cross-attention went 0.4279 → 0.1204 ms, 3.55x, by splitting the key
+  axis six ways and merging the partial softmaxes. Ported from llama.cpp's
+  `flash_attn_split_k_reduce.comp`; the measured optimum is 8 splits at 0.1096,
+  so the reference's "two workgroups per core" constant is within 10% here.
 - VRAM **1181 MiB** vs PyTorch 1756 — 33% under, goal met, nothing to do.
 - Device cooperative-matrix ceiling **107.3 TF/s** measured; `addmm` at 38.0 = 35%.
 
@@ -75,6 +90,23 @@ Only the desktop produces these. Last measured 2026-08-02.
   routes to stay under measured and all dead. See `FLASHCM_HELD`.
 - gelu into the GEMM epilogue; stem convolution padded onto the tensor cores;
   1×1 convolution routed to `matmul!`; decode capture/replay; click 16.7 → 5.05 ms.
+- **The scalar GEMM accumulated in the destination's precision** — an fp16
+  destination meant an fp16 accumulator over K = 5120. **234×** error, found by
+  the Whisper port, fixed by `gemmaccumtype` (Lava `a246295`). Affects every fp16
+  matmul missing the coopmat path, which in a raw exported graph is every
+  `addmm`. Whisper's encoder matches PyTorch at rel rms 6.30e-5 after it.
+- **`clear_kernel_cache!` silently did nothing** — `LAUNCH_PLAN_CACHE` is
+  consulted first and was not cleared (Lava `740d982`). It invalidated an A/B
+  over six SPIR-V variants. See `GUARDRAILS.md` §4.
+- DNNKernels globals **34 → 0**, the refactor's exit criterion. Nine settled
+  toggles deleted; diagnostics and the attention clamp onto `Ctx`; the tuning
+  constants absorbed into four plan objects; SAM 2's policy onto its struct.
+  Entry points dispatch on plan type, so a new kernel path is a new method.
+- A `Device` object answers the five hardcoded device literals from a live
+  device. `NW * 32` was in three places and is half the workgroup on wave64.
+- **`test_coopmat_attention.jl`'s main A/B was vacuous** — it flipped a threshold
+  to force the two-GEMM path, but the fused path took all four shapes first, so
+  it compared a result with itself. Fixed; the pattern is worth grepping for.
 
 ## Standing constraint: multi-device — MET
 

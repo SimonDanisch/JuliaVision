@@ -9,6 +9,29 @@ and RDNA3 WMMA. Its first job is not to write fallbacks — it is to find out wh
 is actually broken, because several things were *claimed* portable on 2026-08-02
 and have never run here.
 
+## Where this sits relative to the refactor
+
+Not downstream of it — **upstream**. `kernels-refactor` step 3 has to make plan
+objects per-device, and `lava-core` phase 2 has to make the caches per-device;
+both are being designed against a single card's answers because that is all
+anyone has. Your capability dump is what they need, and the sooner it exists the
+less of that design is guesswork.
+
+So: **measure now, do not wait.** But because the two desktop projects are
+rewriting the same files:
+
+- **Pin your baseline.** Record the exact commits you tested (`git -C dev/Lava
+  rev-parse HEAD` and the same for JuliaVision) at the top of your report. A
+  finding without a commit is unactionable once the refactor lands.
+- **Do not fix library source.** Test-level fixes are fine — a test that
+  hardcodes 32 where it should ask `subgroup_size()`, a skip condition that is
+  wrong. Anything in `src/` gets *filed*, not patched: it will land in
+  `kernels-refactor` or `lava-core`, and a parallel fix on this branch will
+  conflict with a rewrite of the same function.
+- **A crash at device creation is the exception** — if Lava will not initialise
+  on RDNA3 at all, nothing else can be measured, so fix that minimally and say so
+  loudly.
+
 ## Phase 1 — run everything, believe nothing
 
 Three claims went into committed docstrings on 2026-08-02 on the strength of "it
@@ -70,6 +93,88 @@ Do **not** write per-feature fallbacks. "Give every coopmat2-gated kernel a test
 KHR path" *is* `kernel-library-review.md` finding 1, and doing it before
 `kernels-refactor` lands plan dispatch means writing more `if has_feature` chains
 that the refactor then deletes. Gather the evidence; implement after.
+
+## Phase 3 — the refactor has landed, and your segfault is fixed
+
+**Rebase first.** Everything Phase 1 was told to wait for is now on `sd/nvidia`
+and `sd/kernels-refactor`, so the two standing constraints above are lifted in
+this order: plan dispatch exists, so per-feature fallbacks are now the *right*
+shape rather than a chain the refactor would delete; and `src/` is no longer
+being rewritten under you, so fix what you find.
+
+What changed that concerns this machine:
+
+- **Your blocker is diagnosed and fixed.** The report's "floating GC race" —
+  one segfault, three distinct locations, suite never completes — is
+  `vk_reset_device!` failing to retire the old context. Its comment claimed
+  pre-reset buffers skip Vulkan calls because the old context has `device_lost`
+  set; that only held when a device *loss* caused the reset, and a voluntary
+  `vk_reset_device!()` left it false. The context and its buffers then became
+  garbage in the same collection, where Julia does not order finalizers:
+  `Vulkan.Device`'s finalizer destroys the device and `vk_free!` then calls
+  `query_timeline` on it. Ten-line MWE, fixed, and it reproduces back at
+  `046b1ed` — so it was never anything the per-device work introduced. **Re-run
+  the full suite; it should complete now, which is the first time you get a
+  real pass/fail table.**
+- **Per-device state is done and has an acceptance test.**
+  `dev/Lava/test/twodevice_probe.jl` builds a GPU and a lavapipe context in one
+  process and asserts the pipeline cache grows twice. It found seven things
+  reading found none of — the function-pointer table and the memory pool
+  especially. Run it here: this machine's second device is different from the
+  desktop's.
+- **A coopmat pipeline now refuses to build where it cannot pin 32 lanes**
+  rather than returning wrong numbers quietly. RDNA 3.5 advertises
+  `VK_EXT_subgroup_size_control` with `minSubgroupSize == 32`, so this *should*
+  be invisible here — if it fires, that assumption is wrong and it is the most
+  important thing you can report.
+- **`Device` is the object kernels ask.** `coopmat, tile, subgroup,
+  coopmatsubgroup, sharedbudget, workgrouplimit, cores, launchgroup` — note
+  `subgroup` and `coopmatsubgroup` are deliberately separate, because Lava pins
+  coopmat modules to 32 while RDNA's device default is 64. Anything still
+  keyed on the wrong one of those two is a bug worth filing.
+
+### One experiment only this machine can finish
+
+`test_shared_index_division.jl` — the `OpUDiv`-in-a-shared-store-index bug — was
+settled far enough to name the culprit, and the last step is yours.
+
+It used to say the question could not be settled because lavapipe has no
+cooperative matrices. That was wrong: lavapipe has four 8x8x8 shapes, `Float16`
+among them. Running the same kernel on both, tile extent from the device:
+
+    device      form       K=32    K=64   K=128   K=256
+    NVIDIA      udiv       3072     256     240     240    DROPS
+    lavapipe    udiv       3072    3072    3072    3072    exact
+    both        fastdiv    3072    3072    3072    3072    exact   (control)
+
+So our SPIR-V is runnable and NVIDIA's compilation of it loses stores. Two limits
+remain, and the Radeon 8060S removes both: it reports 14 shapes including this
+kernel's exact `Float16 x Float16 -> Float32` **16x16x16**, so it can run the
+module *byte-identically* where lavapipe had to drop to 8x8, and it is real GPU
+hardware rather than a software rasteriser.
+
+Run `sid_survivors` there at K = 32, 64, 128, 256 for both forms. Exact means the
+module is fine on two real GPUs and one software stack, and the NVIDIA report can
+be written with confidence. Lossy means RDNA loses it too, and the bug comes back
+to our emitter — which would be the more interesting answer.
+
+### The measurement this machine should own
+
+Shared-memory bank conflicts, because the answer is hardware-specific and the
+NVIDIA numbers are now written down to compare against. `flashepad`/`flashrpad`
+in `DNNKernels/src/kernels/extern/flash.jl` carry both sweeps and both defaults;
+`sdpaflashcm!` takes `epad` and `rpad` as keywords, so a sweep needs no edit.
+
+On this desktop `epad` is worth **-31.4% at head dimension 64** and `rpad` is
+worth -13.7% in the same microbenchmark but **+6.7% on the real encode**, which
+is why it ships off. Both of those are statements about a 32-bank, 4-byte,
+wave32 machine. RDNA 3.5's LDS is banked differently and its wave width may not
+be 32 — so the defaults are very likely wrong here, in a way that costs a third
+of the attention time, and nobody can find that out on the desktop.
+
+Run the `epad × rpad` sweep at `E ∈ (16, 32, 48, 64, 72)`, then check the winner
+against a real model rather than the sweep — that is exactly where the desktop's
+`rpad` conclusion inverted.
 
 ## Note on this machine
 

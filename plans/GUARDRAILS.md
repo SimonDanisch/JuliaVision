@@ -50,6 +50,15 @@ One line, and it catches the whole cache-collision class: two "different"
 variants that silently ran the same shader would otherwise measure identical and
 be reported as "no difference".
 
+Twice in two days now. After the `hash(spirv_bytes)` collision came
+`clear_kernel_cache!`, which emptied `LINKED_KERNEL_CACHE` but not
+`LAUNCH_PLAN_CACHE` — and the latter holds its own `VkPipeline` and is consulted
+*first*, so the function silently did nothing and an A/B reported "no difference"
+for **six variants, one of which had its `OpStore` deleted**. Fixed in Lava
+`740d982`. The shared signature is *an A/B that finds no difference between
+things that must differ*; treat that outcome as a broken harness until this
+assertion says otherwise.
+
 ## 5. Never rank an item against an unmeasured denominator
 
 The fp8 item was ranked at "≤2x on 44 ms" against a ceiling measured for
@@ -114,11 +123,26 @@ So: keying by device is not the same as owning per device, and "the cache is
 keyed correctly" is not the test. The test is whether the state dies with the
 device.
 
-## 9. Write the report
+## 9. Commit and report at the end of every step, not at the end of the project
 
 Append findings to `plans/projects/<name>/REPORT.md` and push. The next agent may
 be on another machine, or three weeks later. The in-session task list and any
 agent memory do **not** travel; the repo does.
+
+**Per step, not per project.** On 2026-08-02 all three running agents were killed
+at once, ~80 minutes before anyone noticed. `kernels-refactor` had committed each
+step as it finished and lost nothing. `lava-core` was holding a completed
+Rule-0 GLSL differential and a 234× accuracy fix as dirty files and came within
+one crash of losing both. Neither had written a line here, so both reports had to
+be reconstructed by hand from commits and worktrees.
+
+A step that is finished and uncommitted is not finished. If the work is not yet
+worth a commit on the project branch, it is not yet a step.
+
+**A running agent card is not evidence the agent is alive.** Those three kept
+showing an incrementing timer and a stop button for well over an hour after they
+died. What is evidence: the last write time in the worktree
+(`find <tree> -type f -newermt '-20 minutes'`) and `git log` on the branch.
 
 Record negative results with the same care as positive ones — roughly half the
 value in `perf-plan.md` is knowing which six things were measured and lost.

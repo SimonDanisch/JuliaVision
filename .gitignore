@@ -3,3 +3,7 @@ Manifest.toml
 *.jl.*.cov
 *.jl.mem
 /docs/build/
+
+# python bytecode from tools/
+__pycache__/
+*.pyc
