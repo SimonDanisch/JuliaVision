@@ -27,7 +27,13 @@ const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "depthanything"))
 smclock() = try
     parse(Int, first(split(read(`nvidia-smi --query-gpu=clocks.sm --format=csv,noheader`,
                                 String))))
-catch
+catch ex
+    # 9999 is "clock is fine, do not gate" — the right answer on a machine with
+    # no `nvidia-smi` at all. It is the WRONG answer for an nvidia-smi that is
+    # present and replies with something unparseable, because the gate this feeds
+    # (GUARDRAILS §6, warm-up on clock) would then pass on every run and quietly
+    # stop protecting the measurement. Narrowed to the absent-binary case.
+    ex isa Union{Base.IOError, SystemError, Base.ProcessFailedException} || rethrow()
     9999
 end
 

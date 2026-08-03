@@ -153,8 +153,32 @@ wrong, and it must be visibly absent rather than quietly passing when its
 fixtures are.
 """
 function matanyoneprecisions(; dir::Union{Nothing,AbstractString} = nothing)
-    d = dir === nothing ? (try refsdir() catch; return String[] end) : dir
+    d = dir === nothing ? refsdir_or_nothing() : dir
+    d === nothing && return String[]
     return filter(p -> isfile(joinpath(d, "refs-$p.safetensors")), ["autocast", "fp32"])
+end
+
+"""
+    refsdir_or_nothing() -> String | Nothing
+
+`refsdir()` when the artifact is bound and installed, `nothing` when it is not.
+
+A PREDICATE, not a `try`. This asked `refsdir()` and swallowed whatever came back
+with a bare `catch`, which is the pattern that is forbidden here for a reason
+this session demonstrated twice: `pipeline_exec_stats` hid a genuine
+`ConstructionBase` failure behind `catch ex; @debug; return nothing` and it read
+as "the AMD driver reports no statistics" for hours.
+
+The specific harm of the version this replaces: an unbound artifact and a
+*corrupt* one were indistinguishable, and so was a typo in this file. Testing the
+two conditions directly means the only way to get `nothing` is the one intended.
+"""
+function refsdir_or_nothing()
+    toml = joinpath(dirname(@__DIR__), "Artifacts.toml")
+    h = artifact_hash("matanyone-refs", toml)
+    h === nothing && return nothing        # not bound
+    artifact_exists(h) || return nothing   # bound, not installed
+    return artifact_path(h)
 end
 
 """

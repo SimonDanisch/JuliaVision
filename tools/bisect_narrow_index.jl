@@ -64,7 +64,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
             env = p == "<none>" ? ENV : merge(ENV, Dict("LAVA_SKIP_PASSES" => p))
             out = try
                 read(pipeline(setenv(cmd, env); stderr = devnull), String)
-            catch
+            catch ex
+                # The child crashing is the SIGNAL this bisect is looking for, so
+                # a non-zero exit is data, not an error. A failure to launch it at
+                # all is a broken harness and would otherwise be recorded as a
+                # crash at every pass — bisecting to a meaningless answer.
+                ex isa Base.ProcessFailedException || rethrow()
                 "broke\n"
             end
             println("  ", rpad(p, 28), strip(last(split(strip(out), '\n'))))
