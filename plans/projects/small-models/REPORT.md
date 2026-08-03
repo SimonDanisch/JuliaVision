@@ -1002,13 +1002,48 @@ Disproved so far, every one by experiment: OOB writes, attention, `blockfor`, th
 GEMM kernel and its shape, boundary-barrier elision, use-after-free (even with
 *every* free deferred), a single fatal cut point, and in-flight depth.
 
-What survives: it requires **repeated** mid-recording submits, it is
-MatAnyone-specific among the models here, and the fault lands on a submit whose
-batch contains a `strided_gemm`. The next thing I would test is whether
-DNNKernels' **shared slab** is the mechanism — `Model` gives every graph in a step
-one slab, `planslab` places buffers by lifetime *within* a graph, and `execute!`
-deliberately does not synchronise between graphs. That is safe while a step is
-one submission and is exactly the assumption repeated auto-submit breaks.
+### Where it stands: one positive fact, thirteen disproofs
+
+**The positive fact.** A full `KA.synchronize` between graph calls **fixes it**
+(48.9 s, clean). A `sweep_retired_batches!` between graph calls — same place,
+cleanup but no wait — **does not**. So it is genuine execution overlap: later
+submitted work running before earlier submitted work has finished, not a
+bookkeeping or cleanup problem.
+
+That is the part I cannot yet reconcile. All submissions go to a single
+`bq.queue`, and Lava emits a *memory* pipeline barrier at the first dispatch of
+each new batch (`BARRIER_MODE` defaults to `:memory`), whose first
+synchronisation scope should already cover everything previously submitted to
+that queue. If that barrier is present and correctly scoped, waiting should not
+be necessary — so either it is not reaching the command stream, or something
+about repeated small submissions defeats it.
+
+**Everything tried and disproved, each by experiment rather than argument:**
+
+| hypothesis | how it died |
+|---|---|
+| out-of-bounds write | GPU-AV, `verify_gpu_av` proving it fires, reports none |
+| sync hazard | sync-val reports none — **and cannot see BDA traffic, so this is not evidence** |
+| attention / `blockfor` | zero attention calls happen before the fault |
+| the GEMM kernel or its shape | `(256,256)x(256,48)` standalone is clean, as are N = 44, 47, 49 |
+| a fatal cut point | `LAVA_SUBMIT_AT` = 576 / 512 / 448 — submit **once** there, all clean |
+| boundary-barrier elision | rewrote the gate as `(intra && !skip) \|\| boundary`; no change |
+| barrier elision generally | `BARRIER_ELISION[] = false`; no change |
+| use-after-free | forced **every** free to defer, never destroying inline; no change |
+| UAF via the in-flight window | defer when `!isempty(bq.in_flight)` too; no change |
+| unbounded in-flight depth | `MAX_IN_FLIGHT_BATCHES = 8` with a blocking wait; no change (fails *sooner*) |
+| DNNKernels' shared slab | one slab **per graph** instead of per step; no change |
+| cleanup / deferred frees | sweep between graphs without waiting; no change |
+| arg-pool frontier missing on compute | added `arg_pool_in_use!` to the compute `submit!` (the graphics path has always had it); no change |
+| stale BDAs in arg slabs | `PRESUBMIT_SCAN_ENABLED` — a purpose-built scanner already in Lava — reports **zero** |
+
+Every diagnostic edit was reverted; both worktrees are clean.
+
+**Next**, and it follows from the one unreconciled fact: verify the boundary
+barrier is actually *in the recorded command stream* of the second batch rather
+than assuming the code path emits it — dump the recorded commands, or record a
+deliberate no-op dispatch first and check the barrier precedes it. Every fix I
+have tried assumed the barrier was there and correct.
 
 ### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
 
