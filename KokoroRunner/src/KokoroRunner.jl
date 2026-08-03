@@ -52,11 +52,11 @@ result with `julia --project=. tools/make_artifacts.jl kokoro`, and replace
 this definition with `@artifact_str("kokoro")`. Assets come from the artifact
 and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = error(
+assetdir() = throw(ArgumentError(
     "KokoroRunner: Kokoro-82M is not ported yet, so no artifact is bound. " *
     "Export it with `uv run tools/export_kokoro.py`, bind it with " *
     "`julia --project=. tools/make_artifacts.jl kokoro`, then set " *
-    "`assetdir() = @artifact_str(\"kokoro\")`.")
+    "`assetdir() = @artifact_str(\"kokoro\")`."))
 
 """
     kokorograph(; dir = assetdir()) -> Graph

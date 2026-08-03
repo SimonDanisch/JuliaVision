@@ -51,11 +51,11 @@ result with `julia --project=. tools/make_artifacts.jl whisper`, and replace
 this definition with `@artifact_str("whisper")`. Assets come from the artifact
 and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = error(
+assetdir() = throw(ArgumentError(
     "WhisperRunner: Whisper large-v3-turbo is not ported yet, so no artifact is bound. " *
     "Export it with `uv run tools/export_whisper.py`, bind it with " *
     "`julia --project=. tools/make_artifacts.jl whisper`, then set " *
-    "`assetdir() = @artifact_str(\"whisper\")`.")
+    "`assetdir() = @artifact_str(\"whisper\")`."))
 
 """
     whispergraph(; dir = assetdir()) -> Graph

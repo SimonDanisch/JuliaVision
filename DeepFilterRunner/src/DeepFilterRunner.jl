@@ -50,11 +50,11 @@ result with `julia --project=. tools/make_artifacts.jl deepfilternet`, and repla
 this definition with `@artifact_str("deepfilternet")`. Assets come from the artifact
 and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = error(
+assetdir() = throw(ArgumentError(
     "DeepFilterRunner: DeepFilterNet3 is not ported yet, so no artifact is bound. " *
     "Export it with `uv run tools/export_deepfilternet.py`, bind it with " *
     "`julia --project=. tools/make_artifacts.jl deepfilternet`, then set " *
-    "`assetdir() = @artifact_str(\"deepfilternet\")`.")
+    "`assetdir() = @artifact_str(\"deepfilternet\")`."))
 
 """
     deepfilternetgraph(; dir = assetdir()) -> Graph

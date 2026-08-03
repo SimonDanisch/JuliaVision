@@ -2027,3 +2027,79 @@ harness rather than of RDNA.
   sweep pointed the other way and by a larger margin.
 - The one thing that would change this is the alignment hypothesis above, which is
   a question about the benchmark harness, not about RDNA.
+
+## 2026-08-03 — Depth Anything V2: the gap is one redundant copy, not convolution
+
+Run through `DepthAnythingRunner` itself (frozen kernels **54 hits / 0 misses**),
+25 reps, `IQR/median 0.9%`:
+
+| | |
+|---|---|
+| forward | min 934.0, **median 976.1 ms** |
+| PyTorch, desktop card | 24.7 ms |
+| this port, desktop card | ~380 ms |
+
+### Where it goes, and it is not where the record says
+
+| family | ms | share | dispatches |
+|---|---|---|---|
+| **elementwise (ndmap)** | **785.12** | **83.2%** | 31 |
+| gemm | 79.61 | 8.4% | 50 |
+| **convolution** | **44.09** | **4.7%** | 31 |
+| elementwise (broadcast) | 19.35 | 2.0% | 203 |
+| softmax | 15.28 | 1.6% | 12 |
+
+`small-models/REPORT.md` says the miss is "convolution throughput". **Convolution
+is 4.7%.** That claim needs re-testing on the 3070 before it is inherited again;
+it may be true there and false here, but it is stated unconditionally.
+
+### It is a single `clone`
+
+```
+ka f=#gpu_ndmap_flat! groups=(8220, 1, 1)     726.57 ms   x12     ← 77% of the model
+```
+
+`8220 = 6 heads x 1370 tokens`, 12 dispatches = 12 DINOv2 blocks. Of the ops
+writing >5M-element tensors twelve times — `bmm`, `_softmax`, `clone` — the first
+two are timed separately, so this is **`clone.default` on the `[1, 6, 1370, 1370]`
+attention matrix**: 60.5 ms each, 45 MB in and 45 MB out, i.e. **~1.5 GB/s** on a
+card that does hundreds.
+
+The chain is `_softmax -> clone -> expand_3 -> view_7 -> bmm_1`.
+
+**Redundant, not dead — and the difference took a second query to establish.** A
+direct reader search said the clone's output had *zero* consumers, which reads as
+dead code; the consumer is two view levels down and the first search missed it.
+Recorded because "dead" and "redundant" have different fixes and the wrong one
+would have been a silent correctness change.
+
+It is redundant because the source is a **transient**, produced by `_softmax`,
+with exactly **one** reader, at the **same shape and dtype**, already contiguous.
+Nothing aliases it and nothing mutates it. `expand_3` can read `_softmax`
+directly.
+
+Two independent defects, either of which is worth more than the whole padding
+sweep that preceded it:
+
+1. **The copy should not exist.** Eliding it is the rewrite `foldrelu` and
+   `foldbatchnorm` already perform — repoint the consumer at the source. A
+   `dropclone` pass belongs in that family, gated on: source is a transient,
+   single reader, identical shape/dtype, not a graph output.
+   **944 -> ~218 ms, 4.3x**, which moves this port from ~15x off PyTorch to ~3.5x.
+
+2. **The copy is ~100x too slow even if kept.** A contiguous 45 MB copy at
+   1.5 GB/s is a kernel problem in its own right, and it is the same
+   `gpu_ndmap_flat!` every elementwise op in the library uses. The second-largest
+   ndmap (`groups=(175960,1,1)`, 57.57 ms, x12) moves more elements in a
+   twelfth of the time, so the pathology is specific to this launch shape —
+   8220 groups of 1370 elements — not to `ndmap_flat` generally.
+
+Neither has been fixed here: both are DNNKernels/Lava work on a model this
+machine does not own, and (2) needs the desktop to confirm the launch-shape
+effect reproduces on NVIDIA before anyone changes the kernel for everyone.
+
+### Method note
+
+The first measurement of this reported `spread 438.5%` from 15 reps — one
+outlier, not a distribution. The re-run at 25 reps with quartiles gives
+`IQR/median 0.9%` and `max/min 1.1x`. Quote the quartiles.

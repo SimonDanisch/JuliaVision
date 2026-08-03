@@ -51,11 +51,11 @@ result with `julia --project=. tools/make_artifacts.jl propainter`, and replace
 this definition with `@artifact_str("propainter")`. Assets come from the artifact
 and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = error(
+assetdir() = throw(ArgumentError(
     "ProPainterRunner: ProPainter is not ported yet, so no artifact is bound. " *
     "Export it with `uv run tools/export_propainter.py`, bind it with " *
     "`julia --project=. tools/make_artifacts.jl propainter`, then set " *
-    "`assetdir() = @artifact_str(\"propainter\")`.")
+    "`assetdir() = @artifact_str(\"propainter\")`."))
 
 """
     propaintergraph(; dir = assetdir()) -> Graph
