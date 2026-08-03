@@ -59,16 +59,21 @@ the operand types and its own device query. Nothing here knows tensor cores
 exist, which is the point: this file describes what the graph needs, not how a
 particular GPU provides it.
 """
-matmul!(ctx, out, A, B, bias=nothing; epi=identity) =
-    matmul!(ctx, mm_coopmat_plan(ctx.dev, out, A, B), out, A, B, bias, epi)
+# `gemm` forwards Lava's kernel-selection keywords — `staged`, `vec2`,
+# `narrow_ok`, `tiling`. They were module-level `Ref`s in Lava and are now
+# arguments, so a benchmark or a test that wants a non-default kernel passes it
+# here instead of mutating a process-wide setting and restoring it in a `finally`.
+# Empty by default, so the shipped path is exactly the measured one.
+matmul!(ctx, out, A, B, bias=nothing; epi=identity, gemm=NamedTuple()) =
+    matmul!(ctx, mm_coopmat_plan(ctx.dev, out, A, B), out, A, B, bias, epi; gemm)
 
 # One method per plan type (review finding 1): a new GEMM path is a new plan type
 # and a new method here, not another branch in the function above.
-matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi) =
-    matmul_coopmat!(ctx, out, plan, A, B, bias, epi)
+matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi; gemm=NamedTuple()) =
+    matmul_coopmat!(ctx, out, plan, A, B, bias, epi; gemm)
 
 """`LinearAlgebra.mul!`, which is Lava's scalar kernel — always available."""
-function matmul!(ctx, ::Decline, out, A, B, bias, epi)
+function matmul!(ctx, ::Decline, out, A, B, bias, epi; gemm=NamedTuple())
     mul!(out, astranspose(A), astranspose(B))
     bias === nothing || (out .= out .+ bias)
     # The scalar path has no epilogue to fold into, so the activation is a second
@@ -155,7 +160,8 @@ end
 # output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
 # reference is the same to four significant figures on every shape.
 
-function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi)
+function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
+                         gemm=NamedTuple())
     M, K = size(A)
     N = size(B, 2)
     NP = plan.NP
@@ -177,11 +183,11 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi)
     # `NP != N` still needs the epilogue: the GEMM writes the padded width and
     # the padding columns must not reach `out`.
     if splitk == 1 && NP == N
-        Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi)
+        Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi, gemm...)
         return out
     end
     C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
-    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
+    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false, gemm...)
     mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out

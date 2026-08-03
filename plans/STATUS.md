@@ -131,9 +131,37 @@ the caches are distinct objects and that each device populated its own.
 became `destroy_pool!(ctx)`, called from `vk_reset_device!` where the retiring
 context is in scope instead of hunted for in a global.
 
-The remaining 73 `Ref`s are tunables and diagnostics (`AUTO_SUBMIT_THRESHOLD`,
-`BARRIER_MODE`, `DISPATCH_LOGGING_ENABLED`), not device-owned state — a separate
-question from this one.
+### The `Ref`s are the rest of finding 3, not a separate question
+
+Calling the remaining 73 "tunables and diagnostics, a different question" was
+wrong — they are the bulk of what finding 3 is about, and two of them were
+outright correctness bugs rather than untidiness. Progress, by owner:
+
+| batch | count | state |
+|---|---|---|
+| **pool policy → `DevicePool` fields** | 14 | **done** |
+| **queue policy → `BatchQueue` fields** | 6 | **done** |
+| diagnostics → a `Diagnostics` struct on the context | 18 | next |
+| launch/kernel arguments (`GEMM_*`, `BROADCAST_*`) | 12 | after that |
+| device properties → `VkContext` fields | 9 | |
+| compiler config → `lava_compiler_config` | 4 | |
+| genuinely process-level | 9 | staying |
+
+**73 → 52 so far.** Two of the moves fixed real bugs rather than tidying:
+
+- `last_trim`, `gc_last` and friends were global, so **one device's trim
+  suppressed the other's** — the pool was being rate-limited across devices that
+  share nothing.
+- `NEXT_SKIP_BARRIER` is a **one-shot flag consumed by the next dispatch**. As a
+  global, a dispatch on one queue could consume the skip armed for another. It is
+  a `BatchQueue` field now.
+- Separately, `debug.jl` set `POOL_DISABLED` *before* `vk_reset_device!()`, i.e.
+  it configured the pool that was about to be discarded. It now sets it on the new
+  context, after.
+
+The precedent for the diagnostics batch is DNNKernels' own: it retired
+`OPTIMES`/`OPDOUBLE`/`OPDOUBLEFILTER`/`PLAN_MISSES`/`LAUNCH_PROBE` onto
+`Ctx.diag` (review step 3), which is exactly the shape Lava needs.
 
 Two more fell out on 2026-08-02 once the probe ran to completion:
 
