@@ -422,12 +422,45 @@ is using it.
 
 | # | feature | what it would change | state | est. value | task |
 |---|---|---|---|---|---|
-| 17 | coopmat2 **reductions** | flash softmax's row max/sum, currently a shared round-trip + 2 barriers | **open** | ≤ 8.3 ms of encode, fraction unknown | K3 |
+| 17 | coopmat2 **reductions** | flash softmax's row max/sum, currently a shared round-trip + 2 barriers | **INSTRUCTION DONE 2026-08-03; K3's premise is dead — see below** | ~0 | K3 |
 | 18 | coopmat2 **flexible dimensions** | `E = 72` stops padding to `EP = 80`; reopens the tiling space | **open** | 10% of both attention products | K4 |
 | 19 | coopmat2 **tensor addressing / block loads** | replaces flash's hand-coded root+stride staging and the GEMM's 2-barrier k-step | **open** | unknown; a route past the GEMM's 35% | K5 |
 | 20 | **fp8 coopmat at K32** | twice the reduction depth per instruction on the 44.4 ms addmm bucket | **open** | unproven — see below, measure with int8 first | K6 |
 | 21 | **maximal_reconvergence** + uniform control flow | makes a spin-wait well-defined, i.e. producer/consumer GEMM staging | **open** | the only identified route past 35% | K7 |
 | 22 | **AMD fallback matrix** | every coopmat2-gated kernel needs a tested KHR path | **open** | correctness, not speed | — |
+
+### 17 is built, and K3 should not be
+
+`OpCooperativeMatrixReduceNV` landed in Lava on 2026-08-03 — `coopmat_reduce`,
+`CoopMatReduce.{Row,Column,RowAndColumn,TwoByTwo}`, 5 asserts. It was the cheapest
+of the five as this table predicted: one emitter branch plus a binding, on top of
+the machinery `coopmat_perelement` had already paid for.
+
+**But the kernel item it exists for is contradicted by a measurement already on
+file.** K3 makes the flash softmax's row max and sum faster. A *parallel softmax*
+was built for exactly that and reverted — "not the bottleneck" — and it is one of
+the five successive attention hypotheses this document already records as dead
+(parallel softmax, held `O`, per-row-tile `grew`, the tiling sweep, `row_split`).
+A cooperative-matrix reduce makes the same computation cheaper in the same place
+that was measured not to matter. Estimate it at ~0 until something re-attributes
+attention, not at "≤ 8.3 ms, fraction unknown".
+
+Three things the port established that this table did not know, all measured and
+all in `test_coopmat_reduce.jl`:
+
+- **Subgroup scope is accepted.** Every use in `flash_attn_cm2.comp` is
+  `gl_ScopeWorkgroup`; a refusal would have made item 17 depend on workgroup-scope
+  matrices and stopped being cheap.
+- **The callback is a binary combiner** `(x, y) -> z`, and the result is a matrix
+  with the reduced value smeared along the axis, not a vector.
+- **The combine order is unspecified per output element**, so the combiner must be
+  associative and commutative. The reference's `smearReduce(x, y) = x` is not, and
+  is only correct there because its input is already row-uniform — it resizes
+  rather than reduces.
+
+That last point is what makes item 17 still worth having: the **resize** is the
+useful half, and it is what item 18 (flexible dimensions) needs to be spendable.
+So 17 is a prerequisite for 18/K4 rather than a win in its own right.
 
 **What the device actually reports**, so nobody re-queries it: all seven coopmat2
 sub-features (workgroup scope, flexible dimensions, reductions, conversions,

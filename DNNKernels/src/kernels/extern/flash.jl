@@ -464,11 +464,18 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
         ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
+        ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,RSC,
                                             BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT,
-                                            EPAD,RPAD}
-    NT = NW * 32
+                                            EPAD,RPAD,SG}
+    # `SG` is `dev.coopmatsubgroup`, not the literal 32 this used to be. The
+    # launcher already sized the workgroup as `NW * dev.coopmatsubgroup`, so the
+    # two disagreed on any device where Lava cannot pin a 32-lane subgroup: the
+    # launch asked for `NW * 64` threads while the kernel strided by `NW * 32`
+    # and every subgroup past the first read another's fragment. Nothing would
+    # have crashed. `kernel-library-review.md` step 1 names this leftover.
+    NT = NW * SG
     # `EPS` and `BRS`, not `EP` and `BR`, are the STRIDES of the shared arrays: the
     # tensor cores read them by column, and an unpadded stride puts every column in
     # one memory bank. Worth -31.4% at head dimension 64 — see [`flashepad`](@ref)
@@ -513,10 +520,10 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
     # `O` in registers: `BR*EP/NT` floats per thread, 20 for the shipped tiling.
     # Written out as `Float32` rather than through a local `T`, because Lava
     # miscompiles a `@private` whose element type comes from a local binding and
-    # does it silently — the kernel runs and writes nothing. `NW * 32` spelled
-    # out rather than the local `NT` below for the same reason: the size has to
-    # come from the type parameters.
-    acco = @private Float32 (div(BR * EP, NW * 32),)
+    # does it silently — the kernel runs and writes nothing. `NW * SG` spelled
+    # out rather than the local `NT` above for the same reason: the size has to
+    # come from the type parameters, and both of these are.
+    acco = @private Float32 (div(BR * EP, NW * SG),)
 
     RT = BR ÷ Lava.GEMM_TILE
     CT = BC ÷ Lava.GEMM_TILE
@@ -1461,6 +1468,7 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
                                 Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
                                 Val(rscbar),
                                 Val(ns), Val(epad), Val(rpad),
+                                Val(ctx.dev.coopmatsubgroup),
                                 Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
                                 Int32(plan.onepass && !rego ? 1 : 0), partial, ml;
                                 ndrange = (NT * cld(Lq, BR) * ns, H, B))

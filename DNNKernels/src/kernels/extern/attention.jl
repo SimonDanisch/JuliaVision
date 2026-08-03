@@ -230,22 +230,37 @@ Taking the head dimension whole keeps a group on one contiguous run of `out`.
 # for `attn_apply` it shapes `(64, 2, 2, 1)` and splits the 72-long head
 # dimension into 64 + 8 — the exact fragmentation `launchgroup` exists to avoid.
 # Measured: `attn_apply` 17.6 -> 21.6 ms. Contiguity wins here, folding does not.
-function scoresblocked!(backend, tk, scores, q, k, bias, scale, ndrange)
-    wg = launchgroup(ndrange)
-    tk == 32 && return attn_scores_b32!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
-    tk == 16 && return attn_scores_b16!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
-    tk == 8 && return attn_scores_b8!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
-    tk == 4 && return attn_scores_b4!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
-    attn_scores_b2!(backend)(scores, q, k, bias, scale; ndrange, workgroupsize = wg)
-end
-
-function applyblocked!(backend, tq, out, p, v, sums, ndrange)
-    wg = launchgroup(ndrange)
-    tq == 32 && return attn_apply_b32!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
-    tq == 16 && return attn_apply_b16!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
-    tq == 8 && return attn_apply_b8!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
-    tq == 4 && return attn_apply_b4!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
-    attn_apply_b2!(backend)(out, p, v, sums; ndrange, workgroupsize = wg)
+#
+# ── The dispatchers, GENERATED from `ATTN_BLOCKS` rather than written out ─────
+#
+# These were two hand-maintained `tk == 32 && return …` chains sitting beside the
+# loop that generates the kernels, which is `kernel-library-review.md` finding 5:
+# adding a block size to `ATTN_BLOCKS` generated a kernel and silently did not
+# dispatch to it, so the new size was dead code that read as live. Folding over
+# the same tuple means the two cannot disagree.
+#
+# Still a chain and not `Val` dispatch, deliberately. `tk` comes from `blockfor`
+# at runtime, so `f(Val(tk), …)` would buy a dynamic dispatch on every launch to
+# save four integer comparisons. Finding 5 asked for the dispatcher to be
+# *generated*, not for it to become a method table.
+#
+# The *kernels* genuinely cannot be `Val`-parameterised — see the note above
+# `ATTN_BLOCKS`: the closure over the accumulator tuple defeats inference and
+# every `muladd` becomes a dynamic call. That constraint is about the kernel
+# body, not about this.
+for (name, kern, args) in (("scoresblocked!", "attn_scores_b", (:scores, :q, :k, :bias, :scale)),
+                           ("applyblocked!",  "attn_apply_b",  (:out, :p, :v, :sums)))
+    # Largest first, smallest as the unguarded fallback — the shape that was
+    # written by hand, minus the opportunity to forget an entry.
+    guarded = [:(tk == $B && return $(Symbol(kern, B, "!"))(backend)($(args...);
+                                                                    ndrange, workgroupsize = wg))
+               for B in reverse(ATTN_BLOCKS)[1:end-1]]
+    fallback = Symbol(kern, first(ATTN_BLOCKS), "!")
+    @eval function $(Symbol(name))(backend, tk, $(args...), ndrange)
+        wg = launchgroup(ndrange)
+        $(guarded...)
+        $(fallback)(backend)($(args...); ndrange, workgroupsize = wg)
+    end
 end
 
 """
