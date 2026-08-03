@@ -26,10 +26,27 @@ exactly 64 MiB (which is `POOL_LARGE_THRESHOLD`, so it does not bypass the pool)
      none of it is reclaimable, because a block is only freeable when *every*
      tenant is dead and the resident tensors are scattered one per block.
 
-Pattern 3 is why the reclaim call is not a fix on its own. It recovers the
-blocks that happen to be wholly transient — 51 of 63 on SAM 2 — and can do
-nothing about the rest, because the pool has no notion of separating a
-short-lived allocation from one that lives as long as the model.
+Pattern 3 is the residual. `reclaim_empty_pool_blocks!` recovers the wholly
+transient blocks — 51 of 63 on SAM 2, taking it from **7.9x the resident set to
+1.50x for 52 ms**, once, at load — and can do nothing about the rest, because the
+pool has no notion of separating a short-lived allocation from one that lives as
+long as the model.
+
+**Two reorderings were proposed to remove that residual and both are disproved**
+(`small-models` REPORT, 2026-08-03); do not spend an afternoon on either:
+
+  * *fold constants before uploading the resident weights* — impossible.
+    `constops` seeds its known set from `kind === :weight`, so a constant subgraph
+    is by definition one that reads only weights: folding consumes what it would
+    have to precede.
+  * *two-phase upload, folding weights first* — computable but pointless. On
+    SAM 2's encoder the foldable ops consume 896 of 941 MiB, **95% of the bytes**,
+    so phase one uploads nearly everything and the interleaving happens inside it.
+
+The two populations are interleaved in the *graph*, not in the upload order, so
+no `Model`-level ordering separates them. Removing the residual means the
+allocator learning about lifetimes — a separate pool, or an arena for load-time
+transients.
 
 **What this is not.** Not fragmentation by size: pattern 1 has the identical size
 distribution and wastes 6%. Not a leak: every buffer here is properly freed, and
@@ -117,7 +134,13 @@ end)
 
 println()
 println("Pattern 3 is a weight upload's shape. Blocks marked PINNED hold at least")
-println("one live tensor, so no reclaim can return them however empty they are —")
-println("which is why calling `reclaim_empty_pool_blocks!` after a load is a")
-println("mitigation and not the fix. See this file's docstring.")
+println("one live tensor, so no reclaim can return them however empty they are.")
+println("Reclaiming after a load still recovers pattern 2 — on SAM 2 that is 7.9x")
+println("the resident set down to 1.50x, for 52 ms once. The residual needs the")
+println("allocator to separate lifetimes; two Model-level reorderings were tried")
+println("and both are disproved. See this file's docstring.")
+
+# Non-zero when pattern 3 pins more than a perfectly packed resident set would,
+# so this can drop into a suite once the behaviour is decided. Verified firing:
+# with the synthetic sizes it pins 14 against a minimum of 8 and exits 1.
 exit(pinned > minblocks ? 1 : 0)
