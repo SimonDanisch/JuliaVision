@@ -885,6 +885,37 @@ points.
     passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
             7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
 
+### What the validation layers did and did not give
+
+Asked directly whether the layers nailed this down: **no.** They eliminated, they
+did not localise. Recorded because a negative instrument result is worth as much
+as a positive one and is easier to forget.
+
+| instrument | outcome |
+|---|---|
+| GPU-AV (`activate_all_debugging`, `verify_gpu_av` proving it fires) | **no OOB reported** during the run |
+| Synchronization validation (no GPU-AV) | **zero `SYNC-HAZARD`s**, ran to the fault and reported nothing |
+| Core validation + best practices | nothing before the fault |
+| GPU-AV enabled | the layer itself **segfaults** in `vkQueueSubmit2` |
+
+What actually localised it was **Lava's own** `set_dispatch_logging!(true)`, which
+named `gpu_strided_gemm_kernel!`, and the `AUTO_SUBMIT_THRESHOLD` sweep. Neither
+is a validation layer.
+
+**Two caveats that matter for what to conclude.**
+
+1. **"No OOB" is narrower than it sounds.** GPU-AV's own verification probe
+   reports *"1 bytes **written** at buffer device address"* — it instruments
+   **stores**. An out-of-bounds **read** of a garbage address would not be
+   flagged, so address corruption is *not* excluded; only bad writes are.
+2. The zero sync-hazard result is consistent with the barrier hypothesis being
+   disproved by experiment, so two independent lines now agree this is not a
+   missing barrier.
+
+Where that leaves the search: not a bad store, not a race, not the GEMM kernel or
+its shape — but plausibly a **bad address handed to the kernel**, which fits both
+the surviving evidence and the layer crashing while instrumenting that submit.
+
 ### Root cause is in Lava's auto-submit path — but the fix is not found yet
 
 `AUTO_SUBMIT_THRESHOLD` (`command.jl:149`) makes Lava submit mid-recording every
