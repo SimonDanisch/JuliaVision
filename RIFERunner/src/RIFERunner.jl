@@ -260,6 +260,16 @@ end
 # workload still left 45 s on the first click because the editor goes through a
 # closure `runsam2` never touches.
 #
+# NOT `frozen_stats().misses == 0` alone, which reads stronger than it is: it
+# cannot distinguish the frozen cache working from the driver's own shader cache
+# having served everything, and its miss report identifies modules by the
+# *sampling* hash, so two differing in one byte count as one (`STATUS.md`,
+# cross-project). The claim this package makes is `Lava.no_pipeline_compilation`
+# reporting **0 refusals** — it empties `PIPELINE_CACHE` first, so a Julia-side
+# hit cannot mask a cold `VkPipelineCache`. Pair it with a control whose kernel
+# body is novel per RUN (a `Val{K}` from `RandomDevice`) or a green means
+# nothing; verified firing here at refused = 1.
+#
 # The graph's resolution is baked, so the workload has to run at whatever the
 # installed export was built for — there is no smaller stand-in. That makes this
 # the most expensive workload of the three: one 1080p interpolation.

@@ -129,8 +129,12 @@ println(ok ? "APPLY PARITY OK" : "APPLY PARITY FAILED")
 # (fold, hoist, dropdead) that the editor's own path gets, and a benchmark that
 # skips them measures a graph nothing ships. Measured on this model:
 # `loadgraph` + a slab-less `execute!` reported 14.08 ms for this classifier;
-# the same graph through `Model` with a planned slab is 1.73 ms. The slab is
+# the same graph through `Model` with a planned slab is **1.8 ms**. The slab is
 # most of that — without one, every intermediate is a fresh allocation.
+#
+# (Figures between those two, 7-11 ms, appear in this report's history and are
+# all wrong: they were measured with a three-call warm-up, inside the 24-call
+# ramp `timed` now skips.)
 model = Model(DIR, joinpath(DIR, "weights.safetensors");
               names = ["neurallut"], backend)
 graph = model.graphs["neurallut"]

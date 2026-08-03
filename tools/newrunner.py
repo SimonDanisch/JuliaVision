@@ -143,11 +143,21 @@ end
 # a machine without either, it should just produce a package with nothing cached.
 #
 # TODO(port): drive the real call here once the graph runs. The measurement that
-# matters is `Lava.frozen_stats().misses == 0` on a *fresh* process — a workload
+# matters is `Lava.no_pipeline_compilation` reporting **0 refusals** on a *fresh*
+# process — a workload
 # that runs a different path than the editor does leaves the editor compiling on
 # first use, which is the entire cost this package exists to remove. SAM2Runner
 # learned that the expensive way: its `runsam2` workload still left 45 s on the
 # first click because the editor goes through a closure `runsam2` never touches.
+#
+# NOT `frozen_stats().misses == 0`, which reads stronger than it is: it cannot
+# distinguish the frozen cache working from the driver's own shader cache having
+# served everything, and its miss report identifies modules by the *sampling*
+# hash, so two modules differing in one byte count as one (`STATUS.md`,
+# cross-project). `no_pipeline_compilation` empties `PIPELINE_CACHE` first and
+# refuses anything needing a compile. Pair it with a negative control whose
+# kernel body is novel per RUN — a `Val{K}` with `K` from `RandomDevice` — or a
+# green means nothing; verified firing here at refused = 1.
 @setup_workload begin
     if ready()
         try

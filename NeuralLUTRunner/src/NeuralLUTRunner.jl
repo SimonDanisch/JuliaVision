@@ -231,6 +231,16 @@ grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
 # that the expensive way: its `runsam2` workload still left 45 s on the first
 # click because the editor goes through a closure `runsam2` never touches.
 #
+# NOT `frozen_stats().misses == 0` alone, which reads stronger than it is: it
+# cannot distinguish the frozen cache working from the driver's own shader cache
+# having served everything, and its miss report identifies modules by the
+# *sampling* hash, so two differing in one byte count as one (`STATUS.md`,
+# cross-project). The claim this package makes is `Lava.no_pipeline_compilation`
+# reporting **0 refusals** — it empties `PIPELINE_CACHE` first, so a Julia-side
+# hit cannot mask a cold `VkPipelineCache`. Pair it with a control whose kernel
+# body is novel per RUN (a `Val{K}` from `RandomDevice`) or a green means
+# nothing; verified firing here at refused = 1.
+#
 # 256x256 rather than a real frame: `lut3d!` and `resizeplanar!` are compiled per
 # element type and backend, not per resolution, so a small image freezes the same
 # kernels in a fraction of the time and none of the VRAM.
