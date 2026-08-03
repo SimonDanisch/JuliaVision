@@ -802,8 +802,17 @@ for the first time, and both fail the same way:
       timeline counter = 355, next_timeline = 405, replay watermark = 0
       batch 1: signals 356, waits on nothing ...
 
-`Pkg.test("MatAnyoneRunner")` and `Pkg.test("SAM2Runner")`, on this machine,
-**every time**. Reproduced with the soak running and again with the GPU fully
+`Pkg.test("MatAnyoneRunner")`, on this machine, **every time**.
+
+**Correction: SAM 2 does not fail this way.** I wrote that both suites failed
+identically, having read MatAnyone's error and only a summary line for SAM 2 —
+and SAM 2's fixture is 1024 x 1024, square, which the characterisation below says
+should *not* hang. It does not. Its suite failed on **missing test deps**
+(`Random`, then `Printf`) in the target I had just added; with those it gets
+further and its subprocess exits non-zero for a reason its own test cannot
+report, because it uses `read(cmd)` without capturing stderr — the identical
+defect I had fixed in my own latency test an hour earlier. Left there: it is
+`SAM2Runner`'s suite and diagnosing it needs room I do not have. Reproduced with the soak running and again with the GPU fully
 idle, so it is not contention — checked specifically, having made exactly that
 mistake this morning.
 
