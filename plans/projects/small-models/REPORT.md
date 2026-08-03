@@ -629,3 +629,41 @@ remove.
 So the two fixes are not alternatives of equal weight. The reclaim is the cheap
 one and it recovers ~81% of the excess; the ordering change is what would take
 the last 50%, and only it addresses the mechanism.
+
+### The ordering fix as I filed it is impossible — and the mechanism is sharper than "transients"
+
+I recommended "fold constants before uploading the resident weights" without
+checking it could be done. It cannot. `constops` seeds its known-constant set
+with `kind === :weight` and grows it to fixpoint, so a constant subgraph is by
+definition one that **reads only weights** — folding consumes weights, and cannot
+precede the upload that makes them readable. That is why `driver.jl` puts the
+pass after the upload, and the comment there says so.
+
+What that clarifies is the mechanism, which I had been describing as "transients"
+without knowing what they were. They are not staging buffers. They are **the
+weights the fold consumes and `dropdead` then discards** — uploaded into the same
+blocks as the weights that stay, then dropped, leaving those blocks partly empty.
+The debug line names the quantity: 824 orphaned weights dropped, 186 subgraphs
+folded, against 734 that remain. The pool cannot tell the two populations apart
+because nothing told it they had different lifetimes.
+
+So the feasible form of the ordering fix is a **two-phase upload**: upload only
+the weights the constant subgraphs consume, fold, reclaim, then upload the 734
+survivors into a pool that is empty again. That is a real change to `Model` and a
+bigger one than I implied — it needs `constops` run before the upload to know
+which weights are in phase one, which is possible since that analysis is
+host-side and reads only the graph.
+
+### The cheap fix, costed
+
+    reclaim scanned 63 blocks, freed 51 (3264 MiB) in 52.4 ms
+    second call (nothing to free)                  in  5.12 ms
+
+**52 ms, once, at load, to recover 3.2 GB** — against a load that takes seconds.
+The scan alone is 5 ms when there is nothing to free, so it is cheap to call
+unconditionally. Against 7.9x → 1.50x, that is the whole recommendation: do this
+one, and treat the two-phase upload as the follow-up that removes the last 50%
+rather than as an alternative to it.
+
+Both numbers are from this machine, and the reclaim cost will scale with block
+count rather than with model size.
