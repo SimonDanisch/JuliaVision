@@ -885,6 +885,45 @@ points.
     passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
             7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
 
+### SUPERSEDED AGAIN — it is `ERROR_DEVICE_LOST`, and attention is not involved
+
+Driving the attention path directly, and then instrumenting the model, disproved
+the mechanism in this entry and the one below it. What is actually happening:
+
+    ERROR: LavaError during vkQueueSubmit2:
+      ... Vulkan.ERROR_DEVICE_LOST) after 64 dispatches in batch (256 total)
+    Crashed batch dispatch: 64 dispatches (compute)
+
+**The GPU faults.** `ERROR_DEVICE_LOST` is a driver-level device loss, not queue
+bookkeeping — which is what `vkWaitSemaphores timed out ... 50 in-flight batches`
+looks like from the other side when the device dies mid-batch and nothing will
+ever signal. Both signatures come from the same input sizes; the submit is
+sometimes the call that notices and sometimes the wait is.
+
+Three mechanisms of mine, all disproved by measurement:
+
+1. **Not `blockfor`'s non-square bug.** `blockfor` returns 1 (no blocking) when
+   `n != other` **or** `n < 64`, so these shapes never take the blocked path the
+   tracker's workaround is about.
+2. **Not "sequence length 48".** Instrumenting `sdpa!` shows 96 x 96 — which
+   **passes** — already runs `Lq = 16, Lk = 48`. And a direct `sdpa!` at
+   `L = 48` (E = 64, H = 8, B = 1) completes in 11.3 s.
+3. **Attention is not reached at all.** With the probe in place, the hanging run
+   at 96 x 128 emits **zero** `SDPA_PROBE` lines before dying. The fault is
+   upstream of the first attention call.
+
+The device recovers between processes — 96 x 96 re-verified passing afterwards —
+so the shape matrix below stands as data. What does not stand is every
+explanation I attached to it.
+
+**What is established:** specific input sizes reproducibly cause a device loss in
+`MatAnyoneRunner`, others reproducibly do not, and the boundary is sharp (44 and
+49 clean either side of 48 in the original 2D sweep). The mechanism is
+**unidentified**, and it is a GPU fault rather than a synchronisation bug — which
+points at a bad dispatch, not at batch accounting. `Lava.enable_gpu_av` and
+`spirv-val` are the Rule-0 instruments that should go at it next, on a machine
+that can afford the device resets.
+
 ### SUPERSEDED — it is the sequence LENGTH 48, and it is not `blockfor`'s bug
 
 The 2D framing above is wrong, and so is my attribution. Three geometrically
