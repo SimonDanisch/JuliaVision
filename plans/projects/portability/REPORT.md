@@ -1631,3 +1631,169 @@ Not attempted here: a narrowing store that only wants the low 32 bits of a
 64-bit slot is not semantically identical to a widening store of the whole slot,
 so this is a change to what the kernel writes and needs the emitter's owner, not
 a portability pass. The reproducer above is the thing to iterate against.
+
+## 2026-08-03, Phase 3 continued — the `OpBitcast` family is closed
+
+Pinned at Lava `e6456c0` (rebased onto `sd/nvidia` `0903c6f`), JuliaVision
+`07e33e7` (merged with `sd/kernels-refactor` `e89e694`).
+
+### Suite: 23793 pass / 13 fail / 9 error, zero segfaults, zero `pCode-08737`
+
+Full run, `LAVA_VALIDATION=1`, 26m04s, 2710 modules compiled and dumped.
+
+| | baseline (Phase 3.1) | now | change |
+|---|---|---|---|
+| failures | 15 | **13** | `test_disk_cache.jl:121,127` fixed |
+| errors | 13 | **9** | `test_disk_cache.jl:128-132` + `test_subgroup_size_pinning.jl:90` fixed |
+| `pCode-08737` | 4 | **0** | the store-path fix |
+| segfaults | 0 | 0 | |
+
+The 13 remaining failures are all `test_static_workgroup.jl` (`:133,:143,:144,`
+`:155,:287,:288`) — the `Extruded` characterization tests, which assert that a
+driver bug *still reproduces* and therefore fail on a driver that does not have
+it. The 9 errors are `test_shared_index_division.jl:196` (3),
+`test_int32_cartesian_miscompile.jl:301,334` (3) — all `@test_broken` Unexpected
+Pass, same cause — plus `test_struct_broadcast.jl:80`, which `bca7906` fixes and
+which the rebase has now brought in.
+
+### Both remaining `OpBitcast` sites fixed, and one of them is unexercised
+
+`67b55ac`/`effd47e` (store) and `60364e4` (load) close the inventory. Both
+reconcile on the **value** side, which is the part the earlier entry in this
+report got right in theory: load the slot at its true width, `OpUConvert` (SPIR-V
+defines it as truncate-or-zero-extend, so one instruction serves both
+directions), `OpBitcast` the *value* if a float was wanted.
+
+The store side's narrowing case is a read-modify-write — extend, load slot, mask,
+OR, store — so the high bits of the slot survive exactly as the old narrow
+pointer store left them. That was the objection the earlier entry raised against
+attempting it, and it is answered rather than waived: the write is
+semantics-preserving, not merely legal.
+
+**The load-path sites are not reachable by anything available here, and this is
+a negative result, not a verification.** A probe on both branches recorded:
+
+| driver | modules | hits |
+|---|---|---|
+| full Lava suite | 2710 | **0** |
+| mirror of the store reproducer (`z = x[:, :, 2]`, twelve element types) | 24 | **0** |
+
+So `emit.jl`'s `pointee_ty isa IntegerType` load branch — including the
+pre-existing *widening* case, which carries a comment about RADV rejecting the
+alternative — is dead in this suite. The fix is correct by construction and by
+symmetry with the store side; it is not correct by measurement, and a green suite
+must not be read as having exercised it. The store side, by contrast, went from
+2 invalid modules to 0 on a reproducer that runs in 30 seconds.
+
+Two things fell out of unifying the branches, both worth having independently:
+`i1` maps to `OpTypeBool` and so is reachable by neither convert nor bitcast
+(`trunc iN to i1` is emitted as `(x & 1) != 0`); and the widening branch passed a
+bare `Aligned` memory operand where every other Workgroup load in the file passes
+`Aligned | NonPrivatePointer`, which is meaningful because Lava emits the Vulkan
+memory model.
+
+### A handled allocation failure was blaming innocent code — `dfb797e`
+
+**New bug, and it is a diagnostic-quality bug, which is the kind that costs the
+most time.** The suite reported a failure in
+`test_source_mapping.jl:739`, "Source mapping doesn't break kernel execution",
+as a `LavaError during vk_flush!` on a **four-element** `Float32` upload — with a
+message about a **40 GB** buffer.
+
+That test is innocent. `test_source_mapping.jl:699`, forty lines earlier,
+deliberately asks for 40 GB against a 34 GB heap:
+
+```julia
+Lava.try_vk_alloc(Lava.vk_context().default_bq, 40_000_000_000)  # 40GB, will fail
+```
+
+`try_vk_alloc` handles the refusal and returns `AllocFailure`, and it *tried* to
+absorb the validation messages — but it called `empty!(VALIDATION_MESSAGES)`
+without calling `drain_validation_messages!()` first. The callback writes into a
+lock-free ring (`VAL_RING_*`), and only the drain moves entries out of it, so the
+messages stayed in the ring until the next `check_validation_errors!` — which
+belonged to unrelated code, and threw there.
+
+One line. The correct idiom was already in the file: `clear_printf_output!` does
+`drain_validation_messages!(); empty!(PRINTF_MESSAGES)`.
+
+**This corrects an earlier entry in this report.** The section "Four distinct
+VUIDs, of which two are real" called `VkBufferCreateInfo-size-06409` and
+`vkAllocateMemory-pAllocateInfo-01713` *"benign — an OOM-handling test doing its
+job"*. Benign as Vulkan **events**; not benign as test **outcomes**, because they
+abort a later unrelated testset whenever validation is on. Only two of the four
+VUIDs needed fixing, but all four needed *handling*.
+
+`test_tolerated_alloc_failure.jl` asserts the **ring** is empty after a drain,
+not just the list — draining is precisely what the buggy version skipped — and
+then reproduces the original symptom with the small unrelated upload. Verified
+to fail with the fix reverted: 1 passed, 1 failed, 1 errored, the error being the
+same `LavaError during vk_flush!`.
+
+### Phase 3.3 — the coopmat 32-lane pin: the assumption holds
+
+```
+device            : AMD Radeon 8060S Graphics (RADV STRIX_HALO)
+default subgroup  : 64
+size control      : min=32 max=64 compute=true
+can pin 32        : true
+```
+
+**The guard does not fire here**, which is what the brief predicted and asked to
+have confirmed. `test_coopmat_subgroup_refusal.jl`, 6/6.
+
+The positive control is the part worth reporting, because the first version of it
+**passed vacuously**. Driving the refusal through `mul!` with the capability
+cache faked to a wave64-only device produced no error at all: `mul!` returned
+normally and computed the right answer. `coopmat_gemm_available` consults
+`can_require_subgroup_size` itself (`gemm.jl:271`), so the faked cache makes it
+answer false and the call routes to the scalar GEMM without ever asking for a
+cooperative-matrix pipeline.
+
+**So the refusal is a backstop behind that gate, not the first line of defence,
+and it only protects callers that do not ask `coopmat_gemm_available` first.**
+The test now launches a kernel that touches a cooperative matrix directly, which
+is what makes the module declare `CooperativeMatrixKHR` — the condition
+`get_compute_pipeline` actually keys on — and the refusal fires with its own
+message.
+
+### DNNKernels op coverage runs here; the reference comparison still cannot
+
+The blocker was recorded as "no `matanyone-refs` artifact exists". More precisely:
+the `matanyone` artifact **is** installed
+(`~/.julia/artifacts/9369a615…`) and carries `graphs/` and
+`weights.safetensors`, but **not** `refs-*.safetensors` or
+`refs_manifest-*.json`, and its graphs are the pre-split flat layout
+(`graphs/encode_image.json`) rather than the `graphs/aten-$precision/` the test
+wants. Regenerating the refs needs `tools/dump_refs.py`, i.e. PyTorch and the
+model, which the brief rules out.
+
+The half that does not need refs runs, and is worth having:
+
+| graph | ops | missing |
+|---|---|---|
+| `encode_image` | 8 | none |
+| `transform_key` | 5 | none |
+| `encode_mask_deep` | 24 | none |
+| `encode_mask_shallow` | 23 | none |
+| `pixel_fusion` | 9 | none |
+| `pred_uncertainty` | 7 | none |
+| `segment` | 13 | none |
+| `readout_query` | 38 | none |
+
+**Full op coverage on all eight graphs, nothing missing.** That is the first
+coverage check of MatAnyone's graphs on this machine, and it says the gap is
+purely the reference activations, not the kernel library.
+
+### One more hardcoded 32, in a test
+
+`DNNKernels/test/test_flash.jl:129` gated on `NW * 32 <= Lava.WORKGROUP_LIMIT[]`.
+The literal was numerically right — Lava pins coopmat modules to 32, so that is
+the real thread count — but it stops being a coincidence only once it names which
+of `dev.subgroup` (64 here) and `dev.coopmatsubgroup` (32) it means. Now
+`NW * dev.coopmatsubgroup`, the same distinction as finding 1.
+
+Not fixed, filed: `flash.jl:472` computes `NT = NW * 32` **inside the kernel**,
+duplicating `plan.NT`. Correct by construction today, since the pipeline now
+refuses to build unless 32 lanes can be pinned, but it is a second source of
+truth for a number the plan already carries.

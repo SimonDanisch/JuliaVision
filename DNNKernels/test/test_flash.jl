@@ -126,7 +126,12 @@ end
             # other side is broken is not a switch.
             for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS, rego in (false, true),
                 lazyrescale in (false, true), held in (false, true)
-                NW * 32 <= Lava.WORKGROUP_LIMIT[] || continue
+                # `dev.coopmatsubgroup`, not 32 and not `dev.subgroup`: Lava pins
+                # cooperative-matrix modules to COOPMAT_SUBGROUP, which is where
+                # this thread count comes from, while RDNA's device default is 64.
+                # The literal happened to be right; it stops being a coincidence
+                # only once it names which of the two widths it means.
+                NW * dev.coopmatsubgroup <= Lava.WORKGROUP_LIMIT[] || continue
                 L % BR == 0 && L % BC == 0 || continue
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
                 @test DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale;
