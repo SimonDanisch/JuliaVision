@@ -885,6 +885,47 @@ points.
     passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
             7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
 
+### Root cause is in Lava's auto-submit path — but the fix is not found yet
+
+`AUTO_SUBMIT_THRESHOLD` (`command.jl:149`) makes Lava submit mid-recording every
+64 dispatches so host recording and GPU execution overlap. Varying **only** that
+constant, everything else identical, MatAnyone at 96 x 128:
+
+| threshold | result |
+|---|---|
+| 1 | hangs — **2 911 in-flight batches**, timeline wait times out |
+| 32 | **OK**, 45.9 s |
+| **64** (default) | **`ERROR_DEVICE_LOST`** |
+| 128 | **OK**, 45.3 s |
+| 256 | **OK**, 45.8 s |
+| disabled | **OK**, 46.1 s |
+
+**It is not monotonic.** 32 and 128 are both clean, so "submitting mid-stream is
+broken" is wrong — the threshold only decides *where* the batch boundary lands in
+the dispatch sequence, and 64 puts it somewhere unsafe for this workload. That is
+also why the bug looked input-size dependent: the input decides the sequence, the
+threshold decides where it is cut.
+
+The crashing dispatch is named by `set_dispatch_logging!(true)`:
+`gpu_strided_gemm_kernel!` at `groups=(192,1,1)` — `ndrange = 12288` at workgroup
+64 — which is the `addmm` GEMM `(256,256) x (256,48) -> (256,48)`. That GEMM run
+standalone is clean, so it is the context, not the kernel.
+
+**A hypothesis I tested and disproved.** `record_dispatch!` gates its barrier as
+`(intra || boundary) && !effective_skip`, so a dispatch marked skip-barrier —
+elidable against the *previous dispatch in its batch* — also suppresses the
+barrier against a previously **submitted** batch, which `submit!` does not wait
+on. Rewriting it as `(intra && !skip) || boundary` is defensible on its own terms
+and **does not fix this**: still `DEVICE_LOST` at 64. Reverted rather than shipped,
+because an unverified "improvement" to shared code is exactly what has gone wrong
+elsewhere today.
+
+**A second, distinct defect found on the way:** at `threshold = 1` the queue
+accumulates **2 911 in-flight batches** before timing out. Nothing caps in-flight
+batch count; that is its own bug and not the one being chased here.
+
+Still open: what makes a boundary at 64 unsafe when 32 and 128 are not.
+
 ### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
 
 *Re-verified against current upstream on 2026-08-03: Lava `328827f`, JuliaVision
