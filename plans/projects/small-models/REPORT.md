@@ -366,11 +366,14 @@ when the subprocess returned nothing; and stdout-only capture, which made a
 crashed subprocess indistinguishable from "no GPU here" — that one would have
 gone green forever on a CI machine without a device.
 
-**Soak:** 1 348 140 trials, zero hangs, on top of 508 740 yesterday.
+**Soak:** 1 718 240 trials, zero hangs, on top of 508 740 yesterday — and see
+the fourth entry below, which makes that number mean much less than it reads.
 
 Owners for what remains: the allocator is `lava-core`'s; the desktop should
 re-check its own 1 181 MiB figure, which was measured the same way; and the six
-other runner packages need a test target before their suites mean anything.
+all eleven runner packages now have a test target and nine suites pass. The two
+that do not are `MatAnyoneRunner` and `SAM2Runner`, and the reason is a
+reproducible `vkWaitSemaphores` hang — see the fourth entry below.
 
 ---
 
@@ -785,3 +788,51 @@ real design change rather than an ordering tweak.
 Recorded in full because the negative result is the useful part: without it, two
 plausible-sounding reorderings would have been attempted and both would have
 failed for reasons that cost an afternoon each to discover.
+
+
+---
+
+## 2026-08-03 (fourth entry) — a REPRODUCIBLE vkWaitSemaphores hang, and what it does to the soak
+
+Adding a test target to the remaining runner packages made two suites runnable
+for the first time, and both fail the same way:
+
+    LavaError during vkWaitSemaphores:
+      timed out after 120.0 s waiting for timeline value 405 on 50 in-flight batch(es)
+      timeline counter = 355, next_timeline = 405, replay watermark = 0
+      batch 1: signals 356, waits on nothing ...
+
+`Pkg.test("MatAnyoneRunner")` and `Pkg.test("SAM2Runner")`, on this machine,
+**every time**. Reproduced with the soak running and again with the GPU fully
+idle, so it is not contention — checked specifically, having made exactly that
+mistake this morning.
+
+### This is worth more than the soak, and it devalues it
+
+`STATUS.md` lists the flush hang as "dominant path fixed, one recurrence after
+~90 clean trials", and throwing trials at it was this project's standing job. It
+has now thrown **2 226 980** across two days without a single hang — and a plain
+`Pkg.test` wedges the queue deterministically.
+
+The honest conclusion is that **the soak does not exercise the path that hangs.**
+`soak_flush_hang.jl` drives buffer lifetime — allocate, drop mid-recording,
+collect, flush — which is the mechanism the *already-fixed* path had, and it
+synchronises every trial, so it never accumulates the 50 in-flight batches this
+wedges on. 2.2 million repetitions of the wrong shape. The number should not be
+read as evidence the bug is gone; it is evidence that one known reproduction no
+longer fires, which was already known.
+
+### Which bug, and where it goes
+
+Not attributed: `STATUS.md` has two candidates and this machine cannot separate
+them — the flush hang, and "`blockfor` refuses non-square attention", which is
+itself described as reproducibly hanging on `vkWaitSemaphores`. MatAnyone and
+SAM 2 both run attention; the three small ports do not, and none of them hangs.
+
+Nor can I say whether it predates today: **no runner package has ever declared a
+test target**, so there is no "it used to pass" to compare against. It may be
+long-standing and simply unobserved.
+
+A deterministic one-command reproducer is worth more than any number of clean
+trials, so this goes to `lava-core` with the timeline dump rather than being
+chased here.
