@@ -1039,11 +1039,42 @@ about repeated small submissions defeats it.
 
 Every diagnostic edit was reverted; both worktrees are clean.
 
-**Next**, and it follows from the one unreconciled fact: verify the boundary
-barrier is actually *in the recorded command stream* of the second batch rather
-than assuming the code path emits it — dump the recorded commands, or record a
-deliberate no-op dispatch first and check the barrier precedes it. Every fix I
-have tried assumed the barrier was there and correct.
+### The barrier is emitted, the submits are legal, and the failure is deterministic
+
+Traced the barrier decision per dispatch. At each auto-submit boundary the next
+dispatch logs `emit=true dc=0 boundary=true skip=false`, so **the boundary barrier
+is in the command stream**. One case emits nothing — `inflight=0`, the previous
+batch having already retired — and forcing a barrier at *every* batch start
+regardless does **not** fix it.
+
+Core validation, unfiltered, reports **zero** messages between run start and the
+fault: no errors, no warnings, no VUIDs. The submits are spec-legal, and the
+validation layer's own segfault under GPU-AV is a bug in the layer rather than a
+symptom of malformed data.
+
+**The failure is exactly deterministic:** three consecutive clean runs all die
+`after 64 dispatches in batch (256 total)` — the fifth submit, every time. A
+single submit anywhere (200, 252, 256, 448, 512, 576) is harmless. Only
+*repeated* boundaries at period 63 or 64 do it; 32, 48, 56, 65, 72, 128 and 256
+are all clean.
+
+So the profile is: spec-legal commands, no bad access, no reported hazard, a
+barrier present at every boundary, deterministic, and cured by waiting. That
+combination points at the GPU hanging on work it was legally given — which under
+Rule 0 still has to be shown to be *ours* before it is called a driver fault, and
+the remaining instrument for that is the GLSL differential `spirv-intrinsics.md`
+prescribes.
+
+**Full disproof list — fifteen, every one an experiment:** OOB writes; sync
+hazards (instrument blind to BDA, so not evidence either way); attention;
+`blockfor`; the GEMM kernel and its shape standalone; a single fatal cut point;
+boundary-barrier elision; barrier elision entirely disabled; a barrier forced at
+every batch start; use-after-free with *every* free deferred; the in-flight UAF
+window; an in-flight depth cap; DNNKernels' shared slab (per-graph slabs);
+cleanup without waiting; the missing `arg_pool_in_use!` on the compute path;
+stale BDAs (`PRESUBMIT_SCAN`, zero); and arg-slab rollover (256 MiB slab).
+
+Both worktrees are clean — every diagnostic reverted, nothing speculative shipped.
 
 ### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
 
