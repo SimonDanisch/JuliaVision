@@ -26,11 +26,30 @@ existing one, so it does not collide with the refactor.
 
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
-| `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | not started |
-| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | not started |
+| `lava-core` | Desktop | `Lava.jl` @ `sd/nvidia` | 1 → 2 → 3 | phases 1–2 done; phase 3 (section D) **not started** |
+| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–5, 7 done; **6 and 9 open** |
 | `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder exports, decoder not started |
-| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | not started |
-| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | not started |
+| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | phase 1 run; **Phase 3 brief written, awaiting a rebase** |
+| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | artifacts refactor landed |
+
+Step-by-step against `kernel-library-review.md`'s suggested order:
+
+| step | what | state |
+|---|---|---|
+| 1 | expose the device properties | done — leftovers: `NW * 32` is still a literal at `flash.jl:471`/`:519` where it should be `dev.coopmatsubgroup`; `convtiles`/`convsplit`/`FLASH_SHARED_BUDGET`/`FLASHCM_MINGRID` unwired |
+| 2 | delete the settled toggles | done |
+| 3 | diagnostics onto `Ctx` | done |
+| 4 | one plan object per kernel family | done |
+| 5 | dispatch the entry functions on the plan type | done |
+| 6 | **generate the dispatchers alongside the kernels** | **open** — the hand-written chain is still at `attention.jl:233`/`:242`. It covers all five block sizes today, so nothing is broken, but finding 5's trap is live |
+| 7 | type `Ctx`'s remaining fields | done |
+| 8 | device caches onto `VkContext` | done — see below |
+| 9 | **portability decision + move the model drivers out** | **open** — `sam2.jl`, `wan.jl`, `driver.jl` are still inside the kernel library; finding 8's "what is DNNKernels" decision is the AMD machine's |
+
+Exit criteria: DNNKernels globals **34 → 0** ✅ (the six remaining `const`s are
+immutable lookup tables), two-device test ✅, Lava module-level device caches
+**12 → 0** ✅. Lava's `Ref` count is 77 → 73; the rest are tunables and
+diagnostics, which is a different question from device-owned state.
 
 ## Where the numbers stand
 
@@ -75,6 +94,47 @@ NVIDIA's block — silent data corruption, not a bad handle), six `LavaBackend()
 built inside the library, `GEMM_SPLIT_SCRATCH`, and `_REDUCE_SCRATCH` — which was
 already keyed by context and still *allocated* on the global one.
 
+### And then step 8 properly: the caches are FIELDS, not keyed globals
+
+The above was reached by keying twelve module-level `const`s on `ctx.id`. That
+satisfied the letter of `GUARDRAILS.md` §8 and missed its point — entries
+outlived the device they described, `ctx.id` was a surrogate for the object they
+should have been stored on, and `RESET_CALLBACKS` existed mostly to empty them.
+Two of the twelve (`BLIT_PIPELINE`, `TIMESTAMP_POOL`) were never keyed at all and
+stayed broken on a second device throughout, because the probe's path reaches
+neither graphics nor dispatch profiling.
+
+They are now concrete fields in `DeviceCaches`, one per `VkContext`:
+
+| | before | after |
+|---|---|---|
+| module-level device caches | 12 | **0** |
+| `RESET_CALLBACKS` registrations | 10 | 8 (none cache-clearing) |
+| `ctx.id` as a cache key | every lookup | never — identity only |
+| Lava module-level `Ref`s | 77 | 73 |
+
+The obstacle had been include order: `VkContext` is defined before the cached
+value types, so a field would have to be `Any` and cost inference on a
+per-dispatch lookup. The answer was to move the nine **type definitions** ahead
+of it (`runtime/coretypes.jl`) — methods can stay where they are, since include
+order constrains types and not methods. An abstract-typed field would have cost
+what `Any` costs; a type parameter would have worked without touching signatures
+(`::VkContext` still matches the UnionAll) but is unnecessary once the types
+move.
+
+The probe's central assertion changed with it. "One kernel on two devices must
+compile twice" counted entries in a shared dict; there is no shared dict, so a
+shared pipeline is now unrepresentable rather than merely detected. It asserts
+the caches are distinct objects and that each device populated its own.
+
+`POOLS`' reset callback did real work — it destroyed the pool blocks — so that
+became `destroy_pool!(ctx)`, called from `vk_reset_device!` where the retiring
+context is in scope instead of hunted for in a global.
+
+The remaining 73 `Ref`s are tunables and diagnostics (`AUTO_SUBMIT_THRESHOLD`,
+`BARRIER_MODE`, `DISPATCH_LOGGING_ENABLED`), not device-owned state — a separate
+question from this one.
+
 Two more fell out on 2026-08-02 once the probe ran to completion:
 
 - **A capability query is per device too.** `mul!` derives its backend from the
@@ -85,9 +145,10 @@ Two more fell out on 2026-08-02 once the probe ran to completion:
 - **A context that is dropped must be retired.** See "Open bugs" below; this was
   the segfault that stopped the Lava suite from ever printing a summary.
 
-Still unaudited because nothing on this path reaches them: `TIMESTAMP_POOL`,
-`BLIT_PIPELINE`, `GFX_SHADER_CACHE`, `WORKGROUP_LIMIT`. Extend the probe before
-trusting a second device for graphics or dispatch profiling.
+`TIMESTAMP_POOL`, `BLIT_PIPELINE` and `GFX_SHADER_CACHE` are fields now, so they
+are correct by construction rather than unaudited — but the probe still does not
+*exercise* graphics or dispatch profiling, so nothing has been run there on two
+devices. `WORKGROUP_LIMIT` remains a genuine global (a policy limit read once).
 
 ## Open bugs
 

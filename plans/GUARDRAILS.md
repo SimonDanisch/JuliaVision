@@ -93,6 +93,27 @@ returning an object that does not belong to the caller.
 Device state goes on `VkContext`. If you are adding a cache and it holds anything
 the driver created, it goes on the context, not in a `const`.
 
+**Done, 2026-08-02, and the intermediate step is the warning.** Twelve of these
+were first fixed by keying the `const` dicts on `ctx.id`. That made two devices
+work and the probe found seven real defects — but it satisfied the letter of this
+rule while breaking its point: entries outlived the device they described,
+`ctx.id` was a surrogate for "the object this should have been stored on", and
+`RESET_CALLBACKS` existed mostly to empty them. Two of the twelve
+(`BLIT_PIPELINE`, `TIMESTAMP_POOL`) were never keyed at all and stayed broken on
+a second device the whole time, because the probe's path never reached graphics
+or dispatch profiling.
+
+They are now concrete fields in `DeviceCaches`. The obstacle had been include
+order — `VkContext` is defined before the cached value types, so a field would
+have to be `Any` and cost inference on a per-dispatch lookup — and the answer was
+to move the nine *type definitions* ahead of it (`runtime/coretypes.jl`), not to
+accept the surrogate key. Methods can stay where they are; only types are
+ordered.
+
+So: keying by device is not the same as owning per device, and "the cache is
+keyed correctly" is not the test. The test is whether the state dies with the
+device.
+
 ## 9. Write the report
 
 Append findings to `plans/projects/<name>/REPORT.md` and push. The next agent may
