@@ -829,14 +829,24 @@ shapes through the same call:
 | 128 x 128 | OK, 23.9 s |
 | **160 x 128** | **OK, 23.4 s — and this one is non-square** |
 
-So non-squareness is neither necessary nor sufficient as stated: 160 x 128 is
-lopsided and fine, while 96 x 128 hangs in either orientation and 96 x 96 does
-not. What the hanging pair has that the working pair does not is **unequal dims
-where the smaller is below 128**; the obvious next probe is 160 x 96, which that
-rule predicts hangs, and I ran out of room to run it.
+| 160 x 96 | OK, 20.5 s |
 
-Whoever picks this up should not go looking for a squareness predicate — the
-shape that reproduces is specific and the one that does not is also lopsided.
+**And that last row disproves the rule I proposed in the row above it.** I wrote
+that the hanging cases were "unequal dims where the smaller is below 128", then
+ran the shape that predicts — 160 x 96, unequal, smaller side 96 — and it passes.
+
+So of six shapes, **only the {96, 128} pair reproduces**, in either orientation.
+Non-squareness does not explain it (160 x 128 and 160 x 96 are both lopsided and
+fine), the dimension 96 does not (96 x 96 is fine), and neither does my
+smaller-side rule. As a token grid at /16 the hang is 6 x 8 or 8 x 6, while
+6 x 6, 8 x 8, 10 x 8 and 10 x 6 all pass — no invariant I can see fits six
+points.
+
+What is solid is the reproducer and the counter-examples: `runmatanyone` at
+128 x 96 wedges `vkWaitSemaphores` every time, at 160 x 96 it does not, and the
+difference is one dimension. Whoever fixes this should start from that pair
+rather than from any predicate — including the tracker's "non-square", which the
+table falsifies.
 
 `MatAnyoneRunner` and `SAM2Runner` hit it because their test fixtures are
 128 x 96. The three small ports never do: two have no attention at all, and Depth
