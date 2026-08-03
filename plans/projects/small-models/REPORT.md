@@ -410,8 +410,10 @@ Located, not guessed:
 - All 63 blocks are allocated inside **`sam2model()`** — the weight upload.
   `encode` adds **zero** blocks, and a second encode adds zero. So this is
   residency, not transients, and not a leak per call.
-- SAM 2's weights are ~942 MB. 4 032 MiB to hold them is **4.3x** — but see
-  the entry below: that framing is wrong, the blocks are mostly *empty*.
+- SAM 2's weights are ~942 MB on disk. 4 032 MiB to hold them is 4.3x — but
+  both halves of that are wrong and the entries below correct them: the
+  blocks are mostly *empty*, and the resident set is 505 MiB, not 942, so
+  the real ratio is **7.9x**.
 
 The mechanism is visible in `memory.jl`: past `POOL_SOFT_CAP` the allocator asks
 the GC and then **cuts a new block anyway**, and `reclaim_empty_pool_blocks!` is
@@ -598,3 +600,32 @@ Two fixes follow from it, and both are cheaper than changing the allocator:
 Neither is mine to make — `Model` is `kernels-refactor`'s and the allocator is
 `lava-core`'s — but the measurement now names the pass, the count, and a control
 that does not reproduce.
+
+### Correcting my own two numbers, and how much the one-line fix actually buys
+
+Measuring the resident set rather than the file size, which is what I had been
+comparing against:
+
+    resident weights : 734 arrays, 505 MiB  -> minimum 8 blocks
+    pool at load     : 63 blocks (4032 MiB) = 7.9x
+    after reclaim    : 12 blocks ( 768 MiB) = 1.50x minimum
+
+Two corrections to what I published earlier today:
+
+- **The resident set is 505 MiB, not 941.** The checkpoint on disk is 941 MiB,
+  but `Model` drops 824 orphaned weights and `hoistcasts` replaces fp32 masters
+  with fp16 — the same pass `STATUS.md` credits with 849 MB on SAM 2. Comparing
+  the pool against the *file* was the wrong denominator, which is precisely
+  `GUARDRAILS.md` §5's rule and I broke it while quoting it.
+- **So the overhead is 7.9x, not 4.3x** — worse than I reported, not better.
+
+And a fairer verdict on the mitigation than "not the fix": **one call to
+`reclaim_empty_pool_blocks!` takes SAM 2 from 7.9x to 1.50x.** That is most of
+3.3 GB on an 8 GB card for one line at a known-quiet point. The residual 1.50x —
+about 256 MiB of blocks pinned by a live tensor apiece — is the genuine pattern-3
+part that ordering (fold constants before the resident upload) would be needed to
+remove.
+
+So the two fixes are not alternatives of equal weight. The reclaim is the cheap
+one and it recovers ~81% of the excess; the ordering change is what would take
+the last 50%, and only it addresses the mechanism.
