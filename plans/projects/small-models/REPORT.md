@@ -830,6 +830,7 @@ shapes through the same call:
 | **160 x 128** | **OK, 23.4 s — and this one is non-square** |
 
 | 160 x 96 | OK, 20.5 s |
+| 112 x 128 | OK, 21.2 s |
 
 **And that last row disproves the rule I proposed in the row above it.** I wrote
 that the hanging cases were "unequal dims where the smaller is below 128", then
@@ -841,6 +842,11 @@ fine), the dimension 96 does not (96 x 96 is fine), and neither does my
 smaller-side rule. As a token grid at /16 the hang is 6 x 8 or 8 x 6, while
 6 x 6, 8 x 8, 10 x 8 and 10 x 6 all pass — no invariant I can see fits six
 points.
+
+**It is not a range, it is one shape.** Holding H = 128 and sweeping W: 96
+hangs, 112 passes, 128 passes, 160 passes. As a /16 token grid every tested
+shape passes except **6 x 8 and 8 x 6** — 6 x 6, 7 x 8, 8 x 8, 10 x 8 and 10 x 6
+are all fine. Seven shapes, one reproducing pair.
 
 What is solid is the reproducer and the counter-examples: `runmatanyone` at
 128 x 96 wedges `vkWaitSemaphores` every time, at 160 x 96 it does not, and the
