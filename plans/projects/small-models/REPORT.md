@@ -831,6 +831,7 @@ shapes through the same call:
 
 | 160 x 96 | OK, 20.5 s |
 | 112 x 128 | OK, 21.2 s |
+| 96 x 160 | OK, 17.3 s |
 
 **And that last row disproves the rule I proposed in the row above it.** I wrote
 that the hanging cases were "unequal dims where the smaller is below 128", then
@@ -843,10 +844,17 @@ smaller-side rule. As a token grid at /16 the hang is 6 x 8 or 8 x 6, while
 6 x 6, 8 x 8, 10 x 8 and 10 x 6 all pass — no invariant I can see fits six
 points.
 
-**It is not a range, it is one shape.** Holding H = 128 and sweeping W: 96
-hangs, 112 passes, 128 passes, 160 passes. As a /16 token grid every tested
-shape passes except **6 x 8 and 8 x 6** — 6 x 6, 7 x 8, 8 x 8, 10 x 8 and 10 x 6
-are all fine. Seven shapes, one reproducing pair.
+**It is one pair, not a range and not an axis.** Eight shapes, expressed as the
+/16 token grid the attention actually sees:
+
+    hangs:  6 x 8,  8 x 6
+    passes: 6 x 6,  6 x 10,  7 x 8,  8 x 8,  10 x 6,  10 x 8
+
+Sweeping W against H = 128 (grid height 8): 6 hangs, 7 passes, 8 passes, 10
+passes — so it is not a magnitude threshold. Sweeping H against W = 96 (grid
+width 6): 6 passes, 8 hangs, 10 passes — so neither axis is broken on its own.
+**Only the {6, 8} combination reproduces, in either orientation**, with its
+immediate neighbours on both axes clean.
 
 What is solid is the reproducer and the counter-examples: `runmatanyone` at
 128 x 96 wedges `vkWaitSemaphores` every time, at 160 x 96 it does not, and the
