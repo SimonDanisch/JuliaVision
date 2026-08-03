@@ -667,3 +667,39 @@ rather than as an alternative to it.
 
 Both numbers are from this machine, and the reclaim cost will scale with block
 count rather than with model size.
+
+### …and the two-phase upload does not work either. Both structural fixes are dead
+
+I claimed the two-phase upload was feasible because `constops` is host-side, then
+made the same mistake twice in a row by not testing it. Running the analysis on
+SAM 2's graphs without a device:
+
+    sam2_encoder   569/1353 ops foldable, phase-1 weights 410/909 = 896 of 941 MiB (95%)
+    sam2_decoder    25/ 174 ops foldable, phase-1 weights   4/903 =   0 of 856 MiB ( 0%)
+
+The analysis *is* host-computable, so that half of the claim holds. The fix built
+on it does not: **"upload only what the constant subgraphs consume" is 95% of the
+weight bytes.** Phase one would upload nearly everything, fold, reclaim, and then
+upload the remaining 5% — the interleaving it was supposed to avoid happens
+inside phase one, because the weights that feed foldable ops and the weights that
+survive are overwhelmingly the same weights.
+
+So both structural proposals are disproved, by measurement, and neither should
+reach anyone's worklist:
+
+1. ~~Fold constants before uploading the resident weights~~ — impossible;
+   `constops` seeds from `:weight`, so folding consumes what it would precede.
+2. ~~Two-phase upload~~ — possible to compute, pointless to do; phase one is 95%
+   of the bytes.
+
+**What stands is the reclaim: 7.9x → 1.50x for 52 ms, once, at load.** The
+residual 1.50x is ~256 MiB of blocks each pinned by one surviving tensor, and
+nothing at the `Model` level can separate those lifetimes — the two populations
+are genuinely interleaved in the graph, not merely in the upload order. Removing
+the last 50% therefore needs the *allocator* to learn about lifetimes (a separate
+pool or an arena for load-time transients), which is `lava-core`'s call and a
+real design change rather than an ordering tweak.
+
+Recorded in full because the negative result is the useful part: without it, two
+plausible-sounding reorderings would have been attempted and both would have
+failed for reasons that cost an afternoon each to discover.
