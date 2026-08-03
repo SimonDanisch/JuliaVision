@@ -927,6 +927,9 @@ constant, everything else identical, MatAnyone at 96 x 128:
 | 1 | hangs — **2 911 in-flight batches**, timeline wait times out |
 | 32 | **OK**, 45.9 s |
 | **64** (default) | **`ERROR_DEVICE_LOST`** |
+| 63 | **hangs** — timeline **405**, 47 in-flight |
+| 65 | **OK**, 45 s |
+| 72 | **OK**, 45 s |
 | 128 | **OK**, 45.3 s |
 | 256 | **OK**, 45.8 s |
 | disabled | **OK**, 46.1 s |
@@ -955,7 +958,30 @@ elsewhere today.
 accumulates **2 911 in-flight batches** before timing out. Nothing caps in-flight
 batch count; that is its own bug and not the one being chased here.
 
-Still open: what makes a boundary at 64 unsafe when 32 and 128 are not.
+**The threshold is not the variable — a specific point in the workload is.**
+48, 56, 65 and 72 all pass; **63 and 64 both fail**, and 63 fails waiting on
+**timeline value 405**, the same value the original 64 failure reports. Two
+adjacent thresholds sharing a failure point, with neighbours clean on both sides,
+means there is one place in MatAnyone's step where cutting the batch is fatal —
+63 and 64 put a boundary there and the others do not. (63 and 64 are coprime, so
+it cannot be one dispatch index divisible by both; the fatal region is a short
+*window* that both cut into.)
+
+Also disproved by experiment, not argument:
+
+- **Not a use-after-free.** Forcing *every* free to defer — never destroying a
+  buffer inline — still gives `DEVICE_LOST`. The narrower fix (also defer when
+  `!isempty(bq.in_flight)`, the second window `memory.jl`'s own note predicts)
+  likewise does not fix it. Both reverted.
+- **Not a missing barrier**, per the earlier test.
+- **Sync validation cannot speak to either.** Lava passes buffers as device
+  addresses in push constants (`PhysicalStorageBuffer`), and sync-val tracks
+  *bound resources* — it cannot see BDA traffic. Its "zero hazards" is a dead
+  instrument, not evidence, and I wrongly cited it as a second independent line.
+
+Next: log the dispatch index and kernel at each auto-submit boundary for 64
+(fatal) against 65 (clean) and diff — that names the dispatch it is fatal to cut
+before.
 
 ### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
 
