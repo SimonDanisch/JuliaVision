@@ -1039,6 +1039,54 @@ about repeated small submissions defeats it.
 
 Every diagnostic edit was reverted; both worktrees are clean.
 
+### LOCALISED: it needs kernel FUSION, and exactly one fused op
+
+The breakthrough after fifteen dead ends. The fault needs **two** things
+together — auto-submit *and* `execute!`'s fusion (`lazy`) — and turning either
+off cures it.
+
+    fusion off (lazy = nothing), 96 x 128:  OK, 47.1 s and 46.9 s, identical output
+
+Output is unchanged with fusion off (mean 0.008118 -> 0.008155, max 0.0632 ->
+0.0629 at 96 x 96 — accumulation order, not skipped work), so this is a genuine
+cure and not a path that quietly does less.
+
+Then disabling fusion **one graph at a time** across MatAnyone's eight:
+
+| graph without fusion | result |
+|---|---|
+| `readout_query` (22 fusable) | DEVICE_LOST |
+| `encode_mask_deep` (20) | DEVICE_LOST |
+| `encode_mask_shallow` (14) | DEVICE_LOST |
+| `segment` (11) | DEVICE_LOST |
+| `pixel_fusion` (5) | DEVICE_LOST |
+| **`encode_image` (1)** | **OK, 49 s** |
+
+`encode_image` has exactly **one** fusable op, and it is the whole difference:
+
+    id=sub   aten=sub.Tensor   out=sub   kind=transient
+    shape=[1, 3, "16*h", "16*w"]
+
+The input-normalisation subtract — a **full-resolution, symbolically-shaped
+transient**, first op of the first graph. Fused, it is never materialised: `emit`
+returns the `Broadcasted` and `planslab` gives it no slab space by design ("Fused
+values get no slab space" — `plan.jl`), so its consumer evaluates it inline and
+its operands must stay reserved through `lifetimes`.
+
+That is the interaction to fix: a fused value carries no storage and is evaluated
+at its consumer, and **fusion is decided per graph with no knowledge of where
+batch boundaries will fall**. `AUTO_SUBMIT_THRESHOLD` cuts the dispatch stream at
+a fixed period, and at 63/64 the cut lands such that this value's evaluation and
+its operands' validity end up on opposite sides. Nothing in `fuse.jl`'s admission
+test (`fusableset`) considers submission structure — it is a pure graph decision.
+
+**This also explains the whole fingerprint at once**: why it is deterministic (the
+graph and the period are both fixed), why only 63/64 (where the cut lands), why a
+single cut anywhere is harmless (the value must be *live across* the cut), why it
+is MatAnyone-specific (the only model here whose first graph fuses a
+full-resolution symbolic transient), and why every synchronisation fix failed —
+there is no hazard to order, the value simply has no storage to read.
+
 ### The barrier is emitted, the submits are legal, and the failure is deterministic
 
 Traced the barrier decision per dispatch. At each auto-submit boundary the next
