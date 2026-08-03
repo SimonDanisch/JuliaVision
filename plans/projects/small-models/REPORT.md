@@ -293,6 +293,65 @@ the network predicts.
 
 ---
 
+## 2026-08-03 — SETTLED STATE (read this, then the entries below for how)
+
+The three entries that follow are a working log and they correct each other four
+times. This is what is true at the end of the day, so nobody has to reconstruct
+it from the sequence.
+
+**The three ports are unchanged and still correct** against `main` at `aefd9e6`,
+which carries the DNNKernels refactor, Lava's per-device allocator and
+flash-decoding. Parity: neural LUT 3.576e-07, RIFE 3.265e-04 max, Depth Anything
+4.232e-05. Runner output byte-identical to 2026-08-02.
+
+**Corrected timings**, after finding that `timed()` warmed up 3 calls into a
+24-call ramp and measured inside it:
+
+| | value | note |
+|---|---|---|
+| LUT apply at 4K | **0.80 ms** | target < 2 ms, met |
+| LUT classifier | **1.8 ms** | was reported as ~8–14 ms; that was the ramp |
+| LUT re-predict + grade | **2.6 ms** | fits a 60 fps frame — supersedes "predict per shot" |
+| RIFE at 1080p | **314 ms** | target 16.67 ms, missed ~19x |
+| Depth Anything at 518² | **374 ms** | vs PyTorch 25.3 ms, missed ~15x |
+| SAM 2 encode / decode | **173.8 / 17.7 ms** | desktop 100.4; this card is ~1.8x |
+
+**Workload coverage is now a real claim**, not `frozen_stats().misses == 0`:
+all three editor paths run under `Lava.no_pipeline_compilation` with **0
+refusals**, and the negative control (a `Val{K}` novel per run) refuses 1, so the
+instrument fires.
+
+**The VRAM finding, settled.** Loading SAM 2 leaves the pool at **7.9x its
+resident set** (63 blocks / 4032 MiB against 505 MiB resident — the resident set
+is 505 MiB, *not* the 941 MiB checkpoint, because `dropdead` drops 824 orphaned
+weights and `hoistcasts` replaces fp32 masters with fp16).
+
+- **Cause:** `Model`'s `hoistconstants` runs **186 constant-subgraph folds on the
+  device at load**. The weights those consume are uploaded into the same blocks
+  as the weights that survive, then discarded. MatAnyone folds **0** and does not
+  reproduce; the three small ports strand nothing.
+- **The fix that works:** one `reclaim_empty_pool_blocks!` after load — **7.9x →
+  1.50x, 52 ms, once**. `POOL_SOFT_CAP` does not do this today: past the cap the
+  allocator runs a GC (which cannot help — nothing is garbage) and cuts a block
+  anyway, and the reclaim scan is on the OOM retry path only.
+- **Two fixes I proposed and then disproved — do not attempt either.** Folding
+  before the upload is impossible (`constops` seeds from `:weight`, so folding
+  consumes what it would precede). A two-phase upload is computable but pointless
+  (foldable ops consume 95% of the weight bytes, so phase one is nearly
+  everything). The populations are interleaved *in the graph*, so no `Model`-level
+  ordering separates them; the residual 1.50x needs the allocator to learn
+  lifetimes, which is `lava-core`'s call.
+- **Reproducer:** `tools/pool_fragmentation_probe.jl` — no model, no weights, no
+  export; exits non-zero when it reproduces.
+
+**Soak:** 744 500 trials, zero hangs, on top of 508 740 yesterday.
+
+Owners for what remains: the allocator is `lava-core`'s; the desktop should
+re-check its own 1 181 MiB figure, which was measured the same way.
+
+---
+
+
 ## 2026-08-03 — still green after the refactor, and "0 misses" made into a real claim
 
 Re-ran everything against `main` at `aefd9e6` — which now carries the DNNKernels
