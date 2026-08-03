@@ -885,6 +885,40 @@ points.
     passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
             7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
 
+### SUPERSEDED — it is the sequence LENGTH 48, and it is not `blockfor`'s bug
+
+The 2D framing above is wrong, and so is my attribution. Three geometrically
+unrelated grids that all come to **48 tokens** hang identically:
+
+    6 x 8   (96 x 128)   HANGS
+    8 x 6   (128 x 96)   HANGS
+    4 x 12  (64 x 192)   HANGS
+    3 x 16  (48 x 256)   HANGS
+
+and the neighbouring *lengths* pass, whatever grid produces them:
+
+    32, 36, 40, 42, 44, 49, 54, 56, 60 tokens — all OK
+    48 tokens — hangs, from every grid tried
+
+So it is one **attention sequence length**, not a shape, a ratio or an axis.
+
+**And it is not the bug the tracker names.** `blockfor(n, other, minl = 64)`
+returns 1 — no blocking — whenever `n != other` *or* `n < minl`. At 48 tokens the
+second guard fires regardless of squareness, so every one of these shapes takes
+the **plain, unblocked** path. The documented workaround is not even engaged.
+`STATUS.md`'s "`blockfor` refuses non-square attention … blocking the decoder's
+lopsided shapes reproducibly hangs" describes the *blocked* path; this hangs on
+the other one.
+
+Note also that 64 and 80 tokens pass **while blocked** (`n == other`, `n >= 64`),
+so the blocked path is fine at the lengths that reach it here.
+
+That makes this a **distinct, undocumented bug**: plain attention at sequence
+length 48 wedges `vkWaitSemaphores`, reproducibly, from four different input
+shapes, with 44 and 49 clean either side.
+
+### The 2D sweep that led there (kept — it is how the length was found)
+
 **Every immediate neighbour of the hanging point passes.** Twelve shapes tested;
 holding the grid at 6 and stepping the other axis gives 6x6, 6x7, **6x8 HANGS**,
 6x9, 6x10 — the hang is a single value with clean neighbours on both sides. Same
