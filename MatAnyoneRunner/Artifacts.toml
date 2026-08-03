@@ -5,3 +5,11 @@ lazy = true
     [[matanyone.download]]
     sha256 = "1b1dfd64eeffdea0c44f22ee873e1e755bfce632cbe434dbe93bdc7a060c9f9a"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/matanyone.tar.gz"
+
+[matanyone-refs]
+git-tree-sha1 = "a60058a7db3aad8ecae8a6535bcb5651cbd82417"
+lazy = true
+
+    [[matanyone-refs.download]]
+    sha256 = "dd04194aeb32d2339fae08f0656c94440356c7bbfda3c024de608cdfe194ad35"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/matanyone-refs.tar.gz"

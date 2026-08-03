@@ -60,6 +60,70 @@ const MODELS = Dict(
 # above all the references — is developer material and stays out of the tarball.
 const SHIPPED = ["op_histogram.json", "weights.safetensors"]   # + "<name>.json"
 
+# Reference artifacts: the PyTorch activations the layer-by-layer parity tests
+# compare against. Separate from a model's own tarball for the reason `SHIPPED`
+# states — someone matting a clip should not download a gigabyte of fixtures —
+# and `sam2-large-refs` already set the shape beside `sam2-large`.
+#
+# This table did not exist, which is why `matanyone-refs` was bound in no
+# `Artifacts.toml` anywhere and the MatAnyone parity gate silently ran ONE
+# assertion instead of 61 while reporting green. `MatAnyoneRunner.refsdir()`'s
+# error told you to run `make_artifacts.jl matanyone-refs`, which would have
+# died on a `KeyError`.
+#
+# artifact name => (package that binds it, precisions to look for)
+const REFS = Dict(
+    "matanyone-refs" => ("MatAnyoneRunner", ["autocast", "fp32"]),
+)
+
+"""
+Pack the reference activations for `name`.
+
+Layout is what the runner reads and nothing more: `refs-<p>.safetensors` and
+`refs_manifest-<p>.json` at the root, `graphs/aten-<p>/` beside them. A precision
+with no dumped references is skipped rather than fatal — one is enough to make
+the gate real, and `matanyoneprecisions()` reports whichever are present.
+"""
+function packrefs(name::AbstractString, tag::AbstractString)
+    pkg, precisions = REFS[name]
+    gen = joinpath(ROOT, "gen")
+    have = filter(p -> isfile(joinpath(gen, "refs-$p.safetensors")), precisions)
+    isempty(have) && error("""
+        no reference dumps under $gen for $name. Produce them with, per precision:
+            uv run tools/dump_refs.py --precision <p> --max-size 128""")
+
+    hash = create_artifact() do dir
+        for p in have
+            cp(joinpath(gen, "refs-$p.safetensors"), joinpath(dir, "refs-$p.safetensors"))
+            mf = joinpath(gen, "refs_manifest-$p.json")
+            isfile(mf) || error("$mf is missing; re-run dump_refs.py --precision $p")
+            cp(mf, joinpath(dir, "refs_manifest-$p.json"))
+            src = joinpath(gen, "graphs", "aten-$p")
+            isdir(src) || error("$src is missing; re-run export_graphs.py --precision $p")
+            mkpath(joinpath(dir, "graphs"))
+            cp(src, joinpath(dir, "graphs", "aten-$p"))
+        end
+    end
+
+    outdir = joinpath(ROOT, "gen", "artifacts")
+    mkpath(outdir)
+    tarball = joinpath(outdir, "$name.tar.gz")
+    isfile(tarball) && rm(tarball)
+    sha = archive_artifact(hash, tarball)
+
+    toml = joinpath(JV, pkg, "Artifacts.toml")
+    bind_artifact!(toml, name, hash;
+                   download_info = [(repo_url(tag, name), sha)],
+                   lazy = true, force = true)
+
+    bytes = filesize(tarball)
+    @printf("%-14s %7.1f MiB  tree %s  [%s]\n",
+            name, bytes / 2^20, string(hash)[1:12], join(have, ", "))
+    @printf("%-14s          sha256 %s\n", "", sha[1:12])
+    @printf("%-14s          -> %s\n", "", relpath(toml, ROOT))
+    return (; name, tarball, bytes, sha, hash)
+end
+
 repo_url(tag, name) =
     "https://github.com/SimonDanisch/JuliaVision/releases/download/$tag/$name.tar.gz"
 
@@ -110,11 +174,13 @@ if i !== nothing
 end
 names = isempty(args) ? ["depthanything", "neurallut", "rife"] : args   # the ported ones
 for n in names
-    haskey(MODELS, n) || error("unknown model $n; known: $(join(sort(collect(keys(MODELS))), ", "))")
+    haskey(MODELS, n) || haskey(REFS, n) || error(
+        "unknown target $n; known: " *
+        join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)))), ", "))
 end
 
 println("binding artifacts against release tag `$tag`\n")
-made = [pack(n, tag) for n in names]
+made = [haskey(REFS, n) ? packrefs(n, tag) : pack(n, tag) for n in names]
 
 total = sum(m -> m.bytes, made)
 @printf("\n%d tarballs, %.1f MiB total, in gen/artifacts/\n", length(made), total / 2^20)
