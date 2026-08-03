@@ -30,7 +30,7 @@ using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, execute!, readsafetensors
 
-export demucsgraph, demucsweights, assetdir
+export demucsgraph, demucsweights
 
 const KA = KernelAbstractions
 
@@ -53,11 +53,11 @@ result with `julia --project=. tools/make_artifacts.jl demucs`, and replace
 this definition with `@artifact_str("demucs")`. Assets come from the artifact
 and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = error(
+assetdir() = throw(ArgumentError(
     "DemucsRunner: Demucs v4 (htdemucs) is not ported yet, so no artifact is bound. " *
     "Export it with `uv run tools/export_demucs.py`, bind it with " *
     "`julia --project=. tools/make_artifacts.jl demucs`, then set " *
-    "`assetdir() = @artifact_str(\"demucs\")`.")
+    "`assetdir() = @artifact_str(\"demucs\")`."))
 
 """
     demucsgraph(; dir = assetdir()) -> Graph

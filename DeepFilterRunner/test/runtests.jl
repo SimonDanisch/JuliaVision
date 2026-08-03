@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, DeepFilterRunner
 
 @testset "DeepFilterRunner" begin
-    dir = DeepFilterRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if DeepFilterRunner.ready()
-        @info "DeepFilterNet3: export present" dir
+        @info "DeepFilterNet3: export present"
         g = DeepFilterRunner.deepfilternetgraph()
         @test g !== nothing
         w = DeepFilterRunner.deepfilternetweights()
         @test !isempty(w)
     else
-        @info "DeepFilterNet3: no export; run tools/export_deepfilternet.py" dir
+        @info "DeepFilterNet3: no export; run tools/export_deepfilternet.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError DeepFilterRunner.deepfilternetgraph()

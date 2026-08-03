@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, BasicVSRRunner
 
 @testset "BasicVSRRunner" begin
-    dir = BasicVSRRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if BasicVSRRunner.ready()
-        @info "BasicVSR++: export present" dir
+        @info "BasicVSR++: export present"
         g = BasicVSRRunner.basicvsrppgraph()
         @test g !== nothing
         w = BasicVSRRunner.basicvsrppweights()
         @test !isempty(w)
     else
-        @info "BasicVSR++: no export; run tools/export_basicvsrpp.py" dir
+        @info "BasicVSR++: no export; run tools/export_basicvsrpp.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError BasicVSRRunner.basicvsrppgraph()

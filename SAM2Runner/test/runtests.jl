@@ -34,10 +34,9 @@ const KA = KernelAbstractions
 Lava.DISPATCH_LOG_FILE[] = joinpath(tempdir(), "sam2runner_dispatch.log")
 Lava.DISPATCH_LOGGING_ENABLED[] = true
 
-dir = SAM2Runner.assetdir()
 backend = LavaBackend()
-model = SAM2Runner.sam2model(; backend, dir)
-refs = readsafetensors(joinpath(dir, "refs.safetensors"))
+model = SAM2Runner.sam2model(; backend)
+refs = SAM2Runner.sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])
 
 Lava.frozen_reset_stats!()
@@ -55,9 +54,8 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
 """
 
 @testset "SAM2Runner: first call does not compile" begin
-    dir = SAM2Runner.assetdir()
-    if !isfile(joinpath(dir, "weights.safetensors"))
-        @info "no SAM 2 assets; skipping the latency test" dir
+    if !SAM2Runner.ready()
+        @info "no SAM 2 assets; skipping the latency test"
     else
         script = tempname() * ".jl"
         write(script, SUBPROCESS)

@@ -29,7 +29,7 @@ using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, execute!, readsafetensors
 
-export basicvsrppgraph, basicvsrppweights, assetdir
+export basicvsrppgraph, basicvsrppweights
 
 const KA = KernelAbstractions
 
@@ -52,11 +52,11 @@ result with `julia --project=. tools/make_artifacts.jl basicvsrpp`, and replace
 this definition with `@artifact_str("basicvsrpp")`. Assets come from the artifact
 and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = error(
+assetdir() = throw(ArgumentError(
     "BasicVSRRunner: BasicVSR++ is not ported yet, so no artifact is bound. " *
     "Export it with `uv run tools/export_basicvsrpp.py`, bind it with " *
     "`julia --project=. tools/make_artifacts.jl basicvsrpp`, then set " *
-    "`assetdir() = @artifact_str(\"basicvsrpp\")`.")
+    "`assetdir() = @artifact_str(\"basicvsrpp\")`."))
 
 """
     basicvsrppgraph(; dir = assetdir()) -> Graph

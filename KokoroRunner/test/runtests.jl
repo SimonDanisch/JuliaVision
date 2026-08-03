@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, KokoroRunner
 
 @testset "KokoroRunner" begin
-    dir = KokoroRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if KokoroRunner.ready()
-        @info "Kokoro-82M: export present" dir
+        @info "Kokoro-82M: export present"
         g = KokoroRunner.kokorograph()
         @test g !== nothing
         w = KokoroRunner.kokoroweights()
         @test !isempty(w)
     else
-        @info "Kokoro-82M: no export; run tools/export_kokoro.py" dir
+        @info "Kokoro-82M: no export; run tools/export_kokoro.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError KokoroRunner.kokorograph()

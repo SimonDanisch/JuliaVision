@@ -117,6 +117,50 @@ dispatch, a reduction and a split-K GEMM on each, and asserts `PIPELINE_CACHE`
 grows by **more than one** — a shared entry can still produce a right answer by
 luck.
 
+**RETRACTED (kept for the record; superseded below by step 8 proper).**
+This section briefly claimed the
+carrier did not exist. `BatchQueue.ctx` is real and populated, so
+`backend -> dispatch_bq -> ctx` resolves for every construction form. The claim
+came from reading the first half of `BatchQueue`'s field list, where `ctx::Any`
+sits sixty-odd lines down. A `ctx` field was added to `LavaBackend` on the
+strength of it and has been removed again — a second copy of a fact the queue
+already holds can only disagree with it.
+
+What landed instead: `Lava.vk_context(backend)` and `vk_context(array)` name
+that path, and **the three pipeline-owning caches are now keyed by device**
+(`VkContext.id`, a never-reused counter) — Lava `0aaa7f9`. So two devices
+compiling the same kernel no longer collide. `GFX_PIPELINE_CACHE` is still
+unkeyed and holds only graphics pipelines.
+
+What remains for phase 2: the 58 direct `vk_context()` calls in `src/`.
+`vk_context()` may remain as a convenience default — nothing inside the library
+may depend on it. And the two-device acceptance test (real GPU + lavapipe) is
+now *possible*, which it was not before, and still unwritten.
+
+**Testable everywhere, no second GPU needed — and now actually written.**
+`init_vulkan!(; select)` returns a context without installing it, and the loader
+enumerates the GPU and lavapipe from one instance, so `dev/Lava/test/twodevice_probe.jl`
+builds the pair on any machine here. It asserts correct results on both *and*
+that one kernel compiles **twice** — a single new `PIPELINE_CACHE` entry means
+the devices shared a pipeline, which can still produce a right answer by luck.
+
+**It PASSES** (Lava `83b9b10`) and is back in `runtests.jl`.
+
+**The blocker was the allocator, not the caches.** `POOL_BLOCKS` was
+module-level and `PoolBlock` carried no device, so a second device's allocation
+came out of the first device's 64 MiB block — measured: the block count stayed at
+1 across an allocation on each device, and `fill!` on the second context read
+back 0.0. All four caches §8 names were already keyed per device by then and
+**none of them was what actually broke it**; the allocator is a bigger class,
+because it hands out memory rather than handles and so corrupts silently. Now
+`DevicePool` per device, with each block back-referencing its pool so the
+finalizer free path needs no lookup.
+
+The last piece was six `LavaBackend()` calls *inside* the library — an unpinned
+backend resolves through `vk_context()`, so `fill!`/`mul!`/`coopmat_gemm!` and
+broadcast dispatched on whichever device was global. All six now derive the
+backend from the data.
+
 **Reading the code produced a list of four caches. None of the four was what
 actually broke it.** In the order the probe found them, each invisible until the
 one above it was fixed: the device **function-pointer table**

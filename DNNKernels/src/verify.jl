@@ -50,6 +50,46 @@ function maxerr(a, b)
 end
 
 """
+    tohost(x)
+
+A device result as a host `Array`, and anything already on the host unchanged.
+
+The comparison below walks both tensors element by element, which on a device
+array is one transfer per element — where it is permitted at all. `verifygraph`
+was CPU-only for that reason, and SAM 2's encoder had to be checked by a
+separate end-to-end script (`tools/bench_sam2.jl`) because 1493 ops at 1024x1024
+are not something a CPU backend finishes. Downloading each result once makes the
+layer-by-layer criterion available on whichever backend actually runs the model,
+which for anything the size of Whisper's encoder is the only one there is.
+"""
+tohost(x) = x
+tohost(x::Array) = x
+tohost(x::AbstractArray) = collect(x)
+
+"""
+    weightkeys(g) -> Set{String}
+
+The `weights.safetensors` names a graph's ops actually read, following views to
+their parent: a transposed weight reaches a `mm` as a `:view` buffer, so
+scanning `op.ins` for `:weight` alone finds none of the projections in a
+transformer.
+"""
+function weightkeys(g::Graph)
+    ks = Set{String}()
+    function walk(id)
+        b = get(g.buffers, id, nothing)
+        b === nothing && return
+        b.kind === :weight && !isempty(b.key) && push!(ks, b.key)
+        b.kind === :view && !isempty(b.of) && walk(b.of)
+        return
+    end
+    for op in g.ops, i in op.ins
+        walk(i)
+    end
+    ks
+end
+
+"""
     verifygraph(graphpath, refs, weights; dims, backend, atol, amplify)
 
 `refs` is the dict from `readsafetensors`, keyed `"<graph>/in<i>"` and
@@ -58,17 +98,30 @@ in isolation - an upstream graph's error cannot mask a downstream one.
 
 Flags the first op whose error exceeds `atol` *and* is more than `amplify` times
 the error on its inputs.
+
+Takes a loaded `Graph` as well as a path, so a *prefix* of a graph can be
+checked on its own. Whisper's encoder is 32 identical blocks; running two of
+them covers every op type it uses for a sixteenth of the arithmetic, which is
+the difference between a CPU-backend check that finishes and one that does not.
 """
-function verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict;
+function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
                      dims, backend=KernelAbstractions.CPU(),
                      atol=1e-4, rtol=1e-3, rtol16=3e-2, amplify=4.0, verbose=true)
-    g = loadgraph(graphpath)
     inputs = Dict{String,Any}()
     for (i, name) in enumerate(g.inputs)
         k = "$(g.name)/in$(i-1)"
         haskey(refs, k) || error("no reference input $k")
-        inputs[name] = refs[k]
+        inputs[name] = toback(backend, refs[k])
     end
+
+    # `readsafetensors` returns host arrays and `execute!` does not upload —
+    # `Model` does that on the way in, and this entry point has no `Model`. Only
+    # the weights this graph names, so verifying a two-block prefix of a 2.4 GB
+    # encoder does not upload the other thirty blocks. A no-op when they are
+    # already resident, and when the backend is the CPU.
+    used = weightkeys(g)
+    weights = Dict{String,Any}(k => (k in used ? toback(backend, v) : v)
+                               for (k, v) in weights)
 
     # With a workspace, so this checks the path that actually runs. Op bodies
     # branch on `ctx.ws === nothing` — `native_layer_norm` centres into scratch
@@ -88,8 +141,8 @@ function verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::Abs
         (got === nothing || got isa Tuple || !haskey(refs, k)) && continue
         eltype(got) === Bool || continue
         size(got) == size(refs[k]) || continue
-        n = count(got .!= refs[k])
-        n > 0 && (pinned[op.out] = refs[k]; flips[op.out] = n)
+        n = count(tohost(got) .!= refs[k])
+        n > 0 && (pinned[op.out] = toback(backend, refs[k]); flips[op.out] = n)
     end
     isempty(pinned) || (values = execute!(g, inputs, weights; dims, backend, ws, overrides=pinned))
 
@@ -132,6 +185,7 @@ function verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::Abs
         got === nothing && continue
         got isa Tuple && (got = got[1]; k = "$(g.name)/node/$(op.out).0")
         haskey(refs, k) || continue
+        got = tohost(got)
         want = refs[k]
         flow = maximum(Float64[inerr(x) for x in op.ins]; init=0.0)
 
@@ -207,8 +261,7 @@ end
 
 Which ATen ops in a graph have a `runop!` method, without executing it.
 """
-function coverage(graphpath::AbstractString)
-    g = loadgraph(graphpath)
+function coverage(g::Graph)
     impl, miss = String[], String[]
     for op in unique(o.aten for o in g.ops)
         # the catch-all `::Val{T} where T` matches everything, so hasmethod is
@@ -219,3 +272,10 @@ function coverage(graphpath::AbstractString)
     end
     (sort(impl), sort(miss))
 end
+
+# Path forms, kept because `tools/` scripts hold paths to trees they generated
+# themselves. Library and test callers take the `Graph` methods above.
+coverage(graphpath::AbstractString) = coverage(loadgraph(graphpath))
+
+verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict; kw...) =
+    verifygraph(loadgraph(graphpath), refs, weights; kw...)

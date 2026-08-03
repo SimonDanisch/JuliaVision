@@ -148,8 +148,8 @@ card. Two models, two different conv pathologies, same kernel.
 
 The neural LUT port meets its target and is worth shipping. Applying a look at
 4K is **0.79 ms**, the 4K→256 reduce is **0.03 ms**, and predicting a new look
-is ~10 ms — so grading a shot at 60 fps costs 0.79 ms/frame and only re-prediction
-is expensive. That is the right shape for the feature: predict per shot or per
+is **~1.8 ms** (corrected 2026-08-03 — see below; it was measured inside a
+warm-up ramp). Re-predicting *and* grading is 2.6 ms, so both fit a 60 fps frame. That is the right shape for the feature: predict per shot or per
 keyframe, grade per frame. `NeuralLUTRunner` has a real workload and
 `Lava.frozen_stats().misses == 0` on a fresh process.
 
@@ -290,3 +290,1053 @@ RIFE's own padding kernel stayed in `RIFERunner` rather than joining
 source frame, which is the entire point of each. RIFE pads because its flow field
 is in pixels, and resizing the input would silently rescale every motion vector
 the network predicts.
+
+---
+
+## 2026-08-03 — SETTLED STATE (read this, then the entries below for how)
+
+The three entries that follow are a working log and they correct each other four
+times. This is what is true at the end of the day, so nobody has to reconstruct
+it from the sequence.
+
+**The three ports are unchanged and still correct** against `main` at `aefd9e6`,
+which carries the DNNKernels refactor, Lava's per-device allocator and
+flash-decoding. Parity: neural LUT 3.576e-07, RIFE 3.265e-04 max, Depth Anything
+4.232e-05. Runner output byte-identical to 2026-08-02.
+
+**Corrected timings**, after finding that `timed()` warmed up 3 calls into a
+24-call ramp and measured inside it:
+
+| | value | note |
+|---|---|---|
+| LUT apply at 4K | **0.80 ms** | target < 2 ms, met |
+| LUT classifier | **1.8 ms** | was reported as ~8–14 ms; that was the ramp |
+| LUT re-predict + grade | **2.6 ms** | fits a 60 fps frame — supersedes "predict per shot" |
+| RIFE at 1080p | **314 ms** | target 16.67 ms, missed ~19x |
+| Depth Anything at 518² | **374 ms** | vs PyTorch 25.3 ms, missed ~15x |
+| SAM 2 encode / decode | **173.8 / 17.7 ms** | desktop 100.4; this card is ~1.8x |
+
+**Workload coverage is now a real claim**, not `frozen_stats().misses == 0`:
+all three editor paths run under `Lava.no_pipeline_compilation` with **0
+refusals**, and the negative control (a `Val{K}` novel per run) refuses 1, so the
+instrument fires.
+
+**The VRAM finding, settled.** Loading SAM 2 leaves the pool at **7.9x its
+resident set** (63 blocks / 4032 MiB against 505 MiB resident — the resident set
+is 505 MiB, *not* the 941 MiB checkpoint, because `dropdead` drops 824 orphaned
+weights and `hoistcasts` replaces fp32 masters with fp16).
+
+- **Cause:** `Model`'s `hoistconstants` runs **186 constant-subgraph folds on the
+  device at load**. The weights those consume are uploaded into the same blocks
+  as the weights that survive, then discarded. MatAnyone folds **0** and does not
+  reproduce; the three small ports strand nothing.
+- **The fix that works:** one `reclaim_empty_pool_blocks!` after load — **7.9x →
+  1.50x, 52 ms, once**. `POOL_SOFT_CAP` does not do this today: past the cap the
+  allocator runs a GC (which cannot help — nothing is garbage) and cuts a block
+  anyway, and the reclaim scan is on the OOM retry path only.
+- **Two fixes I proposed and then disproved — do not attempt either.** Folding
+  before the upload is impossible (`constops` seeds from `:weight`, so folding
+  consumes what it would precede). A two-phase upload is computable but pointless
+  (foldable ops consume 95% of the weight bytes, so phase one is nearly
+  everything). The populations are interleaved *in the graph*, so no `Model`-level
+  ordering separates them; the residual 1.50x needs the allocator to learn
+  lifetimes, which is `lava-core`'s call.
+- **Reproducer:** `tools/pool_fragmentation_probe.jl` — no model, no weights, no
+  export; exits non-zero when it reproduces.
+
+**The three suites now run, and assert the above.** `Pkg.test` had never worked
+for *any* runner package here — none declares a test target, so the suite gets an
+environment without `Test` and every `runtests.jl` dies on `using Test` before
+asserting anything. `SAM2Runner`, whose test file the scaffolds cite as the shape
+to copy, is among them. **The other six packages need the same three lines**
+(`[extras] Test` + `[targets] test = ["Test"]`); mine and `newrunner.py` have
+them, so nothing scaffolded after this inherits the defect.
+
+Each of the three now carries the latency test the scaffold's docstring promised,
+in a subprocess, asserting `no_pipeline_compilation` **and a negative control**:
+
+    NeuralLUT      refused = 0, control = 1, compile = 0.0 s, wall 0.55 s
+    RIFE           refused = 0, control = 1, compile = 0.0 s, wall 1.41 s
+    DepthAnything  refused = 0, control = 1, compile = 0.0 s, wall 0.74 s
+
+Writing it produced three faults of the kind it exists to catch, which is the
+argument for having written it rather than trusting a session's worth of manual
+checks: a dep the test env lacks; a testset that passed with **zero** assertions
+when the subprocess returned nothing; and stdout-only capture, which made a
+crashed subprocess indistinguishable from "no GPU here" — that one would have
+gone green forever on a CI machine without a device.
+
+**Soak:** 1 718 240 trials, zero hangs, on top of 508 740 yesterday — and see
+the fourth entry below, which makes that number mean much less than it reads.
+
+Owners for what remains: the allocator is `lava-core`'s; the desktop should
+re-check its own 1 181 MiB figure, which was measured the same way; and the six
+**all eleven runner suites run, and ten pass** — verified in one sweep at the end
+of the day, not assembled from runs taken at different points:
+
+    NeuralLUTRunner PASS   SAM2Runner      PASS   KokoroRunner     PASS
+    RIFERunner      PASS   BasicVSRRunner  PASS   ProPainterRunner PASS
+    DepthAnything…  PASS   DeepFilterRunner PASS  WhisperRunner    PASS
+    DemucsRunner    PASS   MatAnyoneRunner FAIL (vkWaitSemaphores hang)
+
+This morning none of them could run at all — no package declared a test target.
+
+**And the monorepo's own dev environment did not resolve.**
+`dev/JuliaVision/Project.toml` lists `Lava` in `[sources]` but not in `[deps]`,
+which Pkg refuses outright: *"Sources for `Lava` not listed in `deps` or
+`extras`"*. So `Pkg.activate(".")` — the workflow written at the top of that very
+file — failed for anyone who tried it. Not my change (empty diff against
+`origin/main`); found only because I finally checked the repo's env rather than
+the ad-hoc workspace one I had been dev'ing into all day. One line, and it
+resolves — and `Pkg.test` then works from that environment too, spot-checked on
+a ported package and a scaffold, which is the path a contributor actually takes.
+The one failure is a real bug with a one-command reproducer and six controls
+(fourth entry below), not an infrastructure problem.
+
+---
+
+
+## 2026-08-03 — still green after the refactor, and "0 misses" made into a real claim
+
+Re-ran everything against `main` at `aefd9e6` — which now carries the DNNKernels
+refactor (globals 34 → 0, plan objects, per-device `Device`), Lava's per-device
+allocator and flash-decoding, all of which landed *after* `sd/small-models` was
+merged.
+
+**Nothing regressed.** All three parity checks pass with the same numbers, and
+the three runners produce byte-identical output to 2026-08-02:
+
+| | parity | runner output |
+|---|---|---|
+| neural LUT | 3.576e-07 | `RGB(0.3627222, 0.78073686, 1.0)` |
+| RIFE | 3.265e-04 max, 4.897e-07 mean | centre `RGB(0.35299557, 0.5, 0.6470045)` |
+| Depth Anything | 4.232e-05 | depth max 3.4986925 |
+
+The one digit that moved is Depth Anything's mean, 8.481e-07 → 8.485e-07.
+
+### The `misses == 0` claim was weaker than I wrote it, and now is not
+
+`STATUS.md`'s cross-project list says it plainly: **"0 misses" could mean the
+frozen cache worked, or that the driver's own shader cache served everything** —
+and the miss report identified modules by `hash(spirv_bytes)`, the *sampling*
+hash, so two modules differing in one byte counted as one. Yesterday's entry
+asserts `Lava.frozen_stats().misses == 0` three times as if it settled the
+question. It did not, and that is my error rather than a change of circumstance.
+
+Re-tested with the stronger instrument. `Lava.no_pipeline_compilation` empties
+`PIPELINE_CACHE` first — so a Julia-side hit cannot mask a cold `VkPipelineCache`
+— and refuses any pipeline that would need compiling:
+
+| editor path | refusals |
+|---|---|
+| `predictlut` + `grade!` at 4K | **0** |
+| `depthmap!` | **0** |
+| `interpolate!` at 1080p | **0** |
+
+**With a negative control, because a green from an instrument that cannot fire is
+worth nothing** — this repo has now hit that class three times, and the same
+`VK_PIPELINE_COMPILE_REQUIRED` bug that made this instrument unable to report a
+miss on Linux was live until recently. The control dispatches a kernel whose body
+is novel *per run* (a `Val{K}` with `K` from `RandomDevice`), so neither Lava's
+cache nor the driver's cross-process one can serve it: **refused = 1, the
+instrument fires.** The three zeros above are therefore real.
+
+So the workloads do cover the paths the editor takes, which is what the packages
+exist for — but it is worth being exact about what the test now proves: every
+pipeline these three paths need was already in the driver's cache, on this
+machine, in a fresh process. That is the first-use cost the workload removes.
+
+### Nothing else outstanding
+
+`small-models` is marked done in `STATUS.md` and the three artifacts are live on
+`assets-v1`. Both findings from yesterday — TF32 in the exporters, and
+benchmarking through `Model` rather than `loadgraph` — are now in the
+cross-project "act on these first" list, so they need nothing further here.
+
+---
+
+## 2026-08-03 (second entry) — a warm-up ramp I was measuring inside, and 4 GB of pool for 942 MB of weights
+
+### The classifier is 1.8 ms, not ~10 — my benchmark was measuring its own warm-up
+
+Every classifier number in this report has been unstable: 7.0, 8.4, 8.4, 10.5,
+9.5, 10.5, then 2.1, 4.4, 5.5, 11.1 ms on an idle card. I wrote that up twice as
+noise and once as a refactor speed-up. It was neither.
+
+Timing 200 single calls and printing them **in sequence** rather than sorted:
+
+    call 1        2 834 ms
+    calls 2-24    7-20 ms, decaying
+    calls 25-200  ~2 ms, flat
+
+The outlier indices are `[1 … 24]` — contiguous, nothing after. It is a warm-up
+ramp, and `timed()` in all three `bench_*.jl` warmed up **three** calls before
+measuring, so the median-of-seven landed at a random point on the ramp. Over 60
+samples the distribution was min 1.19 / median 1.47 / p95 10.13 / max 569.67 ms —
+a heavy right tail that is entirely the ramp, not a stall.
+
+Warm-up is now 30 calls. Three consecutive runs: **1.79 / 1.66 / 1.81 ms**, a 9%
+spread instead of 5x.
+
+**This changes the port's advice.** Applying a look is 0.80 ms at 4K and
+predicting one is 1.8 ms, so re-predict *and* grade is **2.6 ms** — inside a 60
+fps frame. Yesterday's "predict per shot, grade per frame; re-predicting costs
+18x" was an artefact of the ramp. Prefer the precomputed-LUT form because it is
+3x cheaper and says what it means, not because the budget forbids the other one.
+
+RIFE (314.6 ms) and Depth Anything (374.2 ms, PyTorch 25.3) are unchanged by the
+fix, as expected: a 20-call ramp is negligible against a 300 ms call, which is
+also why only the small graph ever looked noisy.
+
+### SAM 2 on this machine, after flash-decoding
+
+| | today | 2026-08-02 | desktop |
+|---|---|---|---|
+| encode | **173.8 ms** | 182.3 | 100.4 |
+| decode, one click | **17.7 ms** | 17.6 | 2.21 *(replayed)* |
+
+Decode is unchanged here, which is what should be expected rather than a
+disappointment: the desktop's 2.21 ms is a **replayed captured command buffer**
+and `segment()` is not replayed, so flash-decoding's 3.55x on cross-attention is
+not what this number is dominated by.
+
+### A VRAM regression that only a small card would notice
+
+Measuring the same SAM 2 script as yesterday, `nvidia-smi` reports **4 467 MiB**
+for the process where yesterday it reported **1 337 MiB**. `STATUS.md` records the
+VRAM goal as met at 1 181 MiB.
+
+Located, not guessed:
+
+- Lava's pool holds **63 blocks x 64 MiB = 4 032 MiB**, against a
+  `POOL_SOFT_CAP` of 2 048 MiB — nearly 2x its own cap.
+- All 63 blocks are allocated inside **`sam2model()`** — the weight upload.
+  `encode` adds **zero** blocks, and a second encode adds zero. So this is
+  residency, not transients, and not a leak per call.
+- SAM 2's weights are ~942 MB on disk. 4 032 MiB to hold them is 4.3x — but
+  both halves of that are wrong and the entries below correct them: the
+  blocks are mostly *empty*, and the resident set is 505 MiB, not 942, so
+  the real ratio is **7.9x**.
+
+The mechanism is visible in `memory.jl`: past `POOL_SOFT_CAP` the allocator asks
+the GC and then **cuts a new block anyway**, and `reclaim_empty_pool_blocks!` is
+documented as running "only on the OOM retry path". So the pool ratchets up and
+never gives back until an allocation is about to fail. That is invisible on a
+desktop and decisive on 8 GB — it is why `sam2model()` OOM'd here earlier today
+with 2 246 MiB of budget free.
+
+**Not attributed to a commit.** The only allocator change since yesterday is
+`POOL_BLOCKS` → `pool(ctx).blocks` (Lava `83b9b10`), which with one device should
+be equivalent; DNNKernels' globals-to-plan-objects refactor landed in the same
+window and SAM 2's loader does not go through `Model`. Bisecting wants a machine
+that can hold two Lava versions comfortably, and the allocator worklist already
+lives in `projects/lava-core/REPORT.md`. Handing it over with the measurement
+rather than a guess.
+
+Worth pairing with `GUARDRAILS.md` §6's own advice: this is a *memory* number,
+and the only reason it was caught is that this machine has 8 GB. The desktop's
+1 181 MiB "goal met, nothing to do" may no longer be true there either.
+
+---
+
+## 2026-08-03 (third entry) — the 4 GB is 81% empty blocks, and `POOL_SOFT_CAP` never reclaims
+
+Chased the VRAM finding above to a mechanism. **It is not fragmentation, not
+residency, and not the allocator's packing** — all three of which I named as
+suspects, and all three are wrong.
+
+### Pure Lava packs this shape fine
+
+SAM 2's checkpoint is 909 tensors, 941 MiB, median **2 KiB**, largest exactly
+64.0 MiB (right at `POOL_LARGE_THRESHOLD`, so it does *not* bypass the pool).
+Allocating that exact size distribution through `KA.allocate` and holding every
+buffer live:
+
+    909 buffers, 941 MiB, minimum blocks = 15
+    all held live: 16 blocks (1024 MiB) -> 1.1x minimum
+
+So the bump allocator packs a 2 KiB median at 1.1x. Nothing wrong with it.
+
+### The blocks are empty
+
+    after load          : 63 blocks (4032 MiB)   nvidia-smi 3591 MiB
+    after drain + GC(true): 63 blocks (4032 MiB)   <- neither helps
+    reclaim_empty_pool_blocks! freed 51 blocks, 3264 MiB
+    after reclaim       : 12 blocks ( 768 MiB)   nvidia-smi  326 MiB
+    after encode        : 12 blocks ( 768 MiB)   nvidia-smi  752 MiB
+
+**81% of the pool was empty.** SAM 2's true steady-state footprint is 768 MiB of
+pool and 752 MiB by `nvidia-smi` — *under* the 1 181 MiB the goal is stated in,
+not 3.8x over it. The number in the entry above is real as a measurement of what
+the process holds, and wrong as a description of what SAM 2 needs.
+
+`Model.scratch` is still empty at this point (`n = 0`, the slab is allocated
+lazily on first `encode`), so every one of those 63 blocks comes from uploading
+734 weight entries — and `encode` afterwards adds **zero** blocks.
+
+### Why nothing gives them back
+
+`reclaim_empty_pool_blocks!` is documented as "called from `vk_alloc` /
+`alloc_pool_block` **only on the OOM retry path**, so steady-state allocations
+don't pay the scan cost". And past `POOL_SOFT_CAP` the allocator calls
+`collect_for_pool!` — a *garbage collection*, which does nothing here because
+nothing is garbage — and then cuts a new block regardless.
+
+So the cap does not cap. It gates a GC, and the one thing that would actually
+return memory runs only when an allocation is already failing. A bulk upload of
+909 buffers walks the pool up to 4 GB and it stays there until something OOMs —
+which is exactly what happened here earlier today, at 2 246 MiB of free budget.
+
+### Two things worth doing, neither of them mine
+
+1. **Call `reclaim_empty_pool_blocks!` after a bulk upload.** One line at the end
+   of model loading recovers 3.2 GB on an 8 GB card. This is the cheap fix and it
+   needs no design.
+2. **Make `POOL_SOFT_CAP` reclaim before it collects.** Asking the GC for memory
+   that is not garbage cannot work; the empty-block scan is the operation that
+   matches the situation. That is a change to Lava's allocator policy and belongs
+   to `lava-core`, whose report already owns the worklist.
+
+Filed here rather than acted on because these three models are bring-up, and
+because the desktop should confirm the numbers — but the mechanism is not
+machine-specific and its own `1 181 MiB` figure was measured the same way.
+
+### Checked, and these three models are not affected
+
+Before changing anything in my own loaders, I measured whether they strand blocks
+the way SAM 2's load does. They do not:
+
+| | pool after a run | `reclaim_empty_pool_blocks!` frees |
+|---|---|---|
+| neural LUT | 1 block (64 MiB) | **0** |
+| Depth Anything | 3 blocks (192 MiB) | **0** |
+| RIFE | 7 blocks (448 MiB) | **0** |
+
+So the one-line fix would recover nothing here and has **not** been added to
+`neurallut`, `rife` or `depthanything` — a call that always frees zero is a
+reader's puzzle, not a safeguard.
+
+That also bounds the bug usefully. These three upload 21–239 weight entries
+totalling 2–95 MiB and strand nothing; SAM 2 uploads 734 entries totalling
+941 MiB and strands 3.2 GB. Whatever the threshold is, it is reached at SAM 2's
+scale and not at these — which means the models to check next are the other large
+ones (MatAnyone, and Whisper's encoder at 2.55 GB fp32) rather than any of the
+small ports.
+
+Soak, meanwhile: **221 450 trials, zero hangs** since the restart, on top of the
+508 740 recorded yesterday.
+
+### A standalone reproducer: it is lifetime mixing, and reclaim is only a mitigation
+
+`tools/pool_fragmentation_probe.jl` — no model, no weights, no export, ~90 lines
+of `KA.allocate`. Three patterns over SAM 2's exact size distribution:
+
+    909 buffers, 941 MiB total, median 2.2 KiB — minimum 15 blocks
+
+    1. hold all live (control)             grew 16 blocks (1024 MiB),  0 empty,  16 PINNED
+    2. allocate and drop each immediately  grew 16 blocks (1024 MiB), 16 empty,   0 PINNED
+    3. interleave transient + resident     grew 32 blocks (2048 MiB),  1 empty,  31 PINNED
+
+Reading them together:
+
+- **(1) the allocator is fine.** Same sizes, every buffer live, 16 blocks against
+  a 15-block minimum — 1.1x on a 2 KiB median.
+- **(2) transient churn strands everything.** The pool grows to the whole working
+  set and every block ends up *empty*. This is the part `reclaim_empty_pool_blocks!`
+  can fix, and it is the 51 blocks / 3.2 GB it recovered on SAM 2.
+- **(3) a weight upload's actual shape doubles the pool, and reclaim cannot
+  touch it.** 31 of 32 blocks are **pinned** — each holds at least one live
+  tensor, so no scan can return them however empty they are.
+
+**So the one-line mitigation is not the fix.** It recovers the wholly-transient
+blocks and is worth doing, but pattern 3 says the pool will still sit at ~2x the
+resident set on any load that allocates a transient beside each keeper. The
+allocator has no notion of separating a short-lived allocation from one that
+lives as long as the model, and a bump allocator cannot recover from that after
+the fact — the placement decision is where it is lost.
+
+Worth stating precisely what this is **not**, because two of them were my own
+earlier guesses: not fragmentation by size (pattern 1 has the identical
+distribution and wastes 6%), not a leak (every buffer is freed, with `GC.gc(true)`
+and `drain_deferred_frees!` before each count), and not the per-device pool split
+(`POOL_BLOCKS` → `pool(ctx).blocks` is equivalent with one device).
+
+The probe exits non-zero when pattern 3 pins more than the minimum, so it can go
+straight into a test suite once the behaviour is decided on. It is filed from
+here rather than fixed because the allocator is `lava-core`'s.
+
+### The trigger, named: 186 constant-subgraph folds at load
+
+MatAnyone was the control worth running, because it is the other large model with
+an artifact on this machine and it goes through the same `DNNKernels.Model`:
+
+    MatAnyone   2 blocks (128 MiB), reclaim frees 0  — does NOT reproduce
+    SAM 2      63 blocks (4032 MiB), reclaim frees 51 (3.2 GB)
+
+Same loader, opposite outcome. The `@debug` line `Model` already prints says why:
+
+| | constant-subgraph ops folded | batch-norms | blocks stranded |
+|---|---|---|---|
+| MatAnyone | **0** | 75 | 0 |
+| SAM 2 | **186** | 0 | 51 |
+
+`hoistconstants(graphs, weights, backend)` is described in `driver.jl` as "the one
+pass that has to **run** the ops it folds, so it comes after the upload and works
+on the device weights". For SAM 2 that is 186 computations executed at load time,
+each allocating transients *after* the resident weights are already placed —
+which is pattern 3 of the probe exactly, and it is why the blocks come out pinned
+rather than empty. MatAnyone folds none, allocates no transients after its
+upload, and lands at 128 MiB for ~130 MiB of weights.
+
+So the causal chain is complete: **186 device-side constant folds → transients
+interleaved with resident weights → 4 GB pool for 941 MiB → 3.2 GB unreclaimable
+by anything but the empty-block scan, and 12 blocks not even by that.**
+
+Two fixes follow from it, and both are cheaper than changing the allocator:
+
+1. **Fold constants before uploading the resident weights**, so the transients
+   are allocated and freed while the pool is still empty and nothing pins the
+   blocks. This is an ordering change in `Model`, not an allocator change.
+2. **Or reclaim once after `hoistconstants`**, which recovers the wholly-transient
+   blocks at a known-quiet point rather than waiting for an OOM.
+
+Neither is mine to make — `Model` is `kernels-refactor`'s and the allocator is
+`lava-core`'s — but the measurement now names the pass, the count, and a control
+that does not reproduce.
+
+### Correcting my own two numbers, and how much the one-line fix actually buys
+
+Measuring the resident set rather than the file size, which is what I had been
+comparing against:
+
+    resident weights : 734 arrays, 505 MiB  -> minimum 8 blocks
+    pool at load     : 63 blocks (4032 MiB) = 7.9x
+    after reclaim    : 12 blocks ( 768 MiB) = 1.50x minimum
+
+Two corrections to what I published earlier today:
+
+- **The resident set is 505 MiB, not 941.** The checkpoint on disk is 941 MiB,
+  but `Model` drops 824 orphaned weights and `hoistcasts` replaces fp32 masters
+  with fp16 — the same pass `STATUS.md` credits with 849 MB on SAM 2. Comparing
+  the pool against the *file* was the wrong denominator, which is precisely
+  `GUARDRAILS.md` §5's rule and I broke it while quoting it.
+- **So the overhead is 7.9x, not 4.3x** — worse than I reported, not better.
+
+And a fairer verdict on the mitigation than "not the fix": **one call to
+`reclaim_empty_pool_blocks!` takes SAM 2 from 7.9x to 1.50x.** That is most of
+3.3 GB on an 8 GB card for one line at a known-quiet point. The residual 1.50x —
+about 256 MiB of blocks pinned by a live tensor apiece — is the genuine pattern-3
+part that ordering (fold constants before the resident upload) would be needed to
+remove.
+
+So the two fixes are not alternatives of equal weight. The reclaim is the cheap
+one and it recovers ~81% of the excess; the ordering change is what would take
+the last 50%, and only it addresses the mechanism.
+
+### The ordering fix as I filed it is impossible — and the mechanism is sharper than "transients"
+
+I recommended "fold constants before uploading the resident weights" without
+checking it could be done. It cannot. `constops` seeds its known-constant set
+with `kind === :weight` and grows it to fixpoint, so a constant subgraph is by
+definition one that **reads only weights** — folding consumes weights, and cannot
+precede the upload that makes them readable. That is why `driver.jl` puts the
+pass after the upload, and the comment there says so.
+
+What that clarifies is the mechanism, which I had been describing as "transients"
+without knowing what they were. They are not staging buffers. They are **the
+weights the fold consumes and `dropdead` then discards** — uploaded into the same
+blocks as the weights that stay, then dropped, leaving those blocks partly empty.
+The debug line names the quantity: 824 orphaned weights dropped, 186 subgraphs
+folded, against 734 that remain. The pool cannot tell the two populations apart
+because nothing told it they had different lifetimes.
+
+So the feasible form of the ordering fix is a **two-phase upload**: upload only
+the weights the constant subgraphs consume, fold, reclaim, then upload the 734
+survivors into a pool that is empty again. That is a real change to `Model` and a
+bigger one than I implied — it needs `constops` run before the upload to know
+which weights are in phase one, which is possible since that analysis is
+host-side and reads only the graph.
+
+### The cheap fix, costed
+
+    reclaim scanned 63 blocks, freed 51 (3264 MiB) in 52.4 ms
+    second call (nothing to free)                  in  5.12 ms
+
+**52 ms, once, at load, to recover 3.2 GB** — against a load that takes seconds.
+The scan alone is 5 ms when there is nothing to free, so it is cheap to call
+unconditionally. Against 7.9x → 1.50x, that is the whole recommendation: do this
+one, and treat the two-phase upload as the follow-up that removes the last 50%
+rather than as an alternative to it.
+
+Both numbers are from this machine, and the reclaim cost will scale with block
+count rather than with model size.
+
+### …and the two-phase upload does not work either. Both structural fixes are dead
+
+I claimed the two-phase upload was feasible because `constops` is host-side, then
+made the same mistake twice in a row by not testing it. Running the analysis on
+SAM 2's graphs without a device:
+
+    sam2_encoder   569/1353 ops foldable, phase-1 weights 410/909 = 896 of 941 MiB (95%)
+    sam2_decoder    25/ 174 ops foldable, phase-1 weights   4/903 =   0 of 856 MiB ( 0%)
+
+The analysis *is* host-computable, so that half of the claim holds. The fix built
+on it does not: **"upload only what the constant subgraphs consume" is 95% of the
+weight bytes.** Phase one would upload nearly everything, fold, reclaim, and then
+upload the remaining 5% — the interleaving it was supposed to avoid happens
+inside phase one, because the weights that feed foldable ops and the weights that
+survive are overwhelmingly the same weights.
+
+So both structural proposals are disproved, by measurement, and neither should
+reach anyone's worklist:
+
+1. ~~Fold constants before uploading the resident weights~~ — impossible;
+   `constops` seeds from `:weight`, so folding consumes what it would precede.
+2. ~~Two-phase upload~~ — possible to compute, pointless to do; phase one is 95%
+   of the bytes.
+
+**What stands is the reclaim: 7.9x → 1.50x for 52 ms, once, at load.** The
+residual 1.50x is ~256 MiB of blocks each pinned by one surviving tensor, and
+nothing at the `Model` level can separate those lifetimes — the two populations
+are genuinely interleaved in the graph, not merely in the upload order. Removing
+the last 50% therefore needs the *allocator* to learn about lifetimes (a separate
+pool or an arena for load-time transients), which is `lava-core`'s call and a
+real design change rather than an ordering tweak.
+
+Recorded in full because the negative result is the useful part: without it, two
+plausible-sounding reorderings would have been attempted and both would have
+failed for reasons that cost an afternoon each to discover.
+
+
+---
+
+## 2026-08-03 (fourth entry) — a REPRODUCIBLE vkWaitSemaphores hang (ATTRIBUTED: non-square attention)
+
+Adding a test target to the remaining runner packages made two suites runnable
+for the first time, and both fail the same way:
+
+    LavaError during vkWaitSemaphores:
+      timed out after 120.0 s waiting for timeline value 405 on 50 in-flight batch(es)
+      timeline counter = 355, next_timeline = 405, replay watermark = 0
+      batch 1: signals 356, waits on nothing ...
+
+`Pkg.test("MatAnyoneRunner")`, on this machine, **every time**.
+
+**Correction: SAM 2 does not fail this way.** I wrote that both suites failed
+identically, having read MatAnyone's error and only a summary line for SAM 2 —
+and SAM 2's fixture is 1024 x 1024, square, which the characterisation below says
+should *not* hang. It does not. Its suite failed on **missing test deps**
+(`Random`, then `Printf`) in the target I had just added, and then on **a
+regression of mine**: its subprocess reads `refs.safetensors` from `assetdir()`,
+but the references are their own artifact (`sam2-large-refs`) and `assetdir()` is
+the weights-only one. That read worked before only because `assetdir()` fell
+through to a generated tree where both happened to sit side by side — exactly the
+fallback I deleted this morning. Pointed at `refsdir()`, **SAM 2's suite passes:
+6 + 24 assertions, first call compiles nothing.**
+
+Its own test could not say any of this, because it used `read(cmd)` without
+capturing stderr — the identical defect I had fixed in my own latency test an
+hour earlier and then failed to recognise when it was hiding this from me. Fixed
+there too. Reproduced with the soak running and again with the GPU fully
+idle, so it is not contention — checked specifically, having made exactly that
+mistake this morning.
+
+### ATTRIBUTED, and this corrects what the rest of this entry first claimed
+
+One A/B settles it. Same model, same code, same machine — only the aspect ratio
+of the input changes:
+
+    128 x 96   timed out after 120.0 s at timeline 405, 50 in-flight batches
+    128 x 128  OK in 23.9 s
+
+That is `STATUS.md`'s **"`blockfor` refuses non-square attention"** — it is **not**
+the flush hang and not a new bug.
+
+**But "non-square" is the wrong rule, and the tracker should say so.** Five
+shapes through the same call:
+
+| W x H | result |
+|---|---|
+| 128 x 96 | **hangs** |
+| 96 x 128 | **hangs** (so it is not orientation) |
+| 96 x 96 | OK, 17.2 s (so it is not the dimension 96) |
+| 128 x 128 | OK, 23.9 s |
+| **160 x 128** | **OK, 23.4 s — and this one is non-square** |
+
+| 160 x 96 | OK, 20.5 s |
+| 112 x 128 | OK, 21.2 s |
+| 96 x 160 | OK, 17.3 s |
+
+**And that last row disproves the rule I proposed in the row above it.** I wrote
+that the hanging cases were "unequal dims where the smaller is below 128", then
+ran the shape that predicts — 160 x 96, unequal, smaller side 96 — and it passes.
+
+So of six shapes, **only the {96, 128} pair reproduces**, in either orientation.
+Non-squareness does not explain it (160 x 128 and 160 x 96 are both lopsided and
+fine), the dimension 96 does not (96 x 96 is fine), and neither does my
+smaller-side rule. As a token grid at /16 the hang is 6 x 8 or 8 x 6, while
+6 x 6, 8 x 8, 10 x 8 and 10 x 6 all pass — no invariant I can see fits six
+points.
+
+**It is one pair, not a range and not an axis.** Eight shapes, expressed as the
+/16 token grid the attention actually sees:
+
+    hangs:  6 x 8,  8 x 6
+    passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
+            7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
+
+### What the validation layers did and did not give
+
+Asked directly whether the layers nailed this down: **no.** They eliminated, they
+did not localise. Recorded because a negative instrument result is worth as much
+as a positive one and is easier to forget.
+
+| instrument | outcome |
+|---|---|
+| GPU-AV (`activate_all_debugging`, `verify_gpu_av` proving it fires) | **no OOB reported** during the run |
+| Synchronization validation (no GPU-AV) | **zero `SYNC-HAZARD`s**, ran to the fault and reported nothing |
+| Core validation + best practices | nothing before the fault |
+| GPU-AV enabled | the layer itself **segfaults** in `vkQueueSubmit2` |
+
+What actually localised it was **Lava's own** `set_dispatch_logging!(true)`, which
+named `gpu_strided_gemm_kernel!`, and the `AUTO_SUBMIT_THRESHOLD` sweep. Neither
+is a validation layer.
+
+**Two caveats that matter for what to conclude.**
+
+1. **"No OOB" is narrower than it sounds.** GPU-AV's own verification probe
+   reports *"1 bytes **written** at buffer device address"* — it instruments
+   **stores**. An out-of-bounds **read** of a garbage address would not be
+   flagged, so address corruption is *not* excluded; only bad writes are.
+2. The zero sync-hazard result is consistent with the barrier hypothesis being
+   disproved by experiment, so two independent lines now agree this is not a
+   missing barrier.
+
+Where that leaves the search: not a bad store, not a race, not the GEMM kernel or
+its shape — but plausibly a **bad address handed to the kernel**, which fits both
+the surviving evidence and the layer crashing while instrumenting that submit.
+
+### Root cause is in Lava's auto-submit path — but the fix is not found yet
+
+`AUTO_SUBMIT_THRESHOLD` (`command.jl:149`) makes Lava submit mid-recording every
+64 dispatches so host recording and GPU execution overlap. Varying **only** that
+constant, everything else identical, MatAnyone at 96 x 128:
+
+| threshold | result |
+|---|---|
+| 1 | hangs — **2 911 in-flight batches**, timeline wait times out |
+| 32 | **OK**, 45.9 s |
+| **64** (default) | **`ERROR_DEVICE_LOST`** |
+| 63 | **hangs** — timeline **405**, 47 in-flight |
+| 65 | **OK**, 45 s |
+| 72 | **OK**, 45 s |
+| 128 | **OK**, 45.3 s |
+| 256 | **OK**, 45.8 s |
+| disabled | **OK**, 46.1 s |
+
+**It is not monotonic.** 32 and 128 are both clean, so "submitting mid-stream is
+broken" is wrong — the threshold only decides *where* the batch boundary lands in
+the dispatch sequence, and 64 puts it somewhere unsafe for this workload. That is
+also why the bug looked input-size dependent: the input decides the sequence, the
+threshold decides where it is cut.
+
+The crashing dispatch is named by `set_dispatch_logging!(true)`:
+`gpu_strided_gemm_kernel!` at `groups=(192,1,1)` — `ndrange = 12288` at workgroup
+64 — which is the `addmm` GEMM `(256,256) x (256,48) -> (256,48)`. That GEMM run
+standalone is clean, so it is the context, not the kernel.
+
+**A hypothesis I tested and disproved.** `record_dispatch!` gates its barrier as
+`(intra || boundary) && !effective_skip`, so a dispatch marked skip-barrier —
+elidable against the *previous dispatch in its batch* — also suppresses the
+barrier against a previously **submitted** batch, which `submit!` does not wait
+on. Rewriting it as `(intra && !skip) || boundary` is defensible on its own terms
+and **does not fix this**: still `DEVICE_LOST` at 64. Reverted rather than shipped,
+because an unverified "improvement" to shared code is exactly what has gone wrong
+elsewhere today.
+
+**A second, distinct defect found on the way:** at `threshold = 1` the queue
+accumulates **2 911 in-flight batches** before timing out. Nothing caps in-flight
+batch count; that is its own bug and not the one being chased here.
+
+**The threshold is not the variable — a specific point in the workload is.**
+48, 56, 65 and 72 all pass; **63 and 64 both fail**, and 63 fails waiting on
+**timeline value 405**, the same value the original 64 failure reports. Two
+adjacent thresholds sharing a failure point, with neighbours clean on both sides,
+means there is one place in MatAnyone's step where cutting the batch is fatal —
+63 and 64 put a boundary there and the others do not. (63 and 64 are coprime, so
+it cannot be one dispatch index divisible by both; the fatal region is a short
+*window* that both cut into.)
+
+Also disproved by experiment, not argument:
+
+- **Not a use-after-free.** Forcing *every* free to defer — never destroying a
+  buffer inline — still gives `DEVICE_LOST`. The narrower fix (also defer when
+  `!isempty(bq.in_flight)`, the second window `memory.jl`'s own note predicts)
+  likewise does not fix it. Both reverted.
+- **Not a missing barrier**, per the earlier test.
+- **Sync validation cannot speak to either.** Lava passes buffers as device
+  addresses in push constants (`PhysicalStorageBuffer`), and sync-val tracks
+  *bound resources* — it cannot see BDA traffic. Its "zero hazards" is a dead
+  instrument, not evidence, and I wrongly cited it as a second independent line.
+
+### The boundary is not the cause either — it takes repeated submits
+
+Did the diff. At threshold 64 the log ends at dispatch **576** (`strided_gemm`,
+`groups=(192,1,1)`) followed by `AUTOSUBMIT after 64 in batch, total=576`; 576 =
+64 x 9, so eight earlier boundaries were harmless. At 65 a boundary lands right
+after a `strided_gemm` too (585) and is fine, so "cut after a GEMM" is not it.
+
+Then the decisive one: a diagnostic that submits **exactly once**, at a chosen
+total dispatch index. `LAVA_SUBMIT_AT=576`, `512`, `448` — **all clean, ~46 s.**
+
+So there is no fatal cut point. One boundary at the place that kills it under
+repeated submission is harmless. The fault needs **many** submits, which matches
+the reported depths (47, 50, and 2 911 in-flight).
+
+Which made an in-flight cap the obvious fix — `submit!` returns without waiting,
+so nothing bounds the queue. Added `MAX_IN_FLIGHT_BATCHES = 8`, sweeping first
+and blocking on the oldest only if genuinely behind. **It does not fix it**: still
+`ERROR_DEVICE_LOST`, and now at total 256 instead of 576, i.e. sooner. Reverted.
+
+Disproved so far, every one by experiment: OOB writes, attention, `blockfor`, the
+GEMM kernel and its shape, boundary-barrier elision, use-after-free (even with
+*every* free deferred), a single fatal cut point, and in-flight depth.
+
+### Where it stands: one positive fact, thirteen disproofs
+
+**The positive fact.** A full `KA.synchronize` between graph calls **fixes it**
+(48.9 s, clean). A `sweep_retired_batches!` between graph calls — same place,
+cleanup but no wait — **does not**. So it is genuine execution overlap: later
+submitted work running before earlier submitted work has finished, not a
+bookkeeping or cleanup problem.
+
+That is the part I cannot yet reconcile. All submissions go to a single
+`bq.queue`, and Lava emits a *memory* pipeline barrier at the first dispatch of
+each new batch (`BARRIER_MODE` defaults to `:memory`), whose first
+synchronisation scope should already cover everything previously submitted to
+that queue. If that barrier is present and correctly scoped, waiting should not
+be necessary — so either it is not reaching the command stream, or something
+about repeated small submissions defeats it.
+
+**Everything tried and disproved, each by experiment rather than argument:**
+
+| hypothesis | how it died |
+|---|---|
+| out-of-bounds write | GPU-AV, `verify_gpu_av` proving it fires, reports none |
+| sync hazard | sync-val reports none — **and cannot see BDA traffic, so this is not evidence** |
+| attention / `blockfor` | zero attention calls happen before the fault |
+| the GEMM kernel or its shape | `(256,256)x(256,48)` standalone is clean, as are N = 44, 47, 49 |
+| a fatal cut point | `LAVA_SUBMIT_AT` = 576 / 512 / 448 — submit **once** there, all clean |
+| boundary-barrier elision | rewrote the gate as `(intra && !skip) \|\| boundary`; no change |
+| barrier elision generally | `BARRIER_ELISION[] = false`; no change |
+| use-after-free | forced **every** free to defer, never destroying inline; no change |
+| UAF via the in-flight window | defer when `!isempty(bq.in_flight)` too; no change |
+| unbounded in-flight depth | `MAX_IN_FLIGHT_BATCHES = 8` with a blocking wait; no change (fails *sooner*) |
+| DNNKernels' shared slab | one slab **per graph** instead of per step; no change |
+| cleanup / deferred frees | sweep between graphs without waiting; no change |
+| arg-pool frontier missing on compute | added `arg_pool_in_use!` to the compute `submit!` (the graphics path has always had it); no change |
+| stale BDAs in arg slabs | `PRESUBMIT_SCAN_ENABLED` — a purpose-built scanner already in Lava — reports **zero** |
+
+Every diagnostic edit was reverted; both worktrees are clean.
+
+### RETRACTED: fusion is NOT the cause — it is dispatch ALIGNMENT
+
+The section below concludes the bug needs kernel fusion. **It does not.** I found
+the fusion result, published it, and then checked the mechanism — `sub` is op #1
+and its consumer `div` is op #2, adjacent, so there is no long-lived deferred
+value to be cut across. What fusing `sub` actually does is remove **one
+dispatch**, shifting everything downstream by one.
+
+Which predicts that any unrelated extra dispatch should cure it just as well. It
+does:
+
+| stream offset (extra dispatches prepended, fusion ON) | result |
+|---|---|
+| **0** | **DEVICE_LOST** |
+| 1, 2, 3, 5, 8 | OK |
+
+So "disable fusion in `encode_image`" and "add one `fill!`" are the same
+intervention. The per-graph fusion table below is real data with a wrong reading:
+`encode_image` was singular only because it is the **first** graph, so its
+dispatch-count change shifts the whole stream, while `readout_query`, `segment`
+and the rest run *after* the fault point and shift nothing before it.
+
+**What is actually established:** the fault depends on the exact alignment of
+auto-submit boundaries against the dispatch stream. One position is fatal; ±1 is
+clean. That is consistent with everything else — thresholds 63 and 64 fatal while
+65 is fine, a single submit anywhere harmless, deterministic, cured by a drain.
+
+The timing figures also need a caveat: the ~45 s runs were shader compilation.
+With the pipeline cache warm the same run is **6.3 s**, so wall-clock differences
+between these experiments carry no information.
+
+A note on method, since this is the second root cause I have had to withdraw
+today: the fusion result *looked* decisive because it was a clean on/off with
+matching output. What made it wrong was that I did not ask **why** fusion would
+matter until after publishing. The check that caught it — locating `sub`'s
+consumer — took one command.
+
+### LOCALISED: it needs kernel FUSION, and exactly one fused op
+
+The breakthrough after fifteen dead ends. The fault needs **two** things
+together — auto-submit *and* `execute!`'s fusion (`lazy`) — and turning either
+off cures it.
+
+    fusion off (lazy = nothing), 96 x 128:  OK, 47.1 s and 46.9 s, identical output
+
+Output is unchanged with fusion off (mean 0.008118 -> 0.008155, max 0.0632 ->
+0.0629 at 96 x 96 — accumulation order, not skipped work), so this is a genuine
+cure and not a path that quietly does less.
+
+Then disabling fusion **one graph at a time** across MatAnyone's eight:
+
+| graph without fusion | result |
+|---|---|
+| `readout_query` (22 fusable) | DEVICE_LOST |
+| `encode_mask_deep` (20) | DEVICE_LOST |
+| `encode_mask_shallow` (14) | DEVICE_LOST |
+| `segment` (11) | DEVICE_LOST |
+| `pixel_fusion` (5) | DEVICE_LOST |
+| **`encode_image` (1)** | **OK, 49 s** |
+
+`encode_image` has exactly **one** fusable op, and it is the whole difference:
+
+    id=sub   aten=sub.Tensor   out=sub   kind=transient
+    shape=[1, 3, "16*h", "16*w"]
+
+The input-normalisation subtract — a **full-resolution, symbolically-shaped
+transient**, first op of the first graph. Fused, it is never materialised: `emit`
+returns the `Broadcasted` and `planslab` gives it no slab space by design ("Fused
+values get no slab space" — `plan.jl`), so its consumer evaluates it inline and
+its operands must stay reserved through `lifetimes`.
+
+That is the interaction to fix: a fused value carries no storage and is evaluated
+at its consumer, and **fusion is decided per graph with no knowledge of where
+batch boundaries will fall**. `AUTO_SUBMIT_THRESHOLD` cuts the dispatch stream at
+a fixed period, and at 63/64 the cut lands such that this value's evaluation and
+its operands' validity end up on opposite sides. Nothing in `fuse.jl`'s admission
+test (`fusableset`) considers submission structure — it is a pure graph decision.
+
+**This also explains the whole fingerprint at once**: why it is deterministic (the
+graph and the period are both fixed), why only 63/64 (where the cut lands), why a
+single cut anywhere is harmless (the value must be *live across* the cut), why it
+is MatAnyone-specific (the only model here whose first graph fuses a
+full-resolution symbolic transient), and why every synchronisation fix failed —
+there is no hazard to order, the value simply has no storage to read.
+
+### The barrier is emitted, the submits are legal, and the failure is deterministic
+
+Traced the barrier decision per dispatch. At each auto-submit boundary the next
+dispatch logs `emit=true dc=0 boundary=true skip=false`, so **the boundary barrier
+is in the command stream**. One case emits nothing — `inflight=0`, the previous
+batch having already retired — and forcing a barrier at *every* batch start
+regardless does **not** fix it.
+
+Core validation, unfiltered, reports **zero** messages between run start and the
+fault: no errors, no warnings, no VUIDs. The submits are spec-legal, and the
+validation layer's own segfault under GPU-AV is a bug in the layer rather than a
+symptom of malformed data.
+
+**The failure is exactly deterministic:** three consecutive clean runs all die
+`after 64 dispatches in batch (256 total)` — the fifth submit, every time. A
+single submit anywhere (200, 252, 256, 448, 512, 576) is harmless. Only
+*repeated* boundaries at period 63 or 64 do it; 32, 48, 56, 65, 72, 128 and 256
+are all clean.
+
+So the profile is: spec-legal commands, no bad access, no reported hazard, a
+barrier present at every boundary, deterministic, and cured by waiting. That
+combination points at the GPU hanging on work it was legally given — which under
+Rule 0 still has to be shown to be *ours* before it is called a driver fault, and
+the remaining instrument for that is the GLSL differential `spirv-intrinsics.md`
+prescribes.
+
+**Full disproof list — fifteen, every one an experiment:** OOB writes; sync
+hazards (instrument blind to BDA, so not evidence either way); attention;
+`blockfor`; the GEMM kernel and its shape standalone; a single fatal cut point;
+boundary-barrier elision; barrier elision entirely disabled; a barrier forced at
+every batch start; use-after-free with *every* free deferred; the in-flight UAF
+window; an in-flight depth cap; DNNKernels' shared slab (per-graph slabs);
+cleanup without waiting; the missing `arg_pool_in_use!` on the compute path;
+stale BDAs (`PRESUBMIT_SCAN`, zero); and arg-slab rollover (256 MiB slab).
+
+Both worktrees are clean — every diagnostic reverted, nothing speculative shipped.
+
+### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
+
+*Re-verified against current upstream on 2026-08-03: Lava `328827f`, JuliaVision
+`main` merged in. Still `ERROR_DEVICE_LOST` at 96 x 128 — the localisation below
+was done on Lava `0903c6f` and survives the update.*
+
+Ran the Rule-0 instruments properly. **`activate_all_debugging()`**, not
+`enable_gpu_av()` — the latter defaults to `pool_disabled=false`, which its own
+docstring says is *blind to sub-pool overruns*, and my first attempt used it and
+got a false "GPU-AV is non-functional on this driver". The official entry point
+exists to remove exactly that trap. With it, `verify_gpu_av` reports **GPU-AV
+verified working**, so the instrument is proven to fire before anything is
+concluded from it.
+
+Under full validation the run does not report a bad access. It **segfaults inside
+`libVkLayer_khronos_validation.so` during `vkQueueSubmit2`**, and the Julia stack
+names the dispatch:
+
+    MatAnyoneRunner.runmatanyone -> step! -> execute! -> timeop!
+      -> runop!(::Val{Symbol("addmm.default")})        ops.jl:745
+      -> DNNKernels.matmul!                            matmul.jl:80
+      -> Lava mul! -> gemmlaunch!                      gemm.jl:1185
+      -> ka_launch! -> vk_dispatch! -> submit! -> queue_submit_2
+
+Instrumenting `addmm` gives the exact GEMM: it is the **149th** `addmm` of the
+call and its shape is
+
+    (16, 256) x (256, 48) -> (16, 48)      op id `addmm_3`
+
+**But that GEMM alone does not fault.** `mul!` on freshly allocated
+`(16,256) x (256,48)` completes in 5.0 s, as do N = 44 and 49. So the shape is
+not sufficient — the fault needs the surrounding state. The non-validation
+signature is consistent with that: `ERROR_DEVICE_LOST` **after 64 dispatches in a
+256-dispatch batch**, i.e. mid-batch rather than on a cold submit.
+
+What this rules out, all by measurement:
+
+- **not an out-of-bounds access** — GPU-AV, proven firing, reports none during
+  the run (the two OOB messages in the log are its own verification probe,
+  before `RUN START`)
+- **not attention** — zero attention calls happen before the fault
+- **not the GEMM shape** — reproduced standalone, clean
+- **not `blockfor`** — those shapes never take the blocked path
+
+The validation layer *itself* crashing on `vkQueueSubmit2` is a signal worth
+following: it suggests the submit is malformed rather than the shader misbehaving,
+which points at Lava's command/batch construction around dispatch 64, not at the
+GEMM kernel.
+
+### SUPERSEDED AGAIN — it is `ERROR_DEVICE_LOST`, and attention is not involved
+
+Driving the attention path directly, and then instrumenting the model, disproved
+the mechanism in this entry and the one below it. What is actually happening:
+
+    ERROR: LavaError during vkQueueSubmit2:
+      ... Vulkan.ERROR_DEVICE_LOST) after 64 dispatches in batch (256 total)
+    Crashed batch dispatch: 64 dispatches (compute)
+
+**The GPU faults.** `ERROR_DEVICE_LOST` is a driver-level device loss, not queue
+bookkeeping — which is what `vkWaitSemaphores timed out ... 50 in-flight batches`
+looks like from the other side when the device dies mid-batch and nothing will
+ever signal. Both signatures come from the same input sizes; the submit is
+sometimes the call that notices and sometimes the wait is.
+
+Three mechanisms of mine, all disproved by measurement:
+
+1. **Not `blockfor`'s non-square bug.** `blockfor` returns 1 (no blocking) when
+   `n != other` **or** `n < 64`, so these shapes never take the blocked path the
+   tracker's workaround is about.
+2. **Not "sequence length 48".** Instrumenting `sdpa!` shows 96 x 96 — which
+   **passes** — already runs `Lq = 16, Lk = 48`. And a direct `sdpa!` at
+   `L = 48` (E = 64, H = 8, B = 1) completes in 11.3 s.
+3. **Attention is not reached at all.** With the probe in place, the hanging run
+   at 96 x 128 emits **zero** `SDPA_PROBE` lines before dying. The fault is
+   upstream of the first attention call.
+
+The device recovers between processes — 96 x 96 re-verified passing afterwards —
+so the shape matrix below stands as data. What does not stand is every
+explanation I attached to it.
+
+**What is established:** specific input sizes reproducibly cause a device loss in
+`MatAnyoneRunner`, others reproducibly do not, and the boundary is sharp (44 and
+49 clean either side of 48 in the original 2D sweep). The mechanism is
+**unidentified**, and it is a GPU fault rather than a synchronisation bug — which
+points at a bad dispatch, not at batch accounting. `Lava.enable_gpu_av` and
+`spirv-val` are the Rule-0 instruments that should go at it next, on a machine
+that can afford the device resets.
+
+### SUPERSEDED — it is the sequence LENGTH 48, and it is not `blockfor`'s bug
+
+The 2D framing above is wrong, and so is my attribution. Three geometrically
+unrelated grids that all come to **48 tokens** hang identically:
+
+    6 x 8   (96 x 128)   HANGS
+    8 x 6   (128 x 96)   HANGS
+    4 x 12  (64 x 192)   HANGS
+    3 x 16  (48 x 256)   HANGS
+
+and the neighbouring *lengths* pass, whatever grid produces them:
+
+    32, 36, 40, 42, 44, 49, 54, 56, 60 tokens — all OK
+    48 tokens — hangs, from every grid tried
+
+So it is one **attention sequence length**, not a shape, a ratio or an axis.
+
+**And it is not the bug the tracker names.** `blockfor(n, other, minl = 64)`
+returns 1 — no blocking — whenever `n != other` *or* `n < minl`. At 48 tokens the
+second guard fires regardless of squareness, so every one of these shapes takes
+the **plain, unblocked** path. The documented workaround is not even engaged.
+`STATUS.md`'s "`blockfor` refuses non-square attention … blocking the decoder's
+lopsided shapes reproducibly hangs" describes the *blocked* path; this hangs on
+the other one.
+
+Note also that 64 and 80 tokens pass **while blocked** (`n == other`, `n >= 64`),
+so the blocked path is fine at the lengths that reach it here.
+
+That makes this a **distinct, undocumented bug**: plain attention at sequence
+length 48 wedges `vkWaitSemaphores`, reproducibly, from four different input
+shapes, with 44 and 49 clean either side.
+
+### The 2D sweep that led there (kept — it is how the length was found)
+
+**Every immediate neighbour of the hanging point passes.** Twelve shapes tested;
+holding the grid at 6 and stepping the other axis gives 6x6, 6x7, **6x8 HANGS**,
+6x9, 6x10 — the hang is a single value with clean neighbours on both sides. Same
+on the other axis: 5x8, **6x8 HANGS**, 7x8, 8x8, 10x8.
+
+It is an isolated point, not a region or a ratio. Whatever decides this is
+picking something different for exactly one shape.
+
+Sweeping W against H = 128 (grid height 8): 6 hangs, 7 passes, 8 passes, 10
+passes — so it is not a magnitude threshold. Sweeping H against W = 96 (grid
+width 6): 6 passes, 8 hangs, 10 passes — so neither axis is broken on its own.
+**Only the {6, 8} combination reproduces, in either orientation**, with its
+immediate neighbours on both axes clean.
+
+What is solid is the reproducer and the counter-examples: `runmatanyone` at
+128 x 96 wedges `vkWaitSemaphores` every time, at 160 x 96 it does not, and the
+difference is one dimension. Whoever fixes this should start from that pair
+rather than from any predicate — including the tracker's "non-square", which the
+table falsifies.
+
+`MatAnyoneRunner` and `SAM2Runner` hit it because their test fixtures are
+128 x 96. The three small ports never do: two have no attention at all, and Depth
+Anything's is square by construction (518 x 518).
+
+**So the paragraph below overstates the case, and I am leaving it visible rather
+than deleting it.** The soak's 2 226 980 clean trials remain valid evidence about
+the *flush hang*, which is what it was built to provoke. What is true is narrower:
+this project ran a soak for two days and the hang it eventually hit was the other
+open bug, reachable by one command the whole time.
+
+### What I first wrote, and why it was too strong
+
+`STATUS.md` lists the flush hang as "dominant path fixed, one recurrence after
+~90 clean trials", and throwing trials at it was this project's standing job. It
+has now thrown **2 226 980** across two days without a single hang — and a plain
+`Pkg.test` wedges the queue deterministically.
+
+The honest conclusion is that **the soak does not exercise the path that hangs.**
+`soak_flush_hang.jl` drives buffer lifetime — allocate, drop mid-recording,
+collect, flush — which is the mechanism the *already-fixed* path had, and it
+synchronises every trial, so it never accumulates the 50 in-flight batches this
+wedges on. 2.2 million repetitions of the wrong shape. The number should not be
+read as evidence the bug is gone; it is evidence that one known reproduction no
+longer fires, which was already known.
+
+### Which bug, and where it goes
+
+Attributed above, by the aspect-ratio A/B. I had written that this machine could
+not separate the two candidates; it can, and the experiment was one script.
+
+Nor can I say whether it predates today: **no runner package has ever declared a
+test target**, so there is no "it used to pass" to compare against. It may be
+long-standing and simply unobserved.
+
+A deterministic one-command reproducer is worth more than any number of clean
+trials, so this goes to `lava-core` with the timeline dump rather than being
+chased here.

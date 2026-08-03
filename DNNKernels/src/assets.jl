@@ -35,45 +35,27 @@ There is no second path left. A package for a model that is not ported yet does
 not fall back to a directory either — its `assetdir()` says so and throws, so the
 message a caller gets names the port, not a path that will never exist.
 
-Walking up rather than a fixed `../../../gen` because the depth of a generated
-tree above a package is a property of the checkout, not of the package: the
-fixed form silently broke every runner the day they moved into a monorepo, and
-it is wrong on its face now that the monorepo is also a standalone repository
-where no such tree exists.
-
 A fresh clone still installs and loads with no assets anywhere: every workload
 guards on its package's `ready()` and precompiles nothing rather than failing.
 What changed is that a *not ported* package now says so through `assetdir()`
 instead of handing back a path nobody will ever have.
+
+**This applies to tests too, which is where it had survived.** "There is no
+second path left" was written about the runner packages and was not true of the
+test suite: `findasset` walked up the filesystem looking for a `gen/` tree, with
+an environment variable that won outright — the same two mechanisms this
+docstring says were removed, one directory over. It has been deleted.
+
+The consequence is worth stating because it is the whole point. A test whose
+assets come from a local `gen/` tree passes for whoever ran the exporter and is
+unreachable for everyone else, so the layer-by-layer PyTorch parity gate — the
+one check that catches a kernel which is fast and subtly wrong — ran only on the
+machine that generated it. Assets that only tests read get their own lazy
+artifact, the way `sam2-large-refs` sits beside `sam2-large`, so the gate travels
+with the repository instead of with one checkout.
 """
 
 using Artifacts
 using LazyArtifacts
 
-"""
-    findasset(relative; env = nothing, from = @__DIR__) -> String
-
-The first existing `<ancestor>/<relative>` walking up from `from`, or — if none
-exists — the path relative to the outermost ancestor tried, so a caller has
-something concrete to name in an error.
-
-`env` names an environment variable that wins outright when set.
-"""
-function findasset(relative::AbstractString; env::Union{Nothing,AbstractString} = nothing,
-                   from::AbstractString = @__DIR__)
-    if env !== nothing
-        p = get(ENV, env, "")
-        isempty(p) || return p
-    end
-    dir = normpath(from)
-    last = dir
-    while true
-        candidate = joinpath(dir, relative)
-        ispath(candidate) && return candidate
-        parent = dirname(dir)
-        parent == dir && break          # reached the filesystem root
-        last = dir = parent
-    end
-    return joinpath(last, relative)
-end
 

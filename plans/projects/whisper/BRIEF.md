@@ -22,13 +22,18 @@ Kokoro — four models' worth of groundwork.
 
 ## Work, in order
 
-1. **Run the encoder graph on Lava and diff against PyTorch.** Straight
-   bring-up — this is the step that turns "loads" into "runs".
-2. **fp16 export.** The fp32 encoder weights are **2.55 GB** against the 1.6 GB
-   fp16 checkpoint they came from; the encoder is 635M of the 809M parameters.
-   Do this *before* anything is benchmarked — it decides whether Whisper sits
-   alongside SAM 2 comfortably.
-3. **The mel front end** — an FFT. Host-side is acceptable to start; it is tiny
+1. ~~**Run the encoder graph on Lava and diff against PyTorch.**~~ **Done
+   2026-08-02** — all 617 ops node by node, rel rms 6.30e-5 at the output.
+   `REPORT.md` has the numbers and the three `verifygraph` fixes it needed.
+2. **fp16 export.** *Exported and blocked.* 1.186 GiB against 2.373 GiB, an
+   exact halving, and 681 nodes over 12 ATen ops rather than 617 over 11 — but
+   13.7% rel rms at the output where PyTorch's own fp16 costs 2.5%. Blocked on
+   `lava-core`: Lava's scalar GEMM accumulates in the destination's type, so an
+   fp16 destination gives an fp16 accumulator over K = 5120. Do not re-open this
+   until that lands.
+3. **The mel front end** — an FFT. Its reference already exists: `whisper/audio`
+   and `whisper/mel` in `gen/graphs/whisper/refs.safetensors`, written by
+   `tools/dump_whisper_refs.py`. Host-side is acceptable to start; it is tiny
    next to the encoder. Device-side is what Demucs later wants.
 4. **The decoder** — autoregressive, so it needs a **KV cache**. That is the
    first batch-1, bandwidth-bound GEMV workload this engine will have run, and
