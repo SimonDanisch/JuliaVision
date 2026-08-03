@@ -24,18 +24,22 @@ Measured here: record+run 4.40 ms, replay 3.12 ms, bit-exact, 48% -> 67% of
 PyTorch's decoder.
 """
 
-using Test, DNNKernels, KernelAbstractions, Lava
+using Test, DNNKernels, KernelAbstractions, Lava, SAM2Runner
 using DNNKernels: readsafetensors, SAM2, encode, decode, segment, prompt, toback
 const KA = KernelAbstractions
 const DK = DNNKernels
 
-const G = DNNKernels.findasset(joinpath("gen", "graphs"); from = @__DIR__)
-const MODELDIR = joinpath(G, "sam2-large")
+# The runner builds its own model from its own artifact — `sam2model` already
+# takes `dir` and `res` as config, so nothing here needs to know where the
+# weights are. References come through `sam2refs()` for the same reason: they
+# live in a SECOND artifact (`tools/make_artifacts.jl` keeps test fixtures out of
+# a model tarball) and that split is the runner's business, not this file's.
+const HAVE_SAM2 = SAM2Runner.ready()
 
 @testset "SAM 2 decode capture/replay" begin
     back = LavaBackend()
-    refs = readsafetensors(joinpath(MODELDIR, "refs.safetensors"))
-    sam = SAM2(MODELDIR, joinpath(MODELDIR, "weights.safetensors"); backend = back, res = 1024)
+    refs = SAM2Runner.sam2refs()
+    sam = SAM2Runner.sam2model(; backend = back, res = 1024)
     feats = encode(sam, toback(back, refs["sam2_encoder/in0"]))
     KA.synchronize(back)
 

@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, NeuralLUTRunner
 
 @testset "NeuralLUTRunner" begin
-    dir = NeuralLUTRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if NeuralLUTRunner.ready()
-        @info "Image-Adaptive 3D LUT: export present" dir
+        @info "Image-Adaptive 3D LUT: export present"
         g = NeuralLUTRunner.neurallutgraph()
         @test g !== nothing
         w = NeuralLUTRunner.neurallutweights()
         @test !isempty(w)
     else
-        @info "Image-Adaptive 3D LUT: no export; run tools/export_neurallut.py" dir
+        @info "Image-Adaptive 3D LUT: no export; run tools/export_neurallut.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError NeuralLUTRunner.neurallutgraph()

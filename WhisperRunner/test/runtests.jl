@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, WhisperRunner
 
 @testset "WhisperRunner" begin
-    dir = WhisperRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if WhisperRunner.ready()
-        @info "Whisper large-v3-turbo: export present" dir
+        @info "Whisper large-v3-turbo: export present"
         g = WhisperRunner.whispergraph()
         @test g !== nothing
         w = WhisperRunner.whisperweights()
         @test !isempty(w)
     else
-        @info "Whisper large-v3-turbo: no export; run tools/export_whisper.py" dir
+        @info "Whisper large-v3-turbo: no export; run tools/export_whisper.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError WhisperRunner.whispergraph()

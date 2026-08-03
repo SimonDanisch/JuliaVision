@@ -40,7 +40,7 @@ using DNNKernels: loadgraph, execute!, readsafetensors, toback,
 using GPUFiltering: resizeplanar!
 using ColorTypes: AbstractRGB, RGB
 
-export depthanythinggraph, depthanythingweights, assetdir
+export depthanythinggraph, depthanythingweights
 export depthanything, depthmap!, DepthAnything
 
 const KA = KernelAbstractions

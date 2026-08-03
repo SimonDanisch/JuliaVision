@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, ProPainterRunner
 
 @testset "ProPainterRunner" begin
-    dir = ProPainterRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if ProPainterRunner.ready()
-        @info "ProPainter: export present" dir
+        @info "ProPainter: export present"
         g = ProPainterRunner.propaintergraph()
         @test g !== nothing
         w = ProPainterRunner.propainterweights()
         @test !isempty(w)
     else
-        @info "ProPainter: no export; run tools/export_propainter.py" dir
+        @info "ProPainter: no export; run tools/export_propainter.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError ProPainterRunner.propaintergraph()

@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, DepthAnythingRunner
 
 @testset "DepthAnythingRunner" begin
-    dir = DepthAnythingRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if DepthAnythingRunner.ready()
-        @info "Depth Anything V2 Small: export present" dir
+        @info "Depth Anything V2 Small: export present"
         g = DepthAnythingRunner.depthanythinggraph()
         @test g !== nothing
         w = DepthAnythingRunner.depthanythingweights()
         @test !isempty(w)
     else
-        @info "Depth Anything V2 Small: no export; run tools/export_depthanything.py" dir
+        @info "Depth Anything V2 Small: no export; run tools/export_depthanything.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError DepthAnythingRunner.depthanythinggraph()

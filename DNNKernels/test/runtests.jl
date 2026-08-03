@@ -28,36 +28,51 @@ Regenerate with:
 using Test
 using DNNKernels
 using KernelAbstractions
+using MatAnyoneRunner
 
 const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 
-# Walked up from here rather than a fixed `../../../gen`: this package moved into
-# a monorepo and the fixed form silently pointed at `dev/gen`. Same reasoning as
-# `DNNKernels.findasset`, which this is.
-const GEN = DNNKernels.findasset("gen"; from = @__DIR__)
+# From the `matanyone-refs` artifact, not from a `gen/` tree. This used to walk
+# up the filesystem, which made the single most valuable test in the repository
+# — layer by layer against PyTorch, error floor ~1e-6 — run only on the machine
+# that had generated the references, and quietly not exist anywhere else.
+#
+# Everything comes from `MatAnyoneRunner`, which owns MatAnyone's artifacts. This
+# file never names a directory: it asks for the precisions that have references,
+# then for the graph, the references and the manifest at each one. Where inside
+# an artifact those live is the runner's business, and a re-export that moves
+# them must not break this file.
+#
+# `matanyoneprecisions()` returns EMPTY rather than throwing when the
+# `matanyone-refs` artifact is not bound, so the loop below runs zero times and
+# the testset records a skip — instead of an `@assert` that took the other five
+# test files down with it before they loaded.
 const NAMES = ["encode_image", "transform_key", "encode_mask_deep", "encode_mask_shallow",
                "pixel_fusion", "pred_uncertainty", "segment", "readout_query"]
 
-const PRECISIONS = filter(p -> isfile(joinpath(GEN, "refs-$p.safetensors")),
-                          ["autocast", "fp32"])
-@assert !isempty(PRECISIONS) "no refs-*.safetensors in $GEN; see the header"
-
-weights = readsafetensors(joinpath(GEN, "weights.safetensors"))
+const PRECISIONS = MatAnyoneRunner.matanyoneprecisions()
+weights = isempty(PRECISIONS) ? nothing : MatAnyoneRunner.matanyoneweights()
 
 @testset "DNNKernels vs PyTorch, layer by layer" begin
+    if isempty(PRECISIONS)
+        # A skip, not a silent pass. A testset that runs zero assertions is
+        # indistinguishable from one that runs and succeeds — this file's own
+        # `test_foldoutcasts.jl` reported `Total 0` as green for 4172 assertions.
+        @info "no `matanyone-refs` artifact; the parity gate is SKIPPED, not passing"
+        @test_skip !isempty(PRECISIONS)
+    end
     @testset "$precision" for precision in PRECISIONS
-        manifest = JSON3.read(read(joinpath(GEN, "refs_manifest-$precision.json"), String))
+        manifest = MatAnyoneRunner.matanyonemanifest(precision)
         H, W_ = manifest.resolution
         dims = (h = cld(H, 16), w = cld(W_, 16))
-        refs = readsafetensors(joinpath(GEN, "refs-$precision.safetensors"))
-        graphs = joinpath(GEN, "graphs", "aten-$precision")
+        refs = MatAnyoneRunner.matanyonerefs(precision)
 
         @testset "$name" for name in NAMES
-            path = joinpath(graphs, "$name.json")
-            impl, missing_ops = DNNKernels.coverage(path)
+            g = MatAnyoneRunner.matanyonegraph(name, precision)
+            impl, missing_ops = DNNKernels.coverage(g)
             @test isempty(missing_ops)
 
-            ok, diffs, ties = verifygraph(path, refs, weights; dims)
+            ok, diffs, ties = verifygraph(g, refs, weights; dims)
             if !ok
                 f = first(diffs)
                 @info "first mismatch" precision graph=name index=f.index id=f.id aten=f.aten maxabs=f.maxabs rel=f.relative

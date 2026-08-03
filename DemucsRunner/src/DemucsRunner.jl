@@ -30,7 +30,7 @@ using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, execute!, readsafetensors
 
-export demucsgraph, demucsweights, assetdir
+export demucsgraph, demucsweights
 
 const KA = KernelAbstractions
 

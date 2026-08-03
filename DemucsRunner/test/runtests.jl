@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, DemucsRunner
 
 @testset "DemucsRunner" begin
-    dir = DemucsRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if DemucsRunner.ready()
-        @info "Demucs v4 (htdemucs): export present" dir
+        @info "Demucs v4 (htdemucs): export present"
         g = DemucsRunner.demucsgraph()
         @test g !== nothing
         w = DemucsRunner.demucsweights()
         @test !isempty(w)
     else
-        @info "Demucs v4 (htdemucs): no export; run tools/export_demucs.py" dir
+        @info "Demucs v4 (htdemucs): no export; run tools/export_demucs.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError DemucsRunner.demucsgraph()

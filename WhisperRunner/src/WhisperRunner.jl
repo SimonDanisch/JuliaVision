@@ -28,7 +28,7 @@ using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, execute!, readsafetensors
 
-export whispergraph, whisperweights, assetdir
+export whispergraph, whisperweights
 
 const KA = KernelAbstractions
 

@@ -59,10 +59,13 @@ in isolation - an upstream graph's error cannot mask a downstream one.
 Flags the first op whose error exceeds `atol` *and* is more than `amplify` times
 the error on its inputs.
 """
-function verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict;
+# Takes a `Graph`, not a path. A caller that has to name a file has to know where
+# the artifact put it, and then a re-export that moves the file breaks a caller
+# that never knew it depended on the layout. The runner hands back a loaded graph
+# (`sam2graph`, `matanyonegraph`); this verifies whatever it is given.
+function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
                      dims, backend=KernelAbstractions.CPU(),
                      atol=1e-4, rtol=1e-3, rtol16=3e-2, amplify=4.0, verbose=true)
-    g = loadgraph(graphpath)
     inputs = Dict{String,Any}()
     for (i, name) in enumerate(g.inputs)
         k = "$(g.name)/in$(i-1)"
@@ -207,8 +210,7 @@ end
 
 Which ATen ops in a graph have a `runop!` method, without executing it.
 """
-function coverage(graphpath::AbstractString)
-    g = loadgraph(graphpath)
+function coverage(g::Graph)
     impl, miss = String[], String[]
     for op in unique(o.aten for o in g.ops)
         # the catch-all `::Val{T} where T` matches everything, so hasmethod is
@@ -219,3 +221,10 @@ function coverage(graphpath::AbstractString)
     end
     (sort(impl), sort(miss))
 end
+
+# Path forms, kept because `tools/` scripts hold paths to trees they generated
+# themselves. Library and test callers take the `Graph` methods above.
+coverage(graphpath::AbstractString) = coverage(loadgraph(graphpath))
+
+verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict; kw...) =
+    verifygraph(loadgraph(graphpath), refs, weights; kw...)
