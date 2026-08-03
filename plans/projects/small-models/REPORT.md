@@ -792,7 +792,7 @@ failed for reasons that cost an afternoon each to discover.
 
 ---
 
-## 2026-08-03 (fourth entry) — a REPRODUCIBLE vkWaitSemaphores hang, and what it does to the soak
+## 2026-08-03 (fourth entry) — a REPRODUCIBLE vkWaitSemaphores hang (ATTRIBUTED: non-square attention)
 
 Adding a test target to the remaining runner packages made two suites runnable
 for the first time, and both fail the same way:
@@ -807,7 +807,29 @@ for the first time, and both fail the same way:
 idle, so it is not contention — checked specifically, having made exactly that
 mistake this morning.
 
-### This is worth more than the soak, and it devalues it
+### ATTRIBUTED, and this corrects what the rest of this entry first claimed
+
+One A/B settles it. Same model, same code, same machine — only the aspect ratio
+of the input changes:
+
+    128 x 96   timed out after 120.0 s at timeline 405, 50 in-flight batches
+    128 x 128  OK in 23.9 s
+
+That is `STATUS.md`'s **"`blockfor` refuses non-square attention — blocking the
+decoder's lopsided shapes reproducibly hangs on `vkWaitSemaphores`"**, exactly as
+described. It is **not** the flush hang, and not a new bug.
+
+`MatAnyoneRunner` and `SAM2Runner` hit it because their test fixtures are
+128 x 96. The three small ports never do: two have no attention at all, and Depth
+Anything's is square by construction (518 x 518).
+
+**So the paragraph below overstates the case, and I am leaving it visible rather
+than deleting it.** The soak's 2 226 980 clean trials remain valid evidence about
+the *flush hang*, which is what it was built to provoke. What is true is narrower:
+this project ran a soak for two days and the hang it eventually hit was the other
+open bug, reachable by one command the whole time.
+
+### What I first wrote, and why it was too strong
 
 `STATUS.md` lists the flush hang as "dominant path fixed, one recurrence after
 ~90 clean trials", and throwing trials at it was this project's standing job. It
@@ -824,10 +846,8 @@ longer fires, which was already known.
 
 ### Which bug, and where it goes
 
-Not attributed: `STATUS.md` has two candidates and this machine cannot separate
-them — the flush hang, and "`blockfor` refuses non-square attention", which is
-itself described as reproducibly hanging on `vkWaitSemaphores`. MatAnyone and
-SAM 2 both run attention; the three small ports do not, and none of them hangs.
+Attributed above, by the aspect-ratio A/B. I had written that this machine could
+not separate the two candidates; it can, and the experiment was one script.
 
 Nor can I say whether it predates today: **no runner package has ever declared a
 test target**, so there is no "it used to pass" to compare against. It may be
