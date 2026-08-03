@@ -12,18 +12,18 @@ compile-time counter is per-process.
 using Test, RIFERunner
 
 @testset "RIFERunner" begin
-    dir = RIFERunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. It is internal — it names where the artifact happens
+    # to put things, so a test that calls it has to know the layout and a
+    # re-export that moves a file breaks a test that never knew it depended
+    # on that. Ask for the graph and the weights instead.
     if RIFERunner.ready()
-        @info "RIFE 4.x (Practical-RIFE): export present" dir
+        @info "RIFE 4.x (Practical-RIFE): export present"
         g = RIFERunner.rifegraph()
         @test g !== nothing
         w = RIFERunner.rifeweights()
         @test !isempty(w)
     else
-        @info "RIFE 4.x (Practical-RIFE): no export; run tools/export_rife.py" dir
+        @info "RIFE 4.x (Practical-RIFE): no export; run tools/export_rife.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError RIFERunner.rifegraph()

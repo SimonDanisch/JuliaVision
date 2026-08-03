@@ -4029,3 +4029,67 @@ rescale primitives) found **zero** collisions under the old key, so variants tha
 differ in a `Val` change far too much code to be at risk and no earlier A/B needs
 re-running. It bit exactly one shape: the workgroup-size instantiations of a
 single kernel.
+
+## 2026-08-02 — the encode map, re-measured with controls, and where the last 3.5 ms is
+
+The 90% target is an encode of `87.64 / 0.9 = 97.4 ms`. The encode is **100.2 ms**,
+so **3.5 ms** has to go. This re-measures where it could come from, and the first
+answer was wrong in a way worth writing down.
+
+### The ablation's noise floor is ~0.8 ms, and it will hand you a finding anyway
+
+Doubling one family at a time reported `div` **1.72 ms**, `sub` **1.35** and
+`upsample` **1.14** — three *single* ops, 4.2 ms together, more than the whole
+remaining gap. It read as the find of the session, and the fusion to remove it was
+about to be written.
+
+Two controls killed it:
+
+| control | true value | measured |
+|---|---|---|
+| a family name matching **no op** | exactly 0 | **−0.26 ms** |
+| `sub.Tensor`, which is **provably lazy** — it is one of only two values in `fusableset(g)`, so it returns an unmaterialised `Broadcasted` | ~0 | **−0.47 ms** |
+| three interleaved baselines | — | spread **0.78 ms** |
+
+`sum(families) = 107% of the step` was the other tell, and it was read past.
+
+**So: single-family ablation is sound at the top of the table and noise at the
+bottom — which is exactly where a tempting new finding appears.** Treat anything
+under ~2 ms as unresolved, and run both controls in the same session.
+
+### What resolves: ablate a GROUP, so small costs sum above the floor
+
+`opdouble = "*"` with `opdoublefilter` doubles an arbitrary set. The empty filter
+is the control, and it lands where it should:
+
+    elementwise tail   7 families, 393 ops    9.10 ms
+    addmm + attention  2 families, 243 ops   75.59 ms
+    CONTROL, filter passes nothing            0.08 ms   <- true 0
+
+Within the tail, both of these are now above the floor and trustworthy:
+
+    add.Tensor      98 ops   3.37 ms
+    clone.default   90 ops   2.87 ms
+
+### The next item: 51 of the 98 residual adds can be folded into the GEMM
+
+Chasing each add's operands through the view chain (`Buffer.kind === :view`,
+follow `.of` — `resolvealias` stops at the first hop and reports these as inputs):
+
+    51   add.Tensor + addmm.default                    <- foldable
+    42   add.Tensor + clone.default
+     3   clone.default + max_pool2d_with_indices
+     1   convolution + input
+     1   convolution + upsample_nearest2d
+
+The 51 are the transformer residual stream: `add_N = add_{N-1} + view(addmm_out)`.
+A GEMM that **initialises its accumulator from `add_{N-1}` instead of zero** makes
+the residual the tensor cores' own accumulate and the separate pass disappears —
+the same trick `attn_flash_cm!` already uses for `O` ("starting from `O` itself
+means the accumulate is the tensor core's own"). Note `mul!` currently requires
+`iszero(β)` to take the coopmat path, so this needs a `C0` operand in Lava's
+cooperative-matrix GEMM, not just a graph pass.
+
+Worth roughly `51/98 x 3.37 = 1.75 ms` gross, less the residual tile read the GEMM
+then pays — call it **~1.2 ms**, i.e. a third of the gap, for a change that spans
+both repos. Size it against that before starting.

@@ -40,7 +40,7 @@ using DNNKernels: loadgraph, execute!, readsafetensors, toback,
 using GPUFiltering: tofloat, topixel
 using ColorTypes: AbstractRGB, RGB
 
-export rifegraph, rifeweights, assetdir
+export rifegraph, rifeweights
 export rife, interpolate!, framesize, RIFE
 
 const KA = KernelAbstractions

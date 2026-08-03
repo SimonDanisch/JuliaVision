@@ -25,11 +25,16 @@ using Lava, DNNKernels, KernelAbstractions
 using ColorTypes: red, green, blue
 using Lava: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: Model, initstate, step!, toback
+using DNNKernels: Model, initstate, step!, toback, loadgraph, readsafetensors
 
 export matanyonemodel, runmatanyone, matanyonepropagator
+export matanyonegraph, matanyoneweights, matanyonerefs, matanyonemanifest
+export matanyoneprecisions, ready
 
 const KA = KernelAbstractions
+# Through DNNKernels rather than as a direct dependency, the same way the
+# parity test reaches it: one JSON3 on the runtime, not two.
+const JSON3 = DNNKernels.JSON3
 
 """
     KERNELS_VERSION
@@ -72,17 +77,138 @@ exists to do — and the message read like a deliberate skip.
 assetdir() = joinpath(artifactdir(), "graphs")
 
 """
+    refsdir() -> String
+
+The PyTorch reference activations the layer-by-layer parity test compares
+against — a **separate** artifact from the weights, the way `sam2-large-refs`
+sits beside `sam2-large`. `tools/make_artifacts.jl` deliberately keeps reference
+tensors out of a model's own tarball, because someone matting a clip should not
+download the test fixtures.
+
+Not bound yet, and that is the point of this function existing. The parity test
+used to reach these through a walk up the filesystem for a `gen/` tree, which
+meant it ran on the machine that generated them and silently skipped everywhere
+else — so the one check that catches a kernel which is fast and subtly wrong was
+invisible on every machine that could have disagreed. Throwing here names the
+missing artifact instead.
+"""
+function refsdir()
+    toml = joinpath(dirname(@__DIR__), "Artifacts.toml")
+    h = artifact_hash("matanyone-refs", toml)
+    h === nothing && error("""
+        the `matanyone-refs` artifact is not bound in $toml.
+        The layer-by-layer PyTorch parity test needs refs-<precision>.safetensors,
+        refs_manifest-<precision>.json and graphs/aten-<precision>/, none of which
+        ship in the `matanyone` model artifact. Re-export and bind them:
+            uv run tools/dump_refs.py --precision autocast --max-size 128
+            uv run tools/dump_refs.py --precision fp32     --max-size 128
+            julia --project=. tools/make_artifacts.jl matanyone-refs""")
+    artifact_exists(h) || error("""
+        `matanyone-refs` is bound but not installed, and its download failed.
+        Check the URL in $toml resolves, or re-bind from a local export.""")
+    return artifact_path(h)
+end
+
+"""
 Path to the weights, which sit beside the graph directory in a generated tree
 but *inside* the artifact, since an artifact is one directory.
+
+**The artifact and nothing else.** This had three paths — an environment
+variable, then the artifact, then a walk up the filesystem for a `gen/` tree —
+and the first and third are exactly the two fallbacks `DNNKernels/src/assets.jl`
+says were removed. To point at a locally re-exported tree, re-bind the artifact
+(`tools/make_artifacts.jl matanyone`); that is the override, and it is the only
+one. A second path can only disagree with the first, and the way it disagrees is
+silent: on a machine that happens to have a `gen/` tree the walk always answered,
+which is what kept a broken download invisible the last time this existed.
 """
 function weightpath()
-    p = get(ENV, "JULIA_MATANYONE_WEIGHTS", "")
-    isempty(p) || return p
-    # The artifact ROOT: the weights sit beside `graphs/`, not inside it.
-    inside = joinpath(artifactdir(), "weights.safetensors")
-    isfile(inside) && return inside
-    return findasset(joinpath("gen", "weights.safetensors"); from = @__DIR__)
+    p = joinpath(artifactdir(), "weights.safetensors")
+    isfile(p) || error("""
+        no weights.safetensors in the `matanyone` artifact ($(artifactdir())).
+        Re-export and re-bind: `julia --project=. tools/make_artifacts.jl matanyone`.""")
+    return p
 end
+
+# ── What callers outside this package may ask for ────────────────────────────
+#
+# `artifactdir`, `assetdir`, `refsdir` and `weightpath` are INTERNAL: they name
+# where the artifacts happen to put things. Nothing outside this file calls them
+# or `joinpath`s onto them, because a re-export that moves a file would then
+# break callers that never knew they depended on the layout. Callers ask for the
+# graph, the weights or the references, and `dir` is a config keyword defaulting
+# to the artifact — the shape `BasicVSRRunner` and the other scaffolded runners
+# already use.
+
+"""
+    matanyoneprecisions(; dir = refsdir()) -> Vector{String}
+
+Which precisions have reference activations installed — a subset of
+`("autocast", "fp32")`, and **empty** when the `matanyone-refs` artifact is not
+bound at all.
+
+Empty rather than throwing, so the parity test loops over nothing and records a
+skip. That test is the one check that catches a kernel which is fast and subtly
+wrong, and it must be visibly absent rather than quietly passing when its
+fixtures are.
+"""
+function matanyoneprecisions(; dir::Union{Nothing,AbstractString} = nothing)
+    d = dir === nothing ? (try refsdir() catch; return String[] end) : dir
+    return filter(p -> isfile(joinpath(d, "refs-$p.safetensors")), ["autocast", "fp32"])
+end
+
+"""
+    matanyonerefs(precision; dir = refsdir()) -> Dict
+
+The PyTorch reference activations for one precision.
+"""
+function matanyonerefs(precision::AbstractString; dir::AbstractString = refsdir())
+    p = joinpath(dir, "refs-$precision.safetensors")
+    isfile(p) || throw(ArgumentError("MatAnyone references not found at $p"))
+    return readsafetensors(p)
+end
+
+"""
+    matanyonemanifest(precision; dir = refsdir()) -> Any
+
+The manifest beside the references — resolution and per-tensor metadata.
+"""
+function matanyonemanifest(precision::AbstractString; dir::AbstractString = refsdir())
+    p = joinpath(dir, "refs_manifest-$precision.json")
+    isfile(p) || throw(ArgumentError("MatAnyone reference manifest not found at $p"))
+    return JSON3.read(read(p, String))
+end
+
+"""
+    matanyonegraph(name, precision; dir = refsdir()) -> Graph
+
+One exported ATen graph at one precision. These travel with the references
+rather than with the model, because the autocast/fp32 split exists to *localise a
+fault* and only the tests read it.
+"""
+function matanyonegraph(name::AbstractString, precision::AbstractString;
+                        dir::AbstractString = refsdir())
+    p = joinpath(dir, "graphs", "aten-$precision", "$name.json")
+    isfile(p) || throw(ArgumentError(
+        "MatAnyone graph `$name` at precision `$precision` not found at $p"))
+    return loadgraph(p)
+end
+
+"""
+    matanyoneweights(; dir = artifactdir()) -> Dict
+
+The exported state dict, keyed the way the graph's `:weight` buffers name it.
+"""
+matanyoneweights(; dir::AbstractString = artifactdir()) =
+    readsafetensors(joinpath(dir, "weights.safetensors"))
+
+"""
+    ready(; dir = assetdir()) -> Bool
+
+Whether the model assets are installed. Says nothing about the references, which
+are a separate artifact — ask [`matanyoneprecisions`](@ref) for those.
+"""
+ready(; dir::AbstractString = assetdir()) = isfile(joinpath(dir, "encode_image.json"))
 
 """
     matanyonemodel(; backend, dir, weights) -> Model

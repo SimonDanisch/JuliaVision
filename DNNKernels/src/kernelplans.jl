@@ -55,7 +55,12 @@ struct FlashCMPlan
     BR::Int
     BC::Int
     NW::Int
-    NT::Int          # NW * dev.subgroup — never `NW * 32`
+    # NW * dev.coopmatsubgroup — the width a cooperative-matrix module actually
+    # runs at, which Lava pins to 32, NOT `dev.subgroup` (the device default, 64
+    # on RDNA 3.5). Derived rather than the old hardcoded `NW * 32`; this comment
+    # previously said `dev.subgroup`, and two assertions in test_flash.jl were
+    # written from it and failed on wave64 hardware.
+    NT::Int
     E::Int
     EP::Int          # E rounded up to the cooperative-matrix tile
 

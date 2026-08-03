@@ -81,6 +81,14 @@ checked on its own. Whisper's encoder is 32 identical blocks; running two of
 them covers every op type it uses for a sixteenth of the arithmetic, which is
 the difference between a CPU-backend check that finishes and one that does not.
 """
+# Prefer passing a `Graph`, not a path: a caller that names a file has to know
+# where the artifact put it, and a re-export that moves the file then breaks a
+# caller that never knew it depended on the layout. The runners hand back a
+# loaded graph (`sam2graph`, `matanyonegraph`).
+#
+# The path-taking method stays anyway, because `tools/verify_sam2.jl:47` still
+# passes one. `sd/portability` removed it without updating that tool, which is
+# the break this merge would otherwise have carried in.
 verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict; kw...) =
     verifygraph(loadgraph(graphpath), refs, weights; kw...)
 
@@ -264,8 +272,7 @@ end
 
 Which ATen ops in a graph have a `runop!` method, without executing it.
 """
-function coverage(graphpath::AbstractString)
-    g = loadgraph(graphpath)
+function coverage(g::Graph)
     impl, miss = String[], String[]
     for op in unique(o.aten for o in g.ops)
         # the catch-all `::Val{T} where T` matches everything, so hasmethod is
@@ -276,3 +283,10 @@ function coverage(graphpath::AbstractString)
     end
     (sort(impl), sort(miss))
 end
+
+# Path forms, kept because `tools/` scripts hold paths to trees they generated
+# themselves. Library and test callers take the `Graph` methods above.
+coverage(graphpath::AbstractString) = coverage(loadgraph(graphpath))
+
+verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict; kw...) =
+    verifygraph(loadgraph(graphpath), refs, weights; kw...)

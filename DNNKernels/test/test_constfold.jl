@@ -24,14 +24,16 @@ resident weights is only worth having when the trade is a win, and "it happened
 to be a win on SAM 2" is not the same claim.
 """
 
+using SAM2Runner
 using Test, DNNKernels, KernelAbstractions
 const DK = DNNKernels
 const KA = KernelAbstractions
 
-# See test_foldoutcasts.jl: a fixed `../../../../gen` silently resolves to a path
-# that does not exist once this package is in a monorepo, and the guarded testset
-# then reports `Total 0` rather than skipping visibly.
-const CFDIR = DNNKernels.findasset(joinpath("gen", "graphs", "sam2-large"); from = @__DIR__)
+# Ask the runner for the graph, not for a directory. See test_foldoutcasts.jl:
+# a path that resolves to somewhere nonexistent makes the guarded testset report
+# `Total 0` rather than skip visibly, and both a fixed `../../../../gen` and a
+# walk up looking for one did exactly that, differently on every machine.
+const HAVE_SAM2 = SAM2Runner.ready()
 
 cfbuf(id, kind, shape, dtype; key = "") =
     DK.Buffer(id, kind, Any[shape...], dtype, key, (0, 0), "", "", Dict{String,Any}())
@@ -55,10 +57,10 @@ end
 @testset "hoistconstants over subgraphs" begin
 
     @testset "the constant set is closed and reaches no input" begin
-        if !isfile(joinpath(CFDIR, "sam2_encoder.json"))
-            @info "no exported SAM 2 graph at $CFDIR; skipping"
+        if !HAVE_SAM2
+            @info "the sam2-large artifact is not installed; skipping"
         else
-            g = DK.loadgraph(joinpath(CFDIR, "sam2_encoder.json"))
+            g = SAM2Runner.sam2graph("sam2_encoder")
             ops = DK.constops(g)
             @test !isempty(ops)
             byid = Dict(o.id => o for o in g.ops)
