@@ -109,3 +109,33 @@ const GRAPHS = testgraphs()
         end
     end
 end
+
+# ── Every generated block size is reachable ──────────────────────────────────
+#
+# `kernel-library-review.md` finding 5: `ATTN_BLOCKS` generates one kernel per
+# entry, and the dispatchers used to be two hand-written `tk == 32 && return …`
+# chains beside it. Adding a block size generated a kernel and silently did not
+# dispatch to it — dead code that read as live, and nothing failed.
+#
+# The dispatchers are now folded out of the same tuple, so the two cannot
+# disagree by construction. This asserts it anyway, because "by construction"
+# is exactly the claim that rots when someone writes the next chain by hand.
+@testset "every ATTN_BLOCKS entry has a kernel and a dispatch arm" begin
+    for B in DNNKernels.ATTN_BLOCKS
+        for prefix in ("attn_scores_b", "attn_apply_b")
+            @test isdefined(DNNKernels, Symbol(prefix, B, "!"))
+        end
+    end
+
+    # And the arms actually name those kernels. Reading the lowered source is the
+    # only way to see a *missing* arm: a dispatcher with a fallback answers every
+    # `tk`, so calling it can never reveal that one size fell through to the
+    # wrong kernel.
+    for (f, prefix) in ((DNNKernels.scoresblocked!, "attn_scores_b"),
+                        (DNNKernels.applyblocked!,  "attn_apply_b"))
+        body = string(Base.uncompressed_ast(only(methods(f))).code)
+        for B in DNNKernels.ATTN_BLOCKS
+            @test occursin(string(prefix, B, "!"), body)
+        end
+    end
+end
