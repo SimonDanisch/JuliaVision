@@ -11,10 +11,10 @@ real call the editor makes and is different for every model. Each generated
 package carries a marked TODO there and a docstring saying why.
 
 The generated package loads and precompiles with no assets present. That is the
-whole reason it can be committed before the port works: `assetpath` falls
-through to `gen/graphs/<name>`, the workload is guarded on the graph existing,
-and `Pkg.precompile` on a machine with no weights produces a package with
-nothing cached rather than an error.
+whole reason it can be committed before the port works: `assetdir` refuses with
+the three steps that would fix it, `ready()` answers `false` so the workload
+precompiles to nothing, and `Pkg.precompile` on a machine with no assets
+produces a package with nothing cached rather than an error.
 """
 
 import argparse
@@ -39,6 +39,14 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 # fetches it from the URL below instead of failing with "package not found".
 [sources]
 Lava = {{url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}}
+
+# Without this `Pkg.test` gives the suite an environment with no `Test`, and
+# every generated runtests.jl dies on `using Test` before it asserts anything.
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
 """
 
 MODULE = '''\
@@ -67,7 +75,7 @@ module {package}
 
 using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors, assetpath
+using DNNKernels: loadgraph, execute!, readsafetensors
 
 export {lower}graph, {lower}weights, assetdir
 
@@ -84,16 +92,19 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Where the exported graph and weights live.
+Throws. {title} is **not ported yet**, so there is no artifact to read from and
+nothing on disk that a user of this package would have.
 
-No `Artifacts.toml` yet, deliberately: a lazy artifact needs the sha256 of a
-tarball that has been uploaded to a release, and there is nothing to upload
-until the export runs. Until then `assetpath` falls through to the generated
-directory, and the error message names the place it looked. Adding the artifact
-is what turns a working port into an installable one.
+Porting it means, in order: export it with `uv run tools/export_{name}.py`, bind
+the result with `julia --project=. tools/make_artifacts.jl {graphdir}`, and
+replace this definition with `@artifact_str("{graphdir}")`. Assets come from the
+artifact and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
-assetdir() = assetpath(; generated = joinpath("gen", "graphs", "{graphdir}"),
-                       env = "{envvar}", from = @__DIR__)
+assetdir() = error(
+    "{package}: {title} is not ported yet, so no artifact is bound. " *
+    "Export it with `uv run tools/export_{name}.py`, bind it with " *
+    "`julia --project=. tools/make_artifacts.jl {graphdir}`, then set " *
+    "`assetdir() = @artifact_str(\\"{graphdir}\\")`.")
 
 """
     {lower}graph(; dir = assetdir()) -> Graph
@@ -126,8 +137,7 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "{name}.json")) && isfile(joinpath(dir, "weights.safetensors"))
+ready() = false        # not ported: see `assetdir`
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
@@ -143,11 +153,21 @@ end
 # a machine without either, it should just produce a package with nothing cached.
 #
 # TODO(port): drive the real call here once the graph runs. The measurement that
-# matters is `Lava.frozen_stats().misses == 0` on a *fresh* process — a workload
+# matters is `Lava.no_pipeline_compilation` reporting **0 refusals** on a *fresh*
+# process — a workload
 # that runs a different path than the editor does leaves the editor compiling on
 # first use, which is the entire cost this package exists to remove. SAM2Runner
 # learned that the expensive way: its `runsam2` workload still left 45 s on the
 # first click because the editor goes through a closure `runsam2` never touches.
+#
+# NOT `frozen_stats().misses == 0`, which reads stronger than it is: it cannot
+# distinguish the frozen cache working from the driver's own shader cache having
+# served everything, and its miss report identifies modules by the *sampling*
+# hash, so two modules differing in one byte count as one (`STATUS.md`,
+# cross-project). `no_pipeline_compilation` empties `PIPELINE_CACHE` first and
+# refuses anything needing a compile. Pair it with a negative control whose
+# kernel body is novel per RUN — a `Val{{K}}` with `K` from `RandomDevice` — or a
+# green means nothing; verified firing here at refused = 1.
 @setup_workload begin
     if ready()
         try

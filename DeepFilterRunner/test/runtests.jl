@@ -1,31 +1,31 @@
 """
-Until the port runs, this asserts the two things that are true now and must stay
-true: the package loads on a machine with no assets, and the asset lookup names
-a real place rather than throwing something unreadable.
+DeepFilterNet3 is **not ported yet**, so this asserts the contract that state has: the
+package loads and precompiles on a machine with no assets, `ready()` answers
+`false` rather than throwing, and `assetdir()` refuses with a message naming the
+three steps that would fix it — export, bind, switch to `@artifact_str`.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
-— belongs here once the workload drives the real call. See SAM2Runner/test for
-the shape it should take; it has to run in a subprocess because Julia's
-compile-time counter is per-process.
+Assets come from the artifact and from nowhere else, so there is deliberately no
+path here to assert; see `DNNKernels/src/assets.jl`. When this model is ported,
+replace this with the shape in `NeuralLUTRunner/test`: a subprocess asserting
+`Lava.no_pipeline_compilation` reports 0 refusals, **with** a negative control
+whose kernel body is novel per run.
 """
 
 using Test, DeepFilterRunner
 
 @testset "DeepFilterRunner" begin
-    dir = DeepFilterRunner.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
+    # `ready` must answer, not throw: the workload branches on it and has to
+    # precompile to nothing rather than fail on a machine with no assets.
+    @test DeepFilterRunner.ready() === false
 
-    if DeepFilterRunner.ready()
-        @info "DeepFilterNet3: export present" dir
-        g = DeepFilterRunner.deepfilternetgraph()
-        @test g !== nothing
-        w = DeepFilterRunner.deepfilternetweights()
-        @test !isempty(w)
-    else
-        @info "DeepFilterNet3: no export; run tools/export_deepfilternet.py" dir
-        # The error has to name the path — a caller who has not run the exporter
-        # should be told where to put it, not handed a MethodError later.
-        @test_throws ArgumentError DeepFilterRunner.deepfilternetgraph()
-    end
+    # And the refusal has to be legible — a caller who has not ported this model
+    # should be told what to do, not handed a path that will never exist.
+    err = try; DeepFilterRunner.assetdir(); nothing; catch e; e; end
+    @test err isa ErrorException
+    @test occursin("not ported yet", err.msg)
+    @test occursin("make_artifacts.jl", err.msg)
+
+    # The graph loader defaults `dir` to `assetdir()`, so it refuses for the same
+    # reason rather than failing later with something unreadable.
+    @test_throws ErrorException DeepFilterRunner.deepfilternetgraph()
 end

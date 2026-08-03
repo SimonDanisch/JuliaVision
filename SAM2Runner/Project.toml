@@ -14,3 +14,15 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 # fetches it from the URL below instead of failing with "package not found".
 [sources]
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
+
+# `Pkg.test` runs the suite in its own environment: the package's deps plus
+# whatever `[targets] test` names, and nothing else. Without this every
+# `runtests.jl` here dies on `using Test` before asserting anything — which is
+# why these suites had never been run.
+[extras]
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Printf", "Random", "Test"]
