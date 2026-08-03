@@ -18,10 +18,14 @@ using Test
 using DNNKernels
 using DNNKernels: Diagnostics, Ctx, loadgraph, execute!, launch!, planmisses
 using KernelAbstractions
+using MatAnyoneRunner
 const DK = DNNKernels
 const KA = KernelAbstractions
 
-const DGEN = DNNKernels.findasset("gen"; from = @__DIR__)
+# The runner hands back the graph; this file never names a path inside an
+# artifact. `matanyoneprecisions()` is empty when the references are not bound,
+# which the guard below turns into a recorded skip.
+const HAVE_FP32 = "fp32" in MatAnyoneRunner.matanyoneprecisions()
 
 @testset "diagnostics on the context" begin
     @testset "a fresh one is off, and off costs nothing to ask" begin
@@ -61,11 +65,10 @@ const DGEN = DNNKernels.findasset("gen"; from = @__DIR__)
         @test sum(first, values(d.launches)) == 2
     end
 
-    graphfile = joinpath(DGEN, "graphs", "aten-fp32", "transform_key.json")
-    if !isfile(graphfile)
-        @info "no exported graphs; skipping the execute! half" graphfile
+    if !HAVE_FP32
+        @info "no `matanyone-refs` artifact at fp32; skipping the execute! half"
     else
-        g = loadgraph(graphfile)
+        g = MatAnyoneRunner.matanyonegraph("transform_key", "fp32")
         dims = (h = 8, w = 8)
         weights = Dict{String,Any}()
         for id in g.order

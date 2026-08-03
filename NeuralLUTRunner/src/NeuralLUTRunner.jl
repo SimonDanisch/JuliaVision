@@ -45,7 +45,7 @@ using DNNKernels: loadgraph, execute!, readsafetensors, toback,
 using GPUFiltering: lut3d!, resizeplanar!
 using ColorTypes: AbstractRGB, RGB
 
-export neurallutgraph, neurallutweights, assetdir
+export neurallutgraph, neurallutweights
 export neurallut, predictlut, grade!, NeuralLUT
 
 const KA = KernelAbstractions

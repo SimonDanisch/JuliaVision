@@ -12,12 +12,14 @@ Run standalone:
 
 using Test
 using DNNKernels
+using SAM2Runner, MatAnyoneRunner
 using DNNKernels: loadgraph, planslab, checkslab, lifetimes, fusableset, evalshape, alignup
 
-# Walked up from here rather than a fixed `../../../gen`: this package moved into
-# a monorepo and the fixed form silently pointed at `dev/gen`. Same reasoning as
-# `DNNKernels.findasset`, which this is.
-const GEN = DNNKernels.findasset("gen"; from = @__DIR__)
+# Nothing here names a directory. Each runner owns its artifacts and hands back
+# loaded graphs; two runners because these are two models, and their layouts
+# differ (SAM 2's JSONs are flat, MatAnyone's are split by precision and travel
+# with the references) — which is exactly the kind of detail a caller must not
+# have to know.
 
 """Every graph we can find, with the dims it is planned at.
 
@@ -26,20 +28,16 @@ graphs and it is not one.
 """
 function testgraphs()
     out = Tuple{String,Any,Any}[]
-    aten = joinpath(GEN, "graphs", "aten-autocast")
-    if isdir(aten)
+    if "autocast" in MatAnyoneRunner.matanyoneprecisions()
         for n in ("encode_image", "transform_key", "encode_mask_deep",
                   "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
                   "segment", "readout_query")
-            f = joinpath(aten, "$n.json")
-            isfile(f) && push!(out, (n, loadgraph(f), (h = 32, w = 32)))
+            push!(out, (n, MatAnyoneRunner.matanyonegraph(n, "autocast"), (h = 32, w = 32)))
         end
     end
-    sam = joinpath(GEN, "graphs", "sam2-large")
-    if isdir(sam)
+    if SAM2Runner.ready()
         for n in ("sam2_encoder", "sam2_decoder")
-            f = joinpath(sam, "$n.json")
-            isfile(f) && push!(out, (n, loadgraph(f), (res = 1024,)))
+            push!(out, (n, SAM2Runner.sam2graph(n), (res = 1024,)))
         end
     end
     out

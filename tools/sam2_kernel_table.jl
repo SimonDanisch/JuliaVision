@@ -29,8 +29,18 @@ const JSON3 = DNNKernels.JSON3
 using DNNKernels: encode, toback, readsafetensors, evalshape
 
 const KA = KernelAbstractions
-const ASSETS = SAM2Runner.assetdir()
-const TORCH = joinpath(ASSETS, "pytorch_kernels.json")
+# A tool, and it wants a file the runner has no accessor for, so it takes the
+# directory as an argument instead of reaching into the package. Defaults to the
+# artifact via the runner's own model loader path, which is the only sanctioned
+# way in; override on the command line to point at a local export.
+const TORCH = get(ENV, "SAM2_KERNEL_TABLE_TORCH_JSON") do
+    length(ARGS) >= 1 ? ARGS[1] :
+        error("""
+              pass the path to pytorch_kernels.json:
+                  julia --project=. tools/sam2_kernel_table.jl <path>
+              It is developer material and does not ship in the `sam2-large`
+              artifact, so there is nothing to resolve it from.""")
+end
 
 """Arithmetic per aten op, summed over the graph, from the declared shapes."""
 function graphflops(g, dims)
@@ -77,7 +87,11 @@ function main()
                                          for (k, v) in pairs(torch.encode_kernels_ms))
 
     model = SAM2Runner.sam2model()
-    refs = readsafetensors(joinpath(ASSETS, "refs.safetensors"))
+    # `sam2refs()`, not a path built on `assetdir()`. The old form read
+    # refs.safetensors out of the MODEL artifact, which does not contain it —
+    # they live in `sam2-large-refs`, deliberately, so a caller who only wants to
+    # segment a picture never fetches 1.2 GB of fixtures.
+    refs = SAM2Runner.sam2refs()
     img = toback(model.model.backend, refs["sam2_encoder/in0"])
 
     ours = ourtimes(model, img)

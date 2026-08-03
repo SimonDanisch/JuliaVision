@@ -960,3 +960,1146 @@ bitcast and an unbacked capability — in modules nobody had ever validated.
 
 Recommend re-opening all three against our own compiler, with `spirv-val` and
 GPU-AV on, before anything is reported upstream.
+
+## 2026-08-02, later — the vkCmdCopyBuffer fault is a GC lifetime bug
+
+Rebased onto the merged `sd/nvidia` (`046b1ed`); the four fixes are upstream.
+
+### A fast reproducer
+
+The fault used to need a 15-minute suite and moved between tests. It reproduces
+in **three files in one process, about two minutes**:
+
+```
+test_pipeline_cache_no_compile.jl
+test_static_workgroup.jl
+test_closesthit_via_rayquery.jl     <- SIGSEGV early in this one
+```
+
+Always at `Vulkan.cmd_copy_buffer`, `command.jl:1549`. The full path is now
+known, and it is the **staging** path rather than anything kernel-related:
+
+```
+upload!          memory.jl:1644
+copy_buffer!     memory.jl:1594 -> :1633     (host -> staging -> device)
+cmd_copy_buffer! command.jl:1504 -> :1549
+  -> vkCmdCopyBuffer -> SIGSEGV inside libvulkan_radeon.so
+```
+
+### It is a GC/finalizer bug — proved by elimination
+
+Same reproducer, one line changed:
+
+| | result |
+|---|---|
+| default | SIGSEGV at the third file |
+| `GC.enable(false)` | **exit 0, all five files complete** |
+
+That settles the class. It is not a driver defect, not recording order, and not
+anything about the ray-query test it happens to land in. A finalizer destroys
+something that a recorded-but-unsubmitted copy still refers to.
+
+### Why Lava's own use-after-free scanner cannot see it
+
+`FREED_BDA_SCAN_ENABLED` checks, before every destroy, whether the buffer's BDA
+still appears in a live arg slab. Run over the crashing files it reports **zero
+hits**, and that is structural rather than reassuring: a **staging buffer is a
+transfer source, never a kernel argument**, so its address never enters an arg
+slab at all. The scanner is blind to this entire class by construction.
+
+Two warnings for anyone else reaching for it:
+
+- It is far too slow for a full-suite run. `scan_arg_slabs_for_bda!` is linear in
+  arg-slab size and runs on every destroy; with Tier 4 GPUArrays it took **50
+  minutes to get from Tier 1 into `reductions`** and never reached the crash. Use
+  it on a targeted file list.
+- Both it and `FREE_DEBUG_LOG` only print at exit, which a SIGSEGV skips. Drain
+  them from a `Timer` if you want the entries that precede the fault.
+
+### The destroy trace, and the actionable detail
+
+With `FREE_DEBUG_ENABLED` drained incrementally, the last twelve destroys before
+the fault are all:
+
+```
+pool=true   lw=SET   active_recording=false
+```
+
+`active_recording = false` is the lead. `vk_free!` defers destruction when
+`bq.active_batch !== nothing && bq.active_batch.recording`; here that check said
+"no batch is recording", so the buffer was destroyed inline — while a copy that
+refers to it is about to be, or has just been, recorded.
+
+That is exactly the residual `vk_free!`'s own comment anticipates:
+
+> *"Not certainly the last of it ... either a second window exists or something
+> rarer shares this one. If it recurs, the next thing to check is whether a
+> buffer can be reached by an open batch through something `pins` does not count
+> either."*
+
+A staging buffer reached through `get_staging`'s **raw tuple** is precisely such
+a path. `get_staging` (`memory.jl:1526`) returns
+`(buf.buffer, buf.memory, buf.mapped_ptr, buf.size)` — handles snapshotted off
+the `VkManagedBuffer`, with no reference to the owner. Holding the tuple does not
+keep the owner alive, and `destroy_buffer!` calls `buf.buffer.destructor()`
+**explicitly**, so holding the Julia `Vulkan.Buffer` wrapper does not protect the
+underlying `VkBuffer` either.
+
+### Ruled out, so nobody re-walks it
+
+**The pool recycle path is not the `mapped_ptr` divergence.** It looks like the
+answer: `return_to_pool!` (`memory.jl:1497`) reuses the `VkManagedBuffer` object,
+zeroing `mapped_ptr`, while `pool_alloc`'s free-list path restores `address`,
+`size` and `state` but **not** `mapped_ptr`. That reads as a textbook divergence
+and it is not one: pooled chunks are constructed with `mapped_ptr = 0`
+(`memory.jl:1399`) and `PoolBlock` holds no mapping, so a pooled buffer is never
+mapped. Zeroing an already-zero field is a no-op and not restoring it is correct.
+
+So the finding-10 divergence, if it is separate from this, lives in the
+non-pooled `vk_alloc` path (`memory.jl:592`), the only place `mapped_ptr` becomes
+non-zero.
+
+### Relation to the desktop's flush hang
+
+Consistent with these being one bug, per the desktop's suggestion. The shape here
+is "a buffer is destroyed while an unsubmitted batch still refers to it"; a hang
+on `vkWaitSemaphores` is what the same defect looks like when the batch does get
+submitted and waits on a timeline value for work referencing freed memory.
+
+One structural gap supports that reading and **cannot be tested here**: `vk_free!`
+consults `ctx.default_bq` only (`memory.jl:732`). A buffer reachable from a
+recording batch on a different `BatchQueue` is invisible to the deferral check.
+This device reports `max_queue_count = 1`; the desktop has `async_queue_count` 4
+and the RT/async paths are where a second queue appears. If the desktop's
+reproducer uses one, that is the first thing to instrument.
+
+## 2026-08-02, Phase 3 — the first complete suite table on RDNA 3.5
+
+Rebased onto `dev/Lava` `sd/nvidia` @ `83235f0` and `dev/JuliaVision` main @
+`dd72061`.
+
+### The suite completes, and the crash was `vk_reset_device!` — confirmed here
+
+The desktop's diagnosis is right, and this machine reproduced the mechanism in
+full before the fix arrived:
+
+```
+test_pipeline_cache_no_compile.jl (runtests.jl:171)  calls vk_reset_device!
+  -> old context replaced, device_lost NEVER set
+  -> pre-reset buffers still hold last_write = (old_bq, val)
+test_static_workgroup.jl (runtests.jl:175)           GC finalizes one
+  -> vk_free! (memory.jl:754) checks device_lost(bq.ctx) -> FALSE
+  -> query_timeline -> vkGetSemaphoreCounterValue on a destroyed VkDevice
+  -> SIGSEGV
+```
+
+`vk_reset_device!` contained no `mark_device_lost!` call at all, while its own
+comment asserted the opposite: *"Pre-reset VkManagedBuffers hold a strong ref to
+the OLD ctx whose `device_lost` is already true"*. That holds only when the reset
+was **triggered by** a DEVICE_LOST. A proactive reset leaves the flag false.
+
+This retro-explains everything this project could not close earlier: why the
+crash moved between tests (it fires wherever GC runs after the reset), why the
+3-file reproducer worked (the FIRST file was the one resetting), why
+`GC.enable(false)` cured it, why the BDA scanner was clean (it hunts live
+references, and nothing is wrong with the buffer's address), and why validation
+reported no object-lifetime error (the `VkBuffer` is fine — the semaphore and
+device are dead).
+
+**Correction to this report's own finding 16.** The earlier "staging buffer raw
+tuple in `get_staging`" hypothesis was WRONG. The `vkCmdCopyBuffer` stack was one
+downstream symptom of the same dead device, not a lifetime bug in `get_staging`.
+
+With `mark_device_lost!(old)` added to the retire block, the suite printed a
+summary for the first time:
+
+```
+Lava.jl | 23783 passed | 15 failed | 13 errored | 23811 total | 27m02s
+```
+
+### The table
+
+**15 failures — 13 known, 2 new**
+
+| site | count | status |
+|---|---|---|
+| `test_static_workgroup.jl:133,143,144,155,287,288` | 13 | the `Extruded` characterization tests; finding 11, they do not reproduce here |
+| `test_disk_cache.jl:121,127` | 2 | **new**, see below |
+
+**13 errors — 6 known, 7 one cause**
+
+| site | count | status |
+|---|---|---|
+| `test_shared_index_division.jl:196` | 3 | `@test_broken` Unexpected Pass; the OpUDiv item |
+| `test_int32_cartesian_miscompile.jl:301,334` | 3 | `@test_broken` Unexpected Pass |
+| `test_disk_cache.jl:128-132` | 6 | per-device cache refactor |
+| `test_struct_broadcast.jl:80` | 1 | per-device cache refactor (desktop already has this) |
+| `test_subgroup_size_pinning.jl:90` | 1 | per-device cache refactor — **fixed**, `e8fd416` |
+
+**The last three rows are one bug in three files**, not three bugs: tests that
+index the now-per-device caches directly get the inner dict back.
+
+- `test_disk_cache.jl:128` — `linked.compiled` where `linked` is now
+  `Dict{Any,LavaLinkedKernel}`; the two failures at `:121,:127` are almost
+  certainly the same shape. **8 sites, left alone** in case the desktop's
+  working tree already covers them alongside the `struct_broadcast` fix.
+- Mine — `DEVICE_SUBGROUP_SIZE` became `Dict{UInt64,Int}` keyed by `ctx.id`
+  rather than a `Ref`. Fixed by querying through `device_subgroup_size(ctx)`
+  then overriding by id. Back to 10/10.
+
+### Two devices work here, and that is what the last segfault is
+
+`twodevice_probe.jl`: **PASS**, exit 0, no segfault.
+
+```
+gpu id=1  AMD Radeon 8060S Graphics (RADV STRIX_HALO)
+cpu id=2  llvmpipe (LLVM 22.1.8, 256 bits)
+  gpu: dispatch ok   reduce ok   gemm ok
+  cpu: dispatch ok   reduce ok   gemm ok
+PIPELINE_CACHE grew by 12   (1 would mean the devices shared a pipeline)
+LINKED_KERNEL_CACHE device keys: [0x1, 0x2]
+LAUNCH_PLAN_CACHE   device keys: [0x1, 0x2]
+```
+
+So GUARDRAILS §8 holds on the RADV + lavapipe pairing, and the per-device keying
+is real rather than nominal.
+
+**The one remaining segfault follows from that.** It is now AFTER the summary,
+and it is not RADV:
+
+```
+pthread_mutex_lock -> libvulkan_lvp.so        <- lavapipe
+  vkGetSemaphoreCounterValue                  <- the same call as before
+```
+
+The suite includes `twodevice_probe.jl`, so it creates context id=2. The retire
+fix marks `VK_CONTEXT_REF[]` lost — which the lavapipe context never is. At exit,
+finalizers for lavapipe-backed buffers reach `query_timeline` on a device being
+torn down, and it is the identical bug one context over.
+
+**Suggested shape of the fix:** retire every live context, not just the global
+ref. Now that contexts are per device and enumerable by `ctx.id`, "the context
+being replaced" is no longer the same thing as "every context whose buffers are
+about to be finalized".
+
+### Not runnable here yet
+
+Three items in the Phase 3 prompt reference work that is not on the pushed
+branches, verified rather than assumed:
+
+- **`BRIEF.md` "Phase 3"** — the portability brief is still Phases 1-2
+  (`3803955`). The only Phase 3 in `plans/` is `lava-core`'s, about missing
+  SPIR-V instructions.
+- **A coopmat pipeline refusing to build without a 32-lane pin** —
+  `pipeline.jl:380` is still the permissive form, so it silently skips pinning.
+  The underlying question is already answered here regardless: size control is
+  min 32 / max 64 / compute true, and a pinned width is honoured at BOTH widths
+  (`test_subgroup_size_pinning.jl`, 10/10), so the refusal path will not fire on
+  this device.
+- **`flashepad` / `flashrpad`, `sdpaflashcm!(; epad, rpad)`** — absent;
+  `git log --all -S flashepad` finds nothing, and the current keywords are
+  `ballast`, `shpad`, `nrsc`, `preonly`, `rscbar`.
+
+## 2026-08-02, independent work — LDS banking, and the decode gap
+
+### RDNA 3.5's LDS has 32 banks, and conflicts follow gcd(stride, 32)
+
+Measured, because this is the substance under `epad`/`rpad`: those knobs pad a
+shared tile's row stride to break bank conflicts, and the shipped values were
+tuned on NVIDIA. The bank count and the conflict-free strides are a hardware
+property and can be measured without the knobs existing.
+
+Every lane reads `lds[(lid*STRIDE + r) & MASK]` in a long loop, 64-lane
+workgroup, 32 KB of LDS. All lanes step together so the bank pattern is constant
+and STRIDE alone decides which banks collide. Minimum of 11 timed reps, swept in
+**both directions** so nothing carries an order bias, after warming until the
+clock stopped climbing (600 -> 927 MHz; the first sweep ramped mid-run and its
+absolute numbers were discarded — GUARDRAILS §6).
+
+| stride | fwd ms | rev ms | x vs stride 1 | gcd(s,32) |
+|---|---|---|---|---|
+| 1 | 0.5416 | 0.5252 | 1.00 | 1 |
+| 3 | 0.5441 | 0.5383 | 1.02 | 1 |
+| 17 | 0.5536 | 0.5376 | 1.02 | 1 |
+| 33 | 0.5486 | 0.5413 | 1.03 | 1 |
+| 65 | 0.5532 | 0.5362 | 1.02 | 1 |
+| 2 | 0.5506 | 0.5566 | 1.05 | 2 |
+| 4 | 0.5889 | 0.5834 | 1.11 | 4 |
+| 12 | 0.5768 | 0.5809 | 1.10 | 4 |
+| 8 | 0.6496 | 0.6346 | 1.21 | 8 |
+| 24 | 0.6336 | 0.6312 | 1.20 | 8 |
+| 16 | 0.8446 | 0.7440 | 1.42 | 16 |
+| 48 | 0.7556 | 0.7492 | 1.43 | 16 |
+| 32 | 0.9812 | 0.9651 | 1.84 | 32 |
+| 64 | 0.9820 | 0.9700 | 1.85 | 32 |
+
+**The cost is a function of `gcd(stride, 32)` and nothing else** — 48 matches 16,
+24 matches 8, 12 and 20 match 4, and every odd stride is free. That is 32 banks.
+
+Consequence for the padding knobs, whatever they end up called: **any odd row
+stride is conflict-free on this device.** Padding a power-of-two row stride by
+one element is sufficient and there is nothing to gain from padding further. A
+stride that stays a multiple of 32 is the worst case and costs ~1.85x on this
+probe.
+
+The absolute ratios understate a true k-way conflict (stride 32 puts all 64 lanes
+on one bank and costs 1.85x, not 32x) because the loop also pays its own
+arithmetic and wave64 issues LDS in halves. The **ordering** is what is being
+claimed here, and it is unambiguous and reproducible in both sweep directions.
+
+### SAM 2: the decode gap is nearly 3x worse than the encode gap
+
+The earlier 294 ms figure did not move after flash-decoding landed, and the
+reason is a flaw in **my** measurement, not in K2: `runsam2` is encode + decode,
+encode dominates, so a 3.55x decode win is invisible in the total. Measured
+separately:
+
+| | Radeon 8060S | desktop (RTX 4000 Ada) | ratio |
+|---|---|---|---|
+| encode | **278.2 ms** | 100.4 ms | 2.8x |
+| decode (the click path) | **17.28 ms** | 2.21 ms with K2 | **7.8x** |
+| total | 295.5 ms | ~103 ms | 2.9x |
+
+Encode is 2.8x off the desktop, which is roughly what a 40-CU iGPU on shared
+memory should be. **Decode is 7.8x off**, nearly three times the encode gap.
+
+That is the interesting number, and it points where the plan already suspects:
+decode is where the coopmat2-gated kernels live, and `coopmat2` is **eight
+`false`s** on this device, so the per-element flash path falls back wholesale.
+Flash-decoding's benefit is structurally smaller here for that reason.
+
+It makes an AMD fallback story for K3 (coopmat2 reductions) and K5 (tensor
+addressing / block loads) worth more than the raw NVIDIA speedups suggest: on
+this device those kernels are not choosing between fast and faster, they are
+choosing between a fallback and nothing.
+
+Caveats: synthetic input (a centred disc), one click, one click position. Frozen
+cache 106 hits / 0 misses on every run. Model build 42.8 s.
+
+### What that means for the flash-cm kernel, before the padding knob exists
+
+`attn_flash_cm!` stages its tiles as (`flash.jl:409`)
+
+```julia
+qs = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
+```
+
+so the shared row stride is `EP` elements, and
+
+```julia
+EP = cld(E, dev.tile) * dev.tile       # flash.jl:1113, :1240
+```
+
+is the head dim rounded up to the cooperative-matrix tile, with `flashcmfits`
+requiring `EP % dev.tile == 0`.
+
+`qs` is `Float16` and an LDS bank word is 4 bytes, so a row stride of `EP`
+elements is **`EP/2` bank words**. `EP` is always a multiple of 16, therefore
+`EP/2` is always a multiple of 8, therefore `gcd(EP/2, 32) >= 8` **always**.
+Combining that with the measured table above:
+
+| head dim E | EP | bank words | gcd(.,32) | measured cost |
+|---|---|---|---|---|
+| 64 | 64 | 32 | **32** | **1.84x** |
+| 72 | 80 | 40 | 8 | 1.21x |
+| 96 | 96 | 48 | 16 | 1.42x |
+| 128 | 128 | 64 | **32** | **1.85x** |
+
+**Head dims 64 and 128 — the two most common — land on the worst possible stride
+on this device**, every row of every staged tile starting on the same bank.
+
+Two consequences:
+
+1. It explains the desktop's `epad` result from the hardware up. "epad is worth
+   -31.4% at head dim 64" is what breaking a `gcd = 32` collision looks like, and
+   the same collision exists here, so the knob should pay at least as well.
+2. **The tile constraint means the kernel cannot reach conflict-free by tuning
+   `EP`.** Any legal `EP` is a multiple of 16 and so is stuck at `gcd >= 8`. The
+   fix has to decouple the shared **storage** stride from the coopmat **tile**
+   extent — store rows at `EP + pad` while still loading 16-wide tiles — which is
+   presumably exactly what `epad` does. Padding by one Float16 element makes the
+   stride odd in bank words and is measured free.
+
+Not claimed: an end-to-end number. `EP` is derived and there is no knob on this
+branch to vary it, so this is the hardware measurement plus the kernel's own
+arithmetic, not an A/B of the real attention. When the knob lands this is a
+confirmation run rather than a search: predicted best is any `EP` with `EP/2`
+odd, and predicted worst is the current default at head dims 64 and 128.
+
+`shpad`, which the branch does have, is **not** this knob — it is an occupancy
+ballast (`flash.jl:425`, a dummy `@localmem` touched at `:898` so it survives
+optimisation), and sweeping it answers a different question.
+
+### Finding 1 lands in practice: `dev.subgroup` vs `dev.coopmatsubgroup`
+
+The six asset-independent DNNKernels tests, re-run against the post-refactor
+`ctx`/plan API (nothing had run them here since `Ctx` and the plan objects
+arrived). Five green. `test_flash.jl` failed **4 assertions**, all one cause, and
+all of them pass on wave32 hardware because the two fields coincide there:
+
+```
+:167  (BR * 72) % (NW * dev.subgroup) == 0    ->  256 == 0, 128 == 0   (x3)
+:348  p.NT == p.NW * dev.subgroup             ->  128 == 256
+```
+
+The device **default** here is 64; Lava pins a cooperative-matrix module to 32.
+So `dev.subgroup` overstates the workgroup by 2x, and every shipped tiling
+"failed" its divisibility check.
+
+**The root is a `src/` comment**, which is why this was not only a test fix.
+`kernelplans.jl:58` documented the field as
+
+```julia
+NT::Int          # NW * dev.subgroup — never `NW * 32`
+```
+
+The code has always used `dev.coopmatsubgroup` (`flash.jl:1116`, `:1250`), and
+`flashcm_tiling`'s docstring already says which of the two is wanted: *"the width
+a cooperative-matrix module actually runs at, which Lava pins to 32. The tiling
+needs the second."* The `never NW * 32` clause was a correction to the old
+hardcoded literal that overcorrected onto the wrong field, and **both assertions
+were written from it**. Fixed, and it now says why.
+
+216/216 fused attention, 15/15 plans. Note the second failure was invisible until
+the first was fixed — the file threw before reaching it.
+
+This is portability finding 1 arriving in real code: `device_subgroup_size()` is
+a **default**, not a fact about the kernel that is about to run, and anything
+conflating the two is correct only on hardware where they coincide. The desktop
+added `dev.coopmatsubgroup` precisely because of that finding; the comment and
+the tests were what did not catch up.
+
+**Swept for the same class elsewhere — clean.** `Lava/src/array/gemm.jl:270` is
+*correct* and worth citing as the pattern to copy:
+
+```julia
+device_subgroup_size(ctx) == GEMM_SUBGROUP || can_require_subgroup_size(ctx, GEMM_SUBGROUP)
+```
+
+with a comment that names both ways to have a 32-lane subgroup. The remaining
+literals in `attn_flash_cm!` (`NW * 32` at `flash.jl:408`, `:440`, `tid ÷ 32` at
+`:455`) are correct **by the pin**, not by accident of this device — which is
+exactly why the "refuse to build a coopmat pipeline where 32 lanes cannot be
+pinned" change matters: those literals are silently wrong on any device that
+cannot pin, and nothing would report it.
+
+### Post-refactor status of the standalone DNNKernels tests
+
+| file | result |
+|---|---|
+| `test_constfold.jl` | 19 / 19 |
+| `test_foldoutcasts.jl` | 2 skips recorded (no `gen/` tree; see finding 14) |
+| `test_convtranspose_gemm.jl` | 78 / 78, including the new 1x1-as-GEMM testset |
+| `test_transposeLE.jl` | 16 / 16 |
+| `test_coopmat_attention.jl` | 11 / 11 |
+| `test_flash.jl` | **216 + 15 after the fix**, was 4 failures |
+
+### The lavapipe teardown fault: four attempts, not reproduced
+
+Recorded so nobody repeats the same three ideas. All exit 0:
+
+1. Two contexts, work on lavapipe, `vk_reset_device!`, forced GC.
+2. Same, but forcing the finalizer **ordering** — collect the context first so the
+   lavapipe `VkDevice` is finalized before the buffers that reference it.
+3. The suite's real sequence: the probe creates ctx 2 (`runtests.jl:190`) and a
+   later test resets (`test_gpuav_clean.jl`, `:489`), with buffers left **live**
+   so the finalizers run at process exit, which is where the suite faults
+   (`in expression starting at none:0`).
+
+So "the lavapipe context is never retired" is **not sufficient** as an
+explanation. The suite still reproduces it reliably, so the repro exists; it
+needs more of the suite's accumulated state than these isolate.
+
+### GPUFiltering: 65 / 65 on AMD, first coverage of that package here
+
+Never run on this machine before. All green, and not merely smoke tests —
+`gaussianblur!` is validated against `ImageFiltering`'s CPU reference, so this is
+a numerical check.
+
+| testset | |
+|---|---|
+| `coloradjust!` | 3 / 3 |
+| `gaussianblur!` vs ImageFiltering | 2 / 2 |
+| `unsharpmask!` | 2 / 2 |
+| `opticalflow!` | 4 / 4 |
+| `fitaffine` | 14 / 14 |
+| `fithomography` | 6 / 6 |
+| `warp!` | 4 / 4 |
+| `samplewindow!` / `nccpeak` | 7 / 7 |
+| `fitsimilarity` / `PatchTracker` | 23 / 23 |
+
+Run it with `Pkg.test("GPUFiltering")`, not
+`julia --project=<workspace> GPUFiltering/test/runtests.jl`. The test script does
+`using FixedPointNumbers`, which is a dependency of the *package* and therefore
+only an indirect dependency of the workspace project, and a script can only
+`using` direct ones. The error it produces —
+`Package FixedPointNumbers not found in current path` — reads like a missing
+declaration and is not one.
+
+**Correction to something recorded earlier in this session.** I diagnosed the
+same-looking `SAM2Runner` failure as a stale manifest entry, and for that package
+it genuinely was: its `[[deps.SAM2Runner]]` block had no `deps` line at all and
+`Pkg.resolve()` treated that as consistent, so `Pkg.rm` + `Pkg.develop` was the
+fix. I then assumed `GPUFiltering` was the same and it was **not** — its manifest
+entry lists `deps` correctly and `FixedPointNumbers` is present. Two different
+causes behind one error message; check the manifest entry before assuming which.
+
+**Confirmed as a set.** All six re-run together after the `coopmatsubgroup` fix:
+exit 0, **367 assertions, zero failures**.
+
+```
+constfold 19 · foldoutcasts 2 (skips, no gen/ tree) · convtranspose_gemm 78
+transposeLE 16 · coopmat_attention 11 · flash 216 + 11 + 15
+```
+
+That is the whole asset-independent DNNKernels surface green on RDNA 3.5
+post-refactor. It was not, before the `dev.subgroup` correction.
+
+**Plus a seventh I had missed.** My standalone list predated the refactor, which
+added `test_diagnostics.jl` — host-only on the CPU backend, so it runs anywhere,
+and it asserts the property that replaced the five module-level `Ref`s
+(`OPTIMES`, `OPDOUBLE`, `OPDOUBLEFILTER`, `PLAN_MISSES`, `LAUNCH_PROBE`): two
+runs in one process can be instrumented differently and neither sees the other's
+measurements. **13 / 13**, bringing the standalone total to **380**.
+
+## 2026-08-03 — GPU-assisted validation, the other half of Rule 0 instrument 1
+
+`spirv-val` (via `LAVA_VALIDATION=1`) found two bugs earlier. **GPU-AV had never
+been turned on**, and Rule 0 names both: *"`spirv-val --target-env vulkan1.3`,
+then GPU-assisted validation (`Lava.enable_gpu_av`). Cheap, and neither is run by
+default."*
+
+### It found a third bug immediately
+
+```
+vkCreateShaderModule(): OpGroupNonUniformShuffle is using a 64-bit int scalar but
+VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures::shaderSubgroupExtendedTypes
+was not enabled.                          VUID-RuntimeSpirv-None-06275
+```
+
+SPIR-V group operations on 8-, 16- or 64-bit types require that feature. Lava
+binds `subgroup_shuffle` for `Int64`/`UInt64`/`Float64` and `vk_device!`
+hardcoded it `false`, so those shuffles were undefined — while
+`test_subgroup_shuffle.jl` passed **520/520**, because the driver ran them anyway.
+
+Fixed by querying the device (`559d499`). Now 520/520 *and* defined.
+
+**Three for three, one family:** a capability the emitter uses with no enabled
+feature behind it, invisible with validation off, correct answers on the driver.
+`be52353` (invalid logical-pointer `OpBitcast`), `332dc33` (`Int64Atomics`),
+`559d499` (`shaderSubgroupExtendedTypes`).
+
+### First fully crash-free full-suite run on this machine
+
+```
+23793 passed | 15 failed | 11 errored | 0 broken
+segfaults: 0                validation errors: 10
+```
+
+15 failures and 11 errors, all previously accounted for: the `Extruded`
+characterization tests and the `@test_broken` unexpected passes. The three
+per-device-cache test breakages are fixed and gone.
+
+### Four distinct VUIDs, of which two are real
+
+| VUID | count | verdict |
+|---|---|---|
+| `VkShaderModuleCreateInfo-pCode-08737` | 4 | **real — my earlier fix was incomplete** |
+| `RuntimeSpirv-PhysicalStorageBuffer64-11819` | 2 | **needs corroboration**, see below |
+| `VkBufferCreateInfo-size-06409` | 2 | benign |
+| `vkAllocateMemory-pAllocateInfo-01713` | 2 | benign |
+
+**Benign, both the same event:** a deliberate 40 GB buffer/allocation against a
+34 GB heap. That is an OOM-handling test doing its job.
+
+#### My `OpBitcast` fix was incomplete
+
+```
+%371 = OpBitcast %_ptr_Function_uint %160
+```
+
+**Function** storage class this time, not Workgroup, reached from GPUArrays'
+`sliced setindex, CPU source` (`indexing.jl:77`).
+
+`be52353` fixed the **`OpSelect` reconciliation** path only. I had already
+identified three pointer-`OpBitcast` sites — `emit.jl:1362`, `:1378`, `:1414` —
+and fixed one. The other two are in the **load** path, where the emitter bitcasts
+a pointer to change its pointee type for a differently-sized load, and they are
+still live. This is proof they are reachable from a real test rather than
+theoretical.
+
+Note the load path may not be fixable by the same "drill with `OpAccessChain`"
+trick: drilling reaches an aggregate's element, but a narrowing/widening load
+wants a *differently typed* pointer to the same address, which the Logical
+addressing model does not provide. That probably needs the load itself to change
+(load the pointee's true type, then convert the value), which is what the
+existing widening branch at `:1335` already does for one case.
+
+#### A GPU-AV out-of-bounds write, on lavapipe
+
+```
+vkCmdDispatch(): Out of bounds access: 1 bytes written at buffer device address
+0x7f1528703a7f. Stage = Compute. Global invocation ID (x, y, z) = (0, 0, 0)
+```
+
+**Not claimed as an emitter bug yet.** It appears immediately after a lavapipe
+context is initialised, i.e. inside `twodevice_probe.jl`, so it is on the CPU
+device rather than RADV. GPU-AV also reports that it forced several features on
+for its own instrumentation (`fragmentStoresAndAtomics`,
+`vulkanMemoryModelDeviceScope`, `storageBuffer8BitAccess`, a
+`VkPhysicalDevice16BitStorageFeatures` added to the chain), so the device
+configuration under GPU-AV is not the configuration under test.
+
+A one-byte overrun at global invocation `(0,0,0)` is a specific enough signature
+to chase, and it is exactly what GPU-AV exists to catch. But it needs
+reproducing on RADV, or on lavapipe without GPU-AV's forced features, before it
+is a finding rather than an artefact.
+
+### Operational note
+
+GPU-AV prints its own warning and it is right: *"Both GPU Assisted Validation and
+Normal Core Check Validation are enabled, this is not recommended as it will be
+very slow."* Run core validation first, fix what it reports, then GPU-AV alone.
+
+### The second `OpBitcast` family, reproduced and inventoried
+
+`GPUFiltering`-free reproducer, 30 seconds, no GPU-AV needed — just dump and
+validate:
+
+```julia
+for T in (Int16, Int32, Int64, Float16, Float32, Float64,
+          ComplexF16, ComplexF32, ComplexF64,
+          Complex{Int16}, Complex{Int32}, Complex{Int64})
+    x = Lava.LavaArray(zeros(T, (2,3,4)));  y = Lava.LavaArray(rand(T, (2,3)))
+    x[:, :, 2] = y
+    @assert Array(x[:, :, 2]) == Array(y)
+end
+```
+
+with `LAVA_SPIRV_DUMP_DIR` set, then `spirv-val` each dump. **All twelve element
+types produce correct results and two `gpu_getindex_kernel` modules are invalid.**
+
+Real element types alone do **not** reproduce it — the first eight I tried were
+all clean. It needs the `Complex` types, which is why it surfaced through
+GPUArrays' `supported_eltypes` and not through anything hand-written.
+
+The offending pattern is a **narrowing store into a Function-scope alloca**:
+
+```
+%160 = OpVariable %_ptr_Function__arr_ulong_uint_2 Function   ; [2 x ulong]
+%373 = OpBitcast %_ptr_Function_uint %160                     ; ptr[2 x ulong] -> ptr uint
+       OpStore %373 %336
+%376 = OpAccessChain %_ptr_Function_ulong %160 %uint_0        ; legal drill to element 0
+%379 = OpBitcast %_ptr_Function_uint %376                     ; then illegally re-type ulong* -> uint*
+       OpStore %379 %339
+```
+
+Note the second one: the emitter *does* drill legally with `OpAccessChain`, then
+bitcasts the result anyway because the element is `ulong` and the value is
+`uint`. Drilling cannot fix this one — the address is already right and it is the
+**width** that is wrong.
+
+#### Corrected inventory of pointer `OpBitcast` sites
+
+An earlier entry in this report said "the emitter has three pointer `OpBitcast`
+sites (`emit.jl:1362`, `:1378`, `:1414`)". That was wrong twice: `:1414`/`:1416`
+bitcasts a loaded **value**, which is legal, and the two **store-path** sites were
+missed entirely.
+
+| site | operand | status |
+|---|---|---|
+| `~emit.jl:6067` OpSelect reconciliation | pointer | **fixed**, `be52353` |
+| `emit.jl:1362`, `:1378` load path | pointer | **live** |
+| `emit.jl:2174`, `:2186` store path | pointer | **live** — what this reproducer hits |
+| `emit.jl:1416`, `:2089` | value | legal, not a defect |
+
+#### Why the remaining four need a different fix from the one that worked
+
+`be52353` worked because the `OpSelect` case was an **addressing** mismatch:
+array-of-T versus T at the same address, and `OpAccessChain` expresses exactly
+that. The load and store paths are **width** mismatches — a 32-bit value through
+a pointer whose pointee is 64-bit — and the Logical addressing model has no way
+to produce a differently-typed pointer to the same address at all.
+
+So the fix has to move to the value side: load the pointee's true type and
+convert, or widen the value and store the full pointee. `emit.jl:1335` already
+does exactly this for the widening-load case, with a comment explaining that
+bitcasting the pointer there would read past the field. That branch is the
+template; the narrowing and store cases need the same treatment.
+
+Not attempted here: a narrowing store that only wants the low 32 bits of a
+64-bit slot is not semantically identical to a widening store of the whole slot,
+so this is a change to what the kernel writes and needs the emitter's owner, not
+a portability pass. The reproducer above is the thing to iterate against.
+
+## 2026-08-03, Phase 3 continued — the `OpBitcast` family is closed
+
+Pinned at Lava `e6456c0` (rebased onto `sd/nvidia` `0903c6f`), JuliaVision
+`07e33e7` (merged with `sd/kernels-refactor` `e89e694`).
+
+### Suite: 23793 pass / 13 fail / 9 error, zero segfaults, zero `pCode-08737`
+
+Full run, `LAVA_VALIDATION=1`, 26m04s, 2710 modules compiled and dumped.
+
+| | baseline (Phase 3.1) | now | change |
+|---|---|---|---|
+| failures | 15 | **13** | `test_disk_cache.jl:121,127` fixed |
+| errors | 13 | **9** | `test_disk_cache.jl:128-132` + `test_subgroup_size_pinning.jl:90` fixed |
+| `pCode-08737` | 4 | **0** | the store-path fix |
+| segfaults | 0 | 0 | |
+
+The 13 remaining failures are all `test_static_workgroup.jl` (`:133,:143,:144,`
+`:155,:287,:288`) — the `Extruded` characterization tests, which assert that a
+driver bug *still reproduces* and therefore fail on a driver that does not have
+it. The 9 errors are `test_shared_index_division.jl:196` (3),
+`test_int32_cartesian_miscompile.jl:301,334` (3) — all `@test_broken` Unexpected
+Pass, same cause — plus `test_struct_broadcast.jl:80`, which `bca7906` fixes and
+which the rebase has now brought in.
+
+### Both remaining `OpBitcast` sites fixed, and one of them is unexercised
+
+`67b55ac`/`effd47e` (store) and `60364e4` (load) close the inventory. Both
+reconcile on the **value** side, which is the part the earlier entry in this
+report got right in theory: load the slot at its true width, `OpUConvert` (SPIR-V
+defines it as truncate-or-zero-extend, so one instruction serves both
+directions), `OpBitcast` the *value* if a float was wanted.
+
+The store side's narrowing case is a read-modify-write — extend, load slot, mask,
+OR, store — so the high bits of the slot survive exactly as the old narrow
+pointer store left them. That was the objection the earlier entry raised against
+attempting it, and it is answered rather than waived: the write is
+semantics-preserving, not merely legal.
+
+**The load-path sites are not reachable by anything available here, and this is
+a negative result, not a verification.** A probe on both branches recorded:
+
+| driver | modules | hits |
+|---|---|---|
+| full Lava suite | 2710 | **0** |
+| mirror of the store reproducer (`z = x[:, :, 2]`, twelve element types) | 24 | **0** |
+
+So `emit.jl`'s `pointee_ty isa IntegerType` load branch — including the
+pre-existing *widening* case, which carries a comment about RADV rejecting the
+alternative — is dead in this suite. The fix is correct by construction and by
+symmetry with the store side; it is not correct by measurement, and a green suite
+must not be read as having exercised it. The store side, by contrast, went from
+2 invalid modules to 0 on a reproducer that runs in 30 seconds.
+
+Two things fell out of unifying the branches, both worth having independently:
+`i1` maps to `OpTypeBool` and so is reachable by neither convert nor bitcast
+(`trunc iN to i1` is emitted as `(x & 1) != 0`); and the widening branch passed a
+bare `Aligned` memory operand where every other Workgroup load in the file passes
+`Aligned | NonPrivatePointer`, which is meaningful because Lava emits the Vulkan
+memory model.
+
+### A handled allocation failure was blaming innocent code — `dfb797e`
+
+**New bug, and it is a diagnostic-quality bug, which is the kind that costs the
+most time.** The suite reported a failure in
+`test_source_mapping.jl:739`, "Source mapping doesn't break kernel execution",
+as a `LavaError during vk_flush!` on a **four-element** `Float32` upload — with a
+message about a **40 GB** buffer.
+
+That test is innocent. `test_source_mapping.jl:699`, forty lines earlier,
+deliberately asks for 40 GB against a 34 GB heap:
+
+```julia
+Lava.try_vk_alloc(Lava.vk_context().default_bq, 40_000_000_000)  # 40GB, will fail
+```
+
+`try_vk_alloc` handles the refusal and returns `AllocFailure`, and it *tried* to
+absorb the validation messages — but it called `empty!(VALIDATION_MESSAGES)`
+without calling `drain_validation_messages!()` first. The callback writes into a
+lock-free ring (`VAL_RING_*`), and only the drain moves entries out of it, so the
+messages stayed in the ring until the next `check_validation_errors!` — which
+belonged to unrelated code, and threw there.
+
+One line. The correct idiom was already in the file: `clear_printf_output!` does
+`drain_validation_messages!(); empty!(PRINTF_MESSAGES)`.
+
+**This corrects an earlier entry in this report.** The section "Four distinct
+VUIDs, of which two are real" called `VkBufferCreateInfo-size-06409` and
+`vkAllocateMemory-pAllocateInfo-01713` *"benign — an OOM-handling test doing its
+job"*. Benign as Vulkan **events**; not benign as test **outcomes**, because they
+abort a later unrelated testset whenever validation is on. Only two of the four
+VUIDs needed fixing, but all four needed *handling*.
+
+`test_tolerated_alloc_failure.jl` asserts the **ring** is empty after a drain,
+not just the list — draining is precisely what the buggy version skipped — and
+then reproduces the original symptom with the small unrelated upload. Verified
+to fail with the fix reverted: 1 passed, 1 failed, 1 errored, the error being the
+same `LavaError during vk_flush!`.
+
+### Phase 3.3 — the coopmat 32-lane pin: the assumption holds
+
+```
+device            : AMD Radeon 8060S Graphics (RADV STRIX_HALO)
+default subgroup  : 64
+size control      : min=32 max=64 compute=true
+can pin 32        : true
+```
+
+**The guard does not fire here**, which is what the brief predicted and asked to
+have confirmed. `test_coopmat_subgroup_refusal.jl`, 6/6.
+
+The positive control is the part worth reporting, because the first version of it
+**passed vacuously**. Driving the refusal through `mul!` with the capability
+cache faked to a wave64-only device produced no error at all: `mul!` returned
+normally and computed the right answer. `coopmat_gemm_available` consults
+`can_require_subgroup_size` itself (`gemm.jl:271`), so the faked cache makes it
+answer false and the call routes to the scalar GEMM without ever asking for a
+cooperative-matrix pipeline.
+
+**So the refusal is a backstop behind that gate, not the first line of defence,
+and it only protects callers that do not ask `coopmat_gemm_available` first.**
+The test now launches a kernel that touches a cooperative matrix directly, which
+is what makes the module declare `CooperativeMatrixKHR` — the condition
+`get_compute_pipeline` actually keys on — and the refusal fires with its own
+message.
+
+### DNNKernels op coverage runs here; the reference comparison still cannot
+
+The blocker was recorded as "no `matanyone-refs` artifact exists". More precisely:
+the `matanyone` artifact **is** installed
+(`~/.julia/artifacts/9369a615…`) and carries `graphs/` and
+`weights.safetensors`, but **not** `refs-*.safetensors` or
+`refs_manifest-*.json`, and its graphs are the pre-split flat layout
+(`graphs/encode_image.json`) rather than the `graphs/aten-$precision/` the test
+wants. Regenerating the refs needs `tools/dump_refs.py`, i.e. PyTorch and the
+model, which the brief rules out.
+
+The half that does not need refs runs, and is worth having:
+
+| graph | ops | missing |
+|---|---|---|
+| `encode_image` | 8 | none |
+| `transform_key` | 5 | none |
+| `encode_mask_deep` | 24 | none |
+| `encode_mask_shallow` | 23 | none |
+| `pixel_fusion` | 9 | none |
+| `pred_uncertainty` | 7 | none |
+| `segment` | 13 | none |
+| `readout_query` | 38 | none |
+
+**Full op coverage on all eight graphs, nothing missing.** That is the first
+coverage check of MatAnyone's graphs on this machine, and it says the gap is
+purely the reference activations, not the kernel library.
+
+### One more hardcoded 32, in a test
+
+`DNNKernels/test/test_flash.jl:129` gated on `NW * 32 <= Lava.WORKGROUP_LIMIT[]`.
+The literal was numerically right — Lava pins coopmat modules to 32, so that is
+the real thread count — but it stops being a coincidence only once it names which
+of `dev.subgroup` (64 here) and `dev.coopmatsubgroup` (32) it means. Now
+`NW * dev.coopmatsubgroup`, the same distinction as finding 1.
+
+Not fixed, filed: `flash.jl:472` computes `NT = NW * 32` **inside the kernel**,
+duplicating `plan.NT`. Correct by construction today, since the pipeline now
+refuses to build unless 32 lanes can be pinned, but it is a second source of
+truth for a number the plan already carries.
+
+## 2026-08-03, Phase 3.4 — the bank-conflict sweep, and a prediction of mine that was wrong
+
+`epad × rpad` at `E ∈ (16, 32, 48, 64, 72)`, tiling 64x32/8, `Lq = Lk = 4096`,
+8 head-batches — the same shape the NVIDIA numbers in `flashepad`'s docstring are
+quoted on. 100 configurations, **all 100 numerically correct** (each is checked
+against a CPU reference and for non-trivial output before it is allowed to
+contribute a time; a kernel that writes nothing is fast and wrong).
+Script: `bankconflict_sweep.jl`.
+
+### The prediction, stated before the sweep ran, and falsified by it
+
+The earlier LDS section of this report measured cost as a function of
+`gcd(stride, 32)` and nothing else, then predicted:
+
+> predicted best is any `EP` with `EP/2` odd, and predicted worst is the current
+> default at head dims 64 and 128
+
+`epad = 2` is exactly that stride: `(64+2)/2 = 33` bank words, `gcd(33,32) = 1`,
+conflict-free by the arithmetic. **It is the slowest or second-slowest setting at
+every head dimension tested.**
+
+| E | epad=0 | **epad=2** (gcd 1) | epad=4 (gcd 2) | epad=8 (gcd 4) | epad=16 |
+|---|---|---|---|---|---|
+| 16 | 3.020 | **3.975** (4/5) | **2.893** (1/5) | 3.572 | 4.012 |
+| 32 | 5.838 | **7.134** (5/5) | **4.799** (1/5) | 5.018 | 5.291 |
+| 48 | 9.433 | **12.288** (5/5) | **8.831** (1/5) | 9.047 | 12.264 |
+| 64 | 13.371 | **12.963** (4/5) | 8.856 | **8.786** (1/5) | 9.420 |
+| 72 | 14.807 | **19.254** (5/5) | **13.867** (1/5) | 14.468 | 16.626 |
+
+(ms, `rpad = 0`; rank within the head dim in brackets.)
+
+The winner is always `gcd = 2` or `gcd = 4`, never `gcd = 1`.
+
+**Why the earlier measurement did not transfer.** That stride sweep was a scalar
+loop in which alignment was constant and only the bank pattern varied, so it
+measured bank conflicts correctly *in isolation*. This kernel's LDS traffic is
+wide vectorised cooperative-matrix loads, and there the dominant term is **row
+alignment**, not bank spread:
+
+| epad | stride (Float16 elements) | byte alignment of each row | result |
+|---|---|---|---|
+| 2 | EP+2 | 4 B | narrow/unaligned access — **worst** |
+| 4 | EP+4 | 8 B | `ds_read_b64` — **best** |
+| 8 | EP+8 | 16 B | `ds_read_b128` — close second, more LDS |
+| 16 | EP+16 | 32 B | same width, more LDS still — loses on occupancy |
+
+So the finding is not "the bank model is wrong here", it is that **I
+over-extrapolated a scalar-stride measurement to a kernel that reads LDS in
+vectors**. `epad = 2` buys a conflict-free bank pattern by making every row start
+off a natural boundary, and pays more for that than the conflict ever cost. The
+earlier measurement stands; the inference drawn from it did not.
+
+### The shipped defaults are wrong here, in both branches of their own rule
+
+`flashepad(EP) = EP % 32 == 0 ? 8 : 0` — tuned on NVIDIA — is beaten at every
+head dimension:
+
+| E | EP | shipped | best | delta |
+|---|---|---|---|---|
+| 16 | 16 | (0,0) 3.020 | (4,2) 2.038 | **-32.5%** |
+| 32 | 32 | (8,0) 5.018 | (4,2) 3.479 | **-30.7%** |
+| 48 | 48 | (0,0) 9.433 | (4,2) 7.172 | **-24.0%** |
+| 64 | 64 | (8,0) 8.786 | (8,2) 6.790 | **-22.7%** |
+| 72 | 80 | (0,0) 14.807 | (4,2) 11.372 | **-23.2%** |
+
+Both branches of the rule are wrong on this hardware: where it pads by 8 the
+better answer is 4, and where it pads by 0 the better answer is also 4. `epad=4`
+wins outright at four of five head dims and loses to `epad=8` by 0.6% at E=64,
+which is inside the noise.
+
+**`rpad = 2` is the larger effect here, and it is the opposite of the desktop's
+conclusion.** On NVIDIA `rpad` was worth -13.7% in this benchmark and ships OFF
+because it cost the real encode +6.7%. Here it is worth **-18% to -30%**,
+consistently, at every head dimension and on top of every `epad`.
+
+That is precisely the result the brief warned not to trust from a sweep, so it is
+not adopted on this evidence. The real-model check follows.
+
+### The real-model check: the sweep's 22–32% does NOT transfer
+
+`DNNKernels.encode` alone, interleaved A/B/A/B in one process, warm-up gated on
+three consecutive runs agreeing to 2%, and a checksum over the encoder output so
+a setting that is fast because it computed something else cannot pass as a win.
+
+```
+round 1  shipped  (flashepad rule, rpad=0)       min   279.98 ms   med   284.68 ms
+round 1  sweep winner (epad=4, rpad=2)           min   275.51 ms   med   288.15 ms
+round 2  shipped  (flashepad rule, rpad=0)       min   283.08 ms   med   290.97 ms
+round 2  sweep winner (epad=4, rpad=2)           min   282.51 ms   med   290.06 ms
+
+shipped       runs 279.98 / 283.08   spread 1.1%
+sweep winner  runs 275.51 / 282.51   spread 2.5%
+encode: 279.98 -> 275.51 ms   -1.6%      checksums agree: true
+```
+
+**-1.6% against a within-setting spread of 1.1% and 2.5%, and the medians cross.
+That is no effect.** A 22–32% microbenchmark win produced nothing measurable on
+the model, which is the same shape as the desktop's `rpad` result — there the
+sweep said -13.7% and the encode said +6.7% — arriving at the same place from the
+opposite direction.
+
+So the defaults are **not** changed on this evidence, and the sections below show
+that holds under per-kernel timing too, not just at the whole-encode level. The
+brief's instruction to check the winner against a real model rather than the
+sweep is the whole reason this section does not end with a patch.
+
+### The knob works, the path is taken, and neither shows up in the model
+
+Two controls, because "no effect" and "measured nothing" look identical:
+
+1. **The path is taken.** 331 `flashepad` queries during one encode, every one at
+   `EP = 80` — SAM 2's own head dimension, and the one the sweep covers.
+2. **The knob reaches the kernel.** `epad = 2`, which the sweep calls catastrophic
+   (+39% at E=72), moves the encode by +3.1%. It moves; it moves by a twelfth of
+   what the sweep predicts.
+
+(The first attempt at control 1 died with a `StackOverflowError` at 10463 frames:
+`const orig = DNNKernels.sdpaflashcm!` names the **generic function**, not the
+method, so the wrapper called itself. Instrumenting `flashepad` cannot recurse.)
+
+Per-dispatch Vulkan timestamps then isolate the kernel from the ~300 other
+dispatches it shares the encode with. **The flash kernel is 36% of the encode**
+(103 ms of 283), so a real 20% win on it would be a visible 7% on the total.
+
+| setting | flash kernel GPU ms (median of 5) | within-setting spread | vs shipped |
+|---|---|---|---|
+| shipped (`epad` rule, `rpad=0`) | 103.62 | 9.4% | — |
+| `epad=2, rpad=0` | 104.96 | 8.3% | +1.3% |
+| `epad=4, rpad=0` | 103.12 | 11.4% | -0.5% |
+| `epad=8, rpad=0` | 105.26 | 7.4% | +1.6% |
+| `epad=4, rpad=2` | 105.36 | 2.2% | +1.7% |
+| `epad=2, rpad=2` | 106.32 | 7.8% | +2.6% |
+
+**Every setting is within 2.6% of every other, against a within-setting spread of
+up to 11.4%. There is no effect to measure.** A 22–32% difference in the isolated
+kernel is worth nothing inside the model, and that is the result.
+
+#### A near-miss worth recording, because I almost reported the opposite
+
+The **first** profile ran one sample per setting and said the flash kernel went
+99.43 → 80.59 ms at `epad=2` (**-19.0%**) and → 124.36 ms at `epad=8` (**+25.1%**)
+— an apparent inversion of the sweep, and an apparent vindication of the
+bank-conflict prediction the sweep had just falsified. It was noise. With n=1
+against a spread that the repeat later measured at 7–11%, those numbers are
+exactly what sampling that distribution once produces.
+
+It was caught only because it contradicted the wall-clock A/B, which had `epad=2`
+at +3.1% *slower*. Two measurements disagreeing is what forced the repeat; had
+they happened to agree, a 19% win would have gone into this report on a single
+sample. **GUARDRAILS §6 asks for warm-up hygiene; this says the sample count is
+the other half of it, and that a result which reverses a prior conclusion should
+raise the bar rather than lower it.**
+
+### Which epad values were ever actually compared
+
+Worth stating plainly, because it changes what the shipped constant means:
+
+| | epad values measured | on |
+|---|---|---|
+| desktop | `0` and `8` only | RTX 4000 Ada |
+| here | `0, 2, 4, 8, 16` | Radeon 8060S |
+
+`flashepad`'s `? 8 : 0` came from a **two-point** comparison. `epad = 4` — which
+wins outright at four of five head dimensions here, and beats `8` even where the
+shipped rule already pads — was never in the running on either machine. That is
+not a claim it wins on NVIDIA; it is a claim that nobody has looked.
+
+**The experiment to run on the desktop** is the same five-point `epad` sweep at
+the same five head dimensions. Two outcomes, and neither needs a vendor branch,
+which `CLAUDE.md` forbids in `src/`:
+
+- if `4` also wins or ties on NVIDIA, the constant simply changes for everyone;
+- if it does not, then the pad genuinely depends on the device and the rule has to
+  be derived from a **measured property** — the natural LDS access width, which is
+  what the alignment table above says is actually doing the work — added to
+  `Device` alongside `tile` and `sharedbudget`. Never from a vendor name.
+
+### The sweep does not reproduce even at its own shape
+
+The encoder runs the flash kernel at **five** distinct shapes, not one, and the
+dispatch names carry the workgroup counts so they separate cleanly. Median of 5
+interleaved samples each:
+
+| shape (`groups`) | implied | ms | →`epad=2` | →`epad=4` | →`epad=8` | spread |
+|---|---|---|---|---|---|---|
+| `(64, 8, 1)` | Lq=4096, H=8, B=1 — **the sweep's shape** | 48.17 | -0.5% | +6.3% | +9.5% | 11–17% |
+| `(4, 8, 16)` | Lq=256, windowed | 42.93 | -0.4% | +0.5% | +0.7% | 3–6% |
+| `(1, 2, 1024)` | Lq=64, 2048 head-batches | 4.60 | +0.6% | -1.2% | -1.7% | 7–12% |
+| `(1, 16, 16)` | Lq=64, 256 head-batches | 1.87 | -8.7% | -11.5% | -5.5% | 12–23% |
+| `(1, 4, 1024)` | Lq=64, 4096 head-batches | 1.25 | -0.3% | +0.1% | +0.4% | 2–6% |
+
+`groups=(64, 8, 1)` at BR=64 is Lq=4096, H=8, B=1 — **exactly** the shape the
+sweep and the NVIDIA baseline are both quoted on. Compare the two rankings for
+that one shape:
+
+| | `epad=0` | `epad=2` | `epad=4` | `epad=8` |
+|---|---|---|---|---|
+| sweep, kernel alone | 14.807 | 19.254 **(+30%)** | 13.867 (-6.4%) | 14.468 (-2.3%) |
+| same shape, in the model | 48.17 | 47.95 **(-0.5%)** | 51.23 (+6.3%) | 52.77 (+9.5%) |
+
+**The orderings disagree completely, and the sweep's single largest effect —
+`epad = 2` costing +30% — is simply absent.** A +30% penalty on 48 ms would be
++14 ms; the measurement is -0.2 ms against a spread of 16%. Whatever else is
+uncertain here, that effect does not exist in situ.
+
+So this is not the usual "the microbenchmark used an unrepresentative shape". The
+shape *is* representative — it is half the encoder's flash time — and the
+benchmark still fails to predict the same kernel at the same shape inside the
+model.
+
+**Not claimed, worth testing next:** the sweep allocates its own `q/k/v` fresh,
+while the model's tensors come out of the slab allocator at whatever offset the
+graph gave them. Since the entire effect under investigation is the *alignment*
+of a shared-memory row, a difference in the base alignment of the global-memory
+operands feeding it is the first mechanism to look at. That would make the
+sweep's numbers an artefact of how the sweep allocates — a property of the
+harness rather than of RDNA.
+
+### Phase 3.4, settled
+
+- The shipped `flashepad` / `flashrpad` defaults are **kept** on this machine.
+- The sweep says they are wrong by 22–32%. The model says the setting does not
+  matter: at the whole-encode level, at the per-kernel level, and at the sweep's
+  own shape. The model wins.
+- The desktop's decision to ship `rpad = 0` on the strength of a real-model check
+  rather than its sweep is independently confirmed here, from a machine where the
+  sweep pointed the other way and by a larger margin.
+- The one thing that would change this is the alignment hypothesis above, which is
+  a question about the benchmark harness, not about RDNA.
+
+## 2026-08-03 — Depth Anything V2: the gap is one redundant copy, not convolution
+
+Run through `DepthAnythingRunner` itself (frozen kernels **54 hits / 0 misses**),
+25 reps, `IQR/median 0.9%`:
+
+| | |
+|---|---|
+| forward | min 934.0, **median 976.1 ms** |
+| PyTorch, desktop card | 24.7 ms |
+| this port, desktop card | ~380 ms |
+
+### Where it goes, and it is not where the record says
+
+| family | ms | share | dispatches |
+|---|---|---|---|
+| **elementwise (ndmap)** | **785.12** | **83.2%** | 31 |
+| gemm | 79.61 | 8.4% | 50 |
+| **convolution** | **44.09** | **4.7%** | 31 |
+| elementwise (broadcast) | 19.35 | 2.0% | 203 |
+| softmax | 15.28 | 1.6% | 12 |
+
+`small-models/REPORT.md` says the miss is "convolution throughput". **Convolution
+is 4.7%.** That claim needs re-testing on the 3070 before it is inherited again;
+it may be true there and false here, but it is stated unconditionally.
+
+### It is a single `clone`
+
+```
+ka f=#gpu_ndmap_flat! groups=(8220, 1, 1)     726.57 ms   x12     ← 77% of the model
+```
+
+`8220 = 6 heads x 1370 tokens`, 12 dispatches = 12 DINOv2 blocks. Of the ops
+writing >5M-element tensors twelve times — `bmm`, `_softmax`, `clone` — the first
+two are timed separately, so this is **`clone.default` on the `[1, 6, 1370, 1370]`
+attention matrix**: 60.5 ms each, 45 MB in and 45 MB out, i.e. **~1.5 GB/s** on a
+card that does hundreds.
+
+The chain is `_softmax -> clone -> expand_3 -> view_7 -> bmm_1`.
+
+**Redundant, not dead — and the difference took a second query to establish.** A
+direct reader search said the clone's output had *zero* consumers, which reads as
+dead code; the consumer is two view levels down and the first search missed it.
+Recorded because "dead" and "redundant" have different fixes and the wrong one
+would have been a silent correctness change.
+
+It is redundant because the source is a **transient**, produced by `_softmax`,
+with exactly **one** reader, at the **same shape and dtype**, already contiguous.
+Nothing aliases it and nothing mutates it. `expand_3` can read `_softmax`
+directly.
+
+Two independent defects, either of which is worth more than the whole padding
+sweep that preceded it:
+
+1. **The copy should not exist.** Eliding it is the rewrite `foldrelu` and
+   `foldbatchnorm` already perform — repoint the consumer at the source. A
+   `dropclone` pass belongs in that family, gated on: source is a transient,
+   single reader, identical shape/dtype, not a graph output.
+   **944 -> ~218 ms, 4.3x**, which moves this port from ~15x off PyTorch to ~3.5x.
+
+2. **The copy is ~100x too slow even if kept.** A contiguous 45 MB copy at
+   1.5 GB/s is a kernel problem in its own right, and it is the same
+   `gpu_ndmap_flat!` every elementwise op in the library uses. The second-largest
+   ndmap (`groups=(175960,1,1)`, 57.57 ms, x12) moves more elements in a
+   twelfth of the time, so the pathology is specific to this launch shape —
+   8220 groups of 1370 elements — not to `ndmap_flat` generally.
+
+Neither has been fixed here: both are DNNKernels/Lava work on a model this
+machine does not own, and (2) needs the desktop to confirm the launch-shape
+effect reproduces on NVIDIA before anyone changes the kernel for everyone.
+
+### Method note
+
+The first measurement of this reported `spread 438.5%` from 15 reps — one
+outlier, not a distribution. The re-run at 25 reps with quartiles gives
+`IQR/median 0.9%` and `max/min 1.1x`. Quote the quartiles.

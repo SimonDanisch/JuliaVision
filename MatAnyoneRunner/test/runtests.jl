@@ -33,8 +33,8 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
 """
 
 @testset "MatAnyoneRunner: first call does not compile" begin
-    if !isfile(MatAnyoneRunner.weightpath())
-        @info "no MatAnyone assets; skipping" MatAnyoneRunner.assetdir()
+    if !MatAnyoneRunner.ready()
+        @info "no MatAnyone assets; skipping"
     else
         script = tempname() * ".jl"
         write(script, SUBPROCESS)

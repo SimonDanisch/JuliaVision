@@ -82,15 +82,14 @@ Only the desktop produces these. Last measured 2026-08-02.
   to force the two-GEMM path, but the fused path took all four shapes first, so
   it compared a result with itself. Fixed; the pattern is worth grepping for.
 
-## Standing constraint: multi-device
+## Standing constraint: multi-device — MET
 
-Phase 2 must leave the library able to drive **two Vulkan devices at once**. It
-cannot today: four caches hold device-owned handles at module scope keyed without
-the device (`PIPELINE_CACHE`, `LINKED_KERNEL_CACHE`, `LAUNCH_PLAN_CACHE`,
-`GFX_PIPELINE_CACHE`), so a second device running the same kernel is handed the
-first device's `VkPipeline`. The review's stated end state — "`VK_CONTEXT_REF` as
-the one global that stays" — describes a single-device library and has been
-restated in the briefs.
+Two Vulkan devices in one process, both computing correctly, with disjoint
+caches. `dev/Lava/test/twodevice_probe.jl` is the acceptance test and is in
+`runtests.jl`: it builds the real GPU and lavapipe from one loader, runs a
+dispatch, a reduction and a split-K GEMM on each, and asserts `PIPELINE_CACHE`
+grows by **more than one** — a shared entry can still produce a right answer by
+luck.
 
 **RETRACTED, and the briefs were right.** This section briefly claimed the
 carrier did not exist. `BatchQueue.ctx` is real and populated, so
@@ -135,16 +134,34 @@ backend resolves through `vk_context()`, so `fill!`/`mul!`/`coopmat_gemm!` and
 broadcast dispatched on whichever device was global. All six now derive the
 backend from the data.
 
-Still unaudited on a second device: `TIMESTAMP_POOL`, `BLIT_PIPELINE`,
-`GEMM_SPLIT_SCRATCH`, `WORKGROUP_LIMIT` — graphics and profiling, which the
-probe does not exercise.
-Keying the caches was necessary and not sufficient: the first thing it caught was
-`CMD_PIPELINE_BARRIER_FPTR`, a module-global **device function pointer**, which
-§8's four-cache list does not cover and which is worse than any of them — a stale
-handle is undefined behaviour, a foreign function pointer jumps into another
-driver. Fixed. The remaining worklist is in `projects/lava-core/REPORT.md` and
-includes three device *properties* cached globally, which give wrong answers
-rather than crashes.
+**Reading the code produced a list of four caches. None of the four was what
+actually broke it.** In the order the probe found them, each invisible until the
+one above it was fixed: the device **function-pointer table**
+(`vkCmdPipelineBarrier`, recorded through the *other* driver), `PREPARE_INDIRECT`,
+the subgroup-size properties, the **memory pool** (lavapipe arrays carved out of
+NVIDIA's block — silent data corruption, not a bad handle), six `LavaBackend()`s
+built inside the library, `GEMM_SPLIT_SCRATCH`, and `_REDUCE_SCRATCH` — which was
+already keyed by context and still *allocated* on the global one.
+
+A stale handle is undefined behaviour; a foreign function pointer jumps into
+another driver, which is why the function-pointer table is worse than any of the
+four. The remaining worklist is in `projects/lava-core/REPORT.md` and includes
+three device *properties* cached globally, which give wrong answers rather than
+crashes.
+
+Two more fell out on 2026-08-02 once the probe ran to completion:
+
+- **A capability query is per device too.** `mul!` derives its backend from the
+  array — with a comment warning about exactly this — and then asked
+  `coopmat_gemm_available()` with no context. lavapipe (8-lane subgroups) was
+  told it had tensor cores because the NVIDIA card does, and returned the right
+  answer only because redundant subgroups agreed.
+- **A context that is dropped must be retired.** See "Open bugs" below; this was
+  the segfault that stopped the Lava suite from ever printing a summary.
+
+Still unaudited because nothing on this path reaches them: `TIMESTAMP_POOL`,
+`BLIT_PIPELINE`, `GFX_SHADER_CACHE`, `WORKGROUP_LIMIT`. Extend the probe before
+trusting a second device for graphics or dispatch profiling.
 
 ## Cross-project, act on these first
 
@@ -206,6 +223,17 @@ rather than crashes.
   currently living inside a predicate: blocking the decoder's lopsided shapes
   reproducibly hangs on `vkWaitSemaphores`. Sits under the decode work.
 - **Flush hang** — dominant path fixed, one recurrence after ~90 clean trials.
+- **Device-reset segfault — FIXED 2026-08-02.** `vk_reset_device!` dropped the
+  old context without retiring it. Its comment said pre-reset buffers skip
+  Vulkan calls because that context has `device_lost` set, and that only held
+  when a device *loss* caused the reset; a voluntary reset left it false. The
+  context and its buffers then became garbage in the same collection, where
+  Julia does not order finalizers, so `Vulkan.Device`'s finalizer destroyed the
+  device and `vk_free!`'s `query_timeline` called into it. Ten-line MWE,
+  reproduces back at `046b1ed`, and it is why the Lava suite never printed a
+  summary. The AMD laptop filed the same thing from three different call sites
+  as "a floating GC race" — it floats because the crash lands wherever the next
+  GC does. Now `mark_device_lost!`, with `test_device_reset_finalizer.jl`.
 - **`OpUDiv` in a shared-store index** — labelled "driver miscompile"; per Rule 0
   that label is a suspect, not a finding. Still to re-open against our own
   compiler, and it cannot inherit the verdict below: that audit specifically

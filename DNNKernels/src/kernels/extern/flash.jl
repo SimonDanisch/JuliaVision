@@ -336,9 +336,71 @@ budget check eight bytes optimistic — harmless at the shipped tiling with 248 
 spare, and exactly the kind of drift that makes a tiling launch and write nothing
 at the margin.
 """
-@inline flashcmshared(EP, BR, BC) =
-    2 * EP * BR + 2 * EP * BC + 4 * BR * BC + 2 * BC * BR + 4 * BR * EP +
-    12 * BR + 8
+@inline flashcmshared(EP, BR, BC, epad = flashepad(EP), rpad = flashrpad(BR)) =
+    2 * (EP + epad) * BR + 2 * (EP + epad) * BC +           # qs, kvs   (e-major)
+    4 * (BR + rpad) * BC + 4 * (BR + rpad) * EP +           # ss, pvs   (r-major)
+    2 * BC * BR +                                           # ps
+    12 * BR + 8                                             # ms/ls/cs, grew/redo
+
+"""
+    flashepad(EP) / flashrpad(BR)
+
+How much to pad each shared stride so the tensor cores' column-strided access
+does not land every column in one memory bank. **The kernel takes both as type
+parameters; these are the defaults, and they are where the measurement put them
+rather than where the arithmetic would.**
+
+Shared memory is 32 banks of 4 bytes. For the fp16 `e`-major pair the bank of
+column `c` is `((EPS·c + e) / 2) % 32`, so `EP % 32 == 0` collides two columns
+and `EP % 64 == 0` collides all of them; for the fp32 `r`-major pair it is
+`(BRS·c + r) % 32`, and every shipped tiling has `BR` of 32 or 64.
+
+Measured at `Lq = Lk = 4096`, 8 head-batches, tiling `64x32/8` — `epad`, before
+and after:
+
+    E    EP    unpadded   padded
+    16   16    1.785      1.782    (predicate off — a 4-way conflict that gains nothing)
+    32   32    2.592      2.222    -14.3%
+    48   48    3.546      3.644    (predicate off)
+    64   64    5.266      3.614    -31.4%
+    72   80    4.384      4.404    (predicate off)
+
+Unpadded, `E = 64` did four cooperative-matrix tiles per block against `E = 72`'s
+five and was still 20% **slower** — more time for less work, which is not
+arithmetic. SAM 2 runs at `E = 72 -> EP = 80` and stumbles past this by luck;
+head dimension 64 is the common case in every other transformer.
+
+`flash_attn_cm1.comp` pads every shared stride the same way — `qstride =
+HSK_pad/4 + 2`, `psh_stride = Br/4 + 2`, `kvsh_stride = …/4 + 2`, all `+2` vec4s,
+i.e. +8 scalars. We padded none.
+
+## `rpad` is implemented, measured, and OFF — the microbenchmark was the wrong shape
+
+The `r`-major pair conflicts by the same arithmetic, and padding it wins on the
+long shapes. On top of `epad`, at `Lq = Lk = 4096`:
+
+    E    EP    rpad=0   rpad=2   rpad=4   rpad=8
+    16   16    1.818    1.697    1.638    1.696     -9.9%
+    32   32    2.473    2.748    2.920    3.130     +18.5%  (loses)
+    48   48    3.657    3.480    3.410    3.485     -6.8%
+    64   64    3.796    3.511    3.413    3.490    -10.1%
+    72   80    4.637    4.130    4.000    4.115    -13.7%
+
+Four of five win, including SAM 2's own `EP = 80`. **SAM 2's encode then went
+100.65 -> 107.4 ms, +6.7%.**
+
+The 4096-long benchmark is not what the encoder runs: most of its attention is
+*windowed*, short `L` with many head-batches, and there the extra kilobyte of
+`@localmem` costs more residency than the bank conflict costs bandwidth. A pad
+that helps every shape in a sweep can still lose the model, which is the same
+trap as the GEMM tiling whose weighted mean ranked the tilings backwards.
+
+So `rpad` stays a parameter with a default of zero rather than being deleted:
+it is the first thing to re-measure on hardware whose shared memory is banked
+differently, and the numbers above are the NVIDIA baseline to compare against.
+"""
+@inline flashepad(EP) = EP % 32 == 0 ? 8 : 0
+@inline flashrpad(BR) = 0
 
 """
 Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run **on this
@@ -401,18 +463,35 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
-        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{NSPLIT},
+        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,RSC,
-                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT}
+                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT,
+                                            EPAD,RPAD}
     NT = NW * 32
-    qs  = @localmem Float16 (EP * BR,)      # (e, r) at r*EP + e
-    kvs = @localmem Float16 (EP * BC,)      # (e, c) at c*EP + e — K, then V
-    ss  = @localmem Float32 (BR * BC,)      # (r, c) at c*BR + r
-    ps  = @localmem Float16 (BC * BR,)      # (r, c) at r*BC + c
+    # `EPS` and `BRS`, not `EP` and `BR`, are the STRIDES of the shared arrays: the
+    # tensor cores read them by column, and an unpadded stride puts every column in
+    # one memory bank. Worth -31.4% at head dimension 64 — see [`flashepad`](@ref)
+    # for the arithmetic, the measurement, and why the defaults sit where they do.
+    #
+    # NOTE the sizes below are written out from the type parameters and not from
+    # the local `EPS`/`BRS`. Lava miscompiles an `@localmem` whose size comes from
+    # a local binding — silently: the kernel runs and writes nothing. The locals
+    # are the same values, and are only ever used for index arithmetic. The pad
+    # columns are written by nothing and read by nothing: staging covers the real
+    # extent and no 16-wide tile starts inside the pad.
+    qs  = @localmem Float16 ((EP + EPAD) * BR,)   # (e, r) at r*EPS + e
+    kvs = @localmem Float16 ((EP + EPAD) * BC,)   # (e, c) at c*EPS + e — K, then V
+    EPS = EP + EPAD
+    # The same argument for the r-major pair, which the tensor cores reach at a
+    # column stride of `BR` fp32. Bank = `(BR·c + r) % 32`, so `BR % 32 == 0` puts
+    # every column in one bank — and every shipped tiling has `BR` 32 or 64.
+    BRS = BR + RPAD
+    ss  = @localmem Float32 ((BR + RPAD) * BC,)   # (r, c) at c*BRS + r
+    ps  = @localmem Float16 (BC * BR,)            # (r, c) at r*BC + c
     # `REGO == false`: this is `O`, and it persists across key blocks.
     # `REGO == true`:  this is one key block's `P·V`, and `O` lives in `acco`.
-    pvs = @localmem Float32 (BR * EP,)      # (r, e) at e*BR + r
+    pvs = @localmem Float32 ((BR + RPAD) * EP,)   # (r, e) at e*BRS + r
     ms  = @localmem Float32 (BR,)
     ls  = @localmem Float32 (BR,)
     cs  = @localmem Float32 (BR,)
@@ -478,7 +557,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             # every one of its attentions has a 23 in it, the mask prompt's token
             # count, and 23 does not tile to 16.
             inq = !CLAMP || q0 + lq < Lq
-            qs[1 + idx] = (e < E && inq) ?
+            qs[1 + e + lq * EPS] = (e < E && inq) ?
                 q[qbase + Int32(e) * qsE + Int32(q0 + lq) * qsL +
                   Int32(h - 1) * qsH + Int32(b - 1) * qsB] : zero(Float16)
         end
@@ -487,8 +566,15 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 acco[s] = 0.0f0
             end
         elseif !HELD
+            # `(lq, e)`, not a flat index: with `RPAD > 0` the array is no longer
+            # `BR·EP` contiguous elements. The division stays on `BR` — a power of
+            # two, so a shift — and the padded stride enters as a multiply.
+            # `splitidx(idx, Val(BRS))` would put a real `OpUDiv` in a shared-store
+            # index, which is the open miscompile in `test_shared_index_division.jl`.
+            # The pad columns are written by nothing and read by nothing.
             for r in 0:(div(BR * EP, NT) - 1)
-                pvs[1 + tid + r * NT] = 0.0f0
+                lq, e = Lava.splitidx(tid + r * NT, Val(BR))
+                pvs[1 + lq + e * BRS] = 0.0f0
             end
         end
         if tid < BR
@@ -553,7 +639,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
                 ink = !CLAMP || k0 + lk < Lk
-                kvs[1 + idx] = (e < E && ink) ?
+                kvs[1 + e + lk * EPS] = (e < E && ink) ?
                     k[kbase + Int32(e) * ksE + Int32(k0 + lk) * ksL +
                       Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16)
             end
@@ -567,12 +653,12 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 acc = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
                 for et in 0:(ET - 1)
                     a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                            qs, 1 + rt * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
+                            qs, 1 + rt * Lava.GEMM_TILE * EPS + et * Lava.GEMM_TILE, EPS, Val(true))
                     bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                            kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(false))
+                            kvs, 1 + ct * Lava.GEMM_TILE * EPS + et * Lava.GEMM_TILE, EPS, Val(false))
                     acc = muladd(a, bm, acc)
                 end
-                copyto!(ss, 1 + rt * Lava.GEMM_TILE + ct * Lava.GEMM_TILE * BR, BR, acc)
+                copyto!(ss, 1 + rt * Lava.GEMM_TILE + ct * Lava.GEMM_TILE * BRS, BRS, acc)
             end
             @synchronize
 
@@ -626,7 +712,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                     # already zeroed its `k`, which would otherwise have given it
                     # a score of 0 and a weight of `exp(-mo)` — not nothing.
                     if !CLAMP || k0 + ci < Lk
-                        s = ss[1 + tid + ci * BR] * scale
+                        s = ss[1 + tid + ci * BRS] * scale
                         mb = max(mb, s)
                         p = exp(s - mo)
                         ps[1 + ci + tid * BC] = Float16(p)
@@ -659,7 +745,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 mb = -Inf32
                 for ci in 0:(BC - 1)
                     (!CLAMP || k0 + ci < Lk) &&
-                        (mb = max(mb, ss[1 + tid + ci * BR] * scale))
+                        (mb = max(mb, ss[1 + tid + ci * BRS] * scale))
                 end
                 mn = max(mo, mb)
                 # A row that has seen nothing finite must not make NaN out of
@@ -668,7 +754,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 sm = 0.0f0
                 for ci in 0:(BC - 1)
                     if !CLAMP || k0 + ci < Lk
-                        p = exp(ss[1 + tid + ci * BR] * scale - mn)
+                        p = exp(ss[1 + tid + ci * BRS] * scale - mn)
                         ps[1 + ci + tid * BC] = Float16(p)
                         sm += p
                     else
@@ -699,7 +785,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 idx = tid + r * NT
                 e, lk = Lava.splitidx(idx, Val(EP))
                 ink = !CLAMP || k0 + lk < Lk
-                kvs[1 + idx] = (e < E && ink) ?
+                kvs[1 + e + lk * EPS] = (e < E && ink) ?
                     v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
                       Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
             end
@@ -754,9 +840,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                     RSCBAR && @synchronize
                 else
                     for r in 0:(div(BR * EP, NT) - 1)
-                        idx = tid + r * NT
-                        lq, _ = Lava.splitidx(idx, Val(BR))
-                        pvs[1 + idx] *= cs[1 + lq]
+                        lq, e = Lava.splitidx(tid + r * NT, Val(BR))
+                        pvs[1 + lq + e * BRS] *= cs[1 + lq]
                     end
                     @synchronize
                 end
@@ -776,7 +861,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                             a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
                                     ps, 1 + rt_j * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
                             bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                                    kvs, 1 + ct * Lava.GEMM_TILE * EP + et_j * Lava.GEMM_TILE, EP, Val(true))
+                                    kvs, 1 + ct * Lava.GEMM_TILE * EPS + et_j * Lava.GEMM_TILE, EPS, Val(true))
                             acc_j = muladd(a, bm, acc_j)
                         end
                     end
@@ -785,21 +870,21 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 for t in w:NW:(RT * ET - 1)
                     rt = t % RT
                     et = t ÷ RT
-                    off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BR
+                    off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BRS
                     # Starting from `O` itself means the accumulate is the tensor
                     # core's own; starting from zero means the registers below do it.
                     acc = REGO ?
                         zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}) :
                         Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
-                            pvs, off, BR, Val(false))
+                            pvs, off, BRS, Val(false))
                     for ct in 0:(CT - 1)
                         a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
                                 ps, 1 + rt * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
                         bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                                kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
+                                kvs, 1 + ct * Lava.GEMM_TILE * EPS + et * Lava.GEMM_TILE, EPS, Val(true))
                         acc = muladd(a, bm, acc)
                     end
-                    copyto!(pvs, off, BR, acc)
+                    copyto!(pvs, off, BRS, acc)
                 end
             end
             @synchronize
@@ -856,9 +941,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                     RSCBAR && @synchronize
                 else
                     for r in 0:(div(BR * EP, NT) - 1)
-                        idx = tid + r * NT
-                        lq, _ = Lava.splitidx(idx, Val(BR))
-                        pvs[1 + idx] *= cs[1 + lq]
+                        lq, e = Lava.splitidx(tid + r * NT, Val(BR))
+                        pvs[1 + lq + e * BRS] *= cs[1 + lq]
                     end
                     @synchronize
                 end
@@ -877,10 +961,13 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 # that was never tested. Hoisting it is free; see `FLASHCM_REGO`
                 # for what the measurement then said.
                 lqfixed = tid % BR
+                efixed  = tid ÷ BR
+                estep   = NT ÷ BR
                 for s in 1:div(BR * EP, NT)
                     idx = tid + (s - 1) * NT
-                    lq = NT % BR == 0 ? lqfixed : Lava.splitidx(idx, Val(BR))[1]
-                    acco[s] = acco[s] * cs[1 + lq] + pvs[1 + idx]
+                    lq, e = NT % BR == 0 ? (lqfixed, efixed + (s - 1) * estep) :
+                                           Lava.splitidx(idx, Val(BR))
+                    acco[s] = acco[s] * cs[1 + lq] + pvs[1 + lq + e * BRS]
                 end
                 @synchronize
             end
@@ -903,7 +990,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
                 t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
-                                         (t_j ÷ RT) * Lava.GEMM_TILE * BR, BR, acc_j)
+                                         (t_j ÷ RT) * Lava.GEMM_TILE * BRS, BRS, acc_j)
             end
             @synchronize
         end
@@ -916,7 +1003,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             lq, e = Lava.splitidx(idx, Val(BR))
             if !CLAMP || q0 + lq < Lq
                 l = ls[1 + lq]
-                o = REGO ? acco[s] : pvs[1 + idx]
+                o = REGO ? acco[s] : pvs[1 + lq + e * BRS]
                 if NSPLIT == 1
                     out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
                 else
@@ -1344,7 +1431,8 @@ decision, and nothing in the library sets them.
 """
 function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
-                      preonly::Bool = false, rscbar::Bool = false)
+                      preonly::Bool = false, rscbar::Bool = false,
+                      epad::Int = flashepad(plan.EP), rpad::Int = flashrpad(plan.BR))
     backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
@@ -1372,7 +1460,7 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
                                 Val(rscbar),
-                                Val(ns),
+                                Val(ns), Val(epad), Val(rpad),
                                 Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
                                 Int32(plan.onepass && !rego ? 1 : 0), partial, ml;
                                 ndrange = (NT * cld(Lq, BR) * ns, H, B))
@@ -1397,6 +1485,8 @@ refused.
 """
 function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
                       nrsc::Int = 3, preonly::Bool = false, rscbar::Bool = false,
+                      epad::Union{Nothing,Int} = nothing,
+                      rpad::Union{Nothing,Int} = nothing,
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
     # The shipped tiling by default rather than the chooser's pick, because this
     # form exists for A/Bs that name their own and the ones that do not were
@@ -1404,6 +1494,8 @@ function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0
     plan = flashcm_plan(ctx.dev, q, k, v, nothing; BR, BC, NW, kw...)
     plan isa Decline && return false
     sdpaflashcm!(ctx, out, plan, q, k, v, scale;
-                 ballast, shpad, nrsc, preonly, rscbar)
+                 ballast, shpad, nrsc, preonly, rscbar,
+                 epad = something(epad, flashepad(plan.EP)),
+                 rpad = something(rpad, flashrpad(plan.BR)))
     return true
 end

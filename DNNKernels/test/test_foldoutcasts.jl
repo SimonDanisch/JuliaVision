@@ -14,23 +14,26 @@ exactly one reader — rather than about a count that moves whenever the model i
 re-exported.
 """
 
-using Test, DNNKernels
+using Test, DNNKernels, SAM2Runner
 const DK = DNNKernels
 
-# Walked up rather than a fixed `../../../../gen`, for the reason runtests.jl:36
-# already records: this package moved into a monorepo and the fixed form silently
-# points somewhere that does not exist. When it did, BOTH testsets in this file
-# reported `Total 0` and read as green — 4172 assertions that were not running.
-const GDIR = DNNKernels.findasset(joinpath("gen", "graphs", "sam2-large"); from = @__DIR__)
+# Ask the runner for the GRAPH, not for a directory to build paths in. The
+# artifact is SAM2Runner's to manage; where inside it a JSON lives is not this
+# file's business, and a re-export that moves one must not break this test.
+#
+# This used to walk up the filesystem for a `gen/` tree, and when the walk missed
+# BOTH testsets here reported `Total 0` and read as green — 4172 assertions that
+# were not running.
+const HAVE_SAM2 = SAM2Runner.ready()
 
 @testset "foldoutcasts" begin
-    if !isfile(joinpath(GDIR, "sam2_encoder.json"))
-        @info "no exported SAM 2 graph at $GDIR; skipping"
+    if !HAVE_SAM2
+        @info "the sam2-large artifact is not installed; skipping"
         # Recorded, so an absent graph shows up as a skip rather than as a
         # testset with zero assertions, which is indistinguishable from a pass.
-        @test_skip isfile(joinpath(GDIR, "sam2_encoder.json"))
+        @test_skip HAVE_SAM2
     else
-        g = DK.loadgraph(joinpath(GDIR, "sam2_encoder.json"))
+        g = SAM2Runner.sam2graph("sam2_encoder")
         g2, n = DK.foldoutcasts(g)
 
         @testset "it folds, and only casts" begin
@@ -95,13 +98,13 @@ const GDIR = DNNKernels.findasset(joinpath("gen", "graphs", "sam2-large"); from 
 end
 
 @testset "foldrelu folds gelu into addmm" begin
-    if !isfile(joinpath(GDIR, "sam2_encoder.json"))
-        @info "no exported SAM 2 graph at $GDIR; skipping"
+    if !HAVE_SAM2
+        @info "the sam2-large artifact is not installed; skipping"
         # Recorded, so an absent graph shows up as a skip rather than as a
         # testset with zero assertions, which is indistinguishable from a pass.
-        @test_skip isfile(joinpath(GDIR, "sam2_encoder.json"))
+        @test_skip HAVE_SAM2
     else
-        g = DK.loadgraph(joinpath(GDIR, "sam2_encoder.json"))
+        g = SAM2Runner.sam2graph("sam2_encoder")
         g2, n = DK.foldrelu(g)
 
         # The reason this needed the whole view chain rather than

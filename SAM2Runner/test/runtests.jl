@@ -34,14 +34,9 @@ const KA = KernelAbstractions
 Lava.DISPATCH_LOG_FILE[] = joinpath(tempdir(), "sam2runner_dispatch.log")
 Lava.DISPATCH_LOGGING_ENABLED[] = true
 
-dir = SAM2Runner.assetdir()
 backend = LavaBackend()
-model = SAM2Runner.sam2model(; backend, dir)
-# The references are their OWN artifact (`sam2-large-refs`), not part of the
-# weights one — `assetdir()` deliberately does not carry 1.2 GB of test
-# fixtures. This read used to work only because `assetdir()` fell through to
-# a generated tree where both happened to sit side by side.
-refs = readsafetensors(joinpath(SAM2Runner.refsdir(), "refs.safetensors"))
+model = SAM2Runner.sam2model(; backend)
+refs = SAM2Runner.sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])
 
 Lava.frozen_reset_stats!()
@@ -59,19 +54,12 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
 """
 
 @testset "SAM2Runner: first call does not compile" begin
-    dir = SAM2Runner.assetdir()
-    if !isfile(joinpath(dir, "weights.safetensors"))
-        @info "no SAM 2 assets; skipping the latency test" dir
+    if !SAM2Runner.ready()
+        @info "no SAM 2 assets; skipping the latency test"
     else
         script = tempname() * ".jl"
         write(script, SUBPROCESS)
-        # stderr to a file and read it back, with `ignorestatus`: `read(cmd, String)`
-        # captures stdout only and throws on a non-zero exit, so a subprocess that
-        # dies takes its own diagnosis with it.
-        errfile = tempname()
-        out = read(pipeline(ignorestatus(
-            `$(Base.julia_cmd()) --project=$(Base.active_project()) $script`),
-            stderr = errfile), String) * (isfile(errfile) ? read(errfile, String) : "")
+        out = read(`$(Base.julia_cmd()) --project=$(Base.active_project()) $script`, String)
         line = findfirst(l -> startswith(l, "RESULT "), split(out, '\n'))
         @test line !== nothing
         r = eval(Meta.parse(split(out, '\n')[line][8:end]))

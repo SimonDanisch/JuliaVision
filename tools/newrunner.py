@@ -204,18 +204,19 @@ compile-time counter is per-process.
 using Test, {package}
 
 @testset "{package}" begin
-    dir = {package}.assetdir()
-    @test dir isa AbstractString
-    @test !isempty(dir)
-
+    # No `assetdir()`. That is internal: it names where the artifact happens to
+    # put things, and a test that calls it has to know the layout, so a re-export
+    # that moves a file breaks a test that never knew it depended on that. Ask
+    # for the graph and the weights; `dir` is a config keyword on those, whose
+    # default is the artifact.
     if {package}.ready()
-        @info "{title}: export present" dir
+        @info "{title}: export present"
         g = {package}.{lower}graph()
         @test g !== nothing
         w = {package}.{lower}weights()
         @test !isempty(w)
     else
-        @info "{title}: no export; run tools/export_{name}.py" dir
+        @info "{title}: no export; run tools/export_{name}.py"
         # The error has to name the path — a caller who has not run the exporter
         # should be told where to put it, not handed a MethodError later.
         @test_throws ArgumentError {package}.{lower}graph()

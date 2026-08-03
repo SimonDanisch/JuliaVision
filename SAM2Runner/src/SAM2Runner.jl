@@ -30,12 +30,14 @@ using ColorTypes: RGB, red, green, blue
 const N0f8 = ColorTypes.FixedPointNumbers.N0f8
 using Lava: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: SAM2, encode, decode, segment, prompt, toback
+using DNNKernels: SAM2, encode, decode, segment, prompt, toback,
+                  loadgraph, readsafetensors
 
 # `segment` is `DNNKernels.segment` with methods added here, not a new function:
 # same verb, different arguments, which is what dispatch is for.
 export segment, defaultmodel, unloadmodel!
-export SAM2Runner_VERSION, sam2model, runsam2, assetdir, sam2segmenter
+export SAM2Runner_VERSION, sam2model, runsam2, sam2segmenter
+export sam2graph, sam2weights, sam2refs, ready
 
 const KA = KernelAbstractions
 
@@ -78,6 +80,70 @@ Load the model. Separate from [`runsam2`](@ref) so the workload can build it in
 function sam2model(; backend = LavaBackend(), dir::AbstractString = assetdir(), res::Int = 1024)
     return SAM2(dir, joinpath(dir, "weights.safetensors"); backend, res)
 end
+
+# ── What callers outside this package may ask for ────────────────────────────
+#
+# `assetdir` and `refsdir` are INTERNAL. They name where the artifact happens to
+# put things, and nothing outside this file may call them or `joinpath` onto
+# them: a re-export that moves a file would then break callers that never knew
+# they depended on the layout. What a caller wants is the graph, the weights or
+# the references — so it asks for those, and `dir` is a config keyword whose
+# default is the artifact.
+#
+# This is the shape `BasicVSRRunner`, `DeepFilterRunner` and the rest already
+# use. The two ported runners had drifted from it, and the drift is what let
+# `DNNKernels`' tests reach in and build paths by hand.
+
+"""
+    sam2graph(name; dir = assetdir()) -> Graph
+
+An exported ATen graph by name — `"sam2_encoder"` or `"sam2_decoder"`. Throws
+with the path it looked in rather than returning `nothing` for the caller to trip
+over later.
+"""
+function sam2graph(name::AbstractString; dir::AbstractString = assetdir())
+    p = joinpath(dir, "$name.json")
+    isfile(p) || throw(ArgumentError(
+        "SAM 2 graph `$name` not found at $p. Re-export and re-bind with " *
+        "`julia --project=. tools/make_artifacts.jl sam2-large`."))
+    return loadgraph(p)
+end
+
+"""
+    sam2weights(; dir = assetdir()) -> Dict
+
+The exported state dict, keyed the way the graph's `:weight` buffers name it.
+"""
+function sam2weights(; dir::AbstractString = assetdir())
+    p = joinpath(dir, "weights.safetensors")
+    isfile(p) || throw(ArgumentError("SAM 2 weights not found at $p"))
+    return readsafetensors(p)
+end
+
+"""
+    sam2refs(; dir = refsdir()) -> Dict
+
+The PyTorch reference activations, from the `sam2-large-refs` artifact. Test-only
+material, which is why it is a separate artifact: a caller that just wants to
+segment a picture never fetches 1.2 GB of fixtures.
+"""
+function sam2refs(; dir::AbstractString = refsdir())
+    p = joinpath(dir, "refs.safetensors")
+    isfile(p) || throw(ArgumentError(
+        "SAM 2 reference activations not found at $p — the `sam2-large-refs` " *
+        "artifact is bound but does not contain them."))
+    return readsafetensors(p)
+end
+
+"""
+    ready(; dir = assetdir()) -> Bool
+
+Whether the assets are installed. Workloads and tests both branch on this,
+because neither may fail on a machine that has not fetched the artifact.
+"""
+ready(; dir::AbstractString = assetdir()) =
+    isfile(joinpath(dir, "weights.safetensors")) &&
+    isfile(joinpath(dir, "sam2_encoder.json"))
 
 """
     runsam2(model, image, points, labels; pick = :best) -> (mask, score)
