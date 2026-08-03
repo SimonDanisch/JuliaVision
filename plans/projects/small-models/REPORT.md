@@ -1039,6 +1039,40 @@ about repeated small submissions defeats it.
 
 Every diagnostic edit was reverted; both worktrees are clean.
 
+### No MWE for a GLSL differential — and that instrument does not fit anyway
+
+Asked whether I had a minimal example for the GLSL differential I proposed. I did
+not, and the proposal was wrong twice over.
+
+A GLSL differential compares **one kernel's** SPIR-V against glslang's. Here no
+single kernel misbehaves: `gpu_strided_gemm_kernel!` at exactly its faulting shape
+runs clean standalone, a 400-GEMM synthetic loop with transients does not
+reproduce, and `encode_image` called twelve times in a row does not either. The
+fault is a property of the **dispatch stream**, so a per-kernel instrument has
+nothing to differ.
+
+**What does reduce it is truncation.** Dropping every dispatch past N and
+bisecting N:
+
+| prefix | outcome |
+|---|---|
+| 3 250 (full step) | `DEVICE_LOST` |
+| **128** | **`DEVICE_LOST`** — same signature |
+| 66–96 | hangs on `vkWaitSemaphores` — **different signature, treat as artifact** |
+| 64, 32 | completes |
+
+`warmup = 0` also still faults, so one step suffices.
+
+So the faithful reproducer is now **128 dispatches — two auto-submits — instead of
+3 250**, a 25x reduction with the signature preserved. Below that the failure mode
+changes to a hang, which is what dropping dispatches would be expected to cause on
+its own (buffers never written, queue left waiting), so I am not counting 66 as
+the minimum.
+
+That 128-dispatch prefix is the thing to turn into a standalone reproducer next:
+capture those dispatches' pipelines and arguments and replay them without
+MatAnyone. It is small enough to be tractable, which the full step was not.
+
 ### RETRACTED: fusion is NOT the cause — it is dispatch ALIGNMENT
 
 The section below concludes the bug needs kernel fusion. **It does not.** I found
