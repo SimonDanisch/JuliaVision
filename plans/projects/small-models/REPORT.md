@@ -885,6 +885,51 @@ points.
     passes: 5 x 8,  6 x 6,  6 x 7,  6 x 9,  6 x 10,
             7 x 7,  7 x 8,  8 x 8,  10 x 6,  10 x 8
 
+### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
+
+Ran the Rule-0 instruments properly. **`activate_all_debugging()`**, not
+`enable_gpu_av()` — the latter defaults to `pool_disabled=false`, which its own
+docstring says is *blind to sub-pool overruns*, and my first attempt used it and
+got a false "GPU-AV is non-functional on this driver". The official entry point
+exists to remove exactly that trap. With it, `verify_gpu_av` reports **GPU-AV
+verified working**, so the instrument is proven to fire before anything is
+concluded from it.
+
+Under full validation the run does not report a bad access. It **segfaults inside
+`libVkLayer_khronos_validation.so` during `vkQueueSubmit2`**, and the Julia stack
+names the dispatch:
+
+    MatAnyoneRunner.runmatanyone -> step! -> execute! -> timeop!
+      -> runop!(::Val{Symbol("addmm.default")})        ops.jl:745
+      -> DNNKernels.matmul!                            matmul.jl:80
+      -> Lava mul! -> gemmlaunch!                      gemm.jl:1185
+      -> ka_launch! -> vk_dispatch! -> submit! -> queue_submit_2
+
+Instrumenting `addmm` gives the exact GEMM: it is the **149th** `addmm` of the
+call and its shape is
+
+    (16, 256) x (256, 48) -> (16, 48)      op id `addmm_3`
+
+**But that GEMM alone does not fault.** `mul!` on freshly allocated
+`(16,256) x (256,48)` completes in 5.0 s, as do N = 44 and 49. So the shape is
+not sufficient — the fault needs the surrounding state. The non-validation
+signature is consistent with that: `ERROR_DEVICE_LOST` **after 64 dispatches in a
+256-dispatch batch**, i.e. mid-batch rather than on a cold submit.
+
+What this rules out, all by measurement:
+
+- **not an out-of-bounds access** — GPU-AV, proven firing, reports none during
+  the run (the two OOB messages in the log are its own verification probe,
+  before `RUN START`)
+- **not attention** — zero attention calls happen before the fault
+- **not the GEMM shape** — reproduced standalone, clean
+- **not `blockfor`** — those shapes never take the blocked path
+
+The validation layer *itself* crashing on `vkQueueSubmit2` is a signal worth
+following: it suggests the submit is malformed rather than the shader misbehaving,
+which points at Lava's command/batch construction around dispatch 64, not at the
+GEMM kernel.
+
 ### SUPERSEDED AGAIN — it is `ERROR_DEVICE_LOST`, and attention is not involved
 
 Driving the attention path directly, and then instrumenting the model, disproved
