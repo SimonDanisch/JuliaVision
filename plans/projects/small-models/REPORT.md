@@ -815,9 +815,28 @@ of the input changes:
     128 x 96   timed out after 120.0 s at timeline 405, 50 in-flight batches
     128 x 128  OK in 23.9 s
 
-That is `STATUS.md`'s **"`blockfor` refuses non-square attention — blocking the
-decoder's lopsided shapes reproducibly hangs on `vkWaitSemaphores`"**, exactly as
-described. It is **not** the flush hang, and not a new bug.
+That is `STATUS.md`'s **"`blockfor` refuses non-square attention"** — it is **not**
+the flush hang and not a new bug.
+
+**But "non-square" is the wrong rule, and the tracker should say so.** Five
+shapes through the same call:
+
+| W x H | result |
+|---|---|
+| 128 x 96 | **hangs** |
+| 96 x 128 | **hangs** (so it is not orientation) |
+| 96 x 96 | OK, 17.2 s (so it is not the dimension 96) |
+| 128 x 128 | OK, 23.9 s |
+| **160 x 128** | **OK, 23.4 s — and this one is non-square** |
+
+So non-squareness is neither necessary nor sufficient as stated: 160 x 128 is
+lopsided and fine, while 96 x 128 hangs in either orientation and 96 x 96 does
+not. What the hanging pair has that the working pair does not is **unequal dims
+where the smaller is below 128**; the obvious next probe is 160 x 96, which that
+rule predicts hangs, and I ran out of room to run it.
+
+Whoever picks this up should not go looking for a squareness predicate — the
+shape that reproduces is specific and the one that does not is also lopsided.
 
 `MatAnyoneRunner` and `SAM2Runner` hit it because their test fixtures are
 128 x 96. The three small ports never do: two have no attention at all, and Depth
