@@ -979,9 +979,36 @@ Also disproved by experiment, not argument:
   *bound resources* — it cannot see BDA traffic. Its "zero hazards" is a dead
   instrument, not evidence, and I wrongly cited it as a second independent line.
 
-Next: log the dispatch index and kernel at each auto-submit boundary for 64
-(fatal) against 65 (clean) and diff — that names the dispatch it is fatal to cut
-before.
+### The boundary is not the cause either — it takes repeated submits
+
+Did the diff. At threshold 64 the log ends at dispatch **576** (`strided_gemm`,
+`groups=(192,1,1)`) followed by `AUTOSUBMIT after 64 in batch, total=576`; 576 =
+64 x 9, so eight earlier boundaries were harmless. At 65 a boundary lands right
+after a `strided_gemm` too (585) and is fine, so "cut after a GEMM" is not it.
+
+Then the decisive one: a diagnostic that submits **exactly once**, at a chosen
+total dispatch index. `LAVA_SUBMIT_AT=576`, `512`, `448` — **all clean, ~46 s.**
+
+So there is no fatal cut point. One boundary at the place that kills it under
+repeated submission is harmless. The fault needs **many** submits, which matches
+the reported depths (47, 50, and 2 911 in-flight).
+
+Which made an in-flight cap the obvious fix — `submit!` returns without waiting,
+so nothing bounds the queue. Added `MAX_IN_FLIGHT_BATCHES = 8`, sweeping first
+and blocking on the oldest only if genuinely behind. **It does not fix it**: still
+`ERROR_DEVICE_LOST`, and now at total 256 instead of 576, i.e. sooner. Reverted.
+
+Disproved so far, every one by experiment: OOB writes, attention, `blockfor`, the
+GEMM kernel and its shape, boundary-barrier elision, use-after-free (even with
+*every* free deferred), a single fatal cut point, and in-flight depth.
+
+What survives: it requires **repeated** mid-recording submits, it is
+MatAnyone-specific among the models here, and the fault lands on a submit whose
+batch contains a `strided_gemm`. The next thing I would test is whether
+DNNKernels' **shared slab** is the mechanism — `Model` gives every graph in a step
+one slab, `planslab` places buffers by lifetime *within* a graph, and `execute!`
+deliberately does not synchronise between graphs. That is safe while a step is
+one submission and is exactly the assumption repeated auto-submit breaks.
 
 ### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
 
