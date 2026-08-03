@@ -1039,6 +1039,43 @@ about repeated small submissions defeats it.
 
 Every diagnostic edit was reverted; both worktrees are clean.
 
+### RETRACTED: fusion is NOT the cause — it is dispatch ALIGNMENT
+
+The section below concludes the bug needs kernel fusion. **It does not.** I found
+the fusion result, published it, and then checked the mechanism — `sub` is op #1
+and its consumer `div` is op #2, adjacent, so there is no long-lived deferred
+value to be cut across. What fusing `sub` actually does is remove **one
+dispatch**, shifting everything downstream by one.
+
+Which predicts that any unrelated extra dispatch should cure it just as well. It
+does:
+
+| stream offset (extra dispatches prepended, fusion ON) | result |
+|---|---|
+| **0** | **DEVICE_LOST** |
+| 1, 2, 3, 5, 8 | OK |
+
+So "disable fusion in `encode_image`" and "add one `fill!`" are the same
+intervention. The per-graph fusion table below is real data with a wrong reading:
+`encode_image` was singular only because it is the **first** graph, so its
+dispatch-count change shifts the whole stream, while `readout_query`, `segment`
+and the rest run *after* the fault point and shift nothing before it.
+
+**What is actually established:** the fault depends on the exact alignment of
+auto-submit boundaries against the dispatch stream. One position is fatal; ±1 is
+clean. That is consistent with everything else — thresholds 63 and 64 fatal while
+65 is fine, a single submit anywhere harmless, deterministic, cured by a drain.
+
+The timing figures also need a caveat: the ~45 s runs were shader compilation.
+With the pipeline cache warm the same run is **6.3 s**, so wall-clock differences
+between these experiments carry no information.
+
+A note on method, since this is the second root cause I have had to withdraw
+today: the fusion result *looked* decisive because it was a clean on/off with
+matching output. What made it wrong was that I did not ask **why** fusion would
+matter until after publishing. The check that caught it — locating `sub`'s
+consumer — took one command.
+
 ### LOCALISED: it needs kernel FUSION, and exactly one fused op
 
 The breakthrough after fifteen dead ends. The fault needs **two** things
