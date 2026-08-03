@@ -380,6 +380,15 @@ of the day, not assembled from runs taken at different points:
     DemucsRunner    PASS   MatAnyoneRunner FAIL (vkWaitSemaphores hang)
 
 This morning none of them could run at all — no package declared a test target.
+
+**And the monorepo's own dev environment did not resolve.**
+`dev/JuliaVision/Project.toml` lists `Lava` in `[sources]` but not in `[deps]`,
+which Pkg refuses outright: *"Sources for `Lava` not listed in `deps` or
+`extras`"*. So `Pkg.activate(".")` — the workflow written at the top of that very
+file — failed for anyone who tried it. Not my change (empty diff against
+`origin/main`); found only because I finally checked the repo's env rather than
+the ad-hoc workspace one I had been dev'ing into all day. One line, and it
+resolves.
 The one failure is a real bug with a one-command reproducer and six controls
 (fourth entry below), not an infrastructure problem.
 
