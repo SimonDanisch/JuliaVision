@@ -808,11 +808,18 @@ for the first time, and both fail the same way:
 identically, having read MatAnyone's error and only a summary line for SAM 2 —
 and SAM 2's fixture is 1024 x 1024, square, which the characterisation below says
 should *not* hang. It does not. Its suite failed on **missing test deps**
-(`Random`, then `Printf`) in the target I had just added; with those it gets
-further and its subprocess exits non-zero for a reason its own test cannot
-report, because it uses `read(cmd)` without capturing stderr — the identical
-defect I had fixed in my own latency test an hour earlier. Left there: it is
-`SAM2Runner`'s suite and diagnosing it needs room I do not have. Reproduced with the soak running and again with the GPU fully
+(`Random`, then `Printf`) in the target I had just added, and then on **a
+regression of mine**: its subprocess reads `refs.safetensors` from `assetdir()`,
+but the references are their own artifact (`sam2-large-refs`) and `assetdir()` is
+the weights-only one. That read worked before only because `assetdir()` fell
+through to a generated tree where both happened to sit side by side — exactly the
+fallback I deleted this morning. Pointed at `refsdir()`, **SAM 2's suite passes:
+6 + 24 assertions, first call compiles nothing.**
+
+Its own test could not say any of this, because it used `read(cmd)` without
+capturing stderr — the identical defect I had fixed in my own latency test an
+hour earlier and then failed to recognise when it was hiding this from me. Fixed
+there too. Reproduced with the soak running and again with the GPU fully
 idle, so it is not contention — checked specifically, having made exactly that
 mistake this morning.
 
