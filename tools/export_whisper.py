@@ -60,6 +60,23 @@ class Encoder(torch.nn.Module):
         return self.encoder(input_features).last_hidden_state
 
 
+"""The dtype the parameters are *stored* in, per `--precision`.
+
+`fp16` is not a policy the way `autocast` is — it is what the checkpoint on disk
+already holds. large-v3-turbo ships as 1.6 GB of fp16 and `from_pretrained` was
+widening every tensor on the way in, so the export wrote 2.55 GB of fp32 that
+carries no information the 1.6 GB did not. Whisper is *run* in fp16 upstream
+(`whisper.load_model` defaults to it), so this is the model's own precision
+rather than a reduction of it.
+
+`autocast` is the third option and a different trade: fp32 masters on disk with
+explicit casts in the graph, which `DNNKernels.hoistcasts` then folds into fp16
+weights while leaving the layer norms in fp32. Better numerics for the same
+resident bytes, twice the artifact.
+"""
+STORAGE = {"fp32": torch.float32, "fp16": torch.float16, "autocast": torch.float32}
+
+
 def main(out: Path, precision: str, dev: str):
     from transformers import WhisperForConditionalGeneration
 
@@ -68,7 +85,7 @@ def main(out: Path, precision: str, dev: str):
                          "silently decomposes attention. Pass --device cpu to force it.")
 
     model = WhisperForConditionalGeneration.from_pretrained(
-        str(WEIGHTS), torch_dtype=torch.float32, attn_implementation="sdpa",
+        str(WEIGHTS), torch_dtype=STORAGE[precision], attn_implementation="sdpa",
         local_files_only=True).to(dev)
     enc = Encoder(model.model.encoder).eval()
 
@@ -76,7 +93,7 @@ def main(out: Path, precision: str, dev: str):
     # window, which is 30 s at 100 frames/s. Static — Whisper's encoder has no
     # variable length, audio is padded to the window.
     n_mels = model.config.num_mel_bins
-    args = (torch.randn(1, n_mels, 3000, device=dev),)
+    args = (torch.randn(1, n_mels, 3000, device=dev, dtype=STORAGE[precision]),)
 
     with torch.no_grad(), EG.precision_ctx(precision):
         ep = torch.export.export(enc, args, strict=False)
@@ -97,7 +114,10 @@ def main(out: Path, precision: str, dev: str):
     (out / "op_histogram.json").write_text(json.dumps(hist, indent=1, sort_keys=True))
 
     nw = sum(1 for b in g["buffers"] if b["kind"] == "weight")
+    nbytes = sum(v.numel() * v.element_size() for v in tensors.values())
+    nparam = sum(v.numel() for v in tensors.values())
     print(f"whisper encoder: {len(g['ops'])} ops, {len(g['buffers'])} buffers, {nw} weights")
+    print(f"  {precision}: {nparam / 1e6:.1f}M parameters, {nbytes / 2**30:.3f} GiB")
     print(f"  mel bins {n_mels}, output {tuple(ep.example_outputs[0].shape) if hasattr(ep,'example_outputs') else '(1,1500,d)'}")
     print("  ops:", json.dumps(hist, sort_keys=True))
     return g
@@ -106,8 +126,11 @@ def main(out: Path, precision: str, dev: str):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--out", type=Path, default=GEN / "graphs" / "whisper")
-    p.add_argument("--precision", default="fp32")
+    p.add_argument("--out", type=Path, default=None,
+                   help="default: gen/graphs/whisper for fp32, -<precision> otherwise")
+    p.add_argument("--precision", default="fp32", choices=sorted(STORAGE))
     p.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     a = p.parse_args()
-    main(a.out, a.precision, a.device)
+    out = a.out or (GEN / "graphs" /
+                    ("whisper" if a.precision == "fp32" else f"whisper-{a.precision}"))
+    main(out, a.precision, a.device)

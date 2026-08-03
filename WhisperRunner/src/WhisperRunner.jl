@@ -43,19 +43,20 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Throws. Whisper large-v3-turbo is **not ported yet**, so there is no artifact to read
-from and nothing on disk that a user of this package would have.
+Throws — but not because the model is unported. The encoder **runs on Lava and
+matches PyTorch** (`fa76347`, merged from `sd/whisper`); what is missing is only
+the artifact binding, and a lazy artifact needs the sha256 of a tarball that has
+been uploaded to a release.
 
-Porting it means, in order: export it with `uv run tools/export_whisper.py`, bind the
-result with `julia --project=. tools/make_artifacts.jl whisper`, and replace
-this definition with `@artifact_str("whisper")`. Assets come from the artifact
-and from nowhere else — see `DNNKernels/src/assets.jl`.
+So one step, not three: bind the existing export with
+`julia --project=. tools/make_artifacts.jl whisper` and replace this definition
+with `@artifact_str("whisper")`. Assets come from the artifact and from nowhere
+else — see `DNNKernels/src/assets.jl`.
 """
 assetdir() = throw(ArgumentError(
-    "WhisperRunner: Whisper large-v3-turbo is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_whisper.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl whisper`, then set " *
-    "`assetdir() = @artifact_str(\"whisper\")`."))
+    "WhisperRunner: the Whisper encoder is ported and verified, but no artifact is " *
+    "bound yet. Bind the export with `julia --project=. tools/make_artifacts.jl whisper`, " *
+    "then set `assetdir() = @artifact_str(\"whisper\")`."))
 
 """
     whispergraph(; dir = assetdir()) -> Graph
@@ -89,7 +90,7 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready() = false        # not ported: see `assetdir`
+ready() = false        # no artifact bound yet: see `assetdir`
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
@@ -124,7 +125,7 @@ end
             @warn "WhisperRunner: workload skipped; first use will compile" exception = err
         end
     else
-        @info "WhisperRunner: not ported yet — nothing precompiled"
+        @info "WhisperRunner: encoder is ported but no artifact is bound — nothing precompiled"
     end
 end
 

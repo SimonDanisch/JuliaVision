@@ -54,8 +54,13 @@ Median of `n` samples, each `reps` launches with one sync. Same shape as
 `gemm_bench.jl`'s `timedall`: per-launch syncs measure the sync, not the kernel.
 """
 function timed(f, backend; n = 15, reps = 20)
-    f(); KA.synchronize(backend)
-    for _ in 1:3; f(); end; KA.synchronize(backend)
+    # 30 warm-up calls, not 3. Measured on the neural LUT classifier: the first
+    # call after the clock ramp took 2 834 ms and calls 2-24 ran 7-20 ms before
+    # settling at ~2 ms from call 25 on. A short warm-up therefore measures the
+    # ramp, and a median over it lands anywhere in a 5x band — which is exactly
+    # the run-to-run "noise" this file used to report on the small graph. Costly
+    # only where a call is cheap, which is where it matters.
+    for _ in 1:30; f(); end; KA.synchronize(backend)
     ts = Float64[]
     for _ in 1:n
         KA.synchronize(backend)
@@ -130,8 +135,12 @@ println(ok ? "APPLY PARITY OK" : "APPLY PARITY FAILED")
 # (fold, hoist, dropdead) that the editor's own path gets, and a benchmark that
 # skips them measures a graph nothing ships. Measured on this model:
 # `loadgraph` + a slab-less `execute!` reported 14.08 ms for this classifier;
-# the same graph through `Model` with a planned slab is 1.73 ms. The slab is
+# the same graph through `Model` with a planned slab is **1.8 ms**. The slab is
 # most of that — without one, every intermediate is a fresh allocation.
+#
+# (Figures between those two, 7-11 ms, appear in this report's history and are
+# all wrong: they were measured with a three-call warm-up, inside the 24-call
+# ramp `timed` now skips.)
 model = Model(DIR, joinpath(DIR, "weights.safetensors");
               names = ["neurallut"], backend)
 graph = model.graphs["neurallut"]

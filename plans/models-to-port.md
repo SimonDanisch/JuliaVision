@@ -29,7 +29,7 @@ with a workload and no cold start).
 
 | model | package | state | export | new ops | perf | target |
 |---|---|---|---|---|---|---|
-| Whisper large-v3-turbo | `WhisperRunner` | **exported** (encoder) | `gen/graphs/whisper` | **none** for the encoder; fft + kv-cache for the decoder | — | ≥ 5x realtime audio |
+| Whisper large-v3-turbo | `WhisperRunner` | **encoder runs & matches** (fp32) | `gen/graphs/whisper` | **none** for the encoder; fft + kv-cache for the decoder | — | ≥ 5x realtime audio |
 | DeepFilterNet3 | `DeepFilterRunner` | scaffolded | — | (fft) | — | realtime, < 5 ms/s of audio |
 | Demucs v4 htdemucs | `DemucsRunner` | scaffolded | — | fft/istft, lstm | — | ≥ 1x realtime |
 | Kokoro-82M | `KokoroRunner` | scaffolded | — | lstm, istft | — | ≥ 5x realtime |
@@ -103,14 +103,15 @@ Those are the port.
 809M parameters. MIT and ungated, so this one could live in the editor package
 itself rather than beside it.
 
-**The encoder is exported and needs no new ops.** 617 nodes over 11 distinct
-ATen ops, all 11 already implemented — checked against the runtime's op set
-rather than assumed. `WhisperRunner.ready()` is true and `whispergraph()` loads
-it. That makes the encoder a straight bring-up rather than a kernel project, and
-it means the FFT and the KV cache — the two things Whisper is here to force —
-are the *decoder's* problem, not a prerequisite for first light.
+**The encoder is exported, needs no new ops, and now runs and matches** — rel rms
+6.30e-5 and cosine 0.99999999_8 against PyTorch at the output, all 617 ops within
+tolerance node by node, on Lava. 617 nodes over 11 distinct ATen ops, all 11
+already implemented. It was a straight bring-up as predicted: no new kernel and
+no change to any kernel file. The FFT and the KV cache — the two things Whisper
+is here to force — are the *decoder's* problem, as expected.
 
-Two findings from doing it:
+Three findings from doing it, and one from running it (`projects/whisper/REPORT.md`
+has the numbers):
 
 - **Export from CUDA or the attention decomposes.** `export_sam2.device` already
   documents this and it cost the same here: a CPU export gave 969 nodes with 64
@@ -119,13 +120,25 @@ Two findings from doing it:
   `_scaled_dot_product_efficient_attention` and no `bmm` at all. For 32 blocks of
   (1, 20, 1500, 1500) attention the difference is ~180 MB of materialised matrix
   per block. The exporter now refuses a silent CPU export.
-- **fp32 encoder weights are 2.55 GB**, against the 1.6 GB fp16 checkpoint they
-  came from. Worth an fp16 export before anything is benchmarked — the encoder is
-  635M of the 809M parameters and this is the number that decides whether it sits
-  alongside SAM 2 comfortably.
+- **fp32 encoder weights are 2.373 GiB** (2.55 GB decimal), against the 1.6 GB
+  fp16 checkpoint they came from — the encoder is **637.0M** of the 809M
+  parameters. `--precision fp16` now exports it at **1.186 GiB**, an exact
+  halving.
+- **The fp16 export is a different graph, not the same one narrowed**: 681 nodes
+  over 12 ATen ops. `torch.export` traces the `clamp` that
+  `WhisperEncoderLayer.forward` applies only in fp16, and PyTorch picks
+  `_scaled_dot_product_flash_attention` instead of the memory-efficient variant.
+  Both were already implemented, so coverage is still zero missing — but an op
+  histogram taken in one precision does not describe the other.
+- **fp16 does not match yet, and the reason is not fp16.** 13.7% rel rms at the
+  output where PyTorch's own fp16 costs 2.5%. Localised to Lava's scalar GEMM,
+  which accumulates in the *destination's* type — an fp16 accumulator over
+  K = 5120 — where the cooperative-matrix path and DNNKernels' own `mm2` both
+  accumulate in fp32. Isolated on one op: 0.0483 against 2.06e-4, i.e. 234x from
+  one line. Handed to `lava-core`; fp32 ships in the meantime.
 
-Next on this one: run the graph on Lava and diff against PyTorch, then the mel
-front end, then the decoder.
+Next on this one: the mel front end — its reference already exists, as
+`whisper/audio` and `whisper/mel` in the refs file — then the decoder.
 
 **Why this and not Parakeet — corrected 2026-08-02.** NVIDIA's Parakeet TDT 0.6B
 is faster and scores higher on English leaderboards, and on the feature itself it

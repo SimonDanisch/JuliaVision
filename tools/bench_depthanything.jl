@@ -38,8 +38,13 @@ catch ex
 end
 
 function timed(f, backend; n = 9, reps = 3)
-    f(); KA.synchronize(backend)
-    for _ in 1:2; f(); end; KA.synchronize(backend)
+    # 30 warm-up calls, not 3. Measured on the neural LUT classifier: the first
+    # call after the clock ramp took 2 834 ms and calls 2-24 ran 7-20 ms before
+    # settling at ~2 ms from call 25 on. A short warm-up therefore measures the
+    # ramp, and a median over it lands anywhere in a 5x band — which is exactly
+    # the run-to-run "noise" this file used to report on the small graph. Costly
+    # only where a call is cheap, which is where it matters.
+    for _ in 1:30; f(); end; KA.synchronize(backend)
     ts = Float64[]
     for _ in 1:n
         KA.synchronize(backend)
