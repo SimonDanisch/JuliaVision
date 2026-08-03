@@ -67,32 +67,6 @@ tohost(x::Array) = x
 tohost(x::AbstractArray) = collect(x)
 
 """
-    verifygraph(graphpath, refs, weights; dims, backend, atol, amplify)
-
-`refs` is the dict from `readsafetensors`, keyed `"<graph>/in<i>"` and
-`"<graph>/node/<node>"`. Inputs are taken from the refs so each graph is checked
-in isolation - an upstream graph's error cannot mask a downstream one.
-
-Flags the first op whose error exceeds `atol` *and* is more than `amplify` times
-the error on its inputs.
-
-Takes a loaded `Graph` as well as a path, so a *prefix* of a graph can be
-checked on its own. Whisper's encoder is 32 identical blocks; running two of
-them covers every op type it uses for a sixteenth of the arithmetic, which is
-the difference between a CPU-backend check that finishes and one that does not.
-"""
-# Prefer passing a `Graph`, not a path: a caller that names a file has to know
-# where the artifact put it, and a re-export that moves the file then breaks a
-# caller that never knew it depended on the layout. The runners hand back a
-# loaded graph (`sam2graph`, `matanyonegraph`).
-#
-# The path-taking method stays anyway, because `tools/verify_sam2.jl:47` still
-# passes one. `sd/portability` removed it without updating that tool, which is
-# the break this merge would otherwise have carried in.
-verifygraph(graphpath::AbstractString, refs::AbstractDict, weights::AbstractDict; kw...) =
-    verifygraph(loadgraph(graphpath), refs, weights; kw...)
-
-"""
     weightkeys(g) -> Set{String}
 
 The `weights.safetensors` names a graph's ops actually read, following views to
@@ -115,6 +89,21 @@ function weightkeys(g::Graph)
     ks
 end
 
+"""
+    verifygraph(graphpath, refs, weights; dims, backend, atol, amplify)
+
+`refs` is the dict from `readsafetensors`, keyed `"<graph>/in<i>"` and
+`"<graph>/node/<node>"`. Inputs are taken from the refs so each graph is checked
+in isolation - an upstream graph's error cannot mask a downstream one.
+
+Flags the first op whose error exceeds `atol` *and* is more than `amplify` times
+the error on its inputs.
+
+Takes a loaded `Graph` as well as a path, so a *prefix* of a graph can be
+checked on its own. Whisper's encoder is 32 identical blocks; running two of
+them covers every op type it uses for a sixteenth of the arithmetic, which is
+the difference between a CPU-backend check that finishes and one that does not.
+"""
 function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
                      dims, backend=KernelAbstractions.CPU(),
                      atol=1e-4, rtol=1e-3, rtol16=3e-2, amplify=4.0, verbose=true)
