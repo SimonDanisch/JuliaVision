@@ -12,14 +12,13 @@ Run standalone:
 
 using Test
 using DNNKernels
-using SAM2Runner, MatAnyoneRunner
 using DNNKernels: loadgraph, planslab, checkslab, lifetimes, fusableset, evalshape, alignup
+include("fixtures.jl")
 
-# Nothing here names a directory. Each runner owns its artifacts and hands back
-# loaded graphs; two runners because these are two models, and their layouts
-# differ (SAM 2's JSONs are flat, MatAnyone's are split by precision and travel
-# with the references) — which is exactly the kind of detail a caller must not
-# have to know.
+# Nothing here names a directory. `Fixtures` owns the two layouts (SAM 2's JSONs
+# are flat, MatAnyone's sit under `graphs/`), which is exactly the kind of detail
+# a caller must not have to know. Two models because planning is shape-driven and
+# one of them would not exercise it.
 
 """Every graph we can find, with the dims it is planned at.
 
@@ -28,17 +27,13 @@ graphs and it is not one.
 """
 function testgraphs()
     out = Tuple{String,Any,Any}[]
-    if "autocast" in MatAnyoneRunner.matanyoneprecisions()
-        for n in ("encode_image", "transform_key", "encode_mask_deep",
-                  "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
-                  "segment", "readout_query")
-            push!(out, (n, MatAnyoneRunner.matanyonegraph(n, "autocast"), (h = 32, w = 32)))
-        end
+    for n in ("encode_image", "transform_key", "encode_mask_deep",
+              "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
+              "segment", "readout_query")
+        Fixtures.have(n) && push!(out, (n, Fixtures.matanyone(n), (h = 32, w = 32)))
     end
-    if SAM2Runner.ready()
-        for n in ("sam2_encoder", "sam2_decoder")
-            push!(out, (n, SAM2Runner.sam2graph(n), (res = 1024,)))
-        end
+    for n in ("sam2_encoder", "sam2_decoder")
+        push!(out, (n, Fixtures.sam2(n), (res = 1024,)))
     end
     out
 end

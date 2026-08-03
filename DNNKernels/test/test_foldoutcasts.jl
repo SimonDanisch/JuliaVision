@@ -14,17 +14,18 @@ exactly one reader — rather than about a count that moves whenever the model i
 re-exported.
 """
 
-using Test, DNNKernels, SAM2Runner
+using Test, DNNKernels
+include("fixtures.jl")
 const DK = DNNKernels
 
 # Ask the runner for the GRAPH, not for a directory to build paths in. The
-# artifact is SAM2Runner's to manage; where inside it a JSON lives is not this
+# artifact is bound here too (content-addressed, same directory); the layout is not this
 # file's business, and a re-export that moves one must not break this test.
 #
 # This used to walk up the filesystem for a `gen/` tree, and when the walk missed
 # BOTH testsets here reported `Total 0` and read as green — 4172 assertions that
 # were not running.
-const HAVE_SAM2 = SAM2Runner.ready()
+const HAVE_SAM2 = true   # bound in DNNKernels/Artifacts.toml
 
 @testset "foldoutcasts" begin
     if !HAVE_SAM2
@@ -33,7 +34,7 @@ const HAVE_SAM2 = SAM2Runner.ready()
         # testset with zero assertions, which is indistinguishable from a pass.
         @test_skip HAVE_SAM2
     else
-        g = SAM2Runner.sam2graph("sam2_encoder")
+        g = Fixtures.sam2("sam2_encoder")
         g2, n = DK.foldoutcasts(g)
 
         @testset "it folds, and only casts" begin
@@ -104,7 +105,7 @@ end
         # testset with zero assertions, which is indistinguishable from a pass.
         @test_skip HAVE_SAM2
     else
-        g = SAM2Runner.sam2graph("sam2_encoder")
+        g = Fixtures.sam2("sam2_encoder")
         g2, n = DK.foldrelu(g)
 
         # The reason this needed the whole view chain rather than

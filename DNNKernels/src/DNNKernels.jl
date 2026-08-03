@@ -71,7 +71,10 @@ include("dce.jl")
 include("fuse.jl")
 include("driver.jl")
 include("wan.jl")
-include("sam2.jl")
+# `sam2.jl` moved to SAM2Runner. It arrived here in `7273481` "Import LavaDNN as
+# DNNKernels" — the rename described half the package and moved nothing — and it
+# is a model driver, not a kernel. Eleven `*Runner` packages already say where
+# model code goes; this one just predates them.
 include("verify.jl")
 
 end # module

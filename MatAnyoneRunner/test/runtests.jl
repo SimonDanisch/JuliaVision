@@ -52,3 +52,8 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
         @test r.version == DNNKernels.KERNELS_VERSION  # the shared generation
     end
 end
+
+# The parity gate: MatAnyone against PyTorch layer by layer, error floor ~1e-6.
+# Moved from DNNKernels/test — it needs this model's weights and references, and
+# a kernel library's suite should not require a model package to run.
+include("test_parity.jl")

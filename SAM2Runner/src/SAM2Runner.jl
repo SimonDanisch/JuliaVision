@@ -30,11 +30,15 @@ using ColorTypes: RGB, red, green, blue
 const N0f8 = ColorTypes.FixedPointNumbers.N0f8
 using Lava: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: SAM2, encode, decode, segment, prompt, toback,
-                  loadgraph, readsafetensors
+# `Model`, `call` and `toback` are the graph-calling layer, which stays in the
+# kernel library. `SAM2`, `encode`, `decode`, `prompt` and `segment` are this
+# package's own — see `sam2.jl`, moved here from `DNNKernels/src`.
+using DNNKernels: Model, call, toback, loadgraph, readsafetensors
 
-# `segment` is `DNNKernels.segment` with methods added here, not a new function:
-# same verb, different arguments, which is what dispatch is for.
+# SAM 2.1's driver: the type, the two graphs, and the verbs over them.
+include("sam2.jl")
+
+export SAM2, encode, decode, prompt
 export segment, defaultmodel, unloadmodel!
 export SAM2Runner_VERSION, sam2model, runsam2, sam2segmenter
 export sam2graph, sam2weights, sam2refs, ready
@@ -217,7 +221,7 @@ rather than once per click — 0.9 s against 1.4 s here, and the difference grow
 with every point the user adds.
 
 `pick` defaults to `:confident` rather than SAM's own `:best`, because what this
-produces is a matte *seed*: `DNNKernels.segment` documents the measurement, but in
+produces is a matte *seed*: `segment` in `sam2.jl` documents the measurement, but in
 short, argmax over a predicted score will hand back a mask that sits at the
 threshold and speckles when it is resampled to frame resolution. `:best` remains
 available and remains exactly what PyTorch does.
@@ -323,7 +327,7 @@ see [`sam2segmenter`](@ref) for why a matte seed wants the latter.
 The first call pays for building the model, ~3 s of reading weights. Every call
 after that is the network.
 """
-function DNNKernels.segment(image::AbstractMatrix, points::AbstractVector;
+function segment(image::AbstractMatrix, points::AbstractVector;
                             key = nothing, model::Union{Nothing,SAM2} = nothing,
                             pick = :confident, backend = LavaBackend())
     m = model === nothing ? defaultmodel(; backend) : model
@@ -338,8 +342,8 @@ end
 
 One click, spelled as two numbers. `segment(img, 0.5, 0.5)`.
 """
-DNNKernels.segment(image::AbstractMatrix, x::Real, y::Real; kw...) =
-    DNNKernels.segment(image, [(x, y)]; kw...)
+segment(image::AbstractMatrix, x::Real, y::Real; kw...) =
+    segment(image, [(x, y)]; kw...)
 
 """
 Segmenter closures by `(model, pick)`. They are not free — each owns the host

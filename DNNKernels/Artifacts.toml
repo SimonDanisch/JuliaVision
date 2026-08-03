@@ -1,0 +1,29 @@
+# The same bindings as SAM2Runner's and MatAnyoneRunner's, deliberately duplicated.
+#
+# Artifacts are content-addressed, so an identical `git-tree-sha1` in two
+# `Artifacts.toml` files resolves to ONE directory in `~/.julia/artifacts` — this
+# costs a binding, not a download.
+#
+# Why duplicate rather than depend on the runners: five of this package's eight
+# test files were importing `SAM2Runner`/`MatAnyoneRunner` purely to obtain a
+# *fixture*. The pass tests (`foldoutcasts`, `constfold`, `plan`, `diagnostics`)
+# are tests of DNNKernels, and a test that lives away from its subject rots
+# quietly — but a kernel library whose suite cannot run without a model package
+# installed is backwards too. Binding the graphs here keeps the tests with what
+# they test and drops the dependency.
+#
+# The cost is that a re-export must update both files. `tools/make_artifacts.jl`
+# writes them together for that reason.
+[matanyone]
+git-tree-sha1 = "9369a61552c2e3141ac5f515e2f5475df2df4abc"
+
+    [[matanyone.download]]
+    sha256 = "1b1dfd64eeffdea0c44f22ee873e1e755bfce632cbe434dbe93bdc7a060c9f9a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/matanyone.tar.gz"
+
+[sam2-large]
+git-tree-sha1 = "495f67add8178497d11163d71e9d5929138b470b"
+
+    [[sam2-large.download]]
+    sha256 = "1bcd6b66cd1800317563379886633e5a68a50c7e7886a223acc757a252b8d243"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/sam2-large.tar.gz"

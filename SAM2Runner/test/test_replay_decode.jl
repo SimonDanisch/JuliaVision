@@ -25,7 +25,8 @@ PyTorch's decoder.
 """
 
 using Test, DNNKernels, KernelAbstractions, Lava, SAM2Runner
-using DNNKernels: readsafetensors, SAM2, encode, decode, segment, prompt, toback
+using DNNKernels: readsafetensors, toback
+using SAM2Runner: SAM2, encode, decode, segment, prompt
 const KA = KernelAbstractions
 const DK = DNNKernels
 
