@@ -371,9 +371,17 @@ the fourth entry below, which makes that number mean much less than it reads.
 
 Owners for what remains: the allocator is `lava-core`'s; the desktop should
 re-check its own 1 181 MiB figure, which was measured the same way; and the six
-all eleven runner packages now have a test target and nine suites pass. The two
-that do not are `MatAnyoneRunner` and `SAM2Runner`, and the reason is a
-reproducible `vkWaitSemaphores` hang — see the fourth entry below.
+**all eleven runner suites run, and ten pass** — verified in one sweep at the end
+of the day, not assembled from runs taken at different points:
+
+    NeuralLUTRunner PASS   SAM2Runner      PASS   KokoroRunner     PASS
+    RIFERunner      PASS   BasicVSRRunner  PASS   ProPainterRunner PASS
+    DepthAnything…  PASS   DeepFilterRunner PASS  WhisperRunner    PASS
+    DemucsRunner    PASS   MatAnyoneRunner FAIL (vkWaitSemaphores hang)
+
+This morning none of them could run at all — no package declared a test target.
+The one failure is a real bug with a one-command reproducer and six controls
+(fourth entry below), not an infrastructure problem.
 
 ---
 
