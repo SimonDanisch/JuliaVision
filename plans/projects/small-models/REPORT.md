@@ -344,10 +344,33 @@ weights and `hoistcasts` replaces fp32 masters with fp16).
 - **Reproducer:** `tools/pool_fragmentation_probe.jl` — no model, no weights, no
   export; exits non-zero when it reproduces.
 
-**Soak:** 744 500 trials, zero hangs, on top of 508 740 yesterday.
+**The three suites now run, and assert the above.** `Pkg.test` had never worked
+for *any* runner package here — none declares a test target, so the suite gets an
+environment without `Test` and every `runtests.jl` dies on `using Test` before
+asserting anything. `SAM2Runner`, whose test file the scaffolds cite as the shape
+to copy, is among them. **The other six packages need the same three lines**
+(`[extras] Test` + `[targets] test = ["Test"]`); mine and `newrunner.py` have
+them, so nothing scaffolded after this inherits the defect.
+
+Each of the three now carries the latency test the scaffold's docstring promised,
+in a subprocess, asserting `no_pipeline_compilation` **and a negative control**:
+
+    NeuralLUT      refused = 0, control = 1, compile = 0.0 s, wall 0.55 s
+    RIFE           refused = 0, control = 1, compile = 0.0 s, wall 1.41 s
+    DepthAnything  refused = 0, control = 1, compile = 0.0 s, wall 0.74 s
+
+Writing it produced three faults of the kind it exists to catch, which is the
+argument for having written it rather than trusting a session's worth of manual
+checks: a dep the test env lacks; a testset that passed with **zero** assertions
+when the subprocess returned nothing; and stdout-only capture, which made a
+crashed subprocess indistinguishable from "no GPU here" — that one would have
+gone green forever on a CI machine without a device.
+
+**Soak:** 1 348 140 trials, zero hangs, on top of 508 740 yesterday.
 
 Owners for what remains: the allocator is `lava-core`'s; the desktop should
-re-check its own 1 181 MiB figure, which was measured the same way.
+re-check its own 1 181 MiB figure, which was measured the same way; and the six
+other runner packages need a test target before their suites mean anything.
 
 ---
 
