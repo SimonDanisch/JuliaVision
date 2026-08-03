@@ -1974,3 +1974,56 @@ which `CLAUDE.md` forbids in `src/`:
   be derived from a **measured property** — the natural LDS access width, which is
   what the alignment table above says is actually doing the work — added to
   `Device` alongside `tile` and `sharedbudget`. Never from a vendor name.
+
+### The sweep does not reproduce even at its own shape
+
+The encoder runs the flash kernel at **five** distinct shapes, not one, and the
+dispatch names carry the workgroup counts so they separate cleanly. Median of 5
+interleaved samples each:
+
+| shape (`groups`) | implied | ms | →`epad=2` | →`epad=4` | →`epad=8` | spread |
+|---|---|---|---|---|---|---|
+| `(64, 8, 1)` | Lq=4096, H=8, B=1 — **the sweep's shape** | 48.17 | -0.5% | +6.3% | +9.5% | 11–17% |
+| `(4, 8, 16)` | Lq=256, windowed | 42.93 | -0.4% | +0.5% | +0.7% | 3–6% |
+| `(1, 2, 1024)` | Lq=64, 2048 head-batches | 4.60 | +0.6% | -1.2% | -1.7% | 7–12% |
+| `(1, 16, 16)` | Lq=64, 256 head-batches | 1.87 | -8.7% | -11.5% | -5.5% | 12–23% |
+| `(1, 4, 1024)` | Lq=64, 4096 head-batches | 1.25 | -0.3% | +0.1% | +0.4% | 2–6% |
+
+`groups=(64, 8, 1)` at BR=64 is Lq=4096, H=8, B=1 — **exactly** the shape the
+sweep and the NVIDIA baseline are both quoted on. Compare the two rankings for
+that one shape:
+
+| | `epad=0` | `epad=2` | `epad=4` | `epad=8` |
+|---|---|---|---|---|
+| sweep, kernel alone | 14.807 | 19.254 **(+30%)** | 13.867 (-6.4%) | 14.468 (-2.3%) |
+| same shape, in the model | 48.17 | 47.95 **(-0.5%)** | 51.23 (+6.3%) | 52.77 (+9.5%) |
+
+**The orderings disagree completely, and the sweep's single largest effect —
+`epad = 2` costing +30% — is simply absent.** A +30% penalty on 48 ms would be
++14 ms; the measurement is -0.2 ms against a spread of 16%. Whatever else is
+uncertain here, that effect does not exist in situ.
+
+So this is not the usual "the microbenchmark used an unrepresentative shape". The
+shape *is* representative — it is half the encoder's flash time — and the
+benchmark still fails to predict the same kernel at the same shape inside the
+model.
+
+**Not claimed, worth testing next:** the sweep allocates its own `q/k/v` fresh,
+while the model's tensors come out of the slab allocator at whatever offset the
+graph gave them. Since the entire effect under investigation is the *alignment*
+of a shared-memory row, a difference in the base alignment of the global-memory
+operands feeding it is the first mechanism to look at. That would make the
+sweep's numbers an artefact of how the sweep allocates — a property of the
+harness rather than of RDNA.
+
+### Phase 3.4, settled
+
+- The shipped `flashepad` / `flashrpad` defaults are **kept** on this machine.
+- The sweep says they are wrong by 22–32%. The model says the setting does not
+  matter: at the whole-encode level, at the per-kernel level, and at the sweep's
+  own shape. The model wins.
+- The desktop's decision to ship `rpad = 0` on the strength of a real-model check
+  rather than its sweep is independently confirmed here, from a machine where the
+  sweep pointed the other way and by a larger margin.
+- The one thing that would change this is the alignment hypothesis above, which is
+  a question about the benchmark harness, not about RDNA.
