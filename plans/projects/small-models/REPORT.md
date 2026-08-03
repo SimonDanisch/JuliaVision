@@ -887,6 +887,10 @@ points.
 
 ### Localised: the faulting submit is an `addmm` GEMM, and GPU-AV says it is not an OOB
 
+*Re-verified against current upstream on 2026-08-03: Lava `328827f`, JuliaVision
+`main` merged in. Still `ERROR_DEVICE_LOST` at 96 x 128 — the localisation below
+was done on Lava `0903c6f` and survives the update.*
+
 Ran the Rule-0 instruments properly. **`activate_all_debugging()`**, not
 `enable_gpu_av()` — the latter defaults to `pool_disabled=false`, which its own
 docstring says is *blind to sub-pool overruns*, and my first attempt used it and
