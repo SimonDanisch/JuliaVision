@@ -388,7 +388,8 @@ which Pkg refuses outright: *"Sources for `Lava` not listed in `deps` or
 file — failed for anyone who tried it. Not my change (empty diff against
 `origin/main`); found only because I finally checked the repo's env rather than
 the ad-hoc workspace one I had been dev'ing into all day. One line, and it
-resolves.
+resolves — and `Pkg.test` then works from that environment too, spot-checked on
+a ported package and a scaffold, which is the path a contributor actually takes.
 The one failure is a real bug with a one-command reproducer and six controls
 (fourth entry below), not an infrastructure problem.
 
