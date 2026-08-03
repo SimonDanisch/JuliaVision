@@ -1039,6 +1039,65 @@ about repeated small submissions defeats it.
 
 Every diagnostic edit was reverted; both worktrees are clean.
 
+### Survives lava-core's globals refactor — and the fault point MOVED
+
+Re-verified against Lava `49f3f17` (seven new commits: pool and queue policy off
+the globals onto `VkContext` fields, per-device caches, diagnostics onto
+`ctx.diag` — 223 lines of `command.jl`, 398 of `memory.jl`, 85 of `launch.jl`,
+i.e. exactly the code under investigation).
+
+    96 x 128:  ERROR_DEVICE_LOST after 64 dispatches in batch (2368 total)
+    96 x 96 :  OK, 23.8 s
+
+**The bug survives, the signature is identical, and the fault point moved from
+256 to 2368 total dispatches.** That is what alignment-sensitivity predicts: the
+refactor perturbs the dispatch stream slightly, so the fatal cut lands somewhere
+else — and it is independent evidence for the alignment reading, arrived at
+without looking for it.
+
+Two consequences for what is written above:
+
+- The **128-dispatch truncated reproducer was measured on Lava `328827f`** and
+  should not be assumed to carry; the prefix bisect needs redoing on `49f3f17`.
+- Everything that varies with alignment — the threshold table, the prepended-
+  dispatch table, "fifth submit" — is *relative to a given Lava*. The invariants
+  are: it needs repeated auto-submits, one alignment is fatal and its neighbours
+  are not, and a drain cures it.
+
+### No MWE for a GLSL differential — and that instrument does not fit anyway
+
+Asked whether I had a minimal example for the GLSL differential I proposed. I did
+not, and the proposal was wrong twice over.
+
+A GLSL differential compares **one kernel's** SPIR-V against glslang's. Here no
+single kernel misbehaves: `gpu_strided_gemm_kernel!` at exactly its faulting shape
+runs clean standalone, a 400-GEMM synthetic loop with transients does not
+reproduce, and `encode_image` called twelve times in a row does not either. The
+fault is a property of the **dispatch stream**, so a per-kernel instrument has
+nothing to differ.
+
+**What does reduce it is truncation.** Dropping every dispatch past N and
+bisecting N:
+
+| prefix | outcome |
+|---|---|
+| 3 250 (full step) | `DEVICE_LOST` |
+| **128** | **`DEVICE_LOST`** — same signature |
+| 66–96 | hangs on `vkWaitSemaphores` — **different signature, treat as artifact** |
+| 64, 32 | completes |
+
+`warmup = 0` also still faults, so one step suffices.
+
+So the faithful reproducer is now **128 dispatches — two auto-submits — instead of
+3 250**, a 25x reduction with the signature preserved. Below that the failure mode
+changes to a hang, which is what dropping dispatches would be expected to cause on
+its own (buffers never written, queue left waiting), so I am not counting 66 as
+the minimum.
+
+That 128-dispatch prefix is the thing to turn into a standalone reproducer next:
+capture those dispatches' pipelines and arguments and replay them without
+MatAnyone. It is small enough to be tractable, which the full step was not.
+
 ### RETRACTED: fusion is NOT the cause — it is dispatch ALIGNMENT
 
 The section below concludes the bug needs kernel fusion. **It does not.** I found
