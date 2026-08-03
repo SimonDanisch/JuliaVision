@@ -1875,3 +1875,102 @@ consistently, at every head dimension and on top of every `epad`.
 
 That is precisely the result the brief warned not to trust from a sweep, so it is
 not adopted on this evidence. The real-model check follows.
+
+### The real-model check: the sweep's 22–32% does NOT transfer
+
+`DNNKernels.encode` alone, interleaved A/B/A/B in one process, warm-up gated on
+three consecutive runs agreeing to 2%, and a checksum over the encoder output so
+a setting that is fast because it computed something else cannot pass as a win.
+
+```
+round 1  shipped  (flashepad rule, rpad=0)       min   279.98 ms   med   284.68 ms
+round 1  sweep winner (epad=4, rpad=2)           min   275.51 ms   med   288.15 ms
+round 2  shipped  (flashepad rule, rpad=0)       min   283.08 ms   med   290.97 ms
+round 2  sweep winner (epad=4, rpad=2)           min   282.51 ms   med   290.06 ms
+
+shipped       runs 279.98 / 283.08   spread 1.1%
+sweep winner  runs 275.51 / 282.51   spread 2.5%
+encode: 279.98 -> 275.51 ms   -1.6%      checksums agree: true
+```
+
+**-1.6% against a within-setting spread of 1.1% and 2.5%, and the medians cross.
+That is no effect.** A 22–32% microbenchmark win produced nothing measurable on
+the model, which is the same shape as the desktop's `rpad` result — there the
+sweep said -13.7% and the encode said +6.7% — arriving at the same place from the
+opposite direction.
+
+So the defaults are **not** changed on this evidence, and the sections below show
+that holds under per-kernel timing too, not just at the whole-encode level. The
+brief's instruction to check the winner against a real model rather than the
+sweep is the whole reason this section does not end with a patch.
+
+### The knob works, the path is taken, and neither shows up in the model
+
+Two controls, because "no effect" and "measured nothing" look identical:
+
+1. **The path is taken.** 331 `flashepad` queries during one encode, every one at
+   `EP = 80` — SAM 2's own head dimension, and the one the sweep covers.
+2. **The knob reaches the kernel.** `epad = 2`, which the sweep calls catastrophic
+   (+39% at E=72), moves the encode by +3.1%. It moves; it moves by a twelfth of
+   what the sweep predicts.
+
+(The first attempt at control 1 died with a `StackOverflowError` at 10463 frames:
+`const orig = DNNKernels.sdpaflashcm!` names the **generic function**, not the
+method, so the wrapper called itself. Instrumenting `flashepad` cannot recurse.)
+
+Per-dispatch Vulkan timestamps then isolate the kernel from the ~300 other
+dispatches it shares the encode with. **The flash kernel is 36% of the encode**
+(103 ms of 283), so a real 20% win on it would be a visible 7% on the total.
+
+| setting | flash kernel GPU ms (median of 5) | within-setting spread | vs shipped |
+|---|---|---|---|
+| shipped (`epad` rule, `rpad=0`) | 103.62 | 9.4% | — |
+| `epad=2, rpad=0` | 104.96 | 8.3% | +1.3% |
+| `epad=4, rpad=0` | 103.12 | 11.4% | -0.5% |
+| `epad=8, rpad=0` | 105.26 | 7.4% | +1.6% |
+| `epad=4, rpad=2` | 105.36 | 2.2% | +1.7% |
+| `epad=2, rpad=2` | 106.32 | 7.8% | +2.6% |
+
+**Every setting is within 2.6% of every other, against a within-setting spread of
+up to 11.4%. There is no effect to measure.** A 22–32% difference in the isolated
+kernel is worth nothing inside the model, and that is the result.
+
+#### A near-miss worth recording, because I almost reported the opposite
+
+The **first** profile ran one sample per setting and said the flash kernel went
+99.43 → 80.59 ms at `epad=2` (**-19.0%**) and → 124.36 ms at `epad=8` (**+25.1%**)
+— an apparent inversion of the sweep, and an apparent vindication of the
+bank-conflict prediction the sweep had just falsified. It was noise. With n=1
+against a spread that the repeat later measured at 7–11%, those numbers are
+exactly what sampling that distribution once produces.
+
+It was caught only because it contradicted the wall-clock A/B, which had `epad=2`
+at +3.1% *slower*. Two measurements disagreeing is what forced the repeat; had
+they happened to agree, a 19% win would have gone into this report on a single
+sample. **GUARDRAILS §6 asks for warm-up hygiene; this says the sample count is
+the other half of it, and that a result which reverses a prior conclusion should
+raise the bar rather than lower it.**
+
+### Which epad values were ever actually compared
+
+Worth stating plainly, because it changes what the shipped constant means:
+
+| | epad values measured | on |
+|---|---|---|
+| desktop | `0` and `8` only | RTX 4000 Ada |
+| here | `0, 2, 4, 8, 16` | Radeon 8060S |
+
+`flashepad`'s `? 8 : 0` came from a **two-point** comparison. `epad = 4` — which
+wins outright at four of five head dimensions here, and beats `8` even where the
+shipped rule already pads — was never in the running on either machine. That is
+not a claim it wins on NVIDIA; it is a claim that nobody has looked.
+
+**The experiment to run on the desktop** is the same five-point `epad` sweep at
+the same five head dimensions. Two outcomes, and neither needs a vendor branch,
+which `CLAUDE.md` forbids in `src/`:
+
+- if `4` also wins or ties on NVIDIA, the constant simply changes for everyone;
+- if it does not, then the pad genuinely depends on the device and the rule has to
+  be derived from a **measured property** — the natural LDS access width, which is
+  what the alignment table above says is actually doing the work — added to
+  `Device` alongside `tile` and `sharedbudget`. Never from a vendor name.
