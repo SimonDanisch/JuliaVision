@@ -1797,3 +1797,81 @@ Not fixed, filed: `flash.jl:472` computes `NT = NW * 32` **inside the kernel**,
 duplicating `plan.NT`. Correct by construction today, since the pipeline now
 refuses to build unless 32 lanes can be pinned, but it is a second source of
 truth for a number the plan already carries.
+
+## 2026-08-03, Phase 3.4 — the bank-conflict sweep, and a prediction of mine that was wrong
+
+`epad × rpad` at `E ∈ (16, 32, 48, 64, 72)`, tiling 64x32/8, `Lq = Lk = 4096`,
+8 head-batches — the same shape the NVIDIA numbers in `flashepad`'s docstring are
+quoted on. 100 configurations, **all 100 numerically correct** (each is checked
+against a CPU reference and for non-trivial output before it is allowed to
+contribute a time; a kernel that writes nothing is fast and wrong).
+Script: `bankconflict_sweep.jl`.
+
+### The prediction, stated before the sweep ran, and falsified by it
+
+The earlier LDS section of this report measured cost as a function of
+`gcd(stride, 32)` and nothing else, then predicted:
+
+> predicted best is any `EP` with `EP/2` odd, and predicted worst is the current
+> default at head dims 64 and 128
+
+`epad = 2` is exactly that stride: `(64+2)/2 = 33` bank words, `gcd(33,32) = 1`,
+conflict-free by the arithmetic. **It is the slowest or second-slowest setting at
+every head dimension tested.**
+
+| E | epad=0 | **epad=2** (gcd 1) | epad=4 (gcd 2) | epad=8 (gcd 4) | epad=16 |
+|---|---|---|---|---|---|
+| 16 | 3.020 | **3.975** (4/5) | **2.893** (1/5) | 3.572 | 4.012 |
+| 32 | 5.838 | **7.134** (5/5) | **4.799** (1/5) | 5.018 | 5.291 |
+| 48 | 9.433 | **12.288** (5/5) | **8.831** (1/5) | 9.047 | 12.264 |
+| 64 | 13.371 | **12.963** (4/5) | 8.856 | **8.786** (1/5) | 9.420 |
+| 72 | 14.807 | **19.254** (5/5) | **13.867** (1/5) | 14.468 | 16.626 |
+
+(ms, `rpad = 0`; rank within the head dim in brackets.)
+
+The winner is always `gcd = 2` or `gcd = 4`, never `gcd = 1`.
+
+**Why the earlier measurement did not transfer.** That stride sweep was a scalar
+loop in which alignment was constant and only the bank pattern varied, so it
+measured bank conflicts correctly *in isolation*. This kernel's LDS traffic is
+wide vectorised cooperative-matrix loads, and there the dominant term is **row
+alignment**, not bank spread:
+
+| epad | stride (Float16 elements) | byte alignment of each row | result |
+|---|---|---|---|
+| 2 | EP+2 | 4 B | narrow/unaligned access — **worst** |
+| 4 | EP+4 | 8 B | `ds_read_b64` — **best** |
+| 8 | EP+8 | 16 B | `ds_read_b128` — close second, more LDS |
+| 16 | EP+16 | 32 B | same width, more LDS still — loses on occupancy |
+
+So the finding is not "the bank model is wrong here", it is that **I
+over-extrapolated a scalar-stride measurement to a kernel that reads LDS in
+vectors**. `epad = 2` buys a conflict-free bank pattern by making every row start
+off a natural boundary, and pays more for that than the conflict ever cost. The
+earlier measurement stands; the inference drawn from it did not.
+
+### The shipped defaults are wrong here, in both branches of their own rule
+
+`flashepad(EP) = EP % 32 == 0 ? 8 : 0` — tuned on NVIDIA — is beaten at every
+head dimension:
+
+| E | EP | shipped | best | delta |
+|---|---|---|---|---|
+| 16 | 16 | (0,0) 3.020 | (4,2) 2.038 | **-32.5%** |
+| 32 | 32 | (8,0) 5.018 | (4,2) 3.479 | **-30.7%** |
+| 48 | 48 | (0,0) 9.433 | (4,2) 7.172 | **-24.0%** |
+| 64 | 64 | (8,0) 8.786 | (8,2) 6.790 | **-22.7%** |
+| 72 | 80 | (0,0) 14.807 | (4,2) 11.372 | **-23.2%** |
+
+Both branches of the rule are wrong on this hardware: where it pads by 8 the
+better answer is 4, and where it pads by 0 the better answer is also 4. `epad=4`
+wins outright at four of five head dims and loses to `epad=8` by 0.6% at E=64,
+which is inside the noise.
+
+**`rpad = 2` is the larger effect here, and it is the opposite of the desktop's
+conclusion.** On NVIDIA `rpad` was worth -13.7% in this benchmark and ships OFF
+because it cost the real encode +6.7%. Here it is worth **-18% to -30%**,
+consistently, at every head dimension and on top of every `epad`.
+
+That is precisely the result the brief warned not to trust from a sweep, so it is
+not adopted on this evidence. The real-model check follows.
