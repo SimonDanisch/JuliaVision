@@ -500,9 +500,10 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
                   dims, backend=KernelAbstractions.CPU(),
                   overrides::AbstractDict=Dict{String,Any}(),
                   slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing,
-                  diag::Diagnostics=Diagnostics(), clampattn::Bool=false)
+                  diag::Diagnostics=Diagnostics(), clampattn::Bool=false,
+                  noise::NoiseSource=RandomNoise())
     ctx = Ctx(Dict{String,Any}(), graph, dims, backend;
-              slab, plan, ws, lazy, rec, diag, clampattn)
+              slab, plan, ws, lazy, rec, diag, clampattn, noise)
     for id in graph.order
         b = graph.buffers[id]
         if b.kind === :weight

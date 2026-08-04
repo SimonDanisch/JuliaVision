@@ -14,7 +14,7 @@ each of which is included before at least one of the files that would otherwise
 own its plan. The *constructors* stay with their kernels, where the measurements
 that justify each field are.
 
-Each is built on a live `Device` and holds nothing cached at module scope
+Each is built on a live `Lava.DeviceCaps` and holds nothing cached at module scope
 (`GUARDRAILS.md` §8), so a plan is per call and per device by construction.
 """
 
@@ -383,6 +383,18 @@ struct MMCoopMatPlan
     NP::Int          # N padded onto the tile
     tile::Int
 end
+
+"""
+    MMGemvPlan
+
+The batch-1 matrix-vector path: `Lava.gemv!` instead of a cooperative-matrix GEMM
+with fifteen sixteenths of every tile empty.
+
+Carries nothing but the marker. Unlike `MMCoopMatPlan` there is no padded extent
+to record — a GEMV has no tile to land on — and the block/unroll choice is
+`Lava.gemv_ncontig_config`'s, made per device from the operands it is given.
+"""
+struct MMGemvPlan end
 
 """
     ConvCoopMatPlan

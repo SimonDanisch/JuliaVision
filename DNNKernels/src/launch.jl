@@ -150,10 +150,10 @@ Note in particular the warning it carries about `kernel(backend, wg)` versus the
 """
 # 256 threads measured best and is the default. A literal rather than a global
 # because it was read in exactly one place — here — and a caller holding a
-# context passes `ctx.dev.launchgroup` instead, which is the same number clamped
-# to what the device will actually launch.
+# context goes through `launchgroup(ctx.dev)` instead, which is the same number
+# clamped to what the device will actually launch.
 @inline launchgroup(sz::Dims, target::Int = 256) = Lava.launchgroup(sz, target)
-@inline launchgroup(ctx::Ctx, sz::Dims) = Lava.launchgroup(sz, ctx.dev.launchgroup)
+@inline launchgroup(ctx::Ctx, sz::Dims) = Lava.launchgroup(sz, launchgroup(ctx.dev))
 
 """
     launch!(ctx, f, out, args...)

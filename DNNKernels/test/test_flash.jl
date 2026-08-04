@@ -28,7 +28,7 @@ end
     # The kernel entry points take a context. `Ctx(backend)` builds one with no
     # graph behind it, which is exactly the direct-call case this file is.
     ctx = DNNKernels.Ctx(back)
-    # The tiling chooser and the fit predicates take a `Device` rather than
+    # The tiling chooser and the fit predicates take a `DeviceCaps` rather than
     # reading one, so they can be asked about hardware this machine is not.
     dev = ctx.dev
 
@@ -131,7 +131,7 @@ end
                 # this thread count comes from, while RDNA's device default is 64.
                 # The literal happened to be right; it stops being a coincidence
                 # only once it names which of the two widths it means.
-                NW * dev.coopmatsubgroup <= Lava.WORKGROUP_LIMIT[] || continue
+                NW * dev.coopmatsubgroup <= dev.workgrouplimit || continue
                 L % BR == 0 && L % BC == 0 || continue
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
                 @test DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale;
@@ -295,7 +295,7 @@ end
     # `1 * H*B` = 8 workgroups on 48 SMs and the kernel measures 0.10 TFLOP/s.
     # Below one workgroup per shader core the chooser therefore picks for grid
     # size instead.
-    dev = DNNKernels.Device(LavaBackend())
+    dev = DNNKernels.caps(LavaBackend())
     tiling(args...) = DNNKernels.flashcm_tiling(dev, args...; clamp = true)
 
     # Without a batch count it must behave exactly as it always did.
@@ -325,9 +325,7 @@ end
         # order stands. Asked by describing a one-core device rather than by
         # writing to a global and restoring it — which a failing `@test` inside
         # the `try` would have skipped, leaving it flipped for everything after.
-        one = DNNKernels.Device(dev.coopmat, dev.tile, dev.subgroup,
-                                dev.coopmatsubgroup, dev.sharedbudget,
-                                dev.workgrouplimit, 1, dev.launchgroup)
+        one = Lava.DeviceCaps(dev; cores = 1)
         onetiling(args...) = DNNKernels.flashcm_tiling(one, args...; clamp = true)
         @test onetiling(16, 23, 4096, 8) == onetiling(16, 23, 4096)
     end
@@ -362,9 +360,7 @@ end
                                   NW = 8).reason === :tiling
     f32 = DNNKernels.toback(back, randn(Float32, E, L, H, B))
     @test DNNKernels.flashcm_plan(dev, f32, k, v, nothing).reason === :eltype
-    nocm = DNNKernels.Device(false, dev.tile, dev.subgroup, dev.coopmatsubgroup,
-                             dev.sharedbudget, dev.workgrouplimit, dev.cores,
-                             dev.launchgroup)
+    nocm = Lava.DeviceCaps(dev; coopmat = false)
     @test DNNKernels.flashcm_plan(nocm, q, k, v, nothing).reason === :nocoopmat
     @test DNNKernels.flashcm_plan(dev, q, k, v, nothing; BR = 23).reason === :extent
 
@@ -374,7 +370,7 @@ end
     # An RDNA3-shaped device: default width 64, but Lava PINS coopmat modules to
     # 32, so the workgroup must still be sized in 32s. Sizing it in 64s is the
     # bug this field exists to prevent, and it is invisible on this card.
-    w64 = DNNKernels.Device(true, 16, 64, 32, 65536, 1024, 40, 256)
+    w64 = Lava.DeviceCaps(true, 16, 64, 32, 65536, 1024, 40, 0)
     p64 = DNNKernels.flashcm_plan(w64, q, k, v, nothing)
     @test p64 isa DNNKernels.FlashCMPlan
     @test p64.NT == p64.NW * 32              # …not * 64

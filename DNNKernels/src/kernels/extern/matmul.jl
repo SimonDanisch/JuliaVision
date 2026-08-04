@@ -68,12 +68,65 @@ matrices on Ada (subgroup 32) and on RDNA 3.5 (subgroup 64, `16x16x16` Float16)
 with no vendor branch anywhere.
 """
 matmul!(ctx, out, A, B, bias=nothing; epi=identity) =
-    matmul!(ctx, mm_coopmat_plan(ctx.dev, out, A, B), out, A, B, bias, epi)
+    matmul!(ctx, mmplan(ctx.dev, out, A, B, bias), out, A, B, bias, epi)
+
+"""
+    mmplan(dev, out, A, B, bias) -> MMCoopMatPlan | MMGemvPlan | Decline
+
+Which path this shape takes. Tensor cores first, then the batch-1 GEMV, then the
+scalar kernel — most specific to least, and each predicate says why it declined.
+
+The order is not a preference between the first two: they are disjoint.
+`mm_coopmat_plan` requires fp16 operands and `M` on the tile;
+`mm_gemv_plan` requires fp32 and exactly one column of `B`.
+"""
+function mmplan(dev, out, A, B, bias)
+    p = mm_coopmat_plan(dev, out, A, B)
+    p isa Decline || return p
+    mm_gemv_plan(dev, out, A, B, bias)
+end
 
 # One method per plan type (review finding 1): a new GEMM path is a new plan type
 # and a new method here, not another branch in the function above.
 matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi) =
     matmul_coopmat!(ctx, out, plan, A, B, bias, epi)
+
+"""
+    mm_gemv_plan(dev, out, A, B, bias) -> MMGemvPlan | Decline
+
+Whether this is a matrix-*vector* product: one column of `B`, fp32, dense
+operands, and a bias this kernel's store can apply.
+
+`size(B, 2) == 1` is what "batch 1" means in the reversed layout — torch's `M`,
+the token count, is `B`'s trailing extent here. Every matmul in an autoregressive
+decoder step has it, and none in an encoder does.
+
+Dense, because `Lava.gemv!`'s addressing is `W[m + M * (k - 1)]`: a strided view
+would read the wrong elements rather than fail, so the layout is required, not
+adapted to. `A` is `(M, K)` contiguous along `m` — what `hoistpermutes` produces
+— and reaches `gemv!` as `transpose(A)`, which is the dispatch that picks the
+kernel for that layout.
+
+The bias is checked here rather than asserted in the kernel so that an unexpected
+shape *declines* to the scalar path, which broadcasts anything, instead of
+throwing. Whisper's decoder biases are all `(M,)`; the check is for the next
+model.
+"""
+function mm_gemv_plan(dev, out, A, B, bias)
+    A isa Lava.LavaArray{Float32,2} || return Decline(:operands)
+    B isa Lava.LavaArray{Float32,2} || return Decline(:operands)
+    out isa Lava.LavaArray{Float32,2} || return Decline(:operands)
+    size(B, 2) == 1 || return Decline(:notvector)
+    bias === nothing || (bias isa AbstractVector && length(bias) == size(A, 1)) ||
+        return Decline(:bias)
+    MMGemvPlan()
+end
+
+"""`Lava.gemv!`: the M = 1 path, with the bias and activation in its store."""
+function matmul!(ctx, ::MMGemvPlan, out, A, B, bias, epi)
+    Lava.gemv!(out, B, transpose(A); bias, epilogue = epi)
+    return out
+end
 
 """`LinearAlgebra.mul!`, which is Lava's scalar kernel — always available."""
 function matmul!(ctx, ::Decline, out, A, B, bias, epi)
@@ -101,7 +154,7 @@ belongs in the same epilogue and `mul!` has no bias.
 `N` is padded internally; `M` and `K` are the operands' own extents and are
 required to land on the tile.
 """
-function mm_coopmat_plan(dev::Device, out, A, B)
+function mm_coopmat_plan(dev::Lava.DeviceCaps, out, A, B)
     A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
         return Decline(:operands)
     size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)

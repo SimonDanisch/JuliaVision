@@ -21,7 +21,7 @@ positions fall back to attrs and `ins` is consumed in order.
 """
 function operand(ctx::Ctx, op::Op, pos::Int)
     key = "arg$(pos-1)"
-    haskey(op.attrs, key) && return scalar(op.attrs[key])
+    haskey(op.attrs, key) && return numattr(ctx, op.attrs[key])
     # the pos'th operand is a tensor: count how many earlier positions were scalars
     idx = pos - count(p -> haskey(op.attrs, "arg$(p-1)"), 1:(pos - 1))
     idx <= length(op.ins) ||
@@ -41,10 +41,61 @@ alpha(op::Op) = get(op.attrs, "alpha", 1)
     return trunc(T, v)
 end
 
-"""Non-finite scalars are serialised as strings; see export_graphs.const."""
+"""
+    pycomplex(s) -> ComplexF32 | nothing
+
+Parse a Python complex literal — `"1j"`, `"-2j"`, `"(1+2j)"`, `"(-1.5-0.5j)"`.
+
+`repr()` of a Python `complex` is not a number in JSON, so the exporter writes it
+as a string alongside `"inf"`/`"nan"`. Kokoro's iSTFT multiplies a phase by `1j`
+before `exp`, and without this the literal reaches a kernel as a `String`: the
+failure is a GPU compilation error mentioning `LavaRefValue{String}` inside a
+broadcast, which names neither the op nor the attribute.
+
+The split between real and imaginary parts is the last `+`/`-` that is not the
+leading sign and not an exponent marker — `1e-5j` has a `-` that belongs to the
+exponent.
+"""
+function pycomplex(s::AbstractString)
+    t = strip(String(s), ['(', ')'])
+    (endswith(t, "j") && length(t) > 1) || return nothing
+    t = t[1:prevind(t, lastindex(t))]
+    i = findlast(k -> (t[k] == '+' || t[k] == '-') && k > firstindex(t) &&
+                      !(t[prevind(t, k)] in ('e', 'E')), collect(eachindex(t)))
+    part(str, dflt) = isempty(str) || str == "+" ? dflt :
+                      str == "-" ? -dflt : parse(Float64, str)
+    i === nothing && return ComplexF32(0, part(t, 1.0))
+    return ComplexF32(parse(Float64, t[firstindex(t):prevind(t, i)]),
+                      part(t[i:end], 1.0))
+end
+
+"""
+    numattr(ctx, v)
+
+A scalar attribute, with symbolic shape expressions resolved.
+
+`scalar` handles the string encodings that are *values* — `"inf"`, `"nan"`,
+`"1j"` — and hands anything else back unchanged. Once a graph carries symbolic
+shapes, an attribute can also be a shape *expression*: `clamp`'s upper bound and
+`full`'s fill value both turn into functions of the sequence length. Those must
+be evaluated against the `dims` of this call, or they reach arithmetic as a
+`String` and fail with `MethodError: no method matching Float32(::String)` —
+which names neither the op nor the symbol.
+"""
+function numattr(ctx::Ctx, v)
+    s = scalar(v)
+    s isa AbstractString ? evalexpr(String(s), ctx.dims) : s
+end
+
+"""Non-finite and complex scalars are serialised as strings; see export_graphs.const."""
 scalar(v) = v
-scalar(v::AbstractString) = v == "-inf" ? -Inf32 : v == "inf" ? Inf32 :
-                            v == "nan" ? NaN32 : v
+function scalar(v::AbstractString)
+    v == "-inf" && return -Inf32
+    v == "inf" && return Inf32
+    v == "nan" && return NaN32
+    c = pycomplex(v)
+    return c === nothing ? v : c
+end
 
 """
     intlist(ctx, v) -> Vector{Int}
@@ -52,8 +103,30 @@ scalar(v::AbstractString) = v == "-inf" ? -Inf32 : v == "inf" ? Inf32 :
 An attr list whose elements may be constants or `"\$buffer"` references to host
 scalars (see export_graphs: mixed lists keep their order in the attr).
 """
-intlist(ctx::Ctx, v) = Int[el isa AbstractString && startswith(el, "\$") ?
-                           Int(value(ctx, el[2:end])) : Int(el) for el in v]
+intlist(ctx::Ctx, v) = Int[intattr(ctx, el) for el in v]
+
+"""
+    intattr(ctx, v) -> Int
+
+One attribute element, whatever form it arrived in:
+
+  * an integer, as most are;
+  * `"\$name"`, a reference to a host scalar the graph computed;
+  * **a symbolic expression** — `"t"`, `"2*f + 1"` — evaluated against the `dims`
+    passed to `call`.
+
+The third is what makes a graph reusable across sequence lengths. `evalshape`
+already did it for buffer *shapes*; an attribute that carries a length (an
+`arange` bound, a `view`'s target extent) needs the same treatment, and without
+it the symbol reaches arithmetic as a `String` and fails with
+`MethodError: no method matching -(::String, ::Int64)` — which names neither the
+op nor the symbol.
+"""
+intattr(ctx::Ctx, v::Integer) = Int(v)
+intattr(ctx::Ctx, v::Bool) = Int(v)
+intattr(ctx::Ctx, v::AbstractString) =
+    startswith(v, "\$") ? Int(value(ctx, v[2:end])) : evalexpr(String(v), ctx.dims)
+intattr(ctx::Ctx, v) = Int(v)
 
 # ---------------------------------------------------------------- elementwise
 
@@ -138,15 +211,51 @@ cycle, so `inv(intpow(x, -n))` fails to validate rather than to run.
     n < 0 ? inv(r) : r
 end
 
+"""
+`pow(a, e)` with a scalar exponent.
+
+The exponent is known **here**, on the host, so the kernel does not carry a loop
+for it: the exponents models actually use get their expression directly and
+`intpow` stays as the general fallback. Every one of Kokoro's 48 is `2`.
+
+**This is not a speed fix, and the measurement that suggested it was one is worth
+recording.** Per-op serialised timing put `pow.Tensor_Scalar` at 157 ms of
+Kokoro's vocoder — above its 70 batch-norms — which reads as a runtime
+square-and-multiply loop being expensive. Timed directly on the two shapes it
+runs at, interleaved and both orders:
+
+    (256, 3400)     intpow(x, 2)  0.084 ms    x*x  0.083 ms    1.0x
+    (128, 20401)    intpow(x, 2)  0.120 ms    x*x  0.112 ms    1.1x
+
+The loop folds. The 3.3 ms per call the attribution implied was the instrument —
+a sync around every op measures itself (`lavadnn-perf-attribution`), and this is
+what that looks like when it lands on a cheap op called many times. The direct
+forms are kept because they are free and clearer, not because they are faster.
+
+`^` is deliberately not used even for them — see `intpow` for why `x^2` on a
+mostly-negative tensor came back NaN.
+"""
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("pow.Tensor_Scalar")})
     a = lhs(ctx, op)
     e = rhs(ctx, op)
-    (e isa Integer || (e isa Real && isinteger(e))) && return intpow.(a, Int(e))
+    if e isa Integer || (e isa Real && isinteger(e))
+        n = Int(e)
+        n == 1 && return emit(ctx, Base.broadcasted(identity, a))
+        n == 2 && return emit(ctx, Base.broadcasted(x -> x * x, a))
+        n == 3 && return emit(ctx, Base.broadcasted(x -> x * x * x, a))
+        n == -1 && return emit(ctx, Base.broadcasted(inv, a))
+        return intpow.(a, n)
+    end
     a .^ e
 end
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Tensor")}) = lhs(ctx, op) .>= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Scalar")}) = lhs(ctx, op) .>= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("eq.Scalar")}) = lhs(ctx, op) .== rhs(ctx, op)
+# `le` is `ge`'s mirror and arrived with Whisper's DECODER: it builds the causal
+# mask over the KV cache, `(1,1,1,449)` for a 448-slot cache. It was the only op
+# of that graph's 162 we did not already have.
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("le.Tensor")}) = lhs(ctx, op) .<= rhs(ctx, op)
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("le.Scalar")}) = lhs(ctx, op) .<= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("bitwise_and.Tensor")}) = lhs(ctx, op) .& rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("logical_and.default")}) = lhs(ctx, op) .& rhs(ctx, op)
 # Converted to the declared dtype inside the broadcast, because `ifelse` does not
@@ -163,10 +272,15 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("where.self")})
     z = zero(dtypeof(ctx, op.out))
     emit(ctx, Base.broadcasted((p, x, y) -> ifelse(p, oftype(z, x), oftype(z, y)), c, a, b))
 end
+"""
+`clamp` with either bound optional — and either bound possibly **symbolic**: the
+iSTFT clamps an index against the frame count, so `arg2` becomes a function of
+the sequence length once the graph is length-generic.
+"""
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")}) =
     (lo = get(op.attrs, "arg1", nothing); hi = get(op.attrs, "arg2", nothing);
-     clamp.(lhs(ctx, op), lo === nothing ? -Inf32 : Float32(lo),
-            hi === nothing ? Inf32 : Float32(hi)))
+     clamp.(lhs(ctx, op), lo === nothing ? -Inf32 : Float32(numattr(ctx, lo)),
+            hi === nothing ? Inf32 : Float32(numattr(ctx, hi))))
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
     a = lhs(ctx, op)
     d = alloc(ctx, op.out, size(a)...)
@@ -214,13 +328,18 @@ end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("full.default")})
     sz = evalshape(shapeof(ctx, op.out), ctx.dims)
-    fill!(alloc(ctx, op.out, sz...), convert(dtypeof(ctx, op.out), scalar(op.attrs["arg1"])))
+    # The VALUE can be symbolic too, not just the shape: a graph that materialises
+    # its own sequence length writes `full((1,), t)`. `scalar` hands back the
+    # string unchanged when it is not inf/nan/complex, and `convert(Float32, ...)`
+    # then fails with `MethodError: no method matching Float32(::String)`.
+    fill!(alloc(ctx, op.out, sz...),
+          convert(dtypeof(ctx, op.out), numattr(ctx, op.attrs["arg1"])))
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("full_like.default")})
     a = lhs(ctx, op)
     T = dtypeof(ctx, op.out)
-    fill!(alloc(ctx, T, size(a)...), convert(T, scalar(op.attrs["arg1"])))
+    fill!(alloc(ctx, T, size(a)...), convert(T, numattr(ctx, op.attrs["arg1"])))
 end
 
 """
@@ -238,14 +357,14 @@ runop!(ctx::Ctx, op::Op, ::Val{Symbol("empty.memory_format")}) =
           zero(dtypeof(ctx, op.out)))
 
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("scalar_tensor.default")}) =
-    fill!(alloc(ctx, op.out), convert(dtypeof(ctx, op.out), scalar(op.attrs["arg0"])))
+    fill!(alloc(ctx, op.out), convert(dtypeof(ctx, op.out), numattr(ctx, op.attrs["arg0"])))
 
 @inline arange_body(I, start, step) = start + (I[1] - 1) * step
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("arange.start_step")})
-    start = something(get(op.attrs, "arg0", nothing), 0)
-    stop = length(op.ins) >= 1 ? value(ctx, op.ins[1]) : op.attrs["arg1"]
-    step = something(get(op.attrs, "arg2", nothing), 1)
+    start = intattr(ctx, something(get(op.attrs, "arg0", nothing), 0))
+    stop = length(op.ins) >= 1 ? value(ctx, op.ins[1]) : intattr(ctx, op.attrs["arg1"])
+    step = intattr(ctx, something(get(op.attrs, "arg2", nothing), 1))
     T = dtypeof(ctx, op.out)
     n = length(T(start):T(step):T(stop - step))
     launch!(ctx, arange_body, alloc(ctx, op.out, n), T(start), T(step))
@@ -577,6 +696,300 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("slice_scatter.default")})
     dst
 end
 
+# ── the iSTFT pair ───────────────────────────────────────────────────────────
+#
+# `_fft_r2c` / `_fft_c2r` are Kokoro's inverse STFT, one of each per utterance,
+# at length 20 batched over ~11.7k windows. They map onto the FFT ported from
+# VkFFT (`Lava.rfft`, `Lava.fft`) — 20 is 4x5, which the mixed-radix plan covers.
+#
+# torch's `normalization` enum on both: 0 none, 1 by sqrt(n), 2 by n. It is read
+# rather than assumed, because getting it wrong scales the audio by 20 and still
+# sounds like speech.
+
+"""Torch's FFT normalization enum applied to `x` for a transform of length `n`."""
+fftnorm(x, mode::Integer, n::Integer) =
+    mode == 0 ? x : mode == 1 ? x ./ sqrt(Float32(n)) : x ./ Float32(n)
+
+"""
+`_fft_r2c(self, dim, normalization, onesided)` — the forward real FFT.
+
+Only a single transform axis, and it must be the contiguous one: `Lava.rfft`
+transforms along dimension 1 and batches over the rest, and a graph asking for
+any other axis would need a transpose that nothing has yet required.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_fft_r2c.default")})
+    a = lhs(ctx, op)
+    dims = ints(op.attrs["arg1"])
+    length(dims) == 1 || error("_fft_r2c: one transform axis only (op $(op.id))")
+    d = jdim(dims[1], ndims(a))
+    d == 1 || error("_fft_r2c: transform axis must be contiguous, got Julia dim $d")
+    Bool(get(op.attrs, "arg3", true)) ||
+        error("_fft_r2c: two-sided output is not implemented (op $(op.id))")
+    fftnorm(Lava.rfft(a), Int(get(op.attrs, "arg2", 0)), size(a, 1))
+end
+
+"""
+`_fft_c2r(self, dim, normalization, last_dim_size)` — the inverse real FFT.
+
+Lava has no `irfft`, so it is built from the pieces it does have: extend the
+half spectrum to the full Hermitian one, inverse complex FFT, take the real
+part. `X[n - k + 2] = conj(X[k])` is the extension, and it is a gather with a
+reversed index rather than a `reverse` — a reversed *view* of a device array is
+not something every path here handles.
+
+`arg3` is the output length, and it is not redundant: 11 bins come from either
+20 or 21 samples, and only the caller knows which.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_fft_c2r.default")})
+    a = lhs(ctx, op)
+    dims = ints(op.attrs["arg1"])
+    length(dims) == 1 || error("_fft_c2r: one transform axis only (op $(op.id))")
+    d = jdim(dims[1], ndims(a))
+    d == 1 || error("_fft_c2r: transform axis must be contiguous, got Julia dim $d")
+    n = Int(op.attrs["arg3"])
+    nb = size(a, 1)
+    full = alloc(ctx, ComplexF32, n, Base.tail(size(a))...)
+    copyto!(selectdim(full, 1, 1:nb), a)
+    if n > nb
+        # Bin j of the full spectrum mirrors bin n - j + 2 of the half one, so
+        # for n = 20, nb = 11 the sources are 10, 9, ... 2 — a REVERSED
+        # CONTIGUOUS RANGE, written as one. An index vector would say the same
+        # thing and could not reach a kernel: a `SubArray` holding a host
+        # `Vector{Int}` fails to compile with "passing non-bitstype argument",
+        # whereas a `StepRange` is isbits and rides along.
+        rest = ntuple(_ -> Colon(), ndims(a) - 1)
+        copyto!(selectdim(full, 1, (nb + 1):n),
+                conj.(view(a, (n - nb + 1):-1:2, rest...)))
+    end
+    # `fftany!`, not `fft!`: the iSTFT length is 20 = 4x5 and `fft!` is
+    # power-of-two only. `rfft` reaches for the same dispatcher and says why —
+    # Whisper's 400-point mel is 200 complex, DeepFilterNet3's 960 is 480.
+    y = real.(Lava.fftany!(similar(full), full; inverse = true))
+    fftnorm(y, Int(get(op.attrs, "arg2", 0)), n)
+end
+
+# ── Kokoro's six ─────────────────────────────────────────────────────────────
+#
+# `gather` for the text half; the other five for the iSTFTNet vocoder's
+# harmonic-plus-noise source and its overlap-add.
+
+"""
+`gather` along one axis: `out[I] = a[I with I[d] = index[I]]`, torch's
+`arg1` naming the axis.
+
+Only the form Kokoro produces is supported — every axis other than `d` is a
+singleton in both operands, which makes the whole thing `a[index]` — and anything
+else errors rather than silently gathering the wrong axis. The general N-d gather
+wants a kernel; this one is a lookup, and writing the kernel before a graph needs
+it would be inventing a requirement.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("gather.default")})
+    a = lhs(ctx, op)
+    idx = value(ctx, op.ins[2])
+    n = ndims(a)
+    d = jdim(Int(op.attrs["arg1"]), n)
+    all(k -> k == d || size(a, k) == 1, 1:n) && all(k -> k == d || size(idx, k) == 1, 1:ndims(idx)) ||
+        error("gather: only singleton batch axes are supported (op $(op.id), " *
+              "a $(size(a)), index $(size(idx)), dim $d)")
+    flat = vec(Int.(collect(idx))) .+ 1        # torch indices are 0-based
+    out = alloc(ctx, op.out, size(idx)...)
+    copyto!(out, reshape(collect(vec(a))[flat], size(idx)))
+    out
+end
+
+"""
+`remainder` is **`mod`, not `rem`**: torch's result takes the sign of the
+*divisor*, so `remainder(-0.25, 1) == 0.75`. Kokoro's sine generator relies on
+exactly that — it wraps an accumulated phase into `[0, 1)`, and `rem` would hand
+back negative phases for half the samples and a different waveform.
+"""
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("remainder.Scalar")}) =
+    emit(ctx, Base.broadcasted(mod, lhs(ctx, op), numattr(ctx, op.attrs["arg1"])))
+
+"""
+`angle` of a complex array — `atan(imag, real)`, elementwise.
+
+Written as a two-argument `atan` rather than `angle` because the branch at the
+negative real axis has to be the quadrant-correct one; `atan(y/x)` is not.
+"""
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("angle.default")}) =
+    emit(ctx, Base.broadcasted(z -> atan(imag(z), real(z)), lhs(ctx, op)))
+
+"""
+    hostnoise(ctx, op, f, dims)
+
+`rand`/`randn` generated on the host and uploaded.
+
+**Lava has no device RNG**, so this is the honest implementation rather than the
+fast one: Kokoro's `SineGen` wants `randn_like` over `(1, 58800, 9)` — about
+2 MB per call — plus a 9-element `rand` for the initial phase. A counter-based
+(Philox-style) device generator is the follow-up; until then this is correct,
+and correctness is what the vocoder's noise floor needs first.
+
+The values come from `ctx.noise` rather than from `Random` directly, so a parity
+run can substitute [`ZeroNoise`](@ref) and compare the deterministic path against
+a reference that has had the same thing done to it.
+"""
+function hostnoise(ctx::Ctx, op::Op, f, dims)
+    T = dtypeof(ctx, op.out)
+    out = alloc(ctx, op.out, dims...)
+    copyto!(out, draw(ctx.noise, f, T, dims))
+    out
+end
+
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("rand.default")}) =
+    hostnoise(ctx, op, rand, Tuple(evalshape(shapeof(ctx, op.out), ctx.dims)))
+
+runop!(ctx::Ctx, op::Op, ::Val{Symbol("randn_like.default")}) =
+    hostnoise(ctx, op, randn, size(lhs(ctx, op)))
+
+"""
+`unfold(a, dim, size, step)` — the sliding window, and in torch a *view*.
+
+`out[..., w, k] = a[..., (w-1) * step + k]`. Kokoro uses it three times for the
+iSTFT's overlap-add, at `size = 20, step = 5` over 58820 samples, so the windows
+overlap four ways and the result is 4x the input in elements.
+
+Materialised here rather than viewed: the stride pattern is expressible, but a
+`step < size` view aliases itself, and every consumer downstream would have to
+be safe against that. The copy is one pass.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("unfold.default")})
+    a = lhs(ctx, op)
+    n = ndims(a)
+    d = jdim(Int(op.attrs["arg1"]), n)
+    sz = Int(op.attrs["arg2"])
+    st = Int(op.attrs["arg3"])
+    nw = (size(a, d) - sz) ÷ st + 1
+    # torch appends the window axis LAST, which in the reversed layout is FIRST;
+    # the windowed axis itself keeps its position and shrinks to the window count.
+    out = alloc(ctx, op.out, sz, ntuple(k -> k == d ? nw : size(a, k), n)...)
+    for k in 1:sz
+        # offset k within every window: elements k, k+st, k+2st, ...
+        copyto!(selectdim(out, 1, k), selectdim(a, d, k:st:(k + st * (nw - 1))))
+    end
+    out
+end
+
+"""
+`aten::lstm` — a whole recurrent layer as ONE op.
+
+Kept undecomposed on purpose (`kernels/extern/lstm.jl` explains the arithmetic
+and `tools/export_kokoro.py:decomptable` does the export side): letting
+`run_decompositions()` unroll it turns 1 node into 532 per 12 timesteps, and the
+count grows with the sequence.
+
+The reversed layout puts the sequence in the middle: torch `(N, T, D)` with
+`batch_first` is Julia `(D, T, N)`, and the `(2, N, H)` initial state is
+`(H, N, 2)`. Only the shapes Kokoro produces are accepted — one layer, batch 1,
+`batch_first`, inference — and anything else errors rather than quietly running a
+different recurrence. Multi-layer is a loop over this; batching is a wider GEMM
+and a batch axis in the kernel; neither has a caller yet.
+
+Returns only `(output,)`. `aten::lstm` also returns the final `h` and `c`, which
+`getitem` would pick out — no graph here reads them, and returning a placeholder
+that looks like state would be worse than not returning it.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("lstm.input")})
+    x = lhs(ctx, op)                                  # (D, T, N)
+    hx = [value(ctx, String(e)[2:end]) for e in op.attrs["arg1"]]
+    ps = [value(ctx, String(e)[2:end]) for e in op.attrs["arg2"]]
+    hasbias = Bool(something(get(op.attrs, "arg3", nothing), true))
+    nlayers = Int(something(get(op.attrs, "arg4", nothing), 1))
+    bidir = Bool(something(get(op.attrs, "arg7", nothing), false))
+    batchfirst = Bool(something(get(op.attrs, "arg8", nothing), false))
+    hasbias || error("lstm: has_biases = false is not implemented (op $(op.id))")
+    nlayers == 1 || error("lstm: num_layers = $nlayers is not implemented (op $(op.id))")
+    batchfirst || error("lstm: batch_first = false is not implemented (op $(op.id))")
+    size(x, 3) == 1 || error("lstm: batch $(size(x, 3)) is not implemented (op $(op.id))")
+
+    D, T = size(x, 1), size(x, 2)
+    H = size(ps[2], 1)                                # w_hh is (H, 4H)
+    ndir = bidir ? 2 : 1
+    length(ps) == 4 * ndir || error("lstm: $(length(ps)) parameters for " *
+                                    "$(ndir) direction(s) (op $(op.id))")
+    out = alloc(ctx, op.out, ndir * H, T, 1)
+    x2 = reshape(x, D, T)
+    h0, c0 = hx[1], hx[2]
+    for d in 0:(ndir - 1)
+        w_ih, w_hh, b_ih, b_hh = ps[4d + 1], ps[4d + 2], ps[4d + 3], ps[4d + 4]
+        lstm!(ctx, reshape(out, ndir * H, T), x2, w_ih, w_hh, b_ih, b_hh,
+              view(h0, :, 1, d + 1), view(c0, :, 1, d + 1), T, H, d * H, d == 1)
+    end
+    (out,)
+end
+
+"""
+`index_put` is the scatter half of `index.Tensor`, and it is how a KV cache is
+written: `cache[:, :, position] = k` for a `position` that is a tensor, not a
+literal, so `slice_scatter` cannot express it.
+
+`arg1` is one entry per torch dimension exactly as in `index.Tensor` — `nothing`
+for a whole axis, `"\$name"` for an index tensor — and the *last* input is the
+values. `arg3` is `accumulate`: torch's `index_put_(..., accumulate=True)` is
+`+=` and not `=`, a different op, so it is read rather than assumed.
+
+Consecutive indices become a range. That is not cosmetic: a `UnitRange` view is
+strided and assignable on the device, while a view built from an index *vector*
+would need a scatter kernel. A cache write is always one slot, so the range path
+is the one that runs; the vector path exists so a future multi-slot write fails
+loudly at the assignment instead of silently taking a wrong branch.
+
+**This copies the whole tensor to write one slot.** Whisper's decoder does that
+eight times per token (~18 MB) and then `cat`s the results back into the stacked
+cache (~18 MB again). It is the price of a functional graph, ~12% on a 2.07 ms
+token; folding select/index_put/cat into an in-place write on the input buffer
+needs the graph to express output-aliases-input, which it does not today.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
+    a = lhs(ctx, op)
+    src = value(ctx, op.ins[end])
+    dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
+    dst .= a
+    n = ndims(a)
+    idx = Vector{Any}(undef, n)
+    fill!(idx, Colon())
+    nz = Int[]
+    for (k, e) in enumerate(op.attrs["arg1"])
+        e === nothing && continue
+        jd = n - k + 1
+        1 <= jd <= n || error("index_put: dim $k out of range for $(n)-d input")
+        push!(nz, jd)
+        iv = vec(Int.(collect(value(ctx, String(e)[2:end])))) .+ 1  # 0-based in torch
+        idx[jd] = iv == collect(first(iv):last(iv)) ? (first(iv):last(iv)) : iv
+    end
+    if Bool(something(get(op.attrs, "arg3", nothing), false))
+        # ── accumulate = true: a SCATTER-ADD, and duplicates are the point.
+        #
+        # `view(dst, idx) .+= src` is NOT this. When `idx` repeats an index —
+        # which it does here, 235220 entries landing in 58820 slots — a Julia
+        # broadcast assignment keeps one contribution per slot and silently drops
+        # the rest, while torch sums them. That is the iSTFT's overlap-add
+        # envelope: three of every four windows vanished, the envelope had 1451
+        # zeros, and the division by it produced NaN and Inf in the audio.
+        #
+        # Host-side, one pass. Every use so far is a constant subgraph folded at
+        # load, so this runs once per model; a runtime use would want a kernel
+        # with atomics.
+        length(nz) == 1 || error("index_put: accumulate with $(length(nz)) index " *
+                                 "tensors is not implemented (op $(op.id))")
+        d = nz[1]
+        all(k -> k == d || size(a, k) == 1, 1:n) ||
+            error("index_put: accumulate needs singleton batch axes (op $(op.id))")
+        hv = vec(Array(dst))
+        hs = vec(Array(src))
+        ivals = idx[d]
+        @inbounds for (j, i) in enumerate(ivals)
+            hv[i] += hs[j]
+        end
+        copyto!(dst, reshape(hv, size(dst)))
+        return dst
+    end
+    v = view(dst, idx...)
+    v .= reshape(src, size(v))
+    dst
+end
+
 # --------------------------------------------------------------------- extern
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
@@ -604,11 +1017,33 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
         # Reading neither this nor arg7 is how a `ConvTranspose2d` silently runs
         # as an ordinary convolution: a wrong picture, no error, nothing in the
         # numbers to point at. SAM 2's mask decoder upsamples with two of them.
+        if length(stride) == 1
+            # 1-D is 2-D with a singleton second spatial axis. Kokoro's iSTFTNet
+            # upsamples with `ConvTranspose1d`, and rather than a second kernel
+            # the operands are lifted: `(L, Cin, N) -> (L, 1, Cin, N)` and
+            # `(k, Cout, Cin) -> (k, 1, Cout, Cin)`, with stride/pad/dilation/
+            # output-padding all 1 on the added axis. The 2-D path is the one
+            # that has been measured and tested, so the lift is preferable to a
+            # parallel implementation that could drift from it.
+            ox1 = convtransposesize(size(x, 1), size(w, 1), stride[1], pad[1],
+                                    dil[1], outpad[1])
+            x2 = reshape(x, size(x, 1), 1, size(x, 2), size(x, 3))
+            w2 = reshape(w, size(w, 1), 1, size(w, 2), size(w, 3))
+            # `size(w, 2)` is C_out PER GROUP — the transposed weight is
+            # `(k, C_out/groups, C_in)`. Depthwise gives 1 there and 512 groups.
+            out2 = alloc(ctx, eltype(x), ox1, 1, groups * size(w, 2), size(x, 3))
+            convolutiontranspose!(ctx, out2, x2, w2, bias, [stride[1], 1],
+                                  [pad[1], 0], [dil[1], 1], [outpad[1], 0], groups)
+            out1 = reshape(out2, ox1, groups * size(w, 2), size(x, 3))
+            act === :relu && (out1 .= max.(out1, zero(eltype(out1))))
+            return out1
+        end
         length(stride) == 2 ||
-            error("transposed convolution is implemented for 2-D only (op $(op.id))")
+            error("transposed convolution is implemented for 1-D and 2-D only " *
+                  "(op $(op.id), $(length(stride))-D)")
         ox = convtransposesize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1], outpad[1])
         oy = convtransposesize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2], outpad[2])
-        out = alloc(ctx, eltype(x), ox, oy, size(w, 3), size(x, 4))
+        out = alloc(ctx, eltype(x), ox, oy, groups * size(w, 3), size(x, 4))
         convolutiontranspose!(ctx, out, x, w, bias, stride, pad, dil, outpad, groups)
         act === :relu && (out .= max.(out, zero(eltype(out))))
         return out
@@ -889,7 +1324,7 @@ runop!(ctx::Ctx, op::Op, ::Val{Symbol("_assert_tensor_metadata.default")}) =
     lhs(ctx, op)
 
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("mul.Scalar")}) =
-    emit(ctx, Base.broadcasted(*, lhs(ctx, op), scalar(op.attrs["arg1"])))
+    emit(ctx, Base.broadcasted(*, lhs(ctx, op), numattr(ctx, op.attrs["arg1"])))
 
 """
 `index.Tensor` is torch's advanced indexing: `arg1` is one entry per dimension,
@@ -899,24 +1334,82 @@ leading axes are `nothing` and the trailing two carry broadcast index tensors.
 
 Torch indexes the un-reversed shape, so entry `k` of `arg1` addresses Julia
 dimension `ndims - k + 1`; the index values are 0-based and become 1-based here.
-Only the form the graphs actually use is supported — all-`nothing` prefixes then
-index tensors — and anything else errors rather than quietly gathering the wrong
-axis.
+
+**Several index tensors are PAIRED, not a Cartesian product.** This is the part
+that is easy to get silently wrong, because Julia spells the other thing the same
+way: `x[i, j]` with two vectors selects `length(i) * length(j)` elements, while
+torch broadcasts `i` against `j` and selects `length(i)` of them, one per
+position. So `mask[idx0, idx1]` with `idx0` of shape `(1,1,1,1)` and `idx1` of
+`(1,1,1,30)` is 30 elements, and `view(x, idx0, idx1)` is 30 *rows* — a wrong
+answer, or, as Kokoro's ALBERT found, a `BoundsError` from a 30-element index
+landing on a size-1 axis.
+
+One index tensor is the same function either way, which is why the single-index
+form was right for a year and nothing noticed.
 """
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
     x = lhs(ctx, op)
     spec = op.attrs["arg1"]
     n = ndims(x)
-    idx = Vector{Any}(undef, n)
-    fill!(idx, Colon())
+    dims, devs = Int[], Any[]
     for (k, e) in enumerate(spec)
         e === nothing && continue
         jd = n - k + 1
         1 <= jd <= n || error("index.Tensor: dim $k out of range for $(n)-d input")
-        iv = value(ctx, String(e)[2:end])          # attrs store "$name"
-        idx[jd] = vec(Int.(collect(iv))) .+ 1      # torch indices are 0-based
+        push!(dims, jd)
+        push!(devs, value(ctx, String(e)[2:end]))    # attrs store "\$name"
     end
-    materialize(ctx, view(x, idx...))
+    isempty(dims) && return materialize(ctx, x)
+    if length(dims) == 1
+        idx = Vector{Any}(undef, n)
+        fill!(idx, Colon())
+        # The index stays ON THE DEVICE. `Int.(collect(iv)) .+ 1` brings it home
+        # and the resulting `SubArray{...,Tuple{Vector{Int64},...}}` cannot reach
+        # a kernel at all — it fails to compile with "passing non-bitstype
+        # argument", naming the broadcast machinery rather than the index. The
+        # `.+ 1` (torch is 0-based) is a broadcast, so it runs on the device and
+        # gives back a device vector.
+        idx[dims[1]] = vec(devs[1]) .+ 1
+        return materialize(ctx, view(x, idx...))
+    end
+    indexpaired(ctx, x, dims, [Int.(collect(d)) .+ 1 for d in devs])
+end
+
+"""
+    indexpaired(ctx, x, dims, arrs) -> array
+
+Torch's advanced indexing with more than one index tensor: broadcast the index
+arrays against each other, then take one element of `x` per position.
+
+Every axis of `x` must be indexed. The mixed case — some axes indexed, some
+sliced — is where torch also has to decide *where* to put the gathered axis, and
+no graph here produces it; erroring is better than picking one of the two
+conventions and being right half the time.
+
+The gather runs on the **host**. Every use of this form so far is attention-mask
+or position metadata — tens to thousands of elements, produced by
+`arange`/`unsqueeze` — so a round trip is cheaper than the alternative, and the
+alternative is not free: a `view` with a host `Vector{Int}` index cannot reach a
+kernel at all (`passing non-bitstype argument ... Vector{Int64}`), so it would
+need the index uploaded and a gather kernel written for it.
+
+The single-index path above stays on the device, which is where the large
+gathers are — the Wan VAE's attention row/column selects.
+"""
+function indexpaired(ctx::Ctx, x, dims::Vector{Int}, arrs::Vector{<:Array})
+    n = ndims(x)
+    length(dims) == n ||
+        error("index.Tensor: $(length(dims)) index tensors for a $(n)-d input; " *
+              "mixing indexed and sliced axes is not implemented")
+    # The broadcast determines the result shape — no need to compute it first,
+    # and `Broadcast.broadcast_shapes` is not in every Julia this runs on.
+    strides = cumprod([1; collect(size(x))[1:end - 1]])
+    lin = reduce((u, v) -> u .+ v,
+                 ((a .- 1) .* strides[d] for (d, a) in zip(dims, arrs))) .+ 1
+    flat = collect(vec(x))[vec(lin)]
+    out = alloc(ctx, eltype(x), size(lin)...)
+    copyto!(out, reshape(flat, size(lin)))
+    out
 end
 
 """
@@ -993,9 +1486,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("pow.Scalar")})
 end
 
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("gt.Scalar")}) =
-    emit(ctx, Base.broadcasted(>, lhs(ctx, op), scalar(op.attrs["arg1"])))
+    emit(ctx, Base.broadcasted(>, lhs(ctx, op), numattr(ctx, op.attrs["arg1"])))
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("lt.Scalar")}) =
-    emit(ctx, Base.broadcasted(<, lhs(ctx, op), scalar(op.attrs["arg1"])))
+    emit(ctx, Base.broadcasted(<, lhs(ctx, op), numattr(ctx, op.attrs["arg1"])))
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("minimum.default")}) =
     emit(ctx, Base.broadcasted(min, lhs(ctx, op), rhs(ctx, op)))
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("maximum.default")}) =

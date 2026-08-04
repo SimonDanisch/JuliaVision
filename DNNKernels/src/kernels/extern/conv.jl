@@ -146,12 +146,21 @@ end
 
 @inline function convtranspose2d(I, x, w, bias,
                                  ::Val{SX}, ::Val{SY}, ::Val{PX}, ::Val{PY},
-                                 ::Val{DX}, ::Val{DY}) where {SX,SY,PX,PY,DX,DY}
+                                 ::Val{DX}, ::Val{DY}, ::Val{G}) where {SX,SY,PX,PY,DX,DY,G}
     ox, oy, co, n = I
     @inbounds begin
         KX, KY = size(w, 1), size(w, 2)
         A = accum(eltype(x))
         acc = bias === nothing ? zero(A) : A(bias[co])
+        # Grouped: output channel `co` is fed only by its own group's inputs, and
+        # indexes the weight by its position WITHIN the group. The transposed
+        # weight is `(kx, ky, C_out/G, C_in)`, so its third axis is already the
+        # within-group one — which is exactly the arithmetic the ungrouped path
+        # gets right by accident at G = 1 and would get wrong at G > 1.
+        cog = G == 1 ? co : (co - 1) % (size(w, 3)) + 1
+        g = G == 1 ? 0 : (co - 1) ÷ (size(w, 3))
+        cilo = G == 1 ? 1 : g * (size(x, 3) ÷ G) + 1
+        cihi = G == 1 ? size(x, 3) : (g + 1) * (size(x, 3) ÷ G)
         # Gather, not scatter: every output element is computed by ONE thread
         # from the inputs that reach it. The scatter reading of a transposed
         # convolution ("each input paints a kernel-sized patch") needs atomics
@@ -159,7 +168,7 @@ end
         # inputs reach an output is just the stride divisibility below.
         bx = (ox - 1) + PX
         by = (oy - 1) + PY
-        for ci in 1:size(x, 3)
+        for ci in cilo:cihi
             for ky in 1:KY
                 ty = by - (ky - 1) * DY
                 (ty < 0 || ty % SY != 0) && continue
@@ -173,7 +182,7 @@ end
                     # torch stores a transposed weight as (C_in, C_out, kH, kW),
                     # so reversed it is (kx, ky, co, ci) — the two channel axes
                     # are the other way round from the ordinary convolution.
-                    acc = muladd(A(x[ix, iy, ci, n]), A(w[kx, ky, co, ci]), acc)
+                    acc = muladd(A(x[ix, iy, ci, n]), A(w[kx, ky, cog, ci]), acc)
                 end
             end
         end
@@ -244,19 +253,29 @@ end
 `aten::convolution` with `transposed = true` — SAM 2's mask decoder upsamples
 its 64x64 embedding to 256x256 with two of these.
 
-Grouped transposed convolutions are refused rather than guessed: the channel
-arithmetic differs from the ordinary grouped case (the weight's second axis is
-`C_out ÷ groups`), and nothing here exercises it, so it would be untested code
-that silently returns a picture.
+Grouped is supported by the gather kernel — Kokoro's iSTFTNet upsampler uses
+depthwise (`groups == C_in`) `ConvTranspose1d`. The GEMM+shuffle fast path stays
+ungrouped: it flattens all input channels into one matmul, which is precisely
+what groups forbid, so grouped calls take the gather.
 """
 function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, outpad,
                                groups)
-    groups == 1 || error("grouped transposed convolution (groups = $groups) is not implemented")
-    all(==(0), outpad) || error("transposed convolution with output_padding = $outpad is not implemented")
+    # `output_padding` needs no code. It only chooses the output SIZE — torch
+    # uses it to disambiguate which of the several inputs a given output length
+    # could have come from — and the gather below already computes each output
+    # position from whichever inputs reach it, of which the padded positions
+    # have none or few. The extent is `convtransposesize`'s job, which already
+    # takes it. Only the GEMM+shuffle path cannot: it assumes the receptive
+    # fields tile the output exactly, and `shufflecase` already tests for that.
+    #
+    # This used to refuse outright. Kokoro's iSTFTNet upsampler uses
+    # `output_padding = 1`, and the refusal was the last thing between the port
+    # and audio.
     # The non-overlapping case is a GEMM; everything else is the gather below.
     # `size(x, 4) == 1` because the flatten fuses `W` and `H`, which are only
     # adjacent in memory within one batch element.
-    if ctx.ws !== nothing && size(x, 4) == 1 && shufflecase(w, stride, padding, dilation, outpad, groups)
+    if groups == 1 && ctx.ws !== nothing && size(x, 4) == 1 &&
+       shufflecase(w, stride, padding, dilation, outpad, groups)
         Wi, Hi, Ci, _ = size(x)
         KX, KY, Co, _ = size(w)
         xm = reshape(x, Wi * Hi, Ci)
@@ -271,7 +290,7 @@ function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, 
     end
     launch!(ctx, convtranspose2d, out, x, w, bias,
             Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
-            Val(dilation[1]), Val(dilation[2]))
+            Val(dilation[1]), Val(dilation[2]), Val(groups))
 end
 
 """One thread per output element, no reuse. Kept for grouped convolutions and as

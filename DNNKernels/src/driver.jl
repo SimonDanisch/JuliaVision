@@ -59,10 +59,18 @@ count allocations within one graph call, so sharing one across graphs would make
 a graph's ordinals depend on what ran before it in the step — and the step has
 two shapes (`encode_mask_deep` on every fifth frame, `encode_mask_shallow`
 otherwise), which would shift every ordinal after that point on alternate steps.
+
+**Only graphs whose symbols `dims` resolves are planned.** A model's graphs need
+not share an axis: Kokoro's text half is symbolic in the token count and its
+vocoder in the frame count, and the frame count is not known until the text half
+has run — the model predicts it. Planning every graph at every `dims` made that
+model impossible to call at all, with a `FieldError` naming the missing field
+rather than the graph that wanted it.
 """
 function scratchfor(m::Model, dims)
     get!(m.scratch, dims) do
-        plans = Dict(n => planslab(g, dims) for (n, g) in m.graphs)
+        plans = Dict(n => planslab(g, dims)
+                     for (n, g) in m.graphs if all(s -> haskey(dims, Symbol(s)), g.symbols))
         nb = maximum(p -> p.bytes, values(plans); init = 0)
         slab = KernelAbstractions.allocate(m.backend, UInt8, max(nb, 1))
         @debug "DNNKernels: static scratch slab $(round(nb/2^20, digits=2)) MB at $dims"
@@ -176,21 +184,26 @@ end
 
 
 """Run one graph and return its outputs in declaration order."""
-function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = false)
+function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = false,
+              noise::NoiseSource = RandomNoise())
     g = m.graphs[name]
     length(args) == length(g.inputs) ||
         error("$name expects $(length(g.inputs)) inputs, got $(length(args))")
+    missing_ = filter(s -> !haskey(dims, Symbol(s)), g.symbols)
+    isempty(missing_) || error(
+        "$name is symbolic in $(join(g.symbols, ", ")) but dims = $dims " *
+        "does not give $(join(missing_, ", "))")
     slab, plans, ws, lazies, recs, _ = scratchfor(m, dims)
     rec = startcall!(recs[name])
     vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
                     dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
-                    lazy=lazies[name], rec=rec, diag=m.diag, clampattn)
+                    lazy=lazies[name], rec=rec, diag=m.diag, clampattn, noise)
     # The same recycler resolves the outputs: an output that is a view gets
     # materialised right here, and that copy needs a stable address as much as
     # anything inside the graph did. Ordinals carry on from where `execute!` left
     # them, which is deterministic because the op sequence is.
     ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
-              lazy = lazies[name], rec, diag = m.diag, clampattn)
+              lazy = lazies[name], rec, diag = m.diag, clampattn, noise)
     Tuple(value(ctx, o) for o in g.outputs)
 end
 

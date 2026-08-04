@@ -617,7 +617,7 @@ GEMM has no epilogue to add it in — supporting it would mean a third pass, whi
 is exactly the traffic this path exists to remove. The extents must land on the
 16-wide tile, which the mask decoder's 23-token prompt does not.
 """
-function coopmat_sdpa_plan(dev::Device, q, k, v, bias; chunk::Int = 2048,
+function coopmat_sdpa_plan(dev::Lava.DeviceCaps, q, k, v, bias; chunk::Int = 2048,
                            minl::Int = 256)
     Lq, Lk = size(q, 2), size(k, 2)
     bias === nothing || return Decline(:bias)

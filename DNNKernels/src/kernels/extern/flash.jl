@@ -103,7 +103,7 @@ dimension, or on a device with more shared memory per SM.
 """
 The shared memory every Vulkan implementation guarantees a workgroup, in bytes.
 
-Only for the callers that have no [`Device`](@ref) in hand — the scalar flash
+Only for the callers that have no [`Lava.DeviceCaps`](@ref) in hand — the scalar flash
 kernel is reachable with a bare backend. Anything holding a context asks
 `ctx.dev.sharedbudget`, which is what the device actually reports.
 """
@@ -408,7 +408,7 @@ device**. `dev` supplies the tile, the subgroup width and the shared budget; eve
 one of those was a literal or a module-level `Ref` before, and each is a property
 of the device rather than of the kernel.
 """
-@inline function flashcmfits(dev::Device, EP::Int, BR::Int, BC::Int, NT::Int)
+@inline function flashcmfits(dev::Lava.DeviceCaps, EP::Int, BR::Int, BC::Int, NT::Int)
     BR % dev.tile == 0 && BC % dev.tile == 0 && EP % dev.tile == 0 || return false
     # The softmax gives one thread a whole query row.
     BR <= NT || return false
@@ -1185,17 +1185,17 @@ The first tiling in [`FLASHCM_TILINGS`](@ref) that divides this shape and fits
 `dev`. `nothing` means the caller keeps whatever path it would otherwise have
 used.
 
-Takes a [`Device`](@ref) rather than reading one, which is what makes it
-answerable without a GPU: `flashcm_tiling(Device(true, 16, 64, 32, 65536, 1024,
-40, 256), …)` asks what this chooser would do on a wave64 RDNA3 part from a
-machine that has none.
+Takes a [`Lava.DeviceCaps`](@ref) rather than reading one, which is what makes it
+answerable without a GPU: `flashcm_tiling(Lava.DeviceCaps(true, 16, 64, 32,
+65536, 1024, 40, 0), …)` asks what this chooser would do on a wave64 RDNA3 part
+from a machine that has none.
 
 Note the fourth argument. Every table below was measured on one card, and the
 subgroup width appears twice with different meanings: the device's *default*
 (64 there) and the width a cooperative-matrix module actually runs at, which
 Lava pins to 32. The tiling needs the second.
 """
-function flashcm_tiling(dev::Device, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
+function flashcm_tiling(dev::Lava.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
                         clamp::Bool = false)
     EP = cld(E, dev.tile) * dev.tile
     fits = NTuple{3,Int}[]
@@ -1278,7 +1278,7 @@ returned 4 splits for the decoder's shape where the rule wants 6, and 4 measures
 0.159 ms against 0.095 for 8. Counting the chunk in whole key blocks here makes
 the alignment implicit, so there is nothing left to round.
 """
-function splitcount(dev::Device, Lq::Int, Lk::Int, BR::Int, BC::Int, nbatch::Int;
+function splitcount(dev::Lava.DeviceCaps, Lq::Int, Lk::Int, BR::Int, BC::Int, nbatch::Int;
                     allow::Bool = true)
     allow || return 1
     dev.cores > 0 || return 1
@@ -1305,14 +1305,14 @@ would have to be added between the score product and the softmax, and here that
 is inside a cooperative-matrix accumulator.
 
 A question about the problem and the device, and nothing else — so it takes a
-[`Device`](@ref) and can be answered for a device the caller does not have.
+[`Lava.DeviceCaps`](@ref) and can be answered for a device the caller does not have.
 
 `BR`/`BC`/`NW` default to the chooser's pick; passing them selects a tiling
 explicitly, which is what the A/B in `test_flash.jl` does. They are still
 *validated*: an explicit tiling that does not fit gets a `Decline`, not a kernel
 that launches and writes nothing.
 """
-function flashcm_plan(dev::Device, q, k, v, bias;
+function flashcm_plan(dev::Lava.DeviceCaps, q, k, v, bias;
                       clamp::Bool = false, rego::Bool = false, held::Bool = false,
                       rescale::Symbol = :fmul, onepass::Bool = true,
                       lazyrescale::Bool = true, split::Bool = true,
@@ -1333,7 +1333,7 @@ function flashcm_plan(dev::Device, q, k, v, bias;
     end
     tiling === nothing && return Decline(:notiling)
     BR, BC, NW = tiling
-    # The pinned coopmat width, not the device default — see `Device`.
+    # The pinned coopmat width, not the device default — see `Lava.DeviceCaps`.
     NT = NW * dev.coopmatsubgroup
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)

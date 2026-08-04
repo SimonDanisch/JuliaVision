@@ -65,7 +65,7 @@ than it is; otherwise fall back to 64x32.
 
 `cores` is the shader-core count — 48 on the RTX 4000 Ada this was tuned against,
 and `ctx.dev.cores` at the call site. ggml uses 32 as its placeholder when the
-count cannot be queried, and so does the default here: `Device` reports 0 when
+count cannot be queried, and so does the default here: `Lava.DeviceCaps` reports 0 when
 the device will not say, and 0 would make every `>= 2cores` test trivially true
 and always pick the widest block.
 """

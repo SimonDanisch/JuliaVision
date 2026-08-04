@@ -203,7 +203,7 @@ end
         # A concatenated scalar channel gives MatAnyone `Cin = 17`, which would
         # round to 32 and pay 88% waste to reach the tensor cores. `crspad`
         # is where that line sits.
-        dev = DK.Device(back)
+        dev = DK.caps(back)
         x = KA.allocate(back, Float16, 32, 32, 17, 1); fill!(x, Float16(0.1))
         w = KA.allocate(back, Float16, 1, 1, 17, 32); fill!(w, Float16(0.1))
         o = KA.allocate(back, Float16, 32, 32, 32, 1); fill!(o, Float16(0))

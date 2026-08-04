@@ -9,7 +9,7 @@ defined. `graph.jl` is the only thing above this file.
 """
 
 """
-    Device(backend) -> Device
+    caps(backend) -> Lava.DeviceCaps
 
 What the kernels need to know about the device they are about to run on,
 answered **once per context**, at construction, from a live device.
@@ -25,78 +25,113 @@ device, and every tiling decision keyed on it inherits the error.
 None of these may be captured at module scope (`GUARDRAILS.md` §8): they describe
 a device, so a second device must get its own answers.
 
+## The type is Lava's
+
+This was a `DNNKernels.Device` struct assembled here out of eight separate Lava
+lookups. Every one of them was a question about the device, so the device is what
+answers them: `Lava.DeviceCaps` is now the record, and the version that lived
+here was a second copy of it that could drift — and did, holding
+`Lava.WORKGROUP_LIMIT[]`, a module-level `Ref(1024)` on Lava's side that claimed
+to be a query and was not.
+
+What stays here is the one number that is *not* a device fact:
+[`launchgroup`](@ref), which is this library's measured default for `launch!`.
+
 ## Where the device comes from
 
-`Lava.vk_context(backend)`, which resolves a pinned backend to the context it was
-built with and an unpinned one to whichever is current.
+`Lava.caps(backend)` resolves a pinned backend to the context it was built with
+and an unpinned one to whichever is current.
 
-That accessor did not exist when this struct was written. `LavaBackend(ctx)` kept
+That path did not exist when this was written. `LavaBackend(ctx)` kept
 `ctx.default_bq` and **discarded `ctx`**, and a `BatchQueue` holds a
-`Vulkan.Device` rather than the `VkContext` that owns it — so there was no path
+`Vulkan.Device` rather than the `VkContext` that owns it — so there was no route
 at all from a backend to its device, and both project briefs asserted there was
 ("the carrier already exists"). Adding the field was one line; finding that it
 was missing took running on a second vendor.
 
-So a `Device` built from a pinned backend now describes **that** device, and two
-of them can be alive at once. What is still single-device is one layer down:
-Lava's four module-scope caches hold device-owned handles keyed without the
-device (`GUARDRAILS.md` §8). Nothing here depends on those, but the two-device
-acceptance test does.
+So the caps read from a pinned backend describe **that** device, and two of them
+can be alive at once.
 """
-struct Device
-    coopmat::Bool          # cooperative-matrix GEMM usable here
-    tile::Int              # its tile extent
-    subgroup::Int          # lanes per subgroup — 32 on NVIDIA, 32 *or* 64 on RDNA3
-    coopmatsubgroup::Int   # …and the width a cooperative-matrix kernel gets
-    sharedbudget::Int      # bytes of `@localmem` one workgroup may claim
-    workgrouplimit::Int    # threads per workgroup
-    cores::Int             # shader cores / SMs; 0 when the device will not say
-    launchgroup::Int       # threads `launch!` asks for by default
-end
-
-"""
-The `VkContext` a backend runs on. See the note in [`Device`](@ref) — this is the
-single place that becomes per-backend once Lava's `LavaBackend` keeps its context.
-"""
-vkcontext(::Any) = nothing
-vkcontext(b::Lava.LavaBackend) = Lava.vk_context(b)
+caps(b::Lava.LavaBackend) = Lava.caps(b)
 
 """
 Device facts for a backend that is not Lava's — the CPU verification path.
 
 Deliberately not "the RTX 4000 Ada's numbers minus the GPU bits": a CPU run must
-not take a tensor-core path, and the shared budget is the portable Vulkan floor
+not take a tensor-core path, and the shared budget is a conservative fixed figure
 so that anything computed from it stays valid rather than merely plausible.
-"""
-Device(::Any) = Device(false, 16, 1, 1, 48 * 1024, 1024, 0, 256)
 
-function Device(backend::Lava.LavaBackend)
-    ctx = vkcontext(backend)
-    Device(Lava.coopmat_gemm_available(ctx),
-           Lava.GEMM_TILE,
-           Lava.device_subgroup_size(ctx),
-           # NOT the device default. Lava PINS any module declaring
-           # `CooperativeMatrixKHR` to `COOPMAT_SUBGROUP` via
-           # `VK_EXT_subgroup_size_control` (`pipeline.jl`, the
-           # `PipelineShaderStageRequiredSubgroupSizeCreateInfo` branch), because
-           # its coopmat kernels index subgroups as `tid ÷ 32` and a cooperative
-           # matrix is subgroup-scoped.
-           #
-           # So a coopmat kernel's workgroup must be sized in units of THIS, not
-           # of `subgroup`. Getting that wrong is invisible on a wave32 card and
-           # silently wrong on RDNA 3.5, where the device default is 64 and the
-           # pipeline still runs 32 — the launch would ask for `NW * 64` threads
-           # while the kernel indexes `NW * 2` subgroups. Which is worse than the
-           # literal `32` it replaces, so it is spelled out here once.
-           Lava.COOPMAT_SUBGROUP,
-           Lava.max_shared_memory(ctx),
-           Lava.WORKGROUP_LIMIT[],
-           Lava.shader_core_count(ctx),
-           # 256 measured best for `launch!`; see `launchgroup`. Kept as a number
-           # on the device rather than a global because it is a workgroup size,
-           # and the limit it must respect is the device's.
-           min(256, Lava.WORKGROUP_LIMIT[]))
+This method is DNNKernels' and not Lava's on purpose. Lava answers for devices it
+owns; what a *non*-Vulkan backend should pretend to be is a question about this
+library's verification path, and only this library can answer it.
+"""
+caps(::Any) = Lava.DeviceCaps(false, 16, 1, 1, 48 * 1024, 1024, 0, 0)
+
+"""
+    NoiseSource
+
+Where a graph's `rand`/`randn_like` get their values.
+
+Two of them, and the second is a measurement instrument. Kokoro's `SineGen`
+draws a noise floor for its harmonic-plus-noise excitation, so the model is
+genuinely stochastic: two calls on identical input produce different audio, and
+comparing either against a reference measures two unrelated random streams.
+
+**Seeding does not fix that across languages.** A seeded PyTorch reference and a
+seeded Julia run draw from different generators, so the noise term survives at
+full strength. Zeroing it on both sides removes the term and leaves the
+deterministic path — which is the part a port can actually be held to.
+"""
+abstract type NoiseSource end
+
+"""
+    RandomNoise(rng = Random.default_rng())
+
+The real thing, and the default. Drawn on the **host** and uploaded: Lava has no
+device RNG yet, so this is the honest implementation rather than the fast one.
+"""
+struct RandomNoise{R} <: NoiseSource
+    rng::R
 end
+RandomNoise() = RandomNoise(Random.default_rng())
+
+"""
+    ZeroNoise()
+
+Every draw is zero. For parity runs against a reference that has had the same
+thing done to it — see `tools/verify_kokoro.py`.
+
+Not a fake `AbstractRNG`: a generator that returns zero forever violates the
+contract every other caller relies on, and would be reachable from anything that
+asks a `Ctx` for randomness later.
+"""
+struct ZeroNoise <: NoiseSource end
+
+"""
+    draw(source, f, T, dims) -> Array{T}
+
+`f` is `rand` or `randn`; `dims` the shape wanted.
+"""
+draw(n::RandomNoise, f, ::Type{T}, dims) where {T} = f(n.rng, T, dims...)
+draw(::ZeroNoise, ::Any, ::Type{T}, dims) where {T} = zeros(T, dims...)
+
+"""
+    launchgroup(dev) -> Int
+
+Threads `launch!` asks for by default: 256, or the device's limit if it is lower.
+
+The one number in a `Ctx`'s device record that Lava does not own. 256 is measured
+— it is a property of these kernels, not of the card — and the clamp is the part
+that is the device's.
+"""
+launchgroup(dev::Lava.DeviceCaps) = min(256, dev.workgrouplimit)
+
+"""
+The `VkContext` a backend runs on. Kept for the paths that need the context
+itself rather than what it can do; prefer [`caps`](@ref) for the latter.
+"""
+vkcontext(::Any) = nothing
+vkcontext(b::Lava.LavaBackend) = Lava.vk_context(b)
 
 """
     Diagnostics(; optimes, opdouble, opdoublefilter, planmisses, launches)
@@ -202,17 +237,17 @@ end
 # SAM 2's package image despite nothing here ever running on the CPU. Their
 # `__run` takes every argument as `Any`, so their call edges span whole method
 # tables and any newly loaded package throws them away.
-struct Ctx{B,S,P,W,L,R}
+struct Ctx{B,N,S,P,W,L,R}
     values::Dict{String,Any}
     graph::Graph
     dims::NamedTuple
     backend::B
-    dev::Device                   # what this backend's device can do — see `Device`
+    dev::Lava.DeviceCaps          # what this backend's device can do — see `caps`
 
     # ── Let an attention whose extents do not divide the tile take the fused
     # cooperative-matrix path anyway, padded and masked.
     #
-    # A property of *this graph run*, which is why it is here and not on `Device`
+    # A property of *this graph run*, which is why it is here and not in the device
     # (it is not a device fact) and not in a plan (the plan is per call). SAM 2's
     # decoder wants it and its encoder does not: the decoder's attentions are 23
     # tokens and want exactly this, while the encoder has six `Lq = 16` calls that
@@ -229,6 +264,20 @@ struct Ctx{B,S,P,W,L,R}
     # there is no longer any state that a decoder error could leave switched on
     # for the next encode.
     clampattn::Bool
+
+    # ── Where `rand`/`randn_like` get their values.
+    #
+    # A property of this run, like `clampattn`. Kokoro's `SineGen` draws a noise
+    # floor, so the model is genuinely stochastic and two calls on identical
+    # input differ — which makes it uncomparable to a reference by default. A
+    # [`ZeroNoise`](@ref) run removes that term and leaves the deterministic path,
+    # which is the part a port can be held to.
+    #
+    # A noise SOURCE rather than an `AbstractRNG` because zeroing is not a random
+    # stream: a fake RNG returning zeros would have to satisfy a contract it
+    # violates, and `rand(rng)` returning 0.0 forever is a trap for anything else
+    # that reaches for it.
+    noise::N
     slab::S                       # UInt8 scratch slab, or nothing
     plan::P                       # Slab (plan.jl), or nothing
     outid::Base.RefValue{String}  # output id of the op currently running
@@ -257,8 +306,8 @@ end
 function Ctx(values, graph, dims, backend;
              slab = nothing, plan = nothing, outid = Ref(""), ws = nothing,
              lazy = nothing, rec = nothing, diag::Diagnostics = Diagnostics(),
-             clampattn::Bool = false)
-    Ctx(values, graph, dims, backend, Device(backend), clampattn,
+             clampattn::Bool = false, noise::NoiseSource = RandomNoise())
+    Ctx(values, graph, dims, backend, caps(backend), clampattn, noise,
         slab, plan, outid, ws, lazy, rec, diag)
 end
 

@@ -153,6 +153,9 @@ function hoistconstants(g::Graph, weights::Dict{String,Any})
             nothing
         end
         val === nothing && continue
+        # A symbolic fill value is not a constant: `full((1,), t)` materialises
+        # the sequence length, which is only known per call.
+        val isa AbstractString && !(val in ("inf", "-inf", "nan")) && continue
         ob = get(buffers, op.out, nothing)
         ob === nothing && continue
         all(s -> s isa Integer, ob.shape) || continue
@@ -298,8 +301,32 @@ MatAnyone's `readout_query` has one, so this is a load-time crash, not a corner.
 constbytes(b::Buffer) = mapreduce(Int, *, b.shape; init = 1) * sizeof(b.dtype)
 
 """
+    NONDETERMINISTIC
+
+Ops that must never be folded, however constant their inputs look.
+
+A random op has **no inputs at all**, so "all my inputs are constants" is
+vacuously true and it folds — baking one draw into the weights, so every call
+afterwards returns identical noise and no seed can change it. Kokoro found this:
+its vocoder excites an harmonic-plus-noise source, `rand` for the initial phase
+and `randn_like` for the noise floor, and the folded phase silently became a
+constant of the model.
+
+Silent, and worse than it sounds for a *generative* model: two runs that should
+differ do not, and nothing reports it.
+"""
+const NONDETERMINISTIC = Set([
+    "rand.default", "randn.default", "randn_like.default", "rand_like.default",
+    "randint.default", "randint_like.default", "randperm.default",
+    "bernoulli.default", "bernoulli.p", "multinomial.default",
+    "normal.default", "uniform.default", "exponential.default",
+    "native_dropout.default", "dropout.default",
+])
+
+"""
 Ops that read only constants, to fixpoint. A weight is constant; so is the output
-of an op already in the set. Anything symbolic or host-evaluated is refused.
+of an op already in the set. Anything symbolic, host-evaluated or
+**nondeterministic** is refused.
 """
 function constops(g::Graph)
     known = Set{String}(id for (id, b) in g.buffers if b.kind === :weight)
@@ -309,6 +336,7 @@ function constops(g::Graph)
         changed = false
         for o in g.ops
             o.id in ops && continue
+            o.aten in NONDETERMINISTIC && continue
             ob = get(g.buffers, o.out, nothing)
             (ob === nothing && continue)
             concreteshape(ob) || continue

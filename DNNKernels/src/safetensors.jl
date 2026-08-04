@@ -36,7 +36,13 @@ const DTYPES = Dict("F64" => Float64, "F32" => Float32, "F16" => Float16,
                     "BF16" => UInt16, "I64" => Int64, "I32" => Int32,
                     "I16" => Int16, "I8" => Int8, "U8" => UInt8, "BOOL" => Bool,
                     # sdpa's philox seed/offset come back as empty u64 tensors
-                    "U64" => UInt64, "U32" => UInt32, "U16" => UInt16)
+                    "U64" => UInt64, "U32" => UInt32, "U16" => UInt16,
+                    # Complex: the rotary embeddings and Kokoro's iSTFT both have
+                    # complex buffers in the graph, so a reference dump of their
+                    # intermediates has complex tensors in it. Without these the
+                    # reader dies with `KeyError: "C64"`, which reads like a
+                    # corrupt file rather than a missing dtype.
+                    "C64" => ComplexF32, "C128" => ComplexF64)
 
 """
     safetensorsnames(path) -> Vector{String}

@@ -13,7 +13,8 @@ module DNNKernels
 using JSON3
 using KernelAbstractions
 using Lava
-using LinearAlgebra: mul!
+using LinearAlgebra: mul!, transpose
+using Random
 import AcceleratedKernels as AK
 import Atomix
 import GPUArrays
@@ -42,7 +43,14 @@ that is deliberate.
 # Lava's emitter that alter the SPIR-V of *every* kernel — `NonPrivatePointer` on
 # workgroup accesses, and plain `Workgroup` variables where no type needs an
 # explicit layout.
-const KERNELS_VERSION = "3"
+#
+# "4": the fused LSTM became one `Val`-parameterised kernel instead of a family
+# `@eval`ed per `(H, reverse)`, so both its name and its signature changed. The
+# key would have changed with it and the old entries merely orphaned rather than
+# stale — but working that out from how `frozen_key` is derived is exactly the
+# reasoning the version exists to make unnecessary, and getting it wrong is
+# silent.
+const KERNELS_VERSION = "4"
 
 include("assets.jl")
 include("safetensors.jl")
@@ -57,6 +65,8 @@ include("kernels/extern/conv_coopmat.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")
 include("kernels/extern/flash.jl")
+include("kernels/extern/lstm.jl")       # aten::lstm kept whole, loop in-kernel
+include("kernels/extern/spectral.jl")   # STFT + mel, on Lava's FFT
 include("kernels/layernorm.jl")
 include("kernels/resample.jl")
 include("execute.jl")

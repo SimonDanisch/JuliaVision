@@ -20,7 +20,7 @@ in the padding copies.
 
 using Test, Lava, DNNKernels, KernelAbstractions
 using DNNKernels: sdpa, sdpa_coopmat!, coopmat_sdpa_plan, CoopMatSDPAPlan, Decline,
-                  Workspace, Ctx, Device
+                  Workspace, Ctx
 const KA = KernelAbstractions
 const LD = DNNKernels
 
@@ -91,7 +91,7 @@ bothpaths(E, L, H, B) = coopmatpath(E, L, H, B)[1]
 
         @testset "the gate refuses what it cannot compute, and says why" begin
             back = LavaBackend()
-            dev = Device(back)
+            dev = DNNKernels.caps(back)
             f16(dims...) = KA.allocate(back, Float16, dims...)
             f32(dims...) = KA.allocate(back, Float32, dims...)
             q = f16(72, 1024, 4, 1)
@@ -127,9 +127,7 @@ bothpaths(E, L, H, B) = coopmatpath(E, L, H, B)[1]
             # fp32 operands have no cooperative-matrix load.
             @test coopmat_sdpa_plan(dev, f32(72, 1024, 4, 1), q, q, nothing).reason === :eltype
             # And a device without the feature refuses regardless of shape.
-            nocm = Device(false, dev.tile, dev.subgroup, dev.coopmatsubgroup,
-                          dev.sharedbudget, dev.workgrouplimit, dev.cores,
-                          dev.launchgroup)
+            nocm = Lava.DeviceCaps(dev; coopmat = false)
             @test coopmat_sdpa_plan(nocm, q, q, q, nothing).reason === :nocoopmat
             q = nothing
             GC.gc()
