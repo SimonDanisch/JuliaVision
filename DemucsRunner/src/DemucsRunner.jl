@@ -28,6 +28,7 @@ module DemucsRunner
 
 using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors
 
 export demucsgraph, demucsweights
@@ -45,19 +46,25 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Throws. Demucs v4 (htdemucs) is **not ported yet**, so there is no artifact to read
-from and nothing on disk that a user of this package would have.
+The **upstream Demucs v4 (htdemucs) checkpoint**, as an artifact — downloaded on first use and
+cached across every environment on this machine.
 
-Porting it means, in order: export it with `uv run tools/export_demucs.py`, bind the
-result with `julia --project=. tools/make_artifacts.jl demucs`, and replace
-this definition with `@artifact_str("demucs")`. Assets come from the artifact
-and from nowhere else — see `DNNKernels/src/assets.jl`.
+**This is not an export.** Demucs v4 (htdemucs) is not ported: nothing has been traced into a
+`DNNKernels` graph, so [`demucsgraph`](@ref) still throws and [`ready`](@ref) is
+still `false`. What the artifact buys is that the *port* can start on any machine
+without re-fetching by hand.
+
+What is actually blocking the port:
+Hybrid Transformer Demucs runs a waveform and a spectrogram branch and sums
+them, so the graph carries a real FFT *inside* it rather than only in a front
+end — it is the model that decides whether the FFT is a device kernel or a host
+convenience.
+
+When the export lands, pack `gen/graphs/demucs` under the artifact name
+`demucs` (the `MODELS` table in `tools/make_artifacts.jl`), point this at
+`@artifact_str("demucs")`, and the checkpoint artifact becomes developer-only.
 """
-assetdir() = throw(ArgumentError(
-    "DemucsRunner: Demucs v4 (htdemucs) is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_demucs.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl demucs`, then set " *
-    "`assetdir() = @artifact_str(\"demucs\")`."))
+assetdir() = @artifact_str("demucs-ckpt")
 
 """
     demucsgraph(; dir = assetdir()) -> Graph
@@ -91,7 +98,20 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready() = false        # not ported: see `assetdir`
+# `false`, and not a placeholder: `assetdir()` resolves — it carries the upstream
+# checkpoint — but a checkpoint is not a graph. `ready()` answers "can this package
+# run the model", which stays false until `demucs.json` exists.
+ready(; dir::AbstractString = assetdir()) =
+    isfile(joinpath(dir, "demucs.json")) && isfile(joinpath(dir, "weights.safetensors"))
+
+"""
+    checkpoints(; dir = assetdir()) -> Vector{String}
+
+The upstream checkpoint files the artifact carries, absolute. What
+`tools/export_demucs.py` will read when the port starts.
+"""
+checkpoints(; dir::AbstractString = assetdir()) =
+    [joinpath(dir, f) for f in sort(readdir(dir)) if isfile(joinpath(dir, f))]
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that

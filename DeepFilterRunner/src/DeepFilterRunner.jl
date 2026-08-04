@@ -25,6 +25,7 @@ module DeepFilterRunner
 
 using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors
 
 export deepfilternetgraph, deepfilternetweights
@@ -42,19 +43,23 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Throws. DeepFilterNet3 is **not ported yet**, so there is no artifact to read
-from and nothing on disk that a user of this package would have.
+The **upstream DeepFilterNet3 checkpoint**, as an artifact — downloaded on first use and
+cached across every environment on this machine.
 
-Porting it means, in order: export it with `uv run tools/export_deepfilternet.py`, bind the
-result with `julia --project=. tools/make_artifacts.jl deepfilternet`, and replace
-this definition with `@artifact_str("deepfilternet")`. Assets come from the artifact
-and from nowhere else — see `DNNKernels/src/assets.jl`.
+**This is not an export.** DeepFilterNet3 is not ported: nothing has been traced into a
+`DNNKernels` graph, so [`deepfilternetgraph`](@ref) still throws and [`ready`](@ref) is
+still `false`. What the artifact buys is that the *port* can start on any machine
+without re-fetching by hand.
+
+What is actually blocking the port:
+it works in the complex STFT domain, so it needs the same FFT Whisper's mel
+front end does — nearly free once that exists.
+
+When the export lands, pack `gen/graphs/deepfilternet` under the artifact name
+`deepfilternet` (the `MODELS` table in `tools/make_artifacts.jl`), point this at
+`@artifact_str("deepfilternet")`, and the checkpoint artifact becomes developer-only.
 """
-assetdir() = throw(ArgumentError(
-    "DeepFilterRunner: DeepFilterNet3 is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_deepfilternet.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl deepfilternet`, then set " *
-    "`assetdir() = @artifact_str(\"deepfilternet\")`."))
+assetdir() = @artifact_str("deepfilternet-ckpt")
 
 """
     deepfilternetgraph(; dir = assetdir()) -> Graph
@@ -88,7 +93,20 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready() = false        # not ported: see `assetdir`
+# `false`, and not a placeholder: `assetdir()` resolves — it carries the upstream
+# checkpoint — but a checkpoint is not a graph. `ready()` answers "can this package
+# run the model", which stays false until `deepfilternet.json` exists.
+ready(; dir::AbstractString = assetdir()) =
+    isfile(joinpath(dir, "deepfilternet.json")) && isfile(joinpath(dir, "weights.safetensors"))
+
+"""
+    checkpoints(; dir = assetdir()) -> Vector{String}
+
+The upstream checkpoint files the artifact carries, absolute. What
+`tools/export_deepfilternet.py` will read when the port starts.
+"""
+checkpoints(; dir::AbstractString = assetdir()) =
+    [joinpath(dir, f) for f in sort(readdir(dir)) if isfile(joinpath(dir, f))]
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that

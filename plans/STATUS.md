@@ -52,8 +52,9 @@ Only the desktop produces these. Last measured 2026-08-02.
 
 ## Shipped 2026-08-02, do not redo
 
-- Pipeline cache keyed on every byte (`spirv_content_hash`); `WORKGROUP_LIMIT`
-  256 → 1024. The 256 cap was our hash collision, not the device.
+- Pipeline cache keyed on every byte (`spirv_content_hash`); the workgroup limit
+  256 → 1024. The 256 cap was our hash collision, not the device. (It is
+  `Lava.caps(ctx).workgrouplimit` since 2026-08-03 — queried, not a `Ref`.)
 - `VK_NV_cooperative_matrix2`, `VK_NV_cooperative_vector`,
   `VK_KHR_shader_maximal_reconvergence`, `..._subgroup_uniform_control_flow`,
   `..._subgroup_rotate` requested and exposed on `VkContext`.
@@ -76,8 +77,9 @@ Only the desktop produces these. Last measured 2026-08-02.
   toggles deleted; diagnostics and the attention clamp onto `Ctx`; the tuning
   constants absorbed into four plan objects; SAM 2's policy onto its struct.
   Entry points dispatch on plan type, so a new kernel path is a new method.
-- A `Device` object answers the five hardcoded device literals from a live
-  device. `NW * 32` was in three places and is half the workgroup on wave64.
+- A device-capability record answers the five hardcoded device literals from a
+  live device. `NW * 32` was in three places and is half the workgroup on wave64.
+  (It is `Lava.DeviceCaps` since 2026-08-03; `DNNKernels.Device` is deleted.)
 - **`test_coopmat_attention.jl`'s main A/B was vacuous** — it flipped a threshold
   to force the two-GEMM path, but the fused path took all four shapes first, so
   it compared a result with itself. Fixed; the pattern is worth grepping for.
@@ -111,7 +113,7 @@ may depend on it. And the two-device acceptance test (real GPU + lavapipe) is
 now *possible*, which it was not before, and still unwritten.
 
 **Testable everywhere, no second GPU needed — and now actually written.**
-`init_vulkan!(; select)` returns a context without installing it, and the loader
+`VkContext(; select)` returns a context without installing it, and the loader
 enumerates the GPU and lavapipe from one instance, so `dev/Lava/test/twodevice_probe.jl`
 builds the pair on any machine here. It asserts correct results on both *and*
 that one kernel compiles **twice** — a single new `PIPELINE_CACHE` entry means
@@ -160,7 +162,9 @@ Two more fell out on 2026-08-02 once the probe ran to completion:
   the segfault that stopped the Lava suite from ever printing a summary.
 
 Still unaudited because nothing on this path reaches them: `TIMESTAMP_POOL`,
-`BLIT_PIPELINE`, `GFX_SHADER_CACHE`, `WORKGROUP_LIMIT`. Extend the probe before
+`BLIT_PIPELINE`, `GFX_SHADER_CACHE`. (`WORKGROUP_LIMIT` was on this list and is
+now item 8 of the probe's found-by-running list — it was dismissed as "a policy
+limit, not a queried one", which was the defect.) Extend the probe before
 trusting a second device for graphics or dispatch profiling.
 
 ## Cross-project, act on these first

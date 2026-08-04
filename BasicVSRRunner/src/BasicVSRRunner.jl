@@ -27,9 +27,11 @@ module BasicVSRRunner
 
 using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors
+using LazyArtifacts
+using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
 
 export basicvsrppgraph, basicvsrppweights
+export basicvsrppmodel, upscale, BasicVSRPP
 
 const KA = KernelAbstractions
 
@@ -44,19 +46,16 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Throws. BasicVSR++ is **not ported yet**, so there is no artifact to read
-from and nothing on disk that a user of this package would have.
+Where the model's graph and weights live: its artifact, downloaded on first use
+and cached across every environment on this machine. 26 MiB — the fp32 export of
+BasicVSR++ REDS4.
 
-Porting it means, in order: export it with `uv run tools/export_basicvsrpp.py`, bind the
-result with `julia --project=. tools/make_artifacts.jl basicvsrpp`, and replace
-this definition with `@artifact_str("basicvsrpp")`. Assets come from the artifact
-and from nowhere else — see `DNNKernels/src/assets.jl`.
+**Changing these assets means re-binding the artifact**, not editing a directory.
+Re-export, then `julia --project=. tools/make_artifacts.jl basicvsrpp` — that
+hashes the new content and rewrites `../Artifacts.toml`, so this call resolves to
+it immediately. Uploading is only needed to publish it to anyone else.
 """
-assetdir() = throw(ArgumentError(
-    "BasicVSRRunner: BasicVSR++ is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_basicvsrpp.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl basicvsrpp`, then set " *
-    "`assetdir() = @artifact_str(\"basicvsrpp\")`."))
+assetdir() = @artifact_str("basicvsrpp")
 
 """
     basicvsrppgraph(; dir = assetdir()) -> Graph
@@ -90,7 +89,12 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready() = false        # not ported: see `assetdir`
+# The graph is bound and every op it uses is implemented (2290 ops, `coverage`
+# reports none missing). What has NOT been done is a numerical parity run — there
+# is no `tools/verify_basicvsrpp.jl`, so "it loads and dispatches" is the whole of
+# the claim here.
+ready(; dir::AbstractString = assetdir()) =
+    isfile(joinpath(dir, "basicvsrpp.json")) && isfile(joinpath(dir, "weights.safetensors"))
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
@@ -111,21 +115,77 @@ end
 # first use, which is the entire cost this package exists to remove. SAM2Runner
 # learned that the expensive way: its `runsam2` workload still left 45 s on the
 # first click because the editor goes through a closure `runsam2` never touches.
+# ------------------------------------------------------------------- the model
+
+"""
+    BasicVSRPP
+
+A loaded 4x video upscaler: the rewritten graph, its weights on the device, and
+the backend they belong to. Build one with [`basicvsrppmodel`](@ref) and hand it
+to [`upscale`](@ref).
+"""
+struct BasicVSRPP{B,M}
+    backend::B
+    model::M
+end
+
+"""
+    basicvsrppmodel(; backend = LavaBackend(), dir = assetdir()) -> BasicVSRPP
+
+Load the upscaler. Downloads the 26 MiB artifact on first use.
+
+Not cached in a module global: a `Model` holds device buffers, and a global
+holding one is baked into the package image with a `VkContext` that is dead by
+the time anyone loads it.
+"""
+function basicvsrppmodel(; backend = LavaBackend(), dir::AbstractString = assetdir())
+    ready(; dir) || throw(ArgumentError(
+        "no export at $dir — generate it with `uv run tools/export_basicvsrpp.py`"))
+    BasicVSRPP(backend, Model(dir, joinpath(dir, "weights.safetensors");
+                              names = ["basicvsrpp"], backend))
+end
+
+"""
+    upscale(m::BasicVSRPP, lqs) -> AbstractArray
+
+4x a short clip. `lqs` is `(W, H, 3, T, 1)` — the export baked `T = 5` at
+`64 x 64`, so that is the shape it takes — and the result is `(4W, 4H, 3, T, 1)`
+on the device.
+
+**The extents are baked into the export.** A different clip length or frame size
+is a re-export, not an argument; this is why `framesize`-style introspection
+belongs here rather than a resize.
+
+**Not verified against PyTorch.** There is no `tools/verify_basicvsrpp.jl`, so
+what is known is that all 2290 ops are implemented, it dispatches, and the output
+is the right shape and finite. Numerical parity is unmeasured — see
+`gen/basicvsrpp/refs.safetensors`, which is what a verifier would read.
+"""
+function upscale(m::BasicVSRPP, lqs)
+    out, = call(m.model, "basicvsrpp", toback(m.backend, lqs); dims = (;))
+    return out
+end
+
 @setup_workload begin
     if ready()
         try
             backend = LavaBackend()
-            graph = basicvsrppgraph()
-            weights = basicvsrppweights()
+            # Inside `@compile_workload`, not in front of it: `Model`'s last pass
+            # folds constant subgraphs by running them on the device, and building
+            # it outside leaves those dispatches unfrozen (RIFERunner measured
+            # exactly that: 9 misses on a fresh process, every time).
             @compile_workload KERNELS_VERSION begin
-                # Inputs: clip (1, T, 3, H, W)
-                nothing
+                m = basicvsrppmodel(; backend)
+                lqs = KA.allocate(backend, Float32, 64, 64, 3, 5, 1)
+                fill!(lqs, 0.5f0)
+                upscale(m, lqs)
+                KA.synchronize(backend)
             end
         catch err
             @warn "BasicVSRRunner: workload skipped; first use will compile" exception = err
         end
     else
-        @info "BasicVSRRunner: not ported yet — nothing precompiled"
+        @info "BasicVSRRunner: no export at $(assetdir()) — nothing precompiled"
     end
 end
 

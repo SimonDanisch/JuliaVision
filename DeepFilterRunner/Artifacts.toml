@@ -1,0 +1,7 @@
+[deepfilternet-ckpt]
+git-tree-sha1 = "13aa926ed648255627f62629a5660b6b6acf164d"
+lazy = true
+
+    [[deepfilternet-ckpt.download]]
+    sha256 = "052562983255089c66f3968be650f27372238c66733ec3165d2b49d0f2292928"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/deepfilternet-ckpt.tar.gz"

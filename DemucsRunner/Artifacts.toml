@@ -1,0 +1,7 @@
+[demucs-ckpt]
+git-tree-sha1 = "1c237ce1c7a0a6fcf3c11925e23184b6463eb390"
+lazy = true
+
+    [[demucs-ckpt.download]]
+    sha256 = "e6a995312d17d458335e13f1dc7ac155f457da05cdba535499048295e60478f3"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/demucs-ckpt.tar.gz"

@@ -1,31 +1,34 @@
 """
-Until the port runs, this asserts the two things that are true now and must stay
-true: the package loads on a machine with no assets, and the asset lookup names
-a real place rather than throwing something unreadable.
+ProPainter is **not ported** — nothing here has been traced into a `DNNKernels`
+graph. What this file pins is the half that IS solved: the upstream checkpoints
+are bound as an artifact, so the port can start on any machine without
+re-fetching them by hand.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
-— belongs here once the workload drives the real call. See SAM2Runner/test for
-the shape it should take; it has to run in a subprocess because Julia's
-compile-time counter is per-process.
+So the assertions are deliberately split. `assetdir()` must resolve and must
+contain the checkpoints; `ready()` must stay **false** and the graph accessor must
+still throw. A test that only checked "the artifact resolves" would go green the
+moment the fetch was solved and stay green forever after, which is exactly the
+claim not being made.
 """
 
 using Test, ProPainterRunner
 
 @testset "ProPainterRunner" begin
-    # No `assetdir()`. It is internal — it names where the artifact happens
-    # to put things, so a test that calls it has to know the layout and a
-    # re-export that moves a file breaks a test that never knew it depended
-    # on that. Ask for the graph and the weights instead.
-    if ProPainterRunner.ready()
-        @info "ProPainter: export present"
-        g = ProPainterRunner.propaintergraph()
-        @test g !== nothing
-        w = ProPainterRunner.propainterweights()
-        @test !isempty(w)
-    else
-        @info "ProPainter: no export; run tools/export_propainter.py"
-        # The error has to name the path — a caller who has not run the exporter
-        # should be told where to put it, not handed a MethodError later.
+    @testset "the upstream checkpoints are bound" begin
+        dir = ProPainterRunner.assetdir()
+        @test isdir(dir)
+        for f in ("ProPainter.pth", "raft-things.pth", "recurrent_flow_completion.pth")
+            @test isfile(joinpath(dir, f))
+        end
+        @test !isempty(ProPainterRunner.checkpoints())
+    end
+
+    @testset "…and that is not the same as being ported" begin
+        # The distinction this package exists to keep honest. Weights on disk, no
+        # graph — `ready()` answers the second question, not the first.
+        @test ProPainterRunner.ready() == false
+        # The error has to name the path, so whoever picks up the port is told
+        # where the graph belongs rather than handed a MethodError later.
         @test_throws ArgumentError ProPainterRunner.propaintergraph()
     end
 end

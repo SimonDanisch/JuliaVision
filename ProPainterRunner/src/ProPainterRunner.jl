@@ -26,6 +26,7 @@ module ProPainterRunner
 
 using Lava, DNNKernels, KernelAbstractions
 using Lava: @setup_workload, @compile_workload
+using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors
 
 export propaintergraph, propainterweights
@@ -43,19 +44,26 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 """
     assetdir() -> String
 
-Throws. ProPainter is **not ported yet**, so there is no artifact to read
-from and nothing on disk that a user of this package would have.
+The **upstream ProPainter checkpoints** (ProPainter.pth and friends), as an artifact —
+downloaded on first use and cached across every environment on this machine.
 
-Porting it means, in order: export it with `uv run tools/export_propainter.py`, bind the
-result with `julia --project=. tools/make_artifacts.jl propainter`, and replace
-this definition with `@artifact_str("propainter")`. Assets come from the artifact
-and from nowhere else — see `DNNKernels/src/assets.jl`.
+**This is not an export.** ProPainter is not ported: nothing here has been traced
+into a `DNNKernels` graph, so [`propaintergraph`](@ref) still throws and
+[`ready`](@ref) is still `false`. What the artifact buys is that the *port* can
+start on any machine without re-fetching several hundred MB by hand from the
+upstream release — the fetch is content-addressed and reproducible instead.
+
+What is actually blocking the port:
+flow-guided propagation + windowed temporal attention.
+
+Licence: S-Lab 1.0, NON-COMMERCIAL — same licence and same NTU group as MatAnyone, so
+it ships as its own package and the editor must degrade gracefully without it.
+
+When the export lands, pack `gen/graphs/propainter` under the artifact name
+`propainter` (the `MODELS` table in `tools/make_artifacts.jl`), point this at
+`@artifact_str("propainter")`, and the checkpoint artifact becomes developer-only.
 """
-assetdir() = throw(ArgumentError(
-    "ProPainterRunner: ProPainter is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_propainter.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl propainter`, then set " *
-    "`assetdir() = @artifact_str(\"propainter\")`."))
+assetdir() = @artifact_str("propainter-ckpt")
 
 """
     propaintergraph(; dir = assetdir()) -> Graph
@@ -89,7 +97,21 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready() = false        # not ported: see `assetdir`
+# `false`, and it is not a placeholder: `assetdir()` now resolves — it carries the
+# upstream checkpoints — but a checkpoint is not a graph. `ready()` answers "can
+# this package run the model", which stays false until `propainter.json` exists.
+# Splitting the two is the point: the fetch is solved, the port is not.
+ready(; dir::AbstractString = assetdir()) =
+    isfile(joinpath(dir, "propainter.json")) && isfile(joinpath(dir, "weights.safetensors"))
+
+"""
+    checkpoints(; dir = assetdir()) -> Vector{String}
+
+The upstream checkpoint files the artifact carries, absolute. What
+`tools/export_propainter.py` will read when the port starts.
+"""
+checkpoints(; dir::AbstractString = assetdir()) =
+    [joinpath(dir, f) for f in sort(readdir(dir)) if isfile(joinpath(dir, f))]
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
@@ -124,7 +146,7 @@ end
             @warn "ProPainterRunner: workload skipped; first use will compile" exception = err
         end
     else
-        @info "ProPainterRunner: not ported yet — nothing precompiled"
+        @info "ProPainterRunner: checkpoints are bound but ProPainter is not ported — nothing precompiled"
     end
 end
 

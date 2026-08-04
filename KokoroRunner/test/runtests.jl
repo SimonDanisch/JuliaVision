@@ -1,31 +1,183 @@
 """
-Until the port runs, this asserts the two things that are true now and must stay
-true: the package loads on a machine with no assets, and the asset lookup names
-a real place rather than throwing something unreadable.
+Kokoro-82M, ported.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
-— belongs here once the workload drives the real call. See SAM2Runner/test for
-the shape it should take; it has to run in a subprocess because Julia's
-compile-time counter is per-process.
+The G2P and the number readings are pure host code and run unconditionally —
+they need no device and no artifact beyond the lexicon. Everything below
+`ready()` needs the export.
+
+The parity assertions are the point of the file. Kokoro decides its own output
+length, so **the frame count is checked before the audio**: if the predicted
+durations disagree with PyTorch, every sample after the divergence is being
+compared against the wrong instant and a correlation on it means nothing.
 """
 
-using Test, KokoroRunner
+using Test
+using KokoroRunner
+using KokoroRunner: Kokoro, speak, phonemize, voices, tokenize, align, SAMPLERATE,
+                    Lexicon, applystress, numwords, ordinalwords, yearwords, tokens,
+                    assetdir, refsdir, ready
+using DNNKernels: readsafetensors
+using JSON3
 
 @testset "KokoroRunner" begin
-    # No `assetdir()`. It is internal — it names where the artifact happens
-    # to put things, so a test that calls it has to know the layout and a
-    # re-export that moves a file breaks a test that never knew it depended
-    # on that. Ask for the graph and the weights instead.
-    if KokoroRunner.ready()
-        @info "Kokoro-82M: export present"
-        g = KokoroRunner.kokorograph()
-        @test g !== nothing
-        w = KokoroRunner.kokoroweights()
-        @test !isempty(w)
+
+@testset "number readings" begin
+    @test numwords(0) == "zero"
+    @test numwords(42) == "forty two"
+    @test numwords(100) == "one hundred"
+    @test numwords(1250000) == "one million two hundred fifty thousand"
+    @test ordinalwords(1) == "first"
+    @test ordinalwords(23) == "twenty third"
+    @test ordinalwords(40) == "fortieth"
+    # The year rule, and the three places the paired reading does NOT apply.
+    @test yearwords(1984) == "nineteen eighty four"
+    @test yearwords(1905) == "nineteen oh five"
+    @test yearwords(1900) == "nineteen hundred"
+    @test yearwords(2000) == "two thousand"          # round century -> cardinal
+    @test yearwords(2007) == "two thousand seven"    # and its remainder
+    @test yearwords(2024) == "twenty twenty four"    # but 24 >= 10, so paired
+end
+
+@testset "tokenisation" begin
+    @test tokens("Hello, world!") == ["Hello", ",", "world", "!"]
+    @test tokens("don't stop") == ["don't", "stop"]
+    @test tokens("well-known") == ["well-known"]
+    # A comma inside digits is part of the number; anywhere else it separates.
+    @test tokens("1,234.50 apples") == ["1,234.50", "apples"]
+    @test tokens("Dr. Smith") == ["Dr", "Smith"]          # the abbreviation's stop is eaten
+    @test tokens("stop. Go") == ["stop", ".", "Go"]       # a sentence's is not
+end
+
+@testset "stress placement" begin
+    # The mark lands before its vowel, not at the front of the word.
+    @test applystress("kat", 2) == "kˈat"
+    @test applystress("ˈkat", -1) == "ˌkat"
+    @test applystress("ˈkat", -2) == "kat"
+    # A word with no vowel takes no mark rather than a stranded one.
+    @test applystress("pst", 2) == "pst"
+end
+
+if !ready()
+    @info "KokoroRunner: assets not installed — device tests skipped" dir = assetdir()
+else
+
+lex = Lexicon(joinpath(assetdir(), "lexicon.json"))
+
+@testset "G2P against misaki" begin
+    p = joinpath(refsdir(), "g2p_reference.json")
+    if !isfile(p)
+        @info "no g2p_reference.json in kokoro-refs — parity test skipped"
     else
-        @info "Kokoro-82M: no export; run tools/export_kokoro.py"
-        # The error has to name the path — a caller who has not run the exporter
-        # should be told where to put it, not handed a MethodError later.
-        @test_throws ArgumentError KokoroRunner.kokorograph()
+        ref = JSON3.read(read(p, String))
+        nok = ntot = 0
+        for row in ref.sentences
+            got = split(phonemize(lex, String(row.text)))
+            want = split(String(row.phonemes))
+            length(got) == length(want) || (ntot += max(length(got), length(want)); continue)
+            ntot += length(want)
+            nok += count(got .== want)
+        end
+        # 99.4% measured. The residue is the POS-conditioned heteronyms, which
+        # need a part-of-speech tagger this package does not have; a drop below
+        # this threshold means something other than tagging changed.
+        @test nok / ntot > 0.98
+        @info "G2P token agreement with misaki" agreement = nok / ntot tokens = ntot
+    end
+
+    # Every four-digit year, against `num2words` — the rule has three branches
+    # and a hand-picked sample is how a wrong one survives.
+    p2 = joinpath(refsdir(), "g2p_reference.json")
+    if isfile(p2)
+        nums = JSON3.read(read(p2, String)).numbers
+        for (kind, fn) in (("cardinal", numwords), ("ordinal", ordinalwords),
+                           ("year", yearwords))
+            tbl = nums[Symbol(kind)]
+            bad = [String(k) for (k, v) in pairs(tbl)
+                   if split(fn(parse(Int, String(k)))) != String.(v)]
+            @test isempty(bad)
+            isempty(bad) || @info "$kind mismatches" first(bad, 5)
+        end
     end
 end
+
+k = Kokoro()
+
+@testset "assets" begin
+    @test length(voices(k)) == 54
+    @test "af_heart" in voices(k)
+    # The boundary token at both ends is what the model was trained with.
+    ids = tokenize(k, "hˈɛlO")
+    @test first(ids) == 0 && last(ids) == 0
+    @test length(ids) == 7
+    # A character outside the vocabulary is dropped, not substituted.
+    @test length(tokenize(k, "hˈɛlO☃")) == length(ids)
+end
+
+@testset "alignment" begin
+    # `pred_dur[i]` frames of token `i`, and the clamp keeps a token that rounds
+    # to zero from vanishing out of the alignment entirely.
+    @test align([2.0, 1.0, 3.0], 1.0) == Int32[1, 1, 2, 3, 3, 3]
+    @test align([0.1, 0.1], 1.0) == Int32[1, 2]
+    @test length(align([4.0], 2.0)) == 2       # speed divides
+end
+
+@testset "parity with PyTorch" begin
+    p = joinpath(refsdir(), "refs_speak.safetensors")
+    mp = joinpath(refsdir(), "refs_speak.json")
+    if !(isfile(p) && isfile(mp))
+        @info "no refs_speak in kokoro-refs — parity test skipped"
+    else
+        refs = readsafetensors(p)
+        meta = JSON3.read(read(mp, String))
+        for key in sort(collect(String.(keys(meta))))
+            m = meta[Symbol(key)]
+            voice = String(split(key, "/")[2])
+            # `noise = false` on BOTH sides: the vocoder's excitation noise is a
+            # different random stream here than in PyTorch, so leaving it in
+            # measures the streams and nothing about the model.
+            got = speak(k; phonemes = String(m.phonemes), voice, noise = false, trim = false)
+            want = vec(refs["$key/audio"])
+
+            # The model's own prediction of how long the audio should be. First,
+            # because everything after it depends on it.
+            @test length(got) ÷ 600 == m.nframes
+
+            n = min(length(got), length(want))
+            c = sum(got[1:n] .* want[1:n]) /
+                (sqrt(sum(abs2, got[1:n])) * sqrt(sum(abs2, want[1:n])))
+            @test c > 0.95
+        end
+    end
+end
+
+@testset "length generalisation" begin
+    # The export was done at 30 tokens. None of these is 30, and all of them go
+    # through the same two graphs — no bucket, no re-export.
+    for ps in ("hˈɛlO", "hˈɛlO wˈɜɹld",
+               "ðə kwˈɪk bɹˈWn fˈɑks ʤˈʌmps ˈOvəɹ ðə lˈAzi dˈɔɡ.")
+        audio = speak(k; phonemes = ps, noise = false)
+        @test length(audio) > 0
+        @test all(isfinite, audio)
+        @test maximum(abs, audio) < 1.5           # not clipping into nonsense
+    end
+end
+
+@testset "determinism" begin
+    a = speak(k; phonemes = "hˈɛlO", noise = false)
+    b = speak(k; phonemes = "hˈɛlO", noise = false)
+    @test a == b
+    # And with the noise on it must NOT be identical, or the noise is not wired
+    # up and `noise = false` is measuring nothing.
+    c = speak(k; phonemes = "hˈɛlO", noise = true)
+    d = speak(k; phonemes = "hˈɛlO", noise = true)
+    @test c != d
+end
+
+@testset "speed" begin
+    slow = speak(k; phonemes = "hˈɛlO wˈɜɹld", speed = 0.5, noise = false)
+    fast = speak(k; phonemes = "hˈɛlO wˈɜɹld", speed = 2.0, noise = false)
+    @test length(slow) > length(fast)
+end
+
+end  # ready()
+end  # KokoroRunner

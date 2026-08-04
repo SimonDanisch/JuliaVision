@@ -1,0 +1,7 @@
+[propainter-ckpt]
+git-tree-sha1 = "d524635fdd4a48e421061e5f080af2b9a28f1120"
+lazy = true
+
+    [[propainter-ckpt.download]]
+    sha256 = "03ec9f20ac4e0e9d83fed97cf9f393374dc6b635fc88301fb04557d9994923ed"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/propainter-ckpt.tar.gz"

@@ -1,0 +1,7 @@
+[basicvsrpp]
+git-tree-sha1 = "fec1644eee192df8fe86f30d97e83dc25576de47"
+lazy = true
+
+    [[basicvsrpp.download]]
+    sha256 = "160eaed35764f83089795f27ef37c09626b59501bc16e9f5aae205a9eaa9422c"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/basicvsrpp.tar.gz"

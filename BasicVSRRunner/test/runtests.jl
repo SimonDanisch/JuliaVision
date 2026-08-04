@@ -1,31 +1,51 @@
 """
-Until the port runs, this asserts the two things that are true now and must stay
-true: the package loads on a machine with no assets, and the asset lookup names
-a real place rather than throwing something unreadable.
+BasicVSR++ REDS4, 4x video upscaling — the graph is bound and it **runs**, but it
+is **not verified against PyTorch**.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
-— belongs here once the workload drives the real call. See SAM2Runner/test for
-the shape it should take; it has to run in a subprocess because Julia's
-compile-time counter is per-process.
+That distinction is the whole point of this file. `coverage` reports none of its
+2290 ops missing, the model builds, and one 5-frame clip comes back the right
+shape and finite. What has never been measured is whether the numbers are
+*right*: there is no `tools/verify_basicvsrpp.jl`, and the artifact carries no
+references (they are in `gen/basicvsrpp/refs.safetensors`, developer-side). So
+every assertion below is about dispatch and coverage, and none of them is about
+accuracy — do not read a green run here as parity.
+
+The coverage assertion is the load-bearing one. An op that writes part of its
+output leaves the rest as whatever the scratch slab held; the model poisons the
+slab first, so a partial write reads as NaN rather than as a plausible number.
 """
 
-using Test, BasicVSRRunner
+using Test, BasicVSRRunner, KernelAbstractions, Lava
+const KA = KernelAbstractions
 
 @testset "BasicVSRRunner" begin
-    # No `assetdir()`. It is internal — it names where the artifact happens
-    # to put things, so a test that calls it has to know the layout and a
-    # re-export that moves a file breaks a test that never knew it depended
-    # on that. Ask for the graph and the weights instead.
-    if BasicVSRRunner.ready()
-        @info "BasicVSR++: export present"
-        g = BasicVSRRunner.basicvsrppgraph()
-        @test g !== nothing
-        w = BasicVSRRunner.basicvsrppweights()
-        @test !isempty(w)
-    else
-        @info "BasicVSR++: no export; run tools/export_basicvsrpp.py"
-        # The error has to name the path — a caller who has not run the exporter
-        # should be told where to put it, not handed a MethodError later.
-        @test_throws ArgumentError BasicVSRRunner.basicvsrppgraph()
+    @test BasicVSRRunner.ready()
+    g = BasicVSRRunner.basicvsrppgraph()
+    @test g !== nothing
+    @test length(g.ops) == 2290
+
+    backend = try
+        b = LavaBackend(); KA.synchronize(b); b
+    catch err
+        # `LavaError` only. A bare `catch` here would eat a typo in this file and
+        # report the skip as a pass, which is how a suite goes green while
+        # testing nothing.
+        err isa Lava.LavaError || rethrow()
+        @info "no working device; skipping the upscale" exception = err
+        nothing
+    end
+
+    if backend !== nothing
+        m = BasicVSRRunner.basicvsrppmodel(; backend)
+        # The export baked (T = 5, 64 x 64); a different shape is a re-export.
+        lqs = KA.allocate(backend, Float32, 64, 64, 3, 5, 1)
+        fill!(lqs, 0.5f0)
+        out = BasicVSRRunner.upscale(m, lqs)
+        KA.synchronize(backend)
+        got = Array(out)
+        @test size(got) == (256, 256, 3, 5, 1)      # 4x, every frame
+        @test count(isnan, got) == 0                # nothing left unwritten
+        @test all(isfinite, got)
+        @test any(!iszero, got)                     # and it is not a dead graph
     end
 end

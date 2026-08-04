@@ -108,7 +108,11 @@ println("RESULT ", (; refused, control, compile = (c1[1] - c0[1]) / 1e9, wall,
         out = stdout_ * (isfile(errfile) ? read(errfile, String) : "")
         lines = split(out, '\n')
         i = findfirst(l -> startswith(l, "RESULT "), lines)
-        nodevice = occursin("init_vulkan", out) || occursin("no Vulkan", out) ||
+        # "VkContext" catches a failure inside Lava's device constructor, which
+        # is where a machine with no usable Vulkan driver falls over. It was
+        # "init_vulkan" until that constructor was renamed; a stale needle here
+        # turns "no device" into a reported test failure.
+        nodevice = occursin("VkContext", out) || occursin("no Vulkan", out) ||
                    occursin("VK_ERROR_INCOMPATIBLE_DRIVER", out)
         if i === nothing && nodevice
             @info "no working device; skipping the latency test"

@@ -387,7 +387,41 @@ derivation, `split_k = shader_core_count * 2 / total_wgs`, and that line could
 not be written at all. **The Lava half is now built (9a); the five sites above
 are still literals.**
 
+#### 9c. CLOSED, 2026-08-03 — one record, and it is Lava's
+
+`DNNKernels.Device` is **deleted**. It was a second copy of the same eight facts,
+assembled here out of eight separate Lava lookups, and a copy that could drift
+did: it held `Lava.WORKGROUP_LIMIT[]`, a module-level `Ref(1024)` on Lava's side
+whose own docstring claimed to be the device's `maxComputeWorkGroupInvocations`
+while being a constant.
+
+`Lava.DeviceCaps` is now the record, absorbing `DeviceCompute` and
+`WORKGROUP_LIMIT` as well. Read it with `Lava.caps(backend)`; it is built lazily
+and cached on `ctx.caches.caps`, because half of it (`coopmat`, `subgroup`) is
+answered against the *logical* device, which does not exist while the context is
+being built.
+
+    Lava.caps(LavaBackend()) ->
+      DeviceCaps(coopmat=true, tile=16, subgroup=32, coopmatsubgroup=32,
+                 sharedbudget=49152, workgrouplimit=1024, cores=48, warps=48)
+
+The field names are unchanged from `DNNKernels.Device`, so 44 of the 48 read
+sites across seven files did not move. What stayed in DNNKernels is the one
+number that is not a device fact: `launchgroup(dev) = min(256, dev.workgrouplimit)`
+— 256 is measured for *these kernels*, and only the clamp is the device's. So is
+the CPU fallback `caps(::Any)`: Lava answers for devices it owns, and what a
+non-Vulkan backend should pretend to be is this library's question.
+
+`test_device_caps.jl` (32 tests) replaces `test_device_compute.jl`, and
+`twodevice_probe.jl` gains `WORKGROUP_LIMIT` as item 8 of its found-by-running
+list — it had been dismissed there as "a policy limit, not a queried one", which
+was the whole defect.
+
 #### 9a. DONE in Lava, 2026-08-02 — consumers still to wire
+
+*(Superseded by 9c: `DeviceCompute` is now `DeviceCaps`, and `ctx.compute` is
+`Lava.caps(ctx)`. The accessors below are unchanged and still the right way to
+read one number.)*
 
 Built and tested. `Lava.DeviceCompute` (`runtime/device.jl`) is queried once at
 context creation and cached on `VkContext.compute`; three accessors read it:
@@ -480,7 +514,8 @@ before that. Chain-filling happens if the application legally opted into it
 **either way** — API ≥ 1.1, or 1.0 with `VK_KHR_get_physical_device_properties2`
 enabled. Without either, the driver services the base struct and ignores the
 chain. The function returns `void`, so there is no status to check even in
-principle, and validation layers are off by default here (`LAVA_VALIDATION=1`).
+principle, and validation layers are off by default here — switching them on
+means building a device with `VkContext(debug = DebugConfig(validation = true))`.
 
 **Lava is on the right side of this** — `runtime/device.jl:567` asks for
 `v"1.4.0"`, which is why its RT properties query at `:1097` returns real numbers.
