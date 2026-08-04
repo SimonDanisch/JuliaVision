@@ -543,9 +543,14 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # construction, which is what the kernel indexes on, and it keeps a lazy
     # `Broadcasted` or a permuted view out of a path that cannot take them.
     #
-    # The two forms do not produce identical bits — the kernel accumulates in
-    # fp32, the expression below sums in the element type — so "does the mask
-    # still match" is a question about the whole model, not about the kernel.
+    # The two forms do not produce identical bits — so "does the mask still
+    # match" is a question about the whole model, not about the kernel. They do
+    # now agree on the ACCUMULATOR, which is not a tidiness point: summing in
+    # `Float16` saturates at 65504, and the squares of 768 features at magnitude
+    # 30 already exceed that. The instance norm below hit exactly this and went
+    # silently to zero (see `_native_batch_norm_legit.no_stats`); this path
+    # reduces over far fewer elements, so it is a narrower window, not a closed
+    # one.
     # This was a switch (`LN_FUSED`) so the two could be compared end to end in
     # one session; the fused form won and the switch is gone (review finding 3).
     if a isa Lava.LavaArray && d == Tuple(1:length(d)) && length(a) % n == 0
@@ -556,7 +561,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
         layernorm!(ctx, out, μ, r, a, γ, β, n, eps)
         return (out, μ, r)
     end
-    μ = sum(a; dims=d) ./ n
+    A = accum(eltype(a))
+    μ = sum(a; dims=d, init=zero(A)) ./ n
     # The centred tensor goes to workspace scratch, not to a fresh allocation.
     # Written the obvious way — `sum(abs2, a .- μ; dims=d)` — the dot syntax
     # materialises a full-size temporary per layer norm, and on SAM 2's image
@@ -571,11 +577,11 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # parity with PyTorch to five decimals is not worth trading for an
     # allocation.
     v = if ctx.ws === nothing
-        sum(abs2, a .- μ; dims=d) ./ n         # verification path, no workspace
+        sum(abs2, a .- μ; dims=d, init=zero(A)) ./ n   # verification path, no workspace
     else
         t = scratch!(ctx.ws, ctx.backend, eltype(a), size(a)...)
         t .= Base.broadcasted(-, a, μ)
-        sum(abs2, t; dims=d) ./ n
+        sum(abs2, t; dims=d, init=zero(A)) ./ n
     end
     r = 1 ./ sqrt.(v .+ eps)
     # One broadcast, one write, into the slot the planner reserved.
@@ -920,6 +926,35 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("lstm.input")})
 end
 
 """
+    scatteradd_kernel!(dst, src, idx, n)
+
+`dst[idx[j]] += src[j]`, atomically, for every `j`.
+
+**The atomic is the whole point, not a precaution.** `idx` repeats — that is what
+distinguishes a scatter-add from a scatter — and on Kokoro's iSTFT overlap-add
+235220 entries land in 58820 slots. A plain `dst[idx[j]] += src[j]` from parallel
+lanes loses every contribution but the last one per slot, which is exactly the
+failure the host implementation was written to avoid: three of every four windows
+vanished, the envelope had 1451 zeros, and dividing by it gave NaN audio.
+
+fp32 only, because `VK_EXT_shader_atomic_float` gives a hardware `OpAtomicFAdd`
+for it; `index_put` keeps its host path for every other dtype.
+
+**This makes the op non-deterministic in the last ULP, and that is inherent.**
+Atomics complete in whatever order the scheduler gives them and floating-point
+addition is not associative, so two runs of the same input differ by ~1e-6
+relative. PyTorch's `index_put_(accumulate=True)` on CUDA behaves identically —
+it is one of the ops `torch.use_deterministic_algorithms` refuses — and
+`KokoroRunner`'s suite asserts a tolerance here rather than equality.
+"""
+@kernel function scatteradd_kernel!(dst, @Const(src), @Const(idx), n::Int32)
+    j = @index(Global, Linear)
+    @inbounds if j <= n
+        Atomix.@atomic dst[Int(idx[j])] += src[j]
+    end
+end
+
+"""
 `index_put` is the scatter half of `index.Tensor`, and it is how a KV cache is
 written: `cache[:, :, position] = k` for a `position` that is a tensor, not a
 literal, so `slice_scatter` cannot express it.
@@ -968,17 +1003,33 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         # envelope: three of every four windows vanished, the envelope had 1451
         # zeros, and the division by it produced NaN and Inf in the audio.
         #
-        # Host-side, one pass. Every use so far is a constant subgraph folded at
-        # load, so this runs once per model; a runtime use would want a kernel
-        # with atomics.
+        # **On the device, through `OpAtomicFAdd`.** This used to be a host loop,
+        # on the grounds that every use was a constant subgraph folded at load —
+        # "a runtime use would want a kernel with atomics". Kokoro's iSTFT is that
+        # runtime use: two calls per utterance, and an OPDOUBLE ablation put them
+        # at **+204 ms of an 845 ms vocoder**, because the host path downloads the
+        # whole tensor, loops on one core and uploads it again, synchronising the
+        # queue twice around it.
+        #
+        # `VK_EXT_shader_atomic_float` gives a hardware `OpAtomicFAdd` for fp32,
+        # which is exactly the primitive the duplicates need. Anything else keeps
+        # the host path — correctness first, and an fp16 atomic add is not a
+        # device feature we ask for.
         length(nz) == 1 || error("index_put: accumulate with $(length(nz)) index " *
                                  "tensors is not implemented (op $(op.id))")
         d = nz[1]
         all(k -> k == d || size(a, k) == 1, 1:n) ||
             error("index_put: accumulate needs singleton batch axes (op $(op.id))")
+        ivals = idx[d]
+        if eltype(dst) === Float32 && dst isa Lava.LavaArray
+            iv32 = toback(ctx.backend, Int32.(collect(ivals)))
+            m = length(src)
+            scatteradd_kernel!(ctx.backend)(vec(dst), vec(src), iv32, Int32(m);
+                                            ndrange = m)
+            return dst
+        end
         hv = vec(Array(dst))
         hs = vec(Array(src))
-        ivals = idx[d]
         @inbounds for (j, i) in enumerate(ivals)
             hv[i] += hs[j]
         end
@@ -1050,11 +1101,45 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
     end
     ox = convsize(size(x, 1), size(w, 1), stride[1], pad[1], dil[1])
     if length(stride) == 1                       # aten::convolution covers 1-D too
-        out = alloc(ctx, eltype(x), ox, size(w, 3), size(x, 3))
-        convolution1d!(ctx, out, x, w, bias, stride, pad, dil, groups)
-        # No epilogue to fold into here; correctness first, and the 1-D
-        # convolutions are the 9 channel-attention layers, not a hot path.
-        act === :relu && (out .= max.(out, zero(eltype(out))))
+        # **1-D is 2-D with a singleton second spatial axis, and lifting it is
+        # what puts it on the tensor cores.** `convolution1d!` is a direct scalar
+        # kernel — one thread per output element, no reuse, no cooperative
+        # matrices — and for a vocoder that is the whole cost: Kokoro's 90 1-D
+        # convolutions are 235.7 GFLOP at **0.52 TFLOP/s**, against 42.4 for an
+        # fp16 GEMM on this card.
+        #
+        # The 2-D path already has everything needed. It materialises im2col and
+        # pads BOTH axes — the reduction axis by `padtile(CRS)` and the pixel
+        # count by `padtile(NPQ)`, whose rows the im2col kernel simply zero-fills
+        # — so a sequence length that lands on no tiling is not a refusal there.
+        # Measured on the dominant shape, padding M from 20401 to 20416 is worth
+        # **13.5x** even paying for the copy.
+        #
+        # The transposed 1-D case has lifted this way since the Kokoro port; this
+        # is the forward one, and the same argument applies: reuse the path that
+        # is measured and tested rather than tune a second implementation.
+        #
+        # `conv_coopmat_plan` decides. When it declines — fp32 operands, a `Cout`
+        # off the tile, an im2col too large to be worth materialising — the
+        # direct kernel is still the right answer and still runs.
+        # ONE allocation for both branches, in the layout the op declares; the
+        # 2-D path takes a `reshape` of it. Allocating a separate 4-D buffer
+        # would spend a slab slot on every convolution that then declines, which
+        # is 29 of Kokoro's 90.
+        Cin1, Cout1 = size(w, 2), size(w, 3)
+        out = alloc(ctx, eltype(x), ox, Cout1, size(x, 3))
+        x2 = reshape(x, size(x, 1), 1, size(x, 2), size(x, 3))
+        w2 = reshape(w, size(w, 1), 1, Cin1, Cout1)
+        out2 = reshape(out, ox, 1, Cout1, size(x, 3))
+        if groups == 1 && ctx.ws !== nothing &&
+           conv_coopmat_plan(ctx.dev, out2, x2, w2) isa ConvCoopMatPlan
+            convolution!(ctx, out2, x2, w2, bias, [stride[1], 1], [pad[1], 0],
+                         [dil[1], 1], 1; act)
+        else
+            convolution1d!(ctx, out, x, w, bias, stride, pad, dil, groups)
+            # The direct kernel has no epilogue to fold into.
+            act === :relu && (out .= max.(out, zero(eltype(out))))
+        end
     elseif length(stride) == 3                   # and 3-D, for the Wan VAE
         oy = convsize(size(x, 2), size(w, 2), stride[2], pad[2], dil[2])
         oz = convsize(size(x, 3), size(w, 3), stride[3], pad[3], dil[3])
@@ -1108,10 +1193,31 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_stat
     rd = ntuple(i -> i < c ? i : i + 1, ndims(x) - 1)   # every dim but the channel
     rs = ntuple(i -> i == c ? length(γ) : 1, ndims(x))
 
+    # **The reduction accumulates in fp32 even for an fp16 input, and it has to.**
+    #
+    # `sum` over a `Float16` array accumulates in `Float16`, whose largest finite
+    # value is 65504. This norm reduces over the *whole sequence*: on Kokoro's
+    # vocoder that is 18961 elements per channel at a magnitude around 27, so the
+    # sum of squares reaches ~1.4e7 and saturates to `Inf`. Then `invstd` is
+    # `1/sqrt(Inf) = 0` and **every output is silently zero** — no NaN, no error,
+    # and only for inputs long enough to overflow, so a short utterance passes
+    # and a long one comes out as silence or, once a later op divides by it, as
+    # NaN several ops downstream.
+    #
+    # `accum` is the same widening the convolution and matmul paths use. It is
+    # applied through `init` rather than `sum(a -> A(a), x)` because a closure
+    # over a *type* is not a bitstype and cannot enter a GPU kernel — that form
+    # fails to compile with "Argument 5 to your kernel function ... is not a
+    # bitstype", which names the argument and not the type it closed over.
+    #
+    # Costs nothing: `d` stays a lazy broadcast so nothing extra is materialised,
+    # and the output dtype is unchanged — `eps` and `γ` are fp32, so the result
+    # was already promoted.
+    A = accum(eltype(x))
     n = length(x) ÷ size(x, c)
-    μ = sum(x; dims = rd) ./ n
-    d = x .- μ
-    v = sum(abs2, d; dims = rd) ./ n      # biased; see above
+    μ = sum(x; dims = rd, init = zero(A)) ./ n
+    d = x .- μ                            # `A`, because `μ` is
+    v = sum(abs2, d; dims = rd, init = zero(A)) ./ n   # biased; see above
     invstd = 1 ./ sqrt.(v .+ eps)
 
     s = invstd .* reshape(γ, rs)

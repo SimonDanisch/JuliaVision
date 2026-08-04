@@ -163,14 +163,37 @@ end
 end
 
 @testset "determinism" begin
-    a = speak(k; phonemes = "hˈɛlO", noise = false)
-    b = speak(k; phonemes = "hˈɛlO", noise = false)
-    @test a == b
-    # And with the noise on it must NOT be identical, or the noise is not wired
-    # up and `noise = false` is measuring nothing.
-    c = speak(k; phonemes = "hˈɛlO", noise = true)
-    d = speak(k; phonemes = "hˈɛlO", noise = true)
+    rel(x, y) = sqrt(sum(abs2, x .- y) / length(x)) /
+                sqrt(sum(abs2, x) / length(x))
+
+    # **Not bit-equality, and the reason is a real property of the model.**
+    # `index_put(accumulate=true)` — the iSTFT's overlap-add — is a scatter-add
+    # over repeated indices, and it runs as an atomic fp32 add. Atomics complete
+    # in whatever order the scheduler gives them and floating-point addition is
+    # not associative, so two runs differ in the last one or two ULPs. PyTorch's
+    # `index_put_(accumulate=True)` on CUDA has exactly the same property; it is
+    # one of the ops `torch.use_deterministic_algorithms` refuses.
+    #
+    # Asserting a tolerance rather than equality is what makes the claim true.
+    # The test's PURPOSE is unchanged and in fact sharper: what it exists to
+    # catch is a `noise = false` that does not actually zero the excitation, and
+    # the two scales are five orders of magnitude apart — so the gap is asserted
+    # directly rather than left implicit in `!=`.
+    # `trim = false` throughout: `trimsilence` picks its boundary from the audio
+    # VALUES, so with the noise on the two runs trim to different lengths and a
+    # sample-by-sample comparison has nothing to align. The frame count fixes the
+    # length instead.
+    a = speak(k; phonemes = "hˈɛlO", noise = false, trim = false)
+    b = speak(k; phonemes = "hˈɛlO", noise = false, trim = false)
+    @test length(a) == length(b)
+    @test rel(a, b) < 1e-4
+
+    c = speak(k; phonemes = "hˈɛlO", noise = true, trim = false)
+    d = speak(k; phonemes = "hˈɛlO", noise = true, trim = false)
     @test c != d
+    # The noise has to move the output by far more than atomic reordering does,
+    # or `noise = false` is measuring nothing.
+    @test rel(c, d) > 100 * rel(a, b)
 end
 
 @testset "speed" begin

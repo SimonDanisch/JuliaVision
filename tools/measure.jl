@@ -205,14 +205,17 @@ arm, which is the question to ask before quoting a ratio.
 """
 function compare(fa, fb; samples::Int = 15, floor::Real = 0.90,
                  labels = ("A", "B"), sync = nothing)
-    fa = sync === nothing ? fa : (() -> (fa(); sync()))
-    fb = sync === nothing ? fb : (() -> (fb(); sync()))
-    fa(); fb()
-    plat, smmax = plateau(() -> (fa(); fb()))
+    # NEW names. `fa = () -> (fa(); sync())` captures the *variable*, so the
+    # closure calls itself — a StackOverflowError from a benchmark harness, which
+    # is a confusing place to get one.
+    ga = sync === nothing ? fa : (() -> (fa(); sync()))
+    gb = sync === nothing ? fb : (() -> (fb(); sync()))
+    ga(); gb()
+    plat, smmax = plateau(() -> (ga(); gb()))
     lo = floor * plat
     sa, sb = Sample[], Sample[]
     for _ in 1:samples
-        for (f, acc) in ((fa, sa), (fb, sb))
+        for (f, acc) in ((ga, sa), (gb, sb))
             x = gpustate().sm
             t = @elapsed f()
             y = gpustate().sm

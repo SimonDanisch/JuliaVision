@@ -50,6 +50,7 @@ string that `KModel.vocab` maps to ids — a lookup table and a G2P, no tensors.
 """
 
 import argparse
+import contextlib
 import json
 from pathlib import Path
 
@@ -73,6 +74,76 @@ def lstm(mod, x):
     """
     y, _ = mod(x)
     return y
+
+
+def exact():
+    """A scope that stays in fp32 even under autocast.
+
+    Two blocks of this model need it, and which two was measured rather than
+    guessed — see `tools/precision_blame.py`. Rounding one submodule at a time to
+    fp16 and comparing the audio:
+
+        decoder.decode      27.9 Melem   1.000009   <- every convolution
+        decoder.generator   19.7         0.998773
+        text_encoder         5.6         1.000009
+        predictor.lstm       1.8         1.000010   <- the LSTMs are NOT sensitive
+        predictor.N          3.3         1.000010
+        bert                 6.3         0.962368   <- costs
+        predictor.F0         3.3         0.925794   <- costs
+
+    The arithmetic is free; the damage is in `bert` and `predictor.F0` alone.
+
+    **`F0` is the one with a mechanism, and it is why the loss grows with the
+    utterance.** The vocoder's excitation is `sin` of a *cumulative* F0, so an
+    error there accumulates PHASE along the sequence. Whole-model fp16 falls
+    0.9901 -> 0.8662 -> 0.7549 across medium, long and very long inputs, while
+    every policy holding F0 in fp32 stays flat at 0.994+.
+
+    Keeping these two exact leaves **88% of the weights in fp16** — including all
+    90 convolutions, which is where the time goes.
+
+    bf16 was tried first and is WORSE, not better: 0.4462 against fp16's 0.8662
+    on a long utterance. Its fp32 exponent range does not help because these
+    models are precision-limited, not range-limited — 7 mantissa bits against 10.
+    """
+    return torch.amp.autocast(device_type="cuda", enabled=False)
+
+
+def keepexact(obj, *names):
+    """Force `obj`'s named methods to run in fp32 even under autocast.
+
+    For the blocks that are reached from inside another module's `forward` and so
+    cannot be wrapped at the call site — here, the generator's STFT.
+
+    **The iSTFT has to stay fp32 for a reason beyond accuracy: it goes COMPLEX.**
+    `TorchSTFT.inverse` computes `spec * exp(1j * phase)`, and under autocast that
+    is `complex32`, which `DNNKernels` has no dtype for — the export loads with
+    `KeyError: key "complex32" not found` and names a buffer rather than the op or
+    the reason.
+
+    Adding `complex32` would be the wrong fix twice over. An FFT is not a
+    cooperative-matrix operation, so half precision buys it nothing, and Lava's
+    FFT kernels are `ComplexF32` throughout; the overlap-add would lose precision
+    for no speed at all.
+
+    **The arguments are cast up, and that is the whole point of this over a bare
+    `exact()`.** `autocast(enabled=False)` stops *new* ops being run in half
+    precision; it does **not** restore tensors that arrived already fp16. Here
+    `magnitude` and `phase` are produced by autocast convolutions upstream, so
+    `magnitude * exp(phase * 1j)` is `complex32` no matter what scope it runs in
+    — wrapping the call in `exact()` alone changed nothing at all, and the
+    re-export came back with the same two complex32 buffers.
+    """
+    for name in names:
+        fn = getattr(obj, name)
+
+        def wrapped(*a, _fn=fn, **kw):
+            up = lambda x: (x.float() if torch.is_tensor(x) and x.dtype == torch.float16
+                            else x)
+            with exact():
+                return _fn(*[up(x) for x in a], **{k: up(v) for k, v in kw.items()})
+
+        setattr(obj, name, wrapped)
 
 
 def decomptable():
@@ -149,7 +220,8 @@ class TextHalf(torch.nn.Module):
         s = ref_s[:, 128:]
         # `attention_mask` all ones: exact length, nothing padded.
         mask = torch.ones_like(input_ids)
-        bert_dur = m.bert(input_ids, attention_mask=mask)
+        with exact():                     # see `exact` — bert costs 0.962 in fp16
+            bert_dur = m.bert(input_ids, attention_mask=mask)
         d_en = m.bert_encoder(bert_dur).transpose(-1, -2)
         d = self.durationencoder(d_en, s)
         x = lstm(m.predictor.lstm, d)
@@ -183,10 +255,14 @@ class VocoderHalf(torch.nn.Module):
         p = self.model.predictor
         sp, sd = ref_s[:, 128:], ref_s[:, :128]
         x = lstm(p.shared, en.transpose(-1, -2))
-        F0 = x.transpose(-1, -2)
-        for block in p.F0:
-            F0 = block(F0, sp)
-        F0 = p.F0_proj(F0)
+        # F0 in fp32 even under autocast: its error accumulates PHASE through the
+        # excitation's `sin(cumsum(F0))`, so it is the one block whose fp16 loss
+        # grows with the utterance. See `exact`.
+        with exact():
+            F0 = x.transpose(-1, -2)
+            for block in p.F0:
+                F0 = block(F0, sp)
+            F0 = p.F0_proj(F0)
         N = x.transpose(-1, -2)
         for block in p.N:
             N = block(N, sp)
@@ -356,7 +432,22 @@ def checkparity(model, text, voc, ids, ref_s, nframes):
     assert rel < 1e-4, f"the split diverges: rel rms {rel:.3e}"
 
 
-def main(out: Path, dev: str, ntokens: int, nframes: int, phonemes: str):
+def precision_ctx(precision):
+    """The dtype policy the graph is traced under.
+
+    `torch.export` captures autocast as explicit `_to_copy` nodes, so the dtype of
+    every buffer becomes data in the JSON rather than a runtime policy the Julia
+    side would have to reimplement — **provided `run_decompositions()` runs inside
+    the same context.** Called outside, it re-traces and silently drops every
+    cast, and the graph comes back fp32 with no error to say so.
+    """
+    if precision == "autocast":
+        return torch.amp.autocast(device_type="cuda", enabled=True)
+    return contextlib.nullcontext()
+
+
+def main(out: Path, dev: str, ntokens: int, nframes: int, phonemes: str,
+         precision: str = "fp32"):
     from kokoro import KModel
     model = KModel(repo_id="hexgrad/Kokoro-82M",
                    config=str(WEIGHTS / "config.json"),
@@ -372,6 +463,11 @@ def main(out: Path, dev: str, ntokens: int, nframes: int, phonemes: str):
     # `pack[len(ps) - 1]`, which is already `(1, 256)` — no unsqueeze.
     voice = torch.load(WEIGHTS / "af_heart.pt", map_location="cpu", weights_only=True)
     ref_s = voice[ids.shape[1] - 1].to(dev)
+
+    # The generator's STFT stays fp32 — see `keepexact`. Under autocast its
+    # inverse goes complex32, which nothing downstream can load.
+    if precision == "autocast":
+        keepexact(model.decoder.generator.stft, "transform", "inverse")
 
     text = TextHalf(model).eval()
     voc = VocoderHalf(model).eval()
@@ -390,7 +486,10 @@ def main(out: Path, dev: str, ntokens: int, nframes: int, phonemes: str):
 
         def emit(mod, args, name, more=None, vs=None, sym=""):
             def conv(a):
-                ep = torch.export.export(mod, a, strict=False).run_decompositions(decomptable())
+                with precision_ctx(precision):
+                    ep = torch.export.export(mod, a, strict=False)
+                    # INSIDE the context — see `precision_ctx`.
+                    ep = ep.run_decompositions(decomptable())
                 # Lifted constants come off the ExportedProgram, so they are
                 # collected here rather than from a variable the caller can see.
                 available.update({k: v for k, v in ep.constants.items()
@@ -467,5 +566,7 @@ if __name__ == "__main__":
                    help="0 = the frame count the durations produce (the only correct one)")
     p.add_argument("--phonemes", default="hˈEllO wˈɜɹld, ðɪs ɪz kˈOkəɹO",
                    help="already phonemised; KPipeline does text -> phonemes")
+    p.add_argument("--precision", default="fp32", choices=["fp32", "autocast"],
+                   help="autocast puts 88%% of the weights in fp16; see `exact`")
     a = p.parse_args()
-    main(a.out, a.device, a.tokens, a.frames, a.phonemes)
+    main(a.out, a.device, a.tokens, a.frames, a.phonemes, a.precision)

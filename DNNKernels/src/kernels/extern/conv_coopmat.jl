@@ -47,7 +47,8 @@ stem (`7x7x3`), the 1x1 layers with a concatenated scalar channel (`Cin` 17,
 enough, which `conv_coopmat_plan`'s `crspad` decides. `Cout` still is — padding it would
 widen the *output*, not just the reduction.
 """
-function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.25)
+function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
+                           im2colcap::Int = IM2COL_CAP[])
     # The operands have to be *on the Lava device*, not merely of a type
     # cooperative matrices could hold: `coopmat_gemm_available` asks the Vulkan
     # context, which answers yes whenever Lava is loaded, so without this the CPU
@@ -105,10 +106,61 @@ function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.
     # reasoning, only in their input — nobody had measured the fallback.
     Cout >= dev.tile || return Decline(:reuse)
     NPQ = size(out, 4) * size(out, 2) * size(out, 1)
-    padtile(NPQ) * padtile(CRS) * sizeof(Float16) <= 48 << 20 || return Decline(:im2colsize)
+    padgemm(NPQ) * padtile(CRS) * sizeof(Float16) <= im2colcap || return Decline(:im2colsize)
     dev.coopmat || return Decline(:nocoopmat)
     ConvCoopMatPlan(CRS, padtile(CRS), Cout, NPQ)
 end
+
+"""
+    IM2COL_CAP
+
+Largest im2col matrix `conv_coopmat_plan` will materialise, in bytes.
+
+A `Ref` so the two sides can be compared in one session, which is the only
+comparison this project trusts. The bound is a memory judgement, not a speed one:
+the matrix is workspace, and a convolution that asks for 93 MiB of it is what
+makes the pool OOM when anything else is on the card.
+
+**It is currently the binding constraint on Kokoro.** Its vocoder convolves
+sequences up to 34576 positions with `CRS = 1408`, so im2col would be 92.9 MiB —
+18 convolutions carrying **53.2% of the graph's convolution arithmetic** are
+refused here and fall back to the direct scalar kernel.
+
+The right fix is to chunk the GEMM along `NPQ` rather than to raise this: the
+product is `col[NPQ, CRS] * w[CRS, Cout]`, so splitting the row axis is exact and
+each chunk's im2col is a fraction of the whole. Raising it trades a correctness-
+preserving memory bound for a speed win and will fail on a busy card.
+"""
+const IM2COL_CAP = Ref(48 << 20)
+
+"""
+    GEMM_BLOCK
+
+The row count the im2col matrix is padded to: `lcm` of every `GEMM_TILINGS` block
+height, so **some** tiling always divides it.
+
+`padtile` pads to the cooperative-matrix tile, 16, and that is not enough.
+`Lava.gemm_tiling` takes the first tiling whose block DIVIDES the shape exactly
+(`gemm.jl:185`) and the blocks are 96/64/32 — so a `padtile`d 3400 becomes 3408,
+which none of them divide, and the GEMM inside the convolution silently drops to
+the register-blocked kernel.
+
+Measured on the shape that exposed it, `L=3400 C=256 k=7`: the lifted coopmat
+path was **1.12 TF/s against the direct kernel's 0.88** — a 1.27x that looked
+like "im2col traffic eats the gain" and was nothing of the sort. The same GEMM
+with `M` padded onto a tiling runs at 19.7 TF/s.
+
+`padtile(20401) = 20416` happens to be a multiple of 64, which is why the longest
+convolutions looked fine and the mid-size ones did not; the difference was luck,
+not shape.
+
+At most 191 extra rows against thousands, and the im2col kernel already zero-fills
+past `NPQ`, so the padding costs a fraction of a percent and needs no new code.
+"""
+const GEMM_BLOCK = lcm(Lava.gemm_bm.(Lava.GEMM_TILINGS)...)
+
+"Round `n` up to a multiple of [`GEMM_BLOCK`](@ref)."
+@inline padgemm(n::Integer) = cld(n, GEMM_BLOCK) * GEMM_BLOCK
 
 """
 The im2col matrix, `MP x CRS` column-major, zero past `NPQ` and outside the
@@ -224,7 +276,7 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     OW, OH, _, N = size(out)
     CRS = plan.CRS
     NPQ = plan.NPQ
-    MP = padtile(NPQ)
+    MP = padgemm(NPQ)
     # The reduction axis is padded to the tile the same way `NPQ` already is.
     # `CRS` is the weight's own extent, so this used to be a refusal rather than
     # a padding — and it kept SAM 2's stem (`7x7x3`, `CRS = 147`) on the
