@@ -94,6 +94,53 @@ Packages are plain subdirectories, [Makie](https://github.com/MakieOrg/Makie.jl)
 History for `DNNKernels` and `GPUFiltering` was carried over with `git subtree`,
 so `git log --follow` still works through the move.
 
+## Speed, against PyTorch on the same card
+
+Measured 2026-08-05 on an **NVIDIA RTX 4000 Ada**, all in one sitting. Ours
+through `tools/bench_all.jl`, PyTorch through `tools/baseline_*.py`.
+
+| model | shape | Lava | PyTorch | ratio |
+|---|---|---:|---:|---:|
+| Neural 3D LUT | 256² classifier | **6.9 ms** | — | — |
+| Depth Anything V2 S | 518² | **92.4 ms** | 21.9 ms | 0.24x |
+| SAM 2.1 encode | 1024² | **143.6 ms** | 79.3 ms | 0.55x |
+| SAM 2.1 decode | one click | 25.2 ms | 1.76 ms | 0.07x |
+| RIFE 4.26 | 1920×1152 | **274.7 ms** | — | — |
+| Whisper large-v3-turbo encode | 30 s window, fp16 | **457.7 ms** | 71.9 ms | 0.16x |
+| Kokoro-82M | one sentence | **645.4 ms** | — | — |
+| MatAnyone2 step | 512×288 | *~405 ms* | — | *not trustworthy, see below* |
+
+**How to read this, and how not to.** These are honest numbers and mostly not
+flattering ones — the engine is between 4x and 14x off PyTorch wherever both
+sides are measured. That is the gap `plans/perf-plan.md` argues about.
+
+Every rule below exists because breaking it produced a confidently wrong number
+here at least once:
+
+  * **Warm the clock.** This card idles at **210 MHz of 3105** and plateaus near
+    73% under sustained load. A cold sample reads several times slow and looks
+    exactly like a regression. `tools/measure.jl` warms to a measured plateau,
+    brackets every sample with a clock reading and discards any that dipped.
+  * **Report what was discarded.** The MatAnyone row kept **5 of 11** samples,
+    so it is shown struck rather than quoted. A median over a third of the
+    samples is not a median of anything.
+  * **TF32 off on the PyTorch side** for fp32 models. Leaving it on hands
+    PyTorch the tensor cores for every matmul while Lava runs true fp32, which
+    measures a dtype choice and calls it an engine gap.
+  * **No `torch.compile`.** The graphs here came out of `torch.export`, which is
+    eager PyTorch's own decomposition. Comparing against a fused Inductor build
+    would compare a compiler we do not have against a runtime we do.
+  * **Never rank against an unmeasured denominator.** SAM 2's "85% of PyTorch"
+    was computed against 87.6 ms; PyTorch measures **79.3 ms** on this card now.
+    The denominator moved and the claim went stale on its own.
+
+**Two rows are under investigation and should not be cited yet.** SAM 2 encode
+reads 143.6 ms where `perf-plan.md` records 100.4 — `gemm_padn` and the erf/gelu
+widening are both eliminated by direct A/B, and a pre-merge control is what is
+missing. MatAnyone needs a quieter machine.
+
+Blanks are PyTorch baselines not yet written, not models that failed.
+
 ## Not here yet
 
 The nine packages above are skeletons: asset lookup, graph loading and a guarded

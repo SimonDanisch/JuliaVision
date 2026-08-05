@@ -49,9 +49,23 @@ def main(size: int, n: int, reps: int):
     sys.path.insert(0, str(Path(__file__).parent))
     from export_depthanything import Depth, load_model
 
+    # The reference dump if the export tree is on this machine, else synthetic
+    # input of the same shape. The artifacts deliberately exclude
+    # `reference.safetensors` as developer material, so a machine that installed
+    # the model rather than exporting it has the weights and not the reference —
+    # which used to make this script unrunnable there with a FileNotFoundError.
+    #
+    # Synthetic is honest for a TIMING comparison: the shape and dtype are what
+    # decide the work, and `tools/bench_all.jl` feeds its own synthetic frame of
+    # the same size. It would NOT be honest for an accuracy comparison, which is
+    # what `reference.safetensors` is actually for.
     d = GEN / "graphs" / "depthanything"
-    ref = load_file(str(d / "reference.safetensors"))
-    x = ref["input"].cuda()
+    refp = d / "reference.safetensors"
+    if refp.is_file():
+        x = load_file(str(refp))["input"].cuda()
+    else:
+        print(f"no {refp}; timing on synthetic input of the same shape")
+        x = torch.rand(1, 3, 518, 518, device="cuda")
 
     model = Depth(load_model()).cuda().eval()
 
