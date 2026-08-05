@@ -134,10 +134,28 @@ here at least once:
     was computed against 87.6 ms; PyTorch measures **79.3 ms** on this card now.
     The denominator moved and the claim went stale on its own.
 
-**Two rows are under investigation and should not be cited yet.** SAM 2 encode
-reads 143.6 ms where `perf-plan.md` records 100.4 — `gemm_padn` and the erf/gelu
-widening are both eliminated by direct A/B, and a pre-merge control is what is
-missing. MatAnyone needs a quieter machine.
+**These are pessimistic, and by an unknown amount.** The card plateaued at
+**70-73% of its 3105 MHz** for every row, with eight desktop processes on it
+holding ~3 GB. A quiet machine would move the Lava column down; how far is not
+known, because the clock state of the older figures in `plans/perf-plan.md` was
+never recorded.
+
+That is not a hedge — it is the answer to a real discrepancy. SAM 2 encode reads
+143.6 ms here where `perf-plan.md` records 100.4, and the cause is **not the
+code**. Measured on this machine on the same day with the same harness:
+
+| SAM 2.1 encode | |
+|---|---|
+| pre-merge (JuliaVision `4450319`, Lava `601e678`) | 151.3 ms |
+| post-merge (this tree) | **143.6 ms** |
+
+The merge made it 5% *faster*. `gemm_padn` pads none of SAM 2's shapes, and the
+erf/gelu widening costs 1.3% by direct A/B — but the pre-merge control rules out
+every code hypothesis at once, which neither of those could. 143.6 ms at 73%
+scales to ~105 ms at full boost, which is where the record sits. Consistent, not
+proven; it needs a quiet machine to settle.
+
+MatAnyone needs the same.
 
 Blanks are PyTorch baselines not yet written, not models that failed.
 
