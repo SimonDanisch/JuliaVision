@@ -44,13 +44,22 @@ that is deliberate.
 # workgroup accesses, and plain `Workgroup` variables where no type needs an
 # explicit layout.
 #
+# "5": kernels were edited AFTER "4"'s entries were already frozen — the norm
+# reductions widened their accumulator, `padgemm` changed every im2col's row
+# count, forward 1-D convolution reaches the coopmat path, and `scatteradd_kernel!`
+# is new. A frozen entry is keyed by module, name, argument types, workgroup and
+# this version — NOT by the kernel body — so an edit without a bump silently
+# loads the old SPIR-V. That is not theoretical: it faulted the device
+# ("device was lost ... a dispatch wrote out of bounds") deterministically at the
+# same timeline on every precompile, and cleared the moment the cache was emptied.
+#
 # "4": the fused LSTM became one `Val`-parameterised kernel instead of a family
 # `@eval`ed per `(H, reverse)`, so both its name and its signature changed. The
 # key would have changed with it and the old entries merely orphaned rather than
 # stale — but working that out from how `frozen_key` is derived is exactly the
 # reasoning the version exists to make unnecessary, and getting it wrong is
 # silent.
-const KERNELS_VERSION = "4"
+const KERNELS_VERSION = "5"
 
 include("assets.jl")
 include("safetensors.jl")

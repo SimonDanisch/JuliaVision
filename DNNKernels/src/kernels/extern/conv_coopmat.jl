@@ -48,7 +48,7 @@ enough, which `conv_coopmat_plan`'s `crspad` decides. `Cout` still is — paddin
 widen the *output*, not just the reduction.
 """
 function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
-                           im2colcap::Int = IM2COL_CAP[])
+                           im2colcap::Int = im2colbudget(x))
     # The operands have to be *on the Lava device*, not merely of a type
     # cooperative matrices could hold: `coopmat_gemm_available` asks the Vulkan
     # context, which answers yes whenever Lava is loaded, so without this the CPU
@@ -113,25 +113,51 @@ end
 
 """
     IM2COL_CAP
+    im2colbudget(x) -> Int
 
-Largest im2col matrix `conv_coopmat_plan` will materialise, in bytes.
+The largest im2col matrix `conv_coopmat_plan` will materialise, in bytes.
 
-A `Ref` so the two sides can be compared in one session, which is the only
-comparison this project trusts. The bound is a memory judgement, not a speed one:
-the matrix is workspace, and a convolution that asks for 93 MiB of it is what
-makes the pool OOM when anything else is on the card.
+`IM2COL_CAP` is a hard ceiling; `im2colbudget` is what actually gets used, and it
+is the **smaller of that ceiling and a share of the VRAM the driver says is
+free**. The bound was always a memory judgement rather than a speed one — the
+matrix is workspace, and a convolution asking for 93 MiB of it is what makes the
+pool OOM when anything else is on the card — so asking the driver is strictly
+better than guessing a number that has to be right on an empty card and on a busy
+one at the same time.
 
-**It is currently the binding constraint on Kokoro.** Its vocoder convolves
-sequences up to 34576 positions with `CRS = 1408`, so im2col would be 92.9 MiB —
-18 convolutions carrying **53.2% of the graph's convolution arithmetic** are
-refused here and fall back to the direct scalar kernel.
+**Measured, and this overturned an earlier reading.** Kokoro's vocoder convolves
+sequences up to 34576 positions with `CRS = 1408`, so im2col would be 92.9 MiB:
+18 convolutions carrying 53% of the graph's convolution arithmetic sat on the
+direct scalar kernel. Admitting them is worth **1.24x end to end**, 8.42 -> 10.41x
+realtime, interleaved against one shared clock plateau. (A first attempt read
+1.04x and was wrong — it used two separate `bench` calls, so the arms ran at
+different clocks. See `tools/measure.jl`.)
 
-The right fix is to chunk the GEMM along `NPQ` rather than to raise this: the
-product is `col[NPQ, CRS] * w[CRS, Cout]`, so splitting the row axis is exact and
-each chunk's im2col is a fraction of the whole. Raising it trades a correctness-
-preserving memory bound for a speed win and will fail on a busy card.
+The share is deliberately a *quarter* of what is free. The im2col is not the only
+thing the call needs — the GEMM's `MP x Cout` fp32 destination and the model's own
+slab are live at the same time — and leaving three quarters is what makes the
+fallback a slower convolution rather than an allocation failure.
+
+When the driver has no `VK_EXT_memory_budget` (`budget == 0`), this falls back to
+`IM2COL_CAP` unchanged, which is the old behaviour exactly.
 """
-const IM2COL_CAP = Ref(48 << 20)
+const IM2COL_CAP = Ref(128 << 20)
+
+function im2colbudget(x)
+    # The context comes from the OPERAND, not from a backend or a `DeviceCaps` —
+    # the same reason `coopmat_gemm!` uses `get_backend(C)`: an unpinned backend
+    # resolves through the global context, so on a second device the budget read
+    # would describe the wrong GPU.
+    ctx = x isa Lava.LavaArray ? Lava.vk_context(x) : nothing
+    ctx === nothing && return IM2COL_CAP[]
+    free = 0
+    for h in Lava.probe_device_memory_budget(ctx)
+        h.device_local || continue
+        h.budget == 0 && return IM2COL_CAP[]      # extension absent
+        free = max(free, h.budget - h.usage)
+    end
+    min(IM2COL_CAP[], free ÷ 4)
+end
 
 """
     GEMM_BLOCK

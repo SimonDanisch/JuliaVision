@@ -134,6 +134,18 @@ not of the card's advertised maximum — see there for why the distinction is no
 pedantic. 0.90 of the plateau is tight enough to catch another process stealing
 the card and loose enough to survive the few-percent wobble a desktop always has.
 
+**Two `bench` calls are NOT a comparison.** Each measures its own
+[`plateau`](@ref) and gates against it, so a kernel too short to hold the card
+awake is accepted at a low clock while a longer one runs at a high clock — and
+the ratio between them is then mostly the clock. That produced two wrong
+conclusions here in one session: "the lifted convolution is only 1.21x over the
+direct kernel" (it is **6.61x**; the arms ran at 7% and 73%) and a cap sweep that
+read as 1.04x. Use [`compare`](@ref), which shares one plateau and interleaves,
+or pass the same `plat` to both.
+
+The `clock` column exists to make this visible — if two results you are about to
+divide report different clocks, the division is meaningless.
+
 `sync` runs **inside** the timed region, after `f`. It is mandatory for GPU work
 and there is no useful default: a Lava/KA launch is asynchronous, so timing `f`
 alone times the *queue submission* and nothing else. That failure is not subtle
@@ -158,10 +170,11 @@ struct Result
 end
 
 function bench(f; samples::Int = 15, floor::Real = 0.90, warm::Bool = true,
-               label::AbstractString = "", sync = nothing)
+               label::AbstractString = "", sync = nothing, plat = nothing)
     g = sync === nothing ? f : (() -> (f(); sync()))
     g()                                     # compile, allocate, page in
-    plat, smmax = warm ? plateau(g) : (gpustate().sm, gpustate().smmax)
+    plat, smmax = plat !== nothing ? (plat, gpustate().smmax) :
+                  warm ? plateau(g) : (gpustate().sm, gpustate().smmax)
     lo = floor * plat
     out = Sample[]
     for _ in 1:samples
