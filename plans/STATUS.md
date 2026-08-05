@@ -220,6 +220,20 @@ trusting a second device for graphics or dispatch profiling.
   exporter: `EG.precision_ctx` looks like it covers precision and does not.
 - **Benchmark through `Model`, never `loadgraph` + `execute!`** — the latter
   measures a graph nothing ships. Depth Anything 764 → 421 ms from that alone.
+- **A model that no other model's tests touch WILL rot, and the rot is silent.**
+  2026-08-05: running all five package suites after an unrelated change found
+  SAM 2 **not loading at all** — `Model(...)` threw while constant-folding, and
+  it had been broken since Kokoro's `6ddff7a` three commits earlier. Kokoro's
+  fix to `index.Tensor` (torch PAIRS index tensors; Julia CROSSES them) required
+  every axis to be indexed, which is true of Kokoro's mask and false of SAM 2's
+  position-embedding interpolation. DNNKernels' own suite was green throughout:
+  its layer-by-layer test uses MatAnyone's graphs, and the only SAM 2 it touches
+  is one rewrite pass, not `Model`.
+  The same run found `SAM2Runner`'s `@compile_workload` skipping, because the
+  GEMV port put an `@eval` back on the runtime path — the trap `FFT_PREGENERATED`
+  already exists for. Two regressions, both invisible to every test that ran.
+  **Run every suite when a shared file changes**, and prefer a check that walks
+  the real graphs (`test_index_tensor.jl` does; it costs no device).
 
 ## Open bugs
 

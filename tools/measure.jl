@@ -158,6 +158,14 @@ what prevents it.
 
 Returns a [`Result`](@ref). **Read `spread` before `median`**: if the spread is
 larger than the effect being chased, there is no effect to report yet.
+
+**One number only.** Two `bench` calls are not a comparison, and neither are
+three: each runs its arm to completion, so the clock ramp lands on whichever went
+first. Passing a shared `plat` does not fix that — it makes the *gate* common,
+not the conditions. Sharing a plateau and then benching three arms in sequence
+produced a 1.75x here with the arms at 7%, 63% and 70% of the clock, on this
+file. Use [`compare`](@ref), which interleaves; it takes a tuple for more than
+two.
 """
 struct Result
     label::String
@@ -218,24 +226,43 @@ arm, which is the question to ask before quoting a ratio.
 """
 function compare(fa, fb; samples::Int = 15, floor::Real = 0.90,
                  labels = ("A", "B"), sync = nothing)
+    ra, rb = compare((fa, fb); samples, floor, labels, sync)
+    ratio = ra.median / rb.median
+    # The effect has to be bigger than the noise of BOTH arms to be an effect.
+    trustworthy = ra.kept > 0 && rb.kept > 0 &&
+                  abs(1 - ratio) > max(ra.spread, rb.spread)
+    (ra, rb, ratio, trustworthy)
+end
+
+"""
+    compare(fs::Tuple; samples = 15, labels, sync) -> Vector{Result}
+
+Any number of arms, interleaved one sample of each per round.
+
+Three arms is not "two comparisons": running `bench` once per arm gives each arm
+its own stretch of the ramp, and on a card that idles at 7% of its clock the
+first arm can be measured at 217 MHz and the third at 2170. That is not a
+hypothetical — it produced a 1.75x here that was mostly the ramp, on a harness
+written to prevent exactly this. `bench` is for **one** number; anything being
+compared goes through this.
+"""
+function compare(fs::Tuple; samples::Int = 15, floor::Real = 0.90,
+                 labels = ntuple(i -> "arm $i", length(fs)), sync = nothing)
     # NEW names. `fa = () -> (fa(); sync())` captures the *variable*, so the
     # closure calls itself — a StackOverflowError from a benchmark harness, which
     # is a confusing place to get one.
-    ga = sync === nothing ? fa : (() -> (fa(); sync()))
-    gb = sync === nothing ? fb : (() -> (fb(); sync()))
-    ga(); gb()
-    plat, smmax = plateau(() -> (ga(); gb()))
+    gs = sync === nothing ? collect(fs) : [(() -> (f(); sync())) for f in fs]
+    for g in gs; g(); end
+    plat, smmax = plateau(() -> for g in gs; g(); end)
     lo = floor * plat
-    sa, sb = Sample[], Sample[]
-    for _ in 1:samples
-        for (f, acc) in ((ga, sa), (gb, sb))
-            x = gpustate().sm
-            t = @elapsed f()
-            y = gpustate().sm
-            push!(acc, Sample(t, x, y, x >= lo && y >= lo))
-        end
+    acc = [Sample[] for _ in gs]
+    for _ in 1:samples, (i, g) in enumerate(gs)
+        x = gpustate().sm
+        t = @elapsed g()
+        y = gpustate().sm
+        push!(acc[i], Sample(t, x, y, x >= lo && y >= lo))
     end
-    mk(s, l) = begin
+    map(zip(acc, labels)) do (s, l)
         keep = [z for z in s if z.ok]
         isempty(keep) && return Result(l, NaN, NaN, 0, length(s), 0.0, s)
         ts = sort([z.seconds for z in keep]); med = median(ts)
@@ -243,12 +270,6 @@ function compare(fa, fb; samples::Int = 15, floor::Real = 0.90,
         Result(l, med, (p(0.9) - p(0.1)) / med, length(keep), length(s) - length(keep),
                mean(z -> (z.smbefore + z.smafter) / 2, keep) / smmax, s)
     end
-    ra, rb = mk(sa, labels[1]), mk(sb, labels[2])
-    ratio = ra.median / rb.median
-    # The effect has to be bigger than the noise of BOTH arms to be an effect.
-    trustworthy = ra.kept > 0 && rb.kept > 0 &&
-                  abs(1 - ratio) > max(ra.spread, rb.spread)
-    (ra, rb, ratio, trustworthy)
 end
 
 """

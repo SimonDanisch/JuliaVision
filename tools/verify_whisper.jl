@@ -32,11 +32,21 @@ alone:
     a NaN bit pattern first, so an op that skips part of its output shows up as
     NaN rather than as a plausible number left over from the last call
     (GUARDRAILS 3).
+
+    That difference is also why the fp16 diagnosis went wrong once: the scalar
+    GEMM's fp16 accumulator was real, 234x on one op, and it is on the path
+    `verifygraph` runs and *not* on the one `Model` runs. It moved the node table
+    and left the e2e number where it was.
+
+**In fp16 the e2e gate is a three-way comparison** and needs the fp32 references
+as well (`--precision fp32` of the same dump). Two fp16 runs of this model differ
+by more than either differs from fp32 — see the block of comment at the gate.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics
 using LinearAlgebra: dot
-using DNNKernels: readsafetensors, verifygraph, coverage, toback, Model, call, loadgraph
+using DNNKernels: readsafetensors, verifygraph, coverage, toback, Model, call, loadgraph,
+                  Workspace
 const KA = KernelAbstractions
 
 mode = "gpu"
@@ -81,15 +91,58 @@ prefix(g, upto) = (i = findfirst(o -> o.out == upto, g.ops);
                    DNNKernels.Graph(g.name, g.symbols, g.inputs, [upto],
                                     g.buffers, g.order, g.ops[1:i]))
 
+"""
+    torchamplifies(id, prev) -> Float64 | nothing
+
+How much **PyTorch's own fp16** amplifies at node `id`, measured against its own
+fp32: the ratio of its error there to its error at `prev`.
+
+`verify.jl`'s criterion is that "drift only ever carries error forward, a bug
+creates it out of nothing". At an op that is genuinely ill-conditioned that
+premise is false for *every* implementation, and reporting the op as a mismatch
+says nothing about whose implementation it is. This is the control: if PyTorch's
+own half precision amplifies at the same node, the node is the model.
+
+`nothing` when the fp32 dump does not carry both nodes — the two exports
+decompose attention differently, so only the residual chain is named in both.
+"""
+function torchamplifies(id, prev)
+    prec == "fp16" || return nothing
+    isdefined(Main, :fp32refs) || return nothing
+    k, kp = "whisper/node/$id", "whisper/node/$prev"
+    all(haskey(fp32refs, x) && haskey(refs, x) for x in (k, kp)) || return nothing
+    e(x) = maximum(abs.(Float64.(refs[x]) .- Float64.(fp32refs[x])))
+    ep = e(kp)
+    ep > 0 ? e(k) / ep : nothing
+end
+
+# Loaded up front, not at the gate: the node-by-node pass below needs it too.
+prec == "fp16" && (fp32refs = readsafetensors(
+    "/sim/Programmieren/VideoEdit/gen/graphs/whisper/refs.safetensors"))
+
 for (name, gg) in (("prefix (blocks 0-1)", prefix(g, "add_4")), ("all 617 ops", g))
     println("\n=== $name, node by node ===")
     t0 = time()
     ok, diffs, _ = verifygraph(gg, refs, weights; dims = (;), backend, verbose = true)
     @printf("  %.1f s\n", time() - t0)
-    ok || (f = first(diffs);
-           println("  FIRST MISMATCH at op $(f.index): $(f.id) ($(f.aten)) " *
-                   "max|Δ| $(f.maxabs) rel $(f.relative) inflow $(f.inflow) $(f.shape)");
-           push!(bad, name))
+    if !ok
+        f = first(diffs)
+        println("  FIRST MISMATCH at op $(f.index): $(f.id) ($(f.aten)) " *
+                "max|Δ| $(f.maxabs) rel $(f.relative) inflow $(f.inflow) $(f.shape)")
+        # `add_N` is the residual chain; its predecessor is `add_{N-1}`, which is
+        # the only pair the fp32 dump names as well.
+        n = match(r"^add_(\d+)$", f.id)
+        amp = n === nothing ? nothing :
+              torchamplifies(f.id, parse(Int, n[1]) == 1 ? "add" : "add_$(parse(Int,n[1])-1)")
+        if amp !== nothing && amp >= 4
+            # One literal, not a concatenation: `@printf` needs its format string
+            # to BE a literal and rejects `"a" * "b"` with an error that names the
+            # macro rather than the splice.
+            @printf("  ...and PyTorch's own fp16 amplifies %.1fx at the same node against its own fp32,\n  so this is the MODEL, not the port. The gate for fp16 is the three-way below.\n", amp)
+        else
+            push!(bad, name)
+        end
+    end
     mode == "gpu" && (GC.gc(true); Lava.trim_gpu_pool!())
 end
 
@@ -116,9 +169,47 @@ cs = dot(vec(Float64.(got)), vec(Float64.(want))) /
      (sqrt(sum(abs2, Float64.(got))) * sqrt(sum(abs2, Float64.(want))))
 @printf("  output %s: max|Δ| %.4g on scale %.4g (rel %.3g), rel rms %.4g, cosine %.10f\n",
         size(got), d, scale, d / scale, relrms, cs)
-# fp16 carries an order of magnitude more of its own rounding, and the reference
-# it is compared against is itself fp16, so the gate is the dtype's not a fixed one.
-relrms > (prec == "fp16" ? 3e-2 : 1e-3) && push!(bad, "e2e")
+prec == "fp32" && relrms > 1e-3 && push!(bad, "e2e")
+
+# ── the fp16 gate is a THREE-way comparison, and it has to be ────────────────
+#
+# Comparing two fp16 runs of this model measures their *difference*, which can
+# be larger than either one's distance from the truth. Eight of the 1500 frames
+# are ill-conditioned in half precision — at block 20's feed-forward the error
+# there jumps ~30x in a single op — and PyTorch's own fp16 has the same cliff at
+# the same frames. So `ours vs torch-fp16` is not a measure of us; the question
+# is how much further from fp32 we are than PyTorch's own fp16 is.
+#
+# Measured 2026-08-05: at the last residual, ours 2.028e-2 against PyTorch's own
+# fp16 at 1.816e-2 — 1.12x. The old gate (`ours vs torch-fp16 < 3e-2`) read
+# 2.968e-2 before the padded matmul changed its last ulp and 4.078e-2 after,
+# while the distance from the *truth* went the other way, 2.093e-2 -> 2.028e-2.
+# A gate that moves in the opposite direction to the accuracy it is meant to
+# protect is the wrong gate.
+#
+# `add_64` is the last residual and the one node both exports name identically —
+# their attention decompositions differ, so the graph's own output node exists in
+# only one of them.
+if prec == "fp16"
+    ws = Workspace(backend)
+    gg = m.graphs["whisper"]
+    vals = DNNKernels.execute!(gg, Dict{String,Any}(gg.inputs[1] => mel), m.weights;
+                               dims = (;), backend, ws)
+    o   = Float64.(Array(vals["add_64"]))
+    t16 = Float64.(refs["whisper/node/add_64"])
+    t32 = Float64.(fp32refs["whisper/node/add_64"])
+    vals = nothing; GC.gc(true)
+    rr(a, b) = sqrt(mean(abs2, a .- b)) / sqrt(mean(abs2, b))
+    ours, torch = rr(o, t32), rr(t16, t32)
+    @printf("  at the last residual: ours vs torch-fp32 %.4e, torch-fp16 vs torch-fp32 %.4e",
+            ours, torch)
+    @printf("  ->  %.2fx PyTorch's own fp16 drift\n", ours / torch)
+    # 1.5x, not 1.0: two fp16 implementations of the same graph reassociate
+    # differently and neither is the truth, so parity is not the same as
+    # identity. Far enough above the measured 1.12x to pin behaviour, far enough
+    # below the 5x this started at to fail loudly if the width regresses.
+    ours > 1.5 * torch && push!(bad, "fp16 drift")
+end
 
 if isempty(bad)
     println("\nwhisper encoder ($prec) matches the PyTorch reference")

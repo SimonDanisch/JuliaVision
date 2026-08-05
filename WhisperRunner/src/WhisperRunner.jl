@@ -29,20 +29,28 @@ slab poisoned with `0xff` first (GUARDRAILS 3). `tools/verify_whisper.jl gpu
 fp32` re-runs it; `tools/verify_whisper_decoder.jl` does the decoder, node by
 node and then as a token sequence against `generate`.
 
-## fp32, and why not fp16
+## fp16
 
-The artifact carries the **fp32** export, at 2.37 GiB of weights. There is an
-fp16 export beside it in `gen/graphs/whisper-fp16` (1.19 GiB, and it would halve
-the download) and it is **not shipped, because it does not currently match**:
-rel rms 0.137 against PyTorch's *own* fp16 reference, where the gate is 0.03.
-Even the first two blocks fail 2 of 49 ops, worst at `addmm_3` — a GEMM, which is
-the shape of the problem `verify_whisper.jl`'s docstring already names ("in fp16
-the two paths differ by two orders of magnitude in accuracy", meaning whether a
-matmul reaches the cooperative-matrix path).
+Both precisions run and both match. `gen/graphs/whisper-fp16` is 1.186 GiB of
+weights against fp32's 2.373, and **6.30x faster** — 410 ms for a 30 s window
+against 2583, measured interleaved in one session on one clock plateau, which is
+**73x realtime**.
 
-For scale, PyTorch fp16 vs PyTorch fp32 on this encoder is rel rms 0.0254 — so
-fp16 costs something real here even done right, and ours costs 5x that. Fixing it
-is a kernel-accuracy task, not a packaging one.
+Accuracy is measured three ways, and it has to be. At the last residual our
+distance from PyTorch's **fp32** is 2.03e-2 against PyTorch's own **fp16** at
+1.82e-2 — 1.12x. Comparing our fp16 to PyTorch's fp16 directly reads 4.08e-2 and
+is not a measure of us: **eight of the 1500 frames** are ill-conditioned in half
+precision, block 20's feed-forward amplifies whatever rounding it is given there
+by ~30x in one op, PyTorch's own fp16 has the same cliff at the same frames, and
+two fp16 runs therefore differ by more than either differs from fp32. Over the
+other 1492 frames the same three-way reads 2.18e-2 against PyTorch's 2.00e-2.
+
+Getting there took two fixes, and the first was a diagnosis of a different bug
+than the one being reported. Lava's scalar GEMM accumulated in the destination's
+precision (234x on one op, real, and on a path `Model` never takes because
+`hoistpermutes` sends every `addmm` to the cooperative-matrix kernel); and `erf`
+evaluated Abramowitz & Stegun 7.1.26 in fp16, where its closing `1 - poly*exp`
+cancels — 360x on one `gelu`, from the width alone. See `models-to-port.md`.
 
 Upstream: https://github.com/openai/whisper
 License: **MIT**
@@ -87,8 +95,13 @@ const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 Where the encoder's graph and weights live: its artifact, downloaded on first use
 and cached across every environment on this machine. **1.33 GiB** — the largest
-of the set, because these are fp32 weights and the fp16 export does not yet match
-(see the module docstring).
+of the set, because these are fp32 weights.
+
+The **fp16 export now matches and is 6.3x faster** (see the module docstring), so
+binding this to `gen/graphs/whisper-fp16` would halve the download and the
+encode. That is a change to what every user gets and it is not made here: it
+needs the artifact re-bound *and* uploaded, and choosing half precision for a
+shipped model is a decision, not a refactor.
 
 **Changing these assets means re-binding the artifact**, not editing a directory.
 Re-export, then `julia --project=. tools/make_artifacts.jl whisper` — that hashes

@@ -29,7 +29,7 @@ with a workload and no cold start).
 
 | model | package | state | export | new ops | perf | target |
 |---|---|---|---|---|---|---|
-| Whisper large-v3-turbo | `WhisperRunner` | **encoder runs & matches** (fp32) | `gen/graphs/whisper` | **none** for the encoder; fft + kv-cache for the decoder | — | ≥ 5x realtime audio |
+| Whisper large-v3-turbo | `WhisperRunner` | **encoder + decoder run & match, fp32 and fp16** | `gen/graphs/whisper`, `whisper-fp16` | **none** | encoder 463 ms/window fp16 (65x realtime) | ≥ 5x realtime audio |
 | DeepFilterNet3 | `DeepFilterRunner` | scaffolded | — | (fft) | — | realtime, < 5 ms/s of audio |
 | Demucs v4 htdemucs | `DemucsRunner` | scaffolded | — | fft/istft, lstm | — | ≥ 1x realtime |
 | Kokoro-82M | `KokoroRunner` | scaffolded | — | lstm, istft | — | ≥ 5x realtime |
@@ -130,12 +130,70 @@ has the numbers):
   `_scaled_dot_product_flash_attention` instead of the memory-efficient variant.
   Both were already implemented, so coverage is still zero missing — but an op
   histogram taken in one precision does not describe the other.
-- **fp16 does not match yet, and the reason is not fp16.** 13.7% rel rms at the
-  output where PyTorch's own fp16 costs 2.5%. Localised to Lava's scalar GEMM,
-  which accumulates in the *destination's* type — an fp16 accumulator over
-  K = 5120 — where the cooperative-matrix path and DNNKernels' own `mm2` both
-  accumulate in fp32. Isolated on one op: 0.0483 against 2.06e-4, i.e. 234x from
-  one line. Handed to `lava-core`; fp32 ships in the meantime.
+- **fp16 matches now — 2026-08-05 — and the first diagnosis was of a different
+  bug than the one being reported.** Two faults, found in that order:
+
+  1. Lava's scalar GEMM took `T = eltype(C)`, so an fp16 destination accumulated
+     in fp16 over K = 5120. Isolated on one op: 0.0483 against 2.06e-4, 234x
+     from one line, and `sqrt(K) * eps(Float16) / 2` predicts it to 3.49e-2.
+     Real, and **not what the 13.7% was**: that number came from `Model`, whose
+     `hoistpermutes` pass makes every weight dense so every `addmm` takes the
+     *cooperative-matrix* path — which never touches the scalar kernel.
+     `verifygraph` runs the raw graph, where the operands are still permuted and
+     the scalar kernel is what runs. The isolation harness and the shipping
+     harness were running different code, and the fix moved 4.83e-2 to 2.95e-4
+     on the first while leaving the second at 13.5%.
+  2. `erf` evaluated Abramowitz & Stegun 7.1.26 at the *operand's* precision.
+     A&S 7.1.26 ends in `1 - poly*exp`, which for `|x| > 2` subtracts two
+     quantities agreeing to four digits where fp16 has three; `gelu` then adds
+     its own `1 + erf(...)` in half on top. One gelu measured 8.94e-4 against
+     PyTorch's own fp16, and 2.48e-6 evaluated in fp32 — **360x from the width
+     alone, same coefficients**. Both now go through `accum(T)`.
+
+  End to end: **1.349e-1 -> 2.968e-2** rel rms, cosine 0.9909 -> 0.99956. The
+  residual-stream error now tracks PyTorch's own fp16-vs-fp32 curve block for
+  block (ours 9.3e-4 at block 20 against its 9.5e-4), and at the last residual
+  our distance from the *fp32* truth is 2.03e-2 against PyTorch's own fp16 at
+  1.82e-2 — **1.12x**, where it was over 5x.
+
+  **The gate had to change with it, and not because the number moved the wrong
+  way.** `ours vs torch-fp16` compares two fp16 runs of a model that is
+  ill-conditioned in fp16, so it measures their *difference*, which is larger
+  than either one's distance from the truth. It read 2.968e-2 before the padded
+  matmul changed its last ulp and 4.078e-2 after — while the distance from fp32
+  went the other way, 2.093e-2 -> 2.028e-2. A gate that moves opposite to the
+  accuracy it protects is the wrong gate; `verify_whisper.jl` now requires ours
+  to be within 1.5x of PyTorch's own fp16 drift from fp32, measured at `add_64`,
+  the one node both exports name identically.
+
+  That "last ulp" is attributed rather than assumed (`tools/bench_padded_dst.jl`,
+  one op against an fp64 reference over the same fp16 inputs). **The padding is
+  bit-exact** — 0 of 1 920 000 elements differ, as it must be, since the padded
+  columns of `B` are zeros and each output column depends only on its own. All
+  the movement is the fp16 destination: 21 758 elements, ~1 ulp, and its error
+  against the exact answer is *marginally lower* (2.1261e-4 against 2.1263e-4),
+  both within 3% of what fp16 can represent and at half PyTorch's own 3.96e-4.
+
+  What is left is not ours. **Eight of the 1500 frames** carry the whole
+  remainder: at block 20's FFN the error at those frames jumps 30x in one op and
+  stays flat for the twelve blocks after. PyTorch's own fp16 has the same cliff
+  at the same eight frames in the same op (8.7e-4 -> 1.07e-2); the model is
+  ill-conditioned there in half precision and any two fp16 implementations
+  diverge. Over the other 1492 frames we finish 2.18e-2 from fp32 against
+  PyTorch's own fp16 at 2.00e-2 — 1.09x, i.e. the eight frames are not where the
+  remaining gap is either; there is simply no gap left worth naming.
+
+  Speed, interleaved in one session on one clock plateau: **fp16 410 ms against
+  fp32 2583 ms, 6.30x** — 30 s of audio in 0.41 s, **73x realtime** — and the
+  weights halve to 1.186 GiB. (463 ms of that was fp16 alone; the last 53 came
+  from padding the GEMM's `N` to the staged kernel's block, `Lava.gemm_padn`,
+  which every one of the encoder's 160 matmuls was missing by 32 columns.)
+
+- **`sigmoid` was checked for the same fault and does NOT have it.** Its fp16
+  error is 4.9e-4 worst case, which is one ULP at 0.5 — the storage, not the
+  evaluation. It does saturate to 0 below x = -11.1 (true value 6e-6, which fp16
+  can represent) and to 1 above +11.1, but nothing in these models reads that
+  tail. Measured rather than assumed, and left alone.
 
 Next on this one: the mel front end — its reference already exists, as
 `whisper/audio` and `whisper/mel` in the refs file — then the decoder.
