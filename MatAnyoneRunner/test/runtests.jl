@@ -7,7 +7,12 @@ Additionally checks that the shared `KERNELS_VERSION` is doing its job — the
 kernels this model has in common with SAM 2 must be hits, not a second copy.
 """
 
-using Test, MatAnyoneRunner
+# `DNNKernels` explicitly: line 52 compares against `DNNKernels.KERNELS_VERSION`,
+# and `using MatAnyoneRunner` does not bring its dependencies into this scope. The
+# assertion has therefore thrown `UndefVarError` since the LavaDNN -> DNNKernels
+# rename (`1e7fc21`) — seven assertions passing and the eighth erroring, which
+# reads at a glance like the model failing rather than the test.
+using Test, MatAnyoneRunner, DNNKernels
 
 const SUBPROCESS = """
 using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
