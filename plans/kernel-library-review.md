@@ -616,6 +616,86 @@ refactor and should be one branch, with the flash and GEMM prose carried across
 unchanged. The global count is the progress metric, with no carve-outs:
 **34 → 0** in DNNKernels and **84 → 1** in Lava.
 
+### Correction: the metric undercounted its own population
+
+The count above, and every progress report against it, came from
+`grep "^const [A-Z_0-9]* = Ref"` (see the appendix). That pattern sees a `Ref`
+and nothing else — not `Threads.Atomic`, not `Dict`, not `IdDict`, not
+`UInt64[]`. Counted by *mutation* instead of by declared type, Lava had **70**
+mutable module-level globals at the point this correction was written, after four
+batches had already retired 44 by the old metric.
+
+The miss was not uniform: three of the invisible ones were the same
+per-device-state defect the review's finding 3 exists to name.
+
+**And the "1" was wrong in the other direction.** The floor is not one global,
+it is about three, and none of the three is what the review nominated:
+
+- `VK_CONTEXT_REF` — the review's intended survivor, "which device is current".
+- the pipeline-cache atexit-registered flag — `atexit` is process scope.
+- `FROZEN_RT_MEM` — a `LavaRTShader` is bytes and metadata with no device handle,
+  and its key is device-independent. Its compute sibling `frozen_mem` moved onto
+  `DeviceCaches`; this one is documented as staying.
+
+`PIPELINE_THREAD_CFUNC` is a fourth only technically: it is a `Ref` because
+`@cfunction` cannot run at precompile time and must be filled in `__init__`, not
+because it holds state.
+
+Everything else that looked immovable was not, and the reasons are worth
+recording because each was a *category error* rather than a hard constraint:
+
+- **`RESET_CALLBACKS` is device teardown wearing a global.** Every entry existed
+  to empty a module-level cache. Move the caches onto the context and the list
+  empties itself; it is deleted, not maintained. State a `VkContext` owns dies
+  with it and needs nobody to remember.
+- **`ctx.id` and `VK_CONTEXT_COUNTER` were made redundant by the refactor's own
+  success.** `ctx.id` existed to key the module-level dictionaries. Nothing in
+  `src/` reads it any more.
+- **`VAL_RING_*` is per-device, not per-process.** `create_vulkan_context` builds
+  a fresh `Vulkan.Instance` and `DebugUtilsMessengerEXT` per context and
+  `VkContext` already holds both — so two contexts mean two messengers writing
+  into ONE ring, and device A's validation errors surface in device B's
+  `get_validation_messages()`. `VkDebugUtilsMessengerCreateInfoEXT` carries a
+  `pUserData` pointer for exactly this, and `debug_callback` already accepts and
+  ignores it. The callback's real constraint — no Julia runtime on a driver
+  thread — is satisfied by raw memory the context owns just as well as by module
+  globals.
+- **The frozen-cache directories, version and recording flag are configuration**,
+  read from `ENV` at init or gating a recording pass. A memoized accessor or an
+  argument, on the same argument as the GEMM tunables.
+
+- `KERNEL_ITER_PLAN_CACHE::Dict` — keyed by `(kernel type, ndrange,
+  workgroupsize)`, a key that does not name the device, while the cached
+  `block_dims` is `pad_to_3d(ctx, …)` over `ctx.max_wg_dims`. The first device to
+  launch a given kernel shape decided the block grid for every device after it.
+- `RESERVED_ARG_SLABS::IdDict{BatchQueue,Int}` and
+  `REPLAY_WATERMARK::IdDict{BatchQueue,UInt64}` — per-queue values in
+  process-wide dictionaries keyed by the queue, which is precisely the surrogate
+  ("the object I should have stored this on") the finding describes.
+- `TOUCHED_RANGES` / `DISPATCH_RANGES` — the barrier-elision tracker, shared by
+  every queue, so ranges written while recording one command buffer could elide
+  a barrier in another.
+
+Use mutation, not declaration shape:
+
+```bash
+# every `const NAME = …` that is ever written to, whatever its type
+python3 - <<'EOF'
+import re, os
+decl, text = {}, ""
+for root,_,fs in os.walk('.'):
+    for f in (x for x in fs if x.endswith('.jl')):
+        t = open(os.path.join(root,f), errors='replace').read(); text += t
+        for i,l in enumerate(t.splitlines(),1):
+            m = re.match(r'^const ([A-Za-z_][A-Za-z_0-9]*)\s*(?:::[^=]+)?=', l)
+            if m: decl[m.group(1)] = f'{f}:{i}'
+for n,loc in sorted(decl.items()):
+    pat = rf'(?<![A-Za-z_0-9]){n}\s*\[[^\]]*\]\s*[-+*]?=[^=]|(?:push!|empty!|delete!|resize!|append!|pop!)\(\s*{n}\b|Threads\.atomic_\w+!\(\s*{n}\b|get!\([^,]*,\s*{n}\b'
+    if any(re.search(pat,l) and f'const {n}' not in l for l in text.splitlines()):
+        print(f'  {n:36s} {loc}')
+EOF
+```
+
 ## Evidence appendix
 
 Commands used, so any number above can be re-derived:
@@ -628,6 +708,7 @@ grep -rn "_applicable\b" .                                # 4 predicates
 grep -rc "cpu=false" kernels/*.jl kernels/extern/*.jl     # 5 CPU-less kernels
 grep -rn "^struct \|^mutable struct " .                   # 13 structs
 cd ../../../Lava/src
-grep -rn "^const [A-Z_0-9]* = Ref" --include=*.jl . | wc -l   # 84
+grep -rn "^const [A-Z_0-9]* = Ref" --include=*.jl . | wc -l   # 84 — UNDERCOUNTS,
+                                                              # see the correction above
 grep -rn "@overlay\|@MethodTable" --include=*.jl .            # the unused mechanism
 ```

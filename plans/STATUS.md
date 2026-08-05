@@ -26,15 +26,30 @@ existing one, so it does not collide with the refactor.
 
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
-| `lava-core` | Desktop | `Lava.jl` @ `sd/lava-core` | 1 → 2 → 3 | phase 1a **done**; phase 2 **started on `sd/nvidia`** — caches keyed per device, the two-device probe exists and found a class §8 missed. 1b and 3 not started |
-| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–4 and 6 done, **globals 34 → 0**; step 5 declined with reasons; **multi-device blocked on Lava** |
-| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
-| `portability` | AMD laptop | both @ `sd/portability` | 1 → 2 | **phase 1 + 2 done.** Capability dump, 3 hard crashes found and fixed, `Extruded` does NOT reproduce on RDNA 3.5, SAM 2 runs at 294 ms. Read its report before touching `Device` or any subgroup width |
-| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | **done.** Three models export, run and match; LUT meets budget, RIFE and Depth Anything miss by ~30x / ~15x with measured reasons |
+| `lava-core` | Desktop | `Lava.jl` @ `sd/nvidia` | 1 → 2 → 3 | phases 1–2 done; phase 3 (section D) **not started** |
+| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–5, 7 done; **6 and 9 open** |
+| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder exports, decoder not started |
+| `portability` | AMD laptop | both @ `sd/portability` | 1 → 3 | **phases 1–3 done.** Capability dump; 3 hard crashes fixed; the `OpBitcast` family closed (store path has a reproducer, load path is unreachable and recorded as such); `Extruded` does NOT reproduce on RDNA 3.5; coopmat 32-lane pin confirmed; **bank-conflict sweep settled NEGATIVE** — 22–32% in the microbenchmark, nothing on the model, so the defaults stand. Read its report before touching `Device`, any subgroup width, or `flashepad`/`flashrpad` |
+| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | artifacts refactor landed |
 
-The three desktop projects were all killed mid-flight on 2026-08-02 and recovered
-by hand; see the *Process* section of each report, and `GUARDRAILS.md` §9, which
-was rewritten because of it.
+Step-by-step against `kernel-library-review.md`'s suggested order:
+
+| step | what | state |
+|---|---|---|
+| 1 | expose the device properties | done — leftovers: `NW * 32` is still a literal at `flash.jl:471`/`:519` where it should be `dev.coopmatsubgroup`; `convtiles`/`convsplit`/`FLASH_SHARED_BUDGET`/`FLASHCM_MINGRID` unwired |
+| 2 | delete the settled toggles | done |
+| 3 | diagnostics onto `Ctx` | done |
+| 4 | one plan object per kernel family | done |
+| 5 | dispatch the entry functions on the plan type | done |
+| 6 | **generate the dispatchers alongside the kernels** | **open** — the hand-written chain is still at `attention.jl:233`/`:242`. It covers all five block sizes today, so nothing is broken, but finding 5's trap is live |
+| 7 | type `Ctx`'s remaining fields | done |
+| 8 | device caches onto `VkContext` | done — see below |
+| 9 | **portability decision + move the model drivers out** | **open** — `sam2.jl`, `wan.jl`, `driver.jl` are still inside the kernel library; finding 8's "what is DNNKernels" decision is the AMD machine's |
+
+Exit criteria: DNNKernels globals **34 → 0** ✅ (the six remaining `const`s are
+immutable lookup tables), two-device test ✅, Lava module-level device caches
+**12 → 0** ✅. Lava's `Ref` count is 77 → 73; the rest are tunables and
+diagnostics, which is a different question from device-owned state.
 
 ## Where the numbers stand
 
@@ -143,11 +158,74 @@ NVIDIA's block — silent data corruption, not a bad handle), six `LavaBackend()
 built inside the library, `GEMM_SPLIT_SCRATCH`, and `_REDUCE_SCRATCH` — which was
 already keyed by context and still *allocated* on the global one.
 
-A stale handle is undefined behaviour; a foreign function pointer jumps into
-another driver, which is why the function-pointer table is worse than any of the
-four. The remaining worklist is in `projects/lava-core/REPORT.md` and includes
-three device *properties* cached globally, which give wrong answers rather than
-crashes.
+### And then step 8 properly: the caches are FIELDS, not keyed globals
+
+The above was reached by keying twelve module-level `const`s on `ctx.id`. That
+satisfied the letter of `GUARDRAILS.md` §8 and missed its point — entries
+outlived the device they described, `ctx.id` was a surrogate for the object they
+should have been stored on, and `RESET_CALLBACKS` existed mostly to empty them.
+Two of the twelve (`BLIT_PIPELINE`, `TIMESTAMP_POOL`) were never keyed at all and
+stayed broken on a second device throughout, because the probe's path reaches
+neither graphics nor dispatch profiling.
+
+They are now concrete fields in `DeviceCaches`, one per `VkContext`:
+
+| | before | after |
+|---|---|---|
+| module-level device caches | 12 | **0** |
+| `RESET_CALLBACKS` registrations | 10 | 8 (none cache-clearing) |
+| `ctx.id` as a cache key | every lookup | never — identity only |
+| Lava module-level `Ref`s | 77 | 73 |
+
+The obstacle had been include order: `VkContext` is defined before the cached
+value types, so a field would have to be `Any` and cost inference on a
+per-dispatch lookup. The answer was to move the nine **type definitions** ahead
+of it (`runtime/coretypes.jl`) — methods can stay where they are, since include
+order constrains types and not methods. An abstract-typed field would have cost
+what `Any` costs; a type parameter would have worked without touching signatures
+(`::VkContext` still matches the UnionAll) but is unnecessary once the types
+move.
+
+The probe's central assertion changed with it. "One kernel on two devices must
+compile twice" counted entries in a shared dict; there is no shared dict, so a
+shared pipeline is now unrepresentable rather than merely detected. It asserts
+the caches are distinct objects and that each device populated its own.
+
+`POOLS`' reset callback did real work — it destroyed the pool blocks — so that
+became `destroy_pool!(ctx)`, called from `vk_reset_device!` where the retiring
+context is in scope instead of hunted for in a global.
+
+### The `Ref`s are the rest of finding 3, not a separate question
+
+Calling the remaining 73 "tunables and diagnostics, a different question" was
+wrong — they are the bulk of what finding 3 is about, and two of them were
+outright correctness bugs rather than untidiness. Progress, by owner:
+
+| batch | count | state |
+|---|---|---|
+| **pool policy → `DevicePool` fields** | 14 | **done** |
+| **queue policy → `BatchQueue` fields** | 6 | **done** |
+| diagnostics → a `Diagnostics` struct on the context | 18 | next |
+| launch/kernel arguments (`GEMM_*`, `BROADCAST_*`) | 12 | after that |
+| device properties → `VkContext` fields | 9 | |
+| compiler config → `lava_compiler_config` | 4 | |
+| genuinely process-level | 9 | staying |
+
+**73 → 52 so far.** Two of the moves fixed real bugs rather than tidying:
+
+- `last_trim`, `gc_last` and friends were global, so **one device's trim
+  suppressed the other's** — the pool was being rate-limited across devices that
+  share nothing.
+- `NEXT_SKIP_BARRIER` is a **one-shot flag consumed by the next dispatch**. As a
+  global, a dispatch on one queue could consume the skip armed for another. It is
+  a `BatchQueue` field now.
+- Separately, `debug.jl` set `POOL_DISABLED` *before* `vk_reset_device!()`, i.e.
+  it configured the pool that was about to be discarded. It now sets it on the new
+  context, after.
+
+The precedent for the diagnostics batch is DNNKernels' own: it retired
+`OPTIMES`/`OPDOUBLE`/`OPDOUBLEFILTER`/`PLAN_MISSES`/`LAUNCH_PROBE` onto
+`Ctx.diag` (review step 3), which is exactly the shape Lava needs.
 
 Two more fell out on 2026-08-02 once the probe ran to completion:
 
@@ -159,9 +237,10 @@ Two more fell out on 2026-08-02 once the probe ran to completion:
 - **A context that is dropped must be retired.** See "Open bugs" below; this was
   the segfault that stopped the Lava suite from ever printing a summary.
 
-Still unaudited because nothing on this path reaches them: `TIMESTAMP_POOL`,
-`BLIT_PIPELINE`, `GFX_SHADER_CACHE`, `WORKGROUP_LIMIT`. Extend the probe before
-trusting a second device for graphics or dispatch profiling.
+`TIMESTAMP_POOL`, `BLIT_PIPELINE` and `GFX_SHADER_CACHE` are fields now, so they
+are correct by construction rather than unaudited — but the probe still does not
+*exercise* graphics or dispatch profiling, so nothing has been run there on two
+devices. `WORKGROUP_LIMIT` remains a genuine global (a policy limit read once).
 
 ## Cross-project, act on these first
 
@@ -234,15 +313,24 @@ trusting a second device for graphics or dispatch profiling.
   summary. The AMD laptop filed the same thing from three different call sites
   as "a floating GC race" — it floats because the crash lands wherever the next
   GC does. Now `mark_device_lost!`, with `test_device_reset_finalizer.jl`.
-- **`OpUDiv` in a shared-store index** — labelled "driver miscompile"; per Rule 0
-  that label is a suspect, not a finding. Still to re-open against our own
-  compiler, and it cannot inherit the verdict below: that audit specifically
-  **disproved** `OpSDiv`-vs-`OpUDiv` as a mechanism. Needs its own GLSL
-  differential.
-- **narrow index + rank≥3 `Extruded`** — **settled 2026-08-02** (Lava
-  `3f59291`). The driver verdict stands, now on a glslang-produced module rather
-  than by elimination, and every previously asserted mechanism is disproved.
-  Re-read the test header before touching anything that divides twice: it is a
-  scheduling / register-allocation fault around **chained 64-bit division with
-  the first quotient re-used**, not a rule about any instruction. Blocks
-  narrowing Lava's broadcast kernels, which is worth ~3 ms.
+- **`OpUDiv` in a shared-store index — SETTLED 2026-08-02, and the label was
+  earned after all.** The file closing it said the question could not be settled
+  here because "lavapipe reports `coopmat available: false`". Measurably wrong:
+  lavapipe has four 8x8x8 cooperative-matrix shapes, `Float16` among them, so the
+  second consumer was on this box the whole time. Running the same kernel and
+  geometry on both, with only the tile extent taken from the device:
+
+      device      form       K=32    K=64   K=128   K=256
+      NVIDIA      udiv       3072     256     240     240    DROPS
+      lavapipe    udiv       3072    3072    3072    3072    exact
+      both        fastdiv    3072    3072    3072    3072    exact   (control)
+
+  So the module is runnable as written and NVIDIA's compilation of it loses the
+  stores. Limits stated in the file: the modules are not byte-identical (no
+  16x16x16 on lavapipe) and llvmpipe is a software rasteriser. The AMD laptop can
+  run it byte-identically and would settle the remainder. Now a permanent testset.
+
+- **Narrow index + rank≥3 `Extruded`** — still labelled "driver miscompile"; per
+  Rule 0 that label is a suspect, not a finding. Re-open against our own compiler.
+  Note the sibling above was settled by varying the consumer, which is the cheap
+  move that works, and it is available for this one too.

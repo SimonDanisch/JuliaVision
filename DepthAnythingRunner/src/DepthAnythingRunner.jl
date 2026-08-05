@@ -11,10 +11,29 @@ A ViT with scaled-dot-product attention and nothing else unusual, so the runtime
 loads the model and [`depthmap!`](@ref) turns a frame into inverse relative
 depth. The map matches PyTorch to **4.2e-5**, which is 0.0025% of its own range.
 
-**Correct, and 15x off its target.** One 518² map costs ~380 ms on an RTX 3070
-laptop against PyTorch's 24.7 ms for the same forward, so the `≥ PyTorch` target
-is not met and the gap is convolution and `bmm` throughput rather than anything
-in this package — see `plans/projects/small-models/REPORT.md`.
+**Correct, and off its target.** The `≥ PyTorch` target is not met, and the gap
+is throughput in `DNNKernels` rather than anything in this package — see
+`plans/projects/small-models/REPORT.md`.
+
+Most of that gap was matrix multiply, in two layers, and both are gone.
+
+`aten::bmm` had no capability dispatch: it ran one thread per output element with
+the K-loop in global memory, and on this model that was **79.6% of the forward
+pass**. Routing each batch plane through `matmul!` (`DNNKernels`'
+`batchedmatmul!`) took a 518² map from 972 ms to 233 ms. That only moved the cost
+onto Lava's fp32 `mul!`, which had the same defect one level down: no shared
+memory at all. Porting the scalar branch of llama.cpp's `mul_mm.comp` (Lava
+already ran the cooperative-matrix branch of that same shader) took it from
+0.447 to 5.432 TFLOP/s at 2048³, and the frame from 233 ms to **115 ms** on a
+Radeon 8060S. Output is unchanged to 1.0e-6 of its own range across both fixes,
+against a model verified to 4.2e-5 of PyTorch.
+
+Convolution is what is left, and it is now the largest single op family at 30.2%
+of the frame. It was 4.8% *before* any of this, so "the gap is convolution" was
+not true when it was written; it is true now. The ~380 ms RTX 3070 figure this
+file used to quote predates both changes and has not been re-measured on that
+machine; cross-machine numbers do not compare (GUARDRAILS §6), so it is not
+restated as a corrected number.
 
 **The attention decomposes even though the export is from CUDA.** Unlike Whisper,
 DINOv2 falls back to a manual `bmm` + `softmax` when xFormers is absent, so the
@@ -191,9 +210,11 @@ static graph cannot have that. The distortion is uniform across the frame and th
 network is scale-tolerant, but it is a real difference from upstream's own
 `infer_image` and is worth knowing when comparing against it.
 
-Costs ~380 ms at 518² on an RTX 3070 laptop, against PyTorch's 24.7 ms for the
-same forward — this port is correct but far off its `≥ PyTorch` target, and the
-gap is convolution throughput (`plans/projects/small-models/REPORT.md`).
+Costs 115 ms at 518² on a Radeon 8060S (RADV), against PyTorch's 24.7 ms for the
+same forward on an RTX 3070. Different machines, so those two do not compare;
+what the second number fixes is the order of magnitude the target implies. Still
+short of `≥ PyTorch`, and what is left is convolution rather than matrix multiply
+(`plans/projects/small-models/REPORT.md`, and the note at the top of this file).
 """
 function depthmap!(model::DepthAnything, img::AbstractMatrix{<:AbstractRGB})
     resizeplanar!(model.input, img; mean = IMAGENET_MEAN, std = IMAGENET_STD)

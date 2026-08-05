@@ -100,3 +100,6 @@ include(joinpath(@__DIR__, "test_constfold.jl"))
 include(joinpath(@__DIR__, "test_diagnostics.jl"))
 # The non-overlapping transposed convolution against the gather it replaces.
 include(joinpath(@__DIR__, "test_convtranspose_gemm.jl"))
+# `bmm` reaches the same capability dispatch a 2-D matmul does. It did not, and
+# that one line was 79.6% of Depth Anything's forward pass.
+include(joinpath(@__DIR__, "test_batchedmatmul.jl"))

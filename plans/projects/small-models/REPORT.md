@@ -144,6 +144,344 @@ The neural LUT classifier shows the *opposite* conv failure: its first
 convolution launches **8 workgroups** for a 4.23 ms dispatch, starving a 46-SM
 card. Two models, two different conv pathologies, same kernel.
 
+**Depth Anything's cause was not convolution, and this section did not have it.**
+Measured on a Radeon 8060S (RADV) with `Diagnostics.optimes`, whole graph, 290
+ops:
+
+| aten | count | ms | share |
+|---|---|---|---|
+| `bmm.default` | 24 | 826.0 | **79.6%** |
+| `addmm.default` | 48 | 105.1 | 10.1% |
+| `convolution.default` | 33 | 49.9 | 4.8% |
+| everything else | 185 | 56.3 | 5.4% |
+
+`aten::bmm` had no capability dispatch at all. `batchedmatmul!` went straight to
+`launch!(ctx, mm3, ...)` — one thread per output element, K-loop in global
+memory, no tile and no reuse — while `mm`/`addmm` went through `matmul!` and its
+`mm_coopmat_plan`. It never showed up as a matmul in a profile either: both `bmm`
+shapes launch as `gpu_ndmap_flat!`, the generic elementwise launcher, so a
+by-kernel-name reading of the dispatch timings reported this graph as *83.2%
+elementwise* and sent an earlier pass looking at broadcast bandwidth.
+
+The two attention products do identical arithmetic — 720.7 M MACs each — and cost
+10.1x apart (`opdouble` on `bmm.default`, filtered by operand shape, in situ):
+
+    attn*V  out (64, 1370, 6)   K=1370    64.47 ms/call   x12 = 773.6 ms
+    Q*K'    out (1370, 1370, 6) K=64       6.39 ms/call   x12 =  76.7 ms
+
+so 94% of the `bmm` cost is one of the two shapes, and a spot check on the other
+finds a kernel that looks merely unremarkable. Why the shapes diverge this far is
+**not established** — same MAC count, same ~2.9 GB of A-traffic under a naive
+model, and the *worse* one has the better spatial locality.
+
+Routing each batch plane through `matmul!` fixes it: `bmm` 826 → 76.5 ms
+(10.8x), whole frame **972 → 233 ms (4.2x)**, output unchanged to 1.9e-6 on a
+value range of 4.79 (4.0e-7 relative, against a model verified to 4.2e-5 of
+PyTorch). Convolution is now the largest single family at 18.3%.
+
+One thing the fix does **not** buy here: all 50 of this model's `matmul!` calls
+still decline the tensor-core path on `:operands`, because the export is fp32
+throughout and `mm_coopmat_plan` requires `LavaArray{Float16,2}`. The device
+reports `coopmat = true, tile = 16`. So the 4.2x is what routing to a *real* GEMM
+buys, and cooperative matrices remain untouched on this graph.
+
+### ...and then the GEMM it routes to had no tiling either
+
+Routing `bmm` through `matmul!` only moved the cost onto Lava's fp32 `mul!`,
+which turned out to have the same defect one level down: `strided_gemm_kernel!`
+declares **no `@localmem` at all**. One invocation per output element, K walked
+in global memory, two global loads per `muladd`. Every `@localmem` in Lava's
+1251-line `gemm.jl` was `Float16` and belonged to the cooperative-matrix kernels.
+
+Measured on a Radeon 8060S, TFLOP/s:
+
+| N³ | Lava fp32 `mul!` | NextLA.jl textbook tile | **ported `mul_mm.comp` scalar** | fp16 coopmat |
+|---|---|---|---|---|
+| 1024 | 0.533 | 1.163 | **3.067** | 9.654 |
+| 2048 | 0.447 | 1.444 | **5.432** | 14.577 |
+
+(12.1x at 2048³, and 37% of the fp16 tensor-core path, which is roughly where an
+fp32 vector kernel should sit against WMMA fp16 on this silicon.)
+
+There was no fp32 shortcut available instead. The driver reports 14
+cooperative-matrix shapes and `FLOAT32` appears in none of them as an A or B
+type, only as an accumulator, which matches AMD's documented RDNA3 WMMA input set
+of f16/bf16/iu8/iu4. fp32 matrix cores are real and are in the Vulkan spec, but
+they are CDNA (`V_MFMA_F32_16X16X4_F32`), not RDNA. So a tiled scalar GEMM is the
+answer rather than a workaround for a missing one.
+
+The fix is the `#else` branch of llama.cpp's `mul_mm.comp`, vendored at
+`dev/Lava/reference/mul_mm/`. Lava's cooperative-matrix GEMM was already a port
+of that same shader's `COOPMAT` branch and the two share their staging, so this
+is the other half of a port rather than a new kernel. NextLA.jl is in the table
+because it ran unmodified on Lava and is a useful floor: a textbook tile with one
+accumulator per thread reaches 1.46, and the remaining 3x is the register block
+(16 accumulators per invocation at the reference's shipped parameters).
+
+Three things the measurement changed about the design, each of which the obvious
+guess got wrong:
+
+- The **`FAST` specialisation** (the reference's `is_aligned && is_in_bounds`,
+  hoisted to a type parameter) is worth 2.988 → 4.301 at 2048³. Bounds guards
+  and stride multiplies are not free.
+- The **dispatch gate is on tile count, not extents.** Gating on `M` and `N`
+  separately sent the 64 × 1370 attention plane to the per-element kernel on
+  account of its 64 rows, and that plane is the largest single operation in the
+  graph. Sixteen `BM x BN` tiles is where the staged kernel stops losing; a
+  second bound rejects shapes that clear the count while discarding most of what
+  they compute, a vector destination at 64x waste being the extreme.
+- The **tiling is not the reference's default.** `mul_mm.comp` ships
+  `WMITER/TM/TN = 2/4/2`; swept over nine legal configurations here, `2/2/2` wins
+  by ~9% at a 0.4% spread. Those are `layout (constant_id = ...)` spec constants
+  precisely because llama.cpp tunes them per device, so this is a different point
+  in the reference's own parameter space rather than a divergence from it. The
+  mechanism: 2/2/2 reads 4 A-values and 4 B-values per k-step for 16 `fma`s
+  where 2/4/2 reads 8 and 2, so two FMAs per shared load against 1.6.
+
+End to end, one session, A/B on the two fp32 kernels:
+
+    per-element fp32 GEMM   229.53 ms
+    staged fp32 GEMM        114.99 ms      2.00x
+
+with the output differing by 4.8e-6 on a range of 4.789 (1.0e-6 relative, still
+~40x inside the 4.2e-5 the model is verified to). Per op: `addmm` 101.36 → 30.88
+ms, `bmm` 88.26 → 35.20 ms. **Convolution is now the largest family at 30.2%**,
+which is the first time in this investigation that the thing this report
+originally blamed has actually been on top.
+
+Worth being precise about what the tiling change bought *here*: almost nothing.
+It is 12.1x at 2048³ and ~2% on this model, because these shapes have K = 384 and
+a ragged N, so they run the guarded arm and never approach the square-GEMM peak.
+The 12x is real and general; it is not what this frame gained.
+
+Cumulative on this model: **972 → 233 → 115 ms, 8.5x**, no precision change and
+no cooperative matrices used.
+
+### Every model on this machine, not just the one that motivated the change
+
+Both changes off against both on, interleaved in one session, on a Radeon 8060S:
+
+| model | before | after | |
+|---|---|---|---|
+| MatAnyone 512² | 153.13 ms | 152.75 ms | 1.00x unchanged |
+| **Depth Anything 518²** | 982.71 ms | **114.89 ms** | **8.55x faster** |
+| SAM 2 1024² | 314.19 ms | 308.52 ms | 1.02x unchanged |
+| RIFE 1920x1152 | 487.37 ms | 501.88 ms | see below |
+| Neural LUT 3840x2160 | 2.75 ms | 2.74 ms | 1.01x unchanged |
+
+RIFE first read 0.97x, which is worth resolving rather than rounding away:
+instrumenting it shows **zero `matmul!` calls and zero `batchedmatmul!` calls per
+frame**, so none of these changes is reachable from it and the difference is
+measurement error by construction. Interleaving four rounds gives -1.0%, +2.4%,
++1.1%, +2.5% with the absolute time drifting 506 to 534 ms as the card heats.
+Treat anything inside +/-3% on this machine as noise.
+
+Depth Anything is the **only** beneficiary, and that is not a disappointment, it
+is the shape of the problem: it is the only fp32 matmul-heavy model here. RIFE is
+convolutional and never touches `mul!`; SAM 2 and MatAnyone are autocast fp16 and
+already take the cooperative-matrix path; the neural LUT is too small for any of
+it to matter. A tiled fp32 GEMM helps fp32 GEMM.
+
+**This table exists because running it caught a regression that reading the code
+did not.** An earlier revision routed every `bmm` through `matmul!` per batch
+plane, which is right for Depth Anything's 64x1370 planes and wrong for
+MatAnyone's 16x32 ones: eight dispatches where one flat launch had done, for
+**0.87x, a 14.5% regression**. A static estimate of the dispatch overhead had put
+it at 0.5%, wrong by a factor of thirty. `planewise_worth` now requires the plane
+to fill a workgroup tile, and MatAnyone is back to parity with Depth Anything's
+win intact.
+
+### And the outputs, which matter more than the timings
+
+Same five models, output with the changes against output without:
+
+| model | max abs | relative | |
+|---|---|---|---|
+| MatAnyone 512² | 3.131e-03 | 3.131e-03 | edge pixels, see below |
+| Depth Anything 518² | 5.245e-06 | 1.020e-06 | fp32 reassociation |
+| SAM 2 1024² | **0** | **0** | bit-identical |
+| RIFE 1920x1152 | **0** | **0** | bit-identical |
+| Neural LUT 3840x2160 | 2.384e-07 | 1.416e-07 | fp32 reassociation |
+
+Two caveats on that table. It was taken **before** the accumulator widening, so
+MatAnyone's row understates the total change — that fix moves 29 of its matmuls
+from fp16 to fp32 accumulation, which is an accuracy *improvement* but still a
+difference from the old output. The other four rows are unaffected by it: SAM 2
+takes cooperative matrices for all 198 of its calls, RIFE makes **zero** matmul
+calls of any kind, and Depth Anything and the neural LUT are fp32, where
+`gemmaccum` is the identity. And RIFE's two zeros are not luck: with no reachable
+call into any changed code, bit-identical is the only possible result.
+
+MatAnyone's 3.1e-3 is worth explaining rather than waving through. Compare it to
+the right number first: the model's documented parity is **mean** |Δ| 2.78e-4
+autocast (2.91e-4 fp32) against PyTorch's own alpha, and 3.1e-3 is a **max**.
+Against like for like this change's mean is **4.658e-06**, some sixty times
+*smaller* than the parity error the port already carries. Split by change, `bmm`
+routing is **bit-identical** (0.000e+00) and all of it comes from the fp32 GEMM.
+The distribution says what the max is:
+
+    pixels differing at all          3462 / 262144   (1.32%)
+    mean |diff|                      4.658e-06
+    median, 90th percentile          exactly 0
+    pixels differing > 1e-3          195             (0.074%)
+    mean |gradient| where they differ 0.7520   elsewhere 0.0074
+
+A hundredfold gradient ratio: the differing pixels sit on the matte's hard 0-to-1
+edges, where a ~1e-6 shift upstream moves a step edge by a sub-pixel fraction and
+reads as a large per-pixel difference. This is reassociation, not a fault.
+
+**A precision bug found the same way, and fixed.** Instrumenting
+`mm_coopmat_plan` over real runs: SAM 2 is 198/198 on cooperative matrices, but
+MatAnyone is 93 of 132, and 29 of its `matmul!` calls are fp16-into-fp16 and
+decline. Those landed on Lava's per-element kernel, which reduced in
+`eltype(C)` — so the whole K loop ran in fp16, at K between 256 and 769. Measured
+cost of that against reducing in fp32 and storing once: 17.5x at K=512, 58.5x at
+K=5120. It now reduces in `gemmaccum(eltype(C))`, and on exactly those shapes the
+device returns 2.8e-4 to 3.6e-4, i.e. fp16's own store floor.
+
+Two things that route did *not* turn out to be. 27 of the 29 decline only because
+an operand is a `PermutedDimsArray`, so materialising it to reach the
+cooperative-matrix path looks like it fixes speed and precision at once: measured
+**slower**, 0.876x and 0.978x, because 18 of the 27 have `N = 16`. And the fix
+cannot be A/B'd in one session — `gemmaccum` is `@inline`d into a `@kernel` whose
+SPIR-V is cached on the kernel and its argument types, so a redefinition reports
+a perfect 0.000e+00 null while both arms run the same module.
+
+**And it changes MatAnyone's matte by nothing at all.** Measured across processes,
+because an `@inline`d helper cannot be toggled in one: with the widening reverted
+the kernel returns 4.0e-3, 5.3e-3 and 4.5e-3 on those shapes against 3.6e-4,
+2.8e-4 and 2.2e-4 with it, so the revert demonstrably reached the device
+(`frozen_stats` confirms 120 misses, 0 stores — fresh compilation, not a stale
+module). Yet the end-to-end matte comparison is **bit-for-bit the same** as
+before the fix: max 3.1312e-03, mean 4.6579e-06, 3462 differing pixels, all
+identical to four figures.
+
+So the bug was real at the kernel level and worth thirteen times the accuracy,
+and it does not reach this model's output. Both halves matter: the fix is worth
+having because it removes a hazard that grows as sqrt(K) — 58.5x by Whisper's
+K = 5120 — and it is **safe**, because it perturbs a verified model not at all.
+
+What is still **not** verified: whether the matte moves closer to PyTorch. That
+needs `tools/lavadnn_e2e_cpu.jl` and the `matanyone-refs` artifact, which this
+machine does not have. On the evidence above the answer is "not measurably in
+either direction", but confirming it belongs on the desktop.
+
+SAM 2 was also checked against its **PyTorch reference activations** (the only
+model here that ships them). Its predicted IoU is 0.0403 against the reference's
+0.04031, it selects the same one of the three candidate masks, and the mask
+logits agree to a mean of 2.79e-3. Since the changes leave SAM 2 bit-identical,
+that is a statement about the existing port rather than about this work.
+
+### Every model profiled per op, on this machine
+
+Looking for a second `bmm`-shaped pathology. There is not one: no other model has
+an op running on the wrong kernel. What the profiles do show is two structural
+costs that are the same everywhere (share of the serialised total; wall in the
+heading):
+
+| model | wall | top ops |
+|---|---|---|
+| MatAnyone 512² | 154.65 ms | convolution **39.2%**, `_to_copy` 12.3%, `add` 11.0% |
+| Depth Anything 518² | 116.57 ms | convolution 21.2%, `addmm` 19.8%, **`clone` 17.3%**, `bmm` 15.7% |
+| SAM 2 1024² | 317.77 ms | `addmm` 33.2%, flash attention 21.3%, `add` 12.0%, `clone` 10.2% |
+| RIFE 1920x1152 | 537.24 ms | convolution **43.8%**, **`cat` 22.5%**, `grid_sampler_2d` 10.2% |
+| Neural LUT 3840x2160 | 2.60 ms | convolution 28.8%, **`repeat` 22.6%**, batch norm 19.3% |
+
+**Read that table for what is big, not for exact shares.** `optimes` synchronises
+around every op, and comparing it against `opdouble` on RIFE shows how much that
+distorts:
+
+| op | `optimes` share | `opdouble`, true |
+|---|---|---|
+| `convolution.default` | 43.8% | **65.4%** (351.75 ms) |
+| `grid_sampler_2d` | 10.2% | 17.6% (94.84 ms) |
+| `cat.default` | **22.5%** | **7.4%** (39.74 ms) |
+
+`cat` looked like a fifth of the frame and is a fourteenth; convolution was
+understated by half. The `opdouble` figures are self-consistent: those three sum
+to 486.3 ms of a 537.99 ms `execute!`, i.e. 90.4%, leaving 9.6% for `add`,
+`leaky_relu`, `div`, `upsample` and `clone` — which the serialising profile put
+at 23.1%. Sync-per-op overhead is charged to whichever op has the most
+dispatches, so serialising flatters few-large ops and penalises many-small ones.
+Use `opdouble` for anything load-bearing.
+
+**Convolution is at 0.452 TFLOP/s, and the headroom is ~2.8x, not the 12x it
+first looks like.** RIFE's convolutions are 158.9 GFLOP at this resolution and
+cost 351.75 ms in situ. The staged GEMM reaches 5.432 TFLOP/s — but *at 2048³*,
+and comparing against that is the wrong denominator. RIFE's convolutions are
+**skinny**: `Cout` is 16 to 64, so as GEMMs they are `M = 16..64` by
+`N = NPQ` with `K = CRS`. Run the GEMM on those exact shapes:
+
+    M      N        K      GFLOP    GEMM TF/s
+    52   552960    832     47.85      2.564
+    52   138240    832     11.96      2.243
+    64    34560    576      2.55      1.696
+    32   138240    288      2.55      1.032
+    16   552960    252      4.46      0.720
+    16   552960    144      2.55      0.509
+                                median 1.254
+
+So the ceiling for this shape class is about **1.25 TFLOP/s, not 5.4**, and
+convolution sits 2.8x under it. Real, worth having, and a quarter of what a
+naive reading of the peak suggests. **The dominant fact about RIFE's convolutions
+is that they are skinny, and no kernel makes a `Cout = 16` output wide.**
+
+Four hypotheses for the remaining 2.8x were tested and all four are dead:
+
+  * **not the core count.** `convtiles` falls back to 32 cores when the device
+    will not report, which would pick wrong blocks; this device reports 40
+    correctly and *no* convolution changes shape between 32 and 40.
+  * **not occupancy.** Only 10 of 63 convolutions launch fewer than 80
+    workgroups (two per core); the median is 270 and the largest is 8640.
+  * **not the reduction depth.** Forcing `BS_CRS` uniformly: 8 gives 0.427, 16
+    gives 0.445, 32 gives 0.373 TFLOP/s against the shipped mix at 0.441. The
+    deeper block that helps the GEMM (`BK = 32`) *hurts* here.
+  * **not the block shape.** Forcing each of ggml's four shapes for every
+    convolution: 128x128 gives 0.410, 64x32 0.396, 32x256 0.412, 64x128 0.438,
+    against the shipped per-convolution selection at 0.437. Nothing beats it.
+
+What is left is the implicit GEMM's own address arithmetic: it recovers an input
+coordinate from `(crs, npq)` for every staged element, which a plain GEMM does
+not. That is where a further look should start, and it should stay *inside* the
+implicit approach, because the explicit alternative is not viable here:
+
+    conv (Cout, NPQ, CRS)     im2col matrix     the input it expands from
+    52 x 552960 x 832            1755.0 MiB              195.0 MiB
+    16 x 552960 x 252             531.6 MiB               59.1 MiB
+    52 x 138240 x 832             438.8 MiB               48.8 MiB
+
+Materialising im2col and calling the (2.8x faster) plain GEMM would need a
+**1.7 GiB transient** for one convolution, nine times the input, sixty-three
+times per frame. So the 2.8x is the price of not doing that, and the question is
+how much of the price is avoidable rather than whether to pay it. For scale,
+production implicit-GEMM libraries generally land within 1.1x to 1.4x of a plain
+GEMM on the same shape — that figure is not measured here, but it is the target
+worth aiming a further attempt at.
+
+**Data movement is the other half.** `cat` is 22.5% of RIFE, `repeat` 22.6% of
+the neural LUT, `clone` 17.3% of Depth Anything, `_to_copy` 12.3% of MatAnyone
+and 9.9% of SAM 2. None of that is arithmetic, and a static op census makes the
+scale plain: `_to_copy.default` is the single most common op in both autocast
+models before the folding passes run, 366 of MatAnyone's 1121 and **603 of
+SAM 2's 1527**.
+
+### What convolution being on top does and does not mean
+
+Checked before assuming a third instance of the same bug: it is not one.
+`conv2d_igemm!` (`conv_implicit.jl`) is already a staged, register-blocked
+implicit GEMM — `@localmem` for both operands with the same `+4` bank padding,
+`@synchronize`, `TS_K x TS_NPQ` register tiles, and four block shapes selected by
+`convtiles(K, NPQ; cores)`. It is the same quality of kernel the fp32 GEMM only
+just became, and it is likewise a port from ggml.
+
+So there is no missing kernel to write here, and convolution's 30.2% should not
+be read as another 10x waiting to be collected. What *is* worth doing is the
+narrow thing that paid off for the GEMM: those four block shapes are **ggml's
+defaults**, and ggml's GEMM default lost to a swept alternative by 9% on this
+device. Sweeping `convtiles`' shapes on a Radeon 8060S is a well-posed,
+cheap experiment with a known method; expect single-digit percent, not a
+multiple.
+
 ### What is fast enough
 
 The neural LUT port meets its target and is worth shipping. Applying a look at
