@@ -97,22 +97,39 @@ so `git log --follow` still works through the move.
 ## Speed, against PyTorch on the same card
 
 Measured 2026-08-05 on an **NVIDIA RTX 4000 Ada**, all in one sitting. Ours
-through `tools/bench_all.jl`, PyTorch through `tools/baseline_*.py`.
+through `tools/bench_all.jl` (SAM 2's decode through `tools/bench_sam2.jl`),
+PyTorch through `tools/baseline_*.py`. `±` is the sample spread the harness
+reports; a row is only worth quoting when it is small.
 
 | model | shape | Lava | PyTorch | ratio |
 |---|---|---:|---:|---:|
-| Neural 3D LUT | 256² classifier | **6.9 ms** | — | — |
-| Depth Anything V2 S | 518² | **92.4 ms** | 21.9 ms | 0.24x |
-| SAM 2.1 encode | 1024² | **143.6 ms** | 79.3 ms | 0.55x |
-| SAM 2.1 decode | one click | 25.2 ms | 1.76 ms | 0.07x |
-| RIFE 4.26 | 1920×1152 | **274.7 ms** | — | — |
-| Whisper large-v3-turbo encode | 30 s window, fp16 | **457.7 ms** | 71.9 ms | 0.16x |
-| Kokoro-82M | one sentence | **645.4 ms** | — | — |
-| MatAnyone2 step | 512×288 | *~405 ms* | — | *not trustworthy, see below* |
+| SAM 2.1 encode | 1024² | **102.9 ms** ±0.7% | 79.3 ms | 0.77x |
+| SAM 2.1 decode | one click | **6.0 ms** | 1.76 ms | 0.29x |
+| Whisper large-v3-turbo encode | 30 s window, fp16 | **394.6 ms** ±32% | 71.9 ms | 0.18x |
+| Kokoro-82M | one sentence | **535.1 ms** ±25% | — | — |
+| RIFE 4.26 | 1920×1152 | *213.6 ms* ±81% | — | *spread too wide to quote* |
+| Depth Anything V2 S | 518² | *51.7 ms* ±292% | 21.9 ms | *spread too wide to quote* |
+| MatAnyone2 step | 512×288 | *48.8 ms* ±322%, clock 11% | — | *not trustworthy* |
+| Neural 3D LUT | 256² classifier | *no sample survived the clock gate* | — | — |
+
+**An earlier version of this table was inflated by a bug in Lava, and by a lot.**
+Every number in it was taken while `submit!` scanned the whole argument slab on
+every submit — a debug facility that was on because its field was typed `Any` and
+defaulted to `nothing`, against a `!= UInt64(0)` guard (Lava `963f633`). That is
+~41 µs of host CPU **per dispatch**, so it inflated every model in proportion to
+how many dispatches it issues, and it was silent. What it cost, old → new:
+SAM 2 encode 143.6 → 102.9, decode 25.2 → 6.0, Whisper 457.7 → 394.6, Kokoro
+645.4 → 535.1, RIFE 274.7 → 213.6, Depth Anything 92.4 → 51.7. If you are holding
+a copy of the old table, none of its rows were right.
+
+Neural 3D LUT is not broken — at ~7 ms it never spins this card past the clock
+plateau while ten desktop processes share it, so every sample is discarded. It
+needs a longer-running shape or a quiet machine, not a fix.
 
 **How to read this, and how not to.** These are honest numbers and mostly not
-flattering ones — the engine is between 4x and 14x off PyTorch wherever both
-sides are measured. That is the gap `plans/perf-plan.md` argues about.
+flattering ones — the engine is between 1.3x and 5.5x off PyTorch wherever both
+sides are measured, and worst on Whisper. That is the gap `plans/perf-plan.md`
+argues about.
 
 Every rule below exists because breaking it produced a confidently wrong number
 here at least once:
@@ -121,9 +138,15 @@ here at least once:
     73% under sustained load. A cold sample reads several times slow and looks
     exactly like a regression. `tools/measure.jl` warms to a measured plateau,
     brackets every sample with a clock reading and discards any that dipped.
-  * **Report what was discarded.** The MatAnyone row kept **5 of 11** samples,
-    so it is shown struck rather than quoted. A median over a third of the
-    samples is not a median of anything.
+  * **Report what was discarded, and the spread.** Neural 3D LUT kept **0 of 11**
+    and is quoted as nothing at all rather than as a number. MatAnyone kept 11 but
+    at **11% of clock with ±322% spread**, which is a median of noise; Depth
+    Anything and RIFE are the same story more mildly. Only SAM 2's encode (±0.7%)
+    is tight enough to argue about.
+  * **A silent debug switch will not show up as a failure.** The table above was
+    wrong for three days because a scan nobody asked for ran on every submit and
+    logged nothing when it found nothing. Nothing failed; everything was slower.
+    Prefer a guard that can only be satisfied by the type it compares against.
   * **TF32 off on the PyTorch side** for fp32 models. Leaving it on hands
     PyTorch the tensor cores for every matmul while Lava runs true fp32, which
     measures a dtype choice and calls it an engine gap.
@@ -134,28 +157,25 @@ here at least once:
     was computed against 87.6 ms; PyTorch measures **79.3 ms** on this card now.
     The denominator moved and the claim went stale on its own.
 
-**These are pessimistic, and by an unknown amount.** The card plateaued at
-**70-73% of its 3105 MHz** for every row, with eight desktop processes on it
-holding ~3 GB. A quiet machine would move the Lava column down; how far is not
-known, because the clock state of the older figures in `plans/perf-plan.md` was
-never recorded.
+**These are still pessimistic, but less than the previous version claimed.** The
+card plateaus at **69-73% of its 3105 MHz** with ten desktop processes on it
+holding ~3.6 GB, so a quiet machine would move the Lava column down further.
 
-That is not a hedge — it is the answer to a real discrepancy. SAM 2 encode reads
-143.6 ms here where `perf-plan.md` records 100.4, and the cause is **not the
-code**. Measured on this machine on the same day with the same harness:
+An earlier revision of this section blamed exactly that contention for SAM 2
+encode reading 143.6 ms where `perf-plan.md` records 100.4, and offered a
+pre-merge control (151.3 ms) as proof that the code was innocent. **The control
+was sound and the conclusion was wrong.** Both of its rows were taken with the
+slab scan running, so it compared one bugged tree against another and concluded
+"not the code" from two equally bugged numbers. It was the code. With the scan
+gone, encode reads **102.9 ms ±0.7%** at the same 72% clock — the record, on the
+same contended machine, with no clock-scaling argument needed.
 
-| SAM 2.1 encode | |
-|---|---|
-| pre-merge (JuliaVision `4450319`, Lava `601e678`) | 151.3 ms |
-| post-merge (this tree) | **143.6 ms** |
+The lesson is not "measure more carefully"; it is that **a control between two
+builds only exonerates the code if the defect postdates both of them.** Reach
+past the suspected change, not just before your own commits.
 
-The merge made it 5% *faster*. `gemm_padn` pads none of SAM 2's shapes, and the
-erf/gelu widening costs 1.3% by direct A/B — but the pre-merge control rules out
-every code hypothesis at once, which neither of those could. 143.6 ms at 73%
-scales to ~105 ms at full boost, which is where the record sits. Consistent, not
-proven; it needs a quiet machine to settle.
-
-MatAnyone needs the same.
+MatAnyone still needs a quiet machine: ±322% spread at 11% clock is noise, not a
+measurement, and that one is unchanged.
 
 Blanks are PyTorch baselines not yet written, not models that failed.
 
