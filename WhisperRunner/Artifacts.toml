@@ -1,9 +1,9 @@
 [whisper]
-git-tree-sha1 = "9a911ada689d71c4b57a1ce0af18047255bf2da9"
+git-tree-sha1 = "22bcb6b5a77d7244a5f93becb1d40d123fd4a942"
 lazy = true
 
     [[whisper.download]]
-    sha256 = "106b04e229a9d4e5744f0c693b7f344dbf9ec224dc98e483fba67cb5daf0dab9"
+    sha256 = "c20c8d1ae5e9b1b8f28558f982cdf777cf188891d970ec4ee8ee3e00564017b2"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/whisper.tar.gz"
 
 [whisper-decoder]
@@ -13,3 +13,11 @@ lazy = true
     [[whisper-decoder.download]]
     sha256 = "364f207b415eee2d3e47fa7a255cbaf82f1d0cb199e0e94e760fbceb698c8526"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/whisper-decoder.tar.gz"
+
+[whisper-fp32]
+git-tree-sha1 = "9a911ada689d71c4b57a1ce0af18047255bf2da9"
+lazy = true
+
+    [[whisper-fp32.download]]
+    sha256 = "502c6e376dc646a2bac319daced36f1ca5f8f98a54707453e164aef75fad916f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/whisper-fp32.tar.gz"

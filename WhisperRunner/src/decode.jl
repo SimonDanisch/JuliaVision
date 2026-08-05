@@ -136,7 +136,8 @@ different export with different weights, and a caller who only wants embeddings
 should not pay for the autoregressive half.
 """
 function whisper(; backend = LavaBackend(),
-                   dir::AbstractString = assetdir(),
+                   precision::Symbol = :fp16,
+                   dir::AbstractString = assetdir(precision),
                    decdir::AbstractString = decoderdir(),
                    maxtarget::Int = 448, srclen::Int = 1500)
     enc = Model(dir, joinpath(dir, "weights.safetensors");

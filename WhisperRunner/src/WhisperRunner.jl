@@ -91,24 +91,67 @@ kernel frozen by one is a hit for the rest. Bump it there, not here.
 const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
-    assetdir() -> String
+    assetdir(precision = :fp16) -> String
 
 Where the encoder's graph and weights live: its artifact, downloaded on first use
-and cached across every environment on this machine. **1.33 GiB** — the largest
-of the set, because these are fp32 weights.
+and cached across every environment on this machine.
 
-The **fp16 export now matches and is 6.3x faster** (see the module docstring), so
-binding this to `gen/graphs/whisper-fp16` would halve the download and the
-encode. That is a change to what every user gets and it is not made here: it
-needs the artifact re-bound *and* uploaded, and choosing half precision for a
-shipped model is a decision, not a refactor.
+**Two artifacts, and `:fp16` is the default.** They are separate bindings rather
+than one bigger tarball for the reason the decoder is separate from the encoder:
+both are `lazy`, so a caller downloads the one it asks for and nothing else.
+
+| `precision` | artifact       | weights   | encode, 30 s window |
+|:------------|:---------------|:----------|:--------------------|
+| `:fp16`     | `whisper`      | 1.19 GiB  | 410 ms  (73x realtime) |
+| `:fp32`     | `whisper-fp32` | 2.37 GiB  | 2583 ms |
+
+Half precision is the default because it costs **nothing measurable in output**,
+which is a different claim from "the error norms look acceptable" and the only
+one worth defaulting on. Three clips, fp32 encoder against fp16 encoder with the
+same decoder: the 30 s reference clip gives identical text and identical tokens;
+`export.mp4` gives identical tokens in all thirteen segments; and 19.3 s of real
+speech (synthesised with `KokoroRunner`, so the words are known) transcribes
+**character for character the same**, correctly, in both.
+
+`:fp32` is kept and shipped anyway, for two things half precision cannot answer.
+It is the reference the fp16 gate measures *against* — `verify_whisper.jl`'s
+three-way comparison needs a precision that is not the one under test. And this
+device has cooperative matrices for fp16; the next one may not, and a machine
+that has to fall back wants the option without re-exporting. Neither is a
+performance argument, so neither is the default.
 
 **Changing these assets means re-binding the artifact**, not editing a directory.
-Re-export, then `julia --project=. tools/make_artifacts.jl whisper` — that hashes
-the new content and rewrites `../Artifacts.toml`, so this call resolves to it
-immediately. Uploading is only needed to publish it to anyone else.
+Re-export, then `julia --project=. tools/make_artifacts.jl whisper whisper-fp32`
+— that hashes the new content and rewrites `../Artifacts.toml`, so this call
+resolves to it immediately. Uploading is only needed to publish it to anyone else.
 """
-assetdir() = @artifact_str("whisper")
+assetdir() = assetdir(:fp16)
+assetdir(precision::Symbol) = assetdir(Val(precision))
+
+"""
+    artifactname(::Val{precision}) -> String
+
+Which artifact backs a precision. Dispatched rather than branched, so an unknown
+one is a `MethodError` naming the two that exist instead of silently resolving to
+the default.
+"""
+artifactname(::Val{:fp16}) = "whisper"
+artifactname(::Val{:fp32}) = "whisper-fp32"
+
+# `@artifact_str` on a **literal** resolves at MACRO EXPANSION, i.e. while the
+# package precompiles — so a literal `@artifact_str("whisper-fp32")` makes
+# `using WhisperRunner` fail outright, everywhere, until that artifact is bound.
+# Not hypothetical: adding the fp32 method broke the package's own precompile
+# within the minute, and only a fresh process showed it (the running session had
+# the old module and reported eight green assertions).
+#
+# Interpolating the name defers the lookup to the CALL, which is where it
+# belongs: asking for a precision you have no binding for should fail when you
+# ask, not stop the package loading for someone who never wanted it.
+function assetdir(::Val{P}) where {P}
+    name = artifactname(Val(P))
+    return @artifact_str("$(name)")
+end
 
 """
     whispergraph(; dir = assetdir()) -> Graph
@@ -214,7 +257,8 @@ Not called at module scope and not cached in a global: a `Model` holds device
 buffers, and a module global holding one is baked into the package image with a
 `VkContext` that is dead by the time anyone loads it.
 """
-function whispermodel(; backend = LavaBackend(), dir::AbstractString = assetdir())
+function whispermodel(; backend = LavaBackend(), precision::Symbol = :fp16,
+                        dir::AbstractString = assetdir(precision))
     ready(; dir) || throw(ArgumentError(
         "no export at $dir — generate it with `uv run tools/export_whisper.py`"))
     WhisperEncoder(backend, Model(dir, joinpath(dir, "weights.safetensors");

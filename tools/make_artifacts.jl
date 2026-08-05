@@ -48,7 +48,20 @@ const MODELS = Dict(
     "depthanything" => ("DepthAnythingRunner", "depthanything"),
     # Not ported yet — listed so the instruction their `assetdir()` prints is one
     # that actually runs. Each errors here until its exporter has been run.
-    "whisper"       => ("WhisperRunner", "whisper"),
+    # The **fp16** export, not the fp32 one beside it. Half the download (1.19 GiB
+    # of weights against 2.37) and 6.3x the encode, for output that is
+    # token-for-token identical: checked on three clips, including 19 s of real
+    # speech where the two transcriptions match character for character. The two
+    # bugs that used to make fp16 unusable were an accumulator width in Lava's
+    # scalar GEMM and `erf` evaluated in half; both are fixed.
+    "whisper"       => ("WhisperRunner", "whisper-fp16"),
+    # The fp32 encoder, shipped beside the fp16 one rather than instead of it.
+    # `WhisperRunner.assetdir(:fp32)` resolves this; both are lazy, so a caller
+    # downloads the one it asks for. It is not a slower default, it is the two
+    # things half precision cannot be: the reference `verify_whisper.jl`'s
+    # three-way gate measures against, and the fallback for a device without
+    # cooperative matrices for fp16.
+    "whisper-fp32"  => ("WhisperRunner", "whisper"),
     # The decoder is a SECOND artifact for the same package, not a bigger first
     # one: the encoder alone is the useful component for alignment and
     # embeddings, and it is 1.33 GiB before the decoder's 909 MiB is added.
@@ -74,8 +87,15 @@ const SHIPPED = ["op_histogram.json", "weights.safetensors"]   # + "<name>.json"
 #     the middle (see `KokoroRunner`), plus three host-side tables: the phoneme
 #     vocabulary the embedding indexes with, the 54 voice packs, and the G2P
 #     lexicon. Without those the package loads and cannot be handed a sentence.
+#   * `whisper-fp32` is the first artifact whose NAME differs from its graph's.
+#     Two artifacts carry the same encoder at two precisions, and `whispergraph`
+#     opens `whisper.json` in whichever one it was given — so the fp32 tarball
+#     must contain `whisper.json`, not `whisper-fp32.json`. Without this entry
+#     `pack` looks for a file that does not exist, and had it not, it would have
+#     shipped a graph under a name the runner never opens.
 const GRAPHFILES = Dict(
     "whisper-decoder" => ["whisperdec.json", "whispercross.json"],
+    "whisper-fp32" => ["whisper.json"],
     "kokoro" => ["kokorotext.json", "kokorovoc.json",
                  "vocab.json", "voices.safetensors", "lexicon.json"],
 )

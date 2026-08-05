@@ -32,7 +32,15 @@ const KA = KernelAbstractions
         @info "Whisper large-v3-turbo: artifact present"
         g = WhisperRunner.whispergraph()
         @test g !== nothing
-        @test length(g.ops) == 617          # the fp32 export; fp16 traces 681
+        # 681, not 617: the shipped artifact is the **fp16** export, and the two
+        # traces differ in more than dtype — fp16 gets 32 `clamp`s from
+        # `WhisperEncoderLayer.forward`'s half-precision guard and
+        # `_scaled_dot_product_flash_attention` where fp32 gets `_efficient_`.
+        #
+        # This assertion is why it is here rather than a shape check: it read 617
+        # for as long as fp32 shipped, and the day the binding moved it was the
+        # one thing that noticed. Bind a different export and this fails first.
+        @test length(g.ops) == 681
 
         # A device is not guaranteed on every machine that runs this suite, and
         # loading 2.37 GiB of weights onto one that has none should skip rather
@@ -66,6 +74,55 @@ const KA = KernelAbstractions
             # a learned positional embedding. All-zero output would mean nothing
             # ran at all, which is the other way this can look green and be dead.
             @test any(!iszero, got)
+
+            # ── the decoder half, which nothing here used to touch ────────────
+            #
+            # This exists because of a bug it would have caught immediately and
+            # did not: `whisper-decoder.tar.gz` was bound, committed, and NEVER
+            # UPLOADED. `decoderdir()` resolved to a release asset that did not
+            # exist, so `whisper()` and `transcribe` — the package's headline
+            # feature — worked only on the machine that had built the tree, and
+            # 404'd for everyone else. It went unnoticed from the day the decoder
+            # was bound until 2026-08-05, because every assertion above stops at
+            # the encoder and every measurement was taken here.
+            #
+            # Resolving the artifact IS the test. It downloads 386 MiB on a cold
+            # machine, which is the cost of asserting that the download works.
+            @test WhisperRunner.decoderready()
+            w = whisper(; backend)
+            @test w.layers == 4 && w.heads == 20 && w.headdim == 64
+
+            # ── and what it SAYS, against known speech ────────────────────────
+            #
+            # `fixtures/kokoro_pangrams_16k.wav` is 8.2 s of speech synthesised by
+            # `KokoroRunner` (`af_heart`, `noise = false`), resampled to 16 kHz and
+            # stored as Int16 — 257 KiB. Generated rather than recorded so the
+            # ground truth is the sentence that was spoken, and chosen to contain
+            # no digits and no -ise/-ize word: either would make this assert
+            # Whisper's *normalisation* rather than its transcription. As it is,
+            # the expected output is exactly the input, character for character.
+            #
+            # Regenerating it will not give byte-identical audio even at
+            # `noise = false` — Kokoro's vocoder ends in an atomic scatter-add
+            # whose summation order is not fixed, which moves samples by ~2e-7,
+            # under one Int16 step but enough to flip a few on the rounding
+            # boundary. The file is a recording, not a reproducible derivation.
+            #
+            # This is the assertion the suite lacked, and its absence is why a
+            # decoder artifact that 404'd for everyone went unnoticed: everything
+            # else here stops at the encoder.
+            wavpath = joinpath(@__DIR__, "fixtures", "kokoro_pangrams_16k.wav")
+            @test isfile(wavpath)
+            raw = read(wavpath)
+            @test raw[1:4] == b"RIFF" && raw[9:12] == b"WAVE"     # not a git-lfs stub
+            pcm = Float32.(reinterpret(Int16, raw[45:end])) ./ 32767f0
+            @test length(pcm) == 131416                            # 8.21 s at 16 kHz
+
+            text, segs = transcribe(w, pcm)
+            @test segs isa AbstractVector{<:Segment}
+            @test strip(text) == "The quick brown fox jumps over the lazy dog. " *
+                                 "Pack my box with five dozen liquor jugs. " *
+                                 "How vexingly quick daft zebras jump."
         end
     else
         @info "Whisper large-v3-turbo: no export; run tools/export_whisper.py"
