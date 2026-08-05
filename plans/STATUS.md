@@ -27,29 +27,40 @@ existing one, so it does not collide with the refactor.
 | project | machine | repo / branch | phase | state |
 |---|---|---|---|---|
 | `lava-core` | Desktop | `Lava.jl` @ `sd/nvidia` | 1 → 2 → 3 | phases 1–2 done; phase 3 (section D) **not started** |
-| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–5, 7 done; **6 and 9 open** |
-| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder exports, decoder not started |
-| `portability` | AMD laptop | both @ `sd/portability` | 1 → 3 | **phases 1–3 done.** Capability dump; 3 hard crashes fixed; the `OpBitcast` family closed (store path has a reproducer, load path is unreachable and recorded as such); `Extruded` does NOT reproduce on RDNA 3.5; coopmat 32-lane pin confirmed; **bank-conflict sweep settled NEGATIVE** — 22–32% in the microbenchmark, nothing on the model, so the defaults stand. Read its report before touching `Device`, any subgroup width, or `flashepad`/`flashrpad` |
-| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | artifacts refactor landed |
+| `kernels-refactor` | Desktop | `JuliaVision` @ `sd/kernels-refactor` | 2 | steps 1–8 done; **step 9 in progress** (moving the model drivers out) |
+| `whisper` | Desktop | `JuliaVision` @ `sd/whisper` | 4 (runs early) | encoder **runs and matches** (`fa76347`), `WhisperRunner` packaged; decoder not started |
+| `portability` | AMD laptop | both @ `sd/portability` | 1 → 3 | **phases 1–3 done.** Capability dump; 3 hard crashes fixed; the `OpBitcast` family closed (store path has a reproducer, load path is unreachable and recorded as such); `Extruded` does NOT reproduce on RDNA 3.5; coopmat 32-lane pin confirmed; SAM 2 runs at 294 ms; **bank-conflict sweep settled NEGATIVE** — 22–32% in the microbenchmark, nothing on the model, so the defaults stand. Read its report before touching `Device`, any subgroup width, or `flashepad`/`flashrpad` |
+| `small-models` | 3070 laptop | `JuliaVision` @ `sd/small-models` | 4 | **done.** Three models export, run and match; LUT meets budget, RIFE and Depth Anything miss by ~30x / ~15x with measured reasons; artifacts refactor landed |
+
+The three desktop projects were all killed mid-flight on 2026-08-02 and recovered
+by hand; see the *Process* section of each report, and `GUARDRAILS.md` §9, which
+was rewritten because of it.
 
 Step-by-step against `kernel-library-review.md`'s suggested order:
 
 | step | what | state |
 |---|---|---|
-| 1 | expose the device properties | done — leftovers: `NW * 32` is still a literal at `flash.jl:471`/`:519` where it should be `dev.coopmatsubgroup`; `convtiles`/`convsplit`/`FLASH_SHARED_BUDGET`/`FLASHCM_MINGRID` unwired |
+| 1 | expose the device properties | done — leftovers: `convtiles`/`convsplit`/`FLASH_SHARED_BUDGET`/`FLASHCM_MINGRID` unwired |
 | 2 | delete the settled toggles | done |
 | 3 | diagnostics onto `Ctx` | done |
 | 4 | one plan object per kernel family | done |
 | 5 | dispatch the entry functions on the plan type | done |
-| 6 | **generate the dispatchers alongside the kernels** | **open** — the hand-written chain is still at `attention.jl:233`/`:242`. It covers all five block sizes today, so nothing is broken, but finding 5's trap is live |
+| 6 | generate the dispatchers alongside the kernels | done — `ATTN_BLOCKS` folds into both arms |
 | 7 | type `Ctx`'s remaining fields | done |
 | 8 | device caches onto `VkContext` | done — see below |
-| 9 | **portability decision + move the model drivers out** | **open** — `sam2.jl`, `wan.jl`, `driver.jl` are still inside the kernel library; finding 8's "what is DNNKernels" decision is the AMD machine's |
+| 9 | **portability decision + move the model drivers out** | **in progress** — the history answered the "what is DNNKernels" question: `sam2.jl`, `wan.jl` and `driver.jl` arrived wholesale in `7273481` "Import LavaDNN as DNNKernels", so the rename described half the contents and moved nothing. Eleven `*Runner` packages already establish the convention |
 
-Exit criteria: DNNKernels globals **34 → 0** ✅ (the six remaining `const`s are
-immutable lookup tables), two-device test ✅, Lava module-level device caches
-**12 → 0** ✅. Lava's `Ref` count is 77 → 73; the rest are tunables and
-diagnostics, which is a different question from device-owned state.
+Exit criteria: DNNKernels globals **34 → 0** ✅ (verified by mutation, not by the
+`= Ref` grep — 20 `const`s, none ever written), two-device test ✅, Lava
+module-level device caches **12 → 0** ✅.
+
+**Lava's global count, corrected.** The review's metric was
+`grep "^const [A-Z_0-9]* = Ref"`, which cannot see `Threads.Atomic`, `Dict`,
+`IdDict` or `UInt64[]`. Counted by mutation the starting point was **70**, not the
+77/73 reported against it, and three of the invisible ones were the per-device
+defect finding 3 exists to name. Now **27**, and the floor is about three
+(`VK_CONTEXT_REF`, the atexit flag, `FROZEN_RT_MEM`) rather than the 1 the review
+set — see `kernel-library-review.md`'s correction section.
 
 ## Where the numbers stand
 
@@ -106,7 +117,8 @@ dispatch, a reduction and a split-K GEMM on each, and asserts `PIPELINE_CACHE`
 grows by **more than one** — a shared entry can still produce a right answer by
 luck.
 
-**RETRACTED, and the briefs were right.** This section briefly claimed the
+**RETRACTED (kept for the record; superseded below by step 8 proper).**
+This section briefly claimed the
 carrier did not exist. `BatchQueue.ctx` is real and populated, so
 `backend -> dispatch_bq -> ctx` resolves for every construction form. The claim
 came from reading the first half of `BatchQueue`'s field list, where `ctx::Any`
@@ -241,60 +253,6 @@ Two more fell out on 2026-08-02 once the probe ran to completion:
 are correct by construction rather than unaudited — but the probe still does not
 *exercise* graphics or dispatch profiling, so nothing has been run there on two
 devices. `WORKGROUP_LIMIT` remains a genuine global (a policy limit read once).
-
-## Cross-project, act on these first
-
-- ✅ **MERGED.** Lava `sd/portability` → `sd/nvidia` (`708eb20`). DNNKernels
-  green against it and SAM 2 unchanged (encode 100.88 ms, click 3.08, VRAM
-  1181, masks identical). Everything below this line is settled unless marked
-  otherwise; rebase onto `sd/nvidia` before further Lava work.
-- **`VK_PIPELINE_COMPILE_REQUIRED` was discarded on Linux — this was live on the
-  DESKTOP, not just on AMD.** Fixed. It is a *success*-class code, so Vulkan.jl does not
-  raise and Lava caches and binds a NULL pipeline. The check exists but sits
-  inside `if LARGE_STACK_PIPELINE`, which is `Sys.iswindows()`. Consequence
-  beyond the crash: `PIPELINE_COMPILES_REFUSED` is always 0 here and
-  `PIPELINE_COMPILE_MISSES` never fills, so **`no_pipeline_compilation` cannot
-  report a miss on Linux** — it either crashes or returns a false green. That is
-  the instrument the frozen-kernel-cache workflow verifies with, and it is the
-  third instrument-cannot-fire bug found on 2026-08-02.
-- **…and its negative control was dead on BOTH vendors, which extends
-  portability finding 9.** The control used a fixed "novel" kernel body, novel
-  only to *Lava's* cache — but the flag asks the DRIVER, and the driver keeps a
-  shader cache across processes that nothing here controls. So it fired exactly
-  once per machine, ever. Deleting Lava's `VkPipelineCache` blob does not
-  restore it on either vendor (verified by doing it), so this is not RADV-only.
-  Note the instrument was behaving *correctly* throughout — cached means no
-  compile required — the test's premise was wrong. Now novel per RUN via a
-  random `Val{K}` literal; verified firing across two independent sessions.
-  **Consequence to carry: "0 misses" was a weaker claim than it read.** It could
-  mean the frozen cache worked or that the driver's own cache served everything.
-  The miss report also identified modules with `hash(spirv_bytes)` — the
-  *sampling* hash — so two modules differing in one byte reported as one miss.
-- **Subgroup width is not a device fact — and the coopmat half is already
-  handled, which NARROWS portability finding 1.** Lava pins any module declaring
-  `CooperativeMatrixKHR` to `COOPMAT_SUBGROUP` (32) at pipeline creation
-  (`pipeline.jl`), so the literal `32`s *inside coopmat kernels* are correct
-  everywhere, including RDNA 3.5.
-  What the finding does still catch: subgroup kernels that do **not** declare
-  that capability are unpinned and run at the device default (64 there) — the
-  `getcomp` + butterfly fallback for `coopmat_reduce` is exactly one of those.
-  And it caught a bug in `DNNKernels.Device` (`4f43ba4`), fixed in `6489d5c`:
-  sizing a coopmat workgroup from the device *default* would ask for `NW * 64`
-  threads at a kernel the driver runs 32-wide — worse than the literal it
-  replaced. `Device` now carries `subgroup` and `coopmatsubgroup` separately.
-- **A `Bool` capability predicate cannot express this hardware.**
-  `coopmat_gemm_available()` is `true` on RDNA 3.5, but its shape table has no
-  `Float32` A/B form at all — so a Float32 GEMM is told yes and emits
-  instructions the device does not implement. `portability`'s report sketches the
-  capability-as-type replacement (`CoopMatBasic` / `CoopMatMapped`, named after
-  capability levels and never after vendors) and shows the coopmat2 fallbacks are
-  constructible from KHR `getcomp`/`setcomp` rather than hypothetical.
-- **TF32 was on by default in every exporter but `dump_sam2_refs.py`**, so their
-  "PyTorch reference" was itself a 10-bit-mantissa approximation. RIFE read as
-  7.9e-3 and is actually 3.3e-4. Copy the three lines when writing a new
-  exporter: `EG.precision_ctx` looks like it covers precision and does not.
-- **Benchmark through `Model`, never `loadgraph` + `execute!`** — the latter
-  measures a graph nothing ships. Depth Anything 764 → 421 ms from that alone.
 
 ## Open bugs
 

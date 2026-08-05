@@ -18,14 +18,15 @@ using Test
 using DNNKernels
 using DNNKernels: Diagnostics, Ctx, loadgraph, execute!, launch!, planmisses
 using KernelAbstractions
-using MatAnyoneRunner
+include("fixtures.jl")
 const DK = DNNKernels
 const KA = KernelAbstractions
 
-# The runner hands back the graph; this file never names a path inside an
-# artifact. `matanyoneprecisions()` is empty when the references are not bound,
-# which the guard below turns into a recorded skip.
-const HAVE_FP32 = "fp32" in MatAnyoneRunner.matanyoneprecisions()
+# The graph comes from this package's own `matanyone` binding, not from a runner
+# and not from `matanyone-refs`. It used to ask for `transform_key` at **fp32**,
+# which lives only in the refs artifact — unbound on every machine — so the
+# `execute!` half of this file silently skipped: 25 tests became 13. Nothing here
+# depends on the precision; it counts launches.
 
 @testset "diagnostics on the context" begin
     @testset "a fresh one is off, and off costs nothing to ask" begin
@@ -65,10 +66,10 @@ const HAVE_FP32 = "fp32" in MatAnyoneRunner.matanyoneprecisions()
         @test sum(first, values(d.launches)) == 2
     end
 
-    if !HAVE_FP32
-        @info "no `matanyone-refs` artifact at fp32; skipping the execute! half"
+    if !Fixtures.have("transform_key")
+        @info "no `matanyone` artifact; skipping the execute! half"
     else
-        g = MatAnyoneRunner.matanyonegraph("transform_key", "fp32")
+        g = Fixtures.matanyone("transform_key")
         dims = (h = 8, w = 8)
         weights = Dict{String,Any}()
         for id in g.order
