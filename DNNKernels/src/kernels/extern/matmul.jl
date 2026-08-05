@@ -66,9 +66,17 @@ What *is* device-independent is which device takes it. The tile and the
 availability are queried per device, so the same source picks cooperative
 matrices on Ada (subgroup 32) and on RDNA 3.5 (subgroup 64, `16x16x16` Float16)
 with no vendor branch anywhere.
+
+`gemm` is forwarded to `Lava.coopmat_gemm!` as keywords — `staged`, `vec2`,
+`narrow_ok`, `tiling`. It exists so a benchmark can pick a kernel **for one
+call** instead of mutating a process-wide `Ref`; the defaults are the measured
+winners and no shipping path passes it. Ignored by the paths that have no
+cooperative-matrix kernel to select, which take it and drop it rather than
+erroring, so a caller sweeping shapes does not have to know which path each one
+lands on.
 """
-matmul!(ctx, out, A, B, bias=nothing; epi=identity) =
-    matmul!(ctx, mmplan(ctx.dev, out, A, B, bias), out, A, B, bias, epi)
+matmul!(ctx, out, A, B, bias=nothing; epi=identity, gemm=(;)) =
+    matmul!(ctx, mmplan(ctx.dev, out, A, B, bias), out, A, B, bias, epi, gemm)
 
 """
     mmplan(dev, out, A, B, bias) -> MMCoopMatPlan | MMGemvPlan | Decline
@@ -88,8 +96,8 @@ end
 
 # One method per plan type (review finding 1): a new GEMM path is a new plan type
 # and a new method here, not another branch in the function above.
-matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi) =
-    matmul_coopmat!(ctx, out, plan, A, B, bias, epi)
+matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi, gemm=(;)) =
+    matmul_coopmat!(ctx, out, plan, A, B, bias, epi, gemm)
 
 """
     mm_gemv_plan(dev, out, A, B, bias) -> MMGemvPlan | Decline
@@ -123,13 +131,13 @@ function mm_gemv_plan(dev, out, A, B, bias)
 end
 
 """`Lava.gemv!`: the M = 1 path, with the bias and activation in its store."""
-function matmul!(ctx, ::MMGemvPlan, out, A, B, bias, epi)
+function matmul!(ctx, ::MMGemvPlan, out, A, B, bias, epi, gemm=(;))
     Lava.gemv!(out, B, transpose(A); bias, epilogue = epi)
     return out
 end
 
 """`LinearAlgebra.mul!`, which is Lava's scalar kernel — always available."""
-function matmul!(ctx, ::Decline, out, A, B, bias, epi)
+function matmul!(ctx, ::Decline, out, A, B, bias, epi, gemm=(;))
     mul!(out, astranspose(A), astranspose(B))
     bias === nothing || (out .= out .+ bias)
     # The scalar path has no epilogue to fold into, so the activation is a second
@@ -153,13 +161,21 @@ belongs in the same epilogue and `mul!` has no bias.
 
 `N` is padded internally; `M` and `K` are the operands' own extents and are
 required to land on the tile.
+
+**The padding target is the staged kernel's block, not the tile** — see
+`Lava.gemm_padn`. Rounding to `dev.tile` is enough to make the cooperative-matrix
+*instruction* legal and not enough to make the fast kernel applicable, and the
+difference is a factor of several: Whisper's 1500 tokens round to 1504, which no
+tiling's 64- or 128-wide block divides, so every one of its 160 matmuls ran on
+the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
 """
 function mm_coopmat_plan(dev::Lava.DeviceCaps, out, A, B)
     A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
         return Decline(:operands)
     size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
     dev.coopmat || return Decline(:nocoopmat)
-    MMCoopMatPlan(cld(size(B, 2), dev.tile) * dev.tile, dev.tile)
+    MMCoopMatPlan(Lava.gemm_padn(size(A, 1), size(B, 2), size(A, 2); tile = dev.tile),
+                  dev.tile)
 end
 
 """Copy `B` into the leading `N` columns of a `K x NP` scratch, zeroing the rest."""
@@ -216,7 +232,7 @@ end
 # output differ by at most 0.5 ulp of fp16. Maximum error against a Float64
 # reference is the same to four significant figures on every shape.
 
-function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi)
+function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi, gemm=(;))
     M, K = size(A)
     N = size(B, 2)
     NP = plan.NP
@@ -229,20 +245,27 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi)
     end
     blk_split = Lava.coopmat_gemm_shape(M, NP, K)
     splitk = blk_split[2]
-    # Nothing to reduce, and the destination is not padded: the GEMM can start
-    # its accumulators from the bias and convert to `out`'s type as it stores, so
-    # there is no fp32 scratch and no second pass. `mm_epilogue_kernel!` was 23%
-    # of matmul time on exactly these shapes — `splitk == 1` for every one the
-    # encoder runs — and all it did was read `M x N` fp32 back and write fp16.
+    # Nothing to reduce: the GEMM can start its accumulators from the bias and
+    # convert to `out`'s type as it stores, so there is no fp32 scratch and no
+    # second pass. `mm_epilogue_kernel!` was 23% of matmul time on exactly these
+    # shapes — `splitk == 1` for every one an encoder runs — and all it did was
+    # read `M x N` fp32 back and write fp16.
     #
-    # `NP != N` still needs the epilogue: the GEMM writes the padded width and
-    # the padding columns must not reach `out`.
-    if splitk == 1 && NP == N
-        Lava.coopmat_gemm!(out, A, Bp, M, N, K; blk_split, bias, epilogue = epi)
+    # A padded `N` does not force the epilogue back. The destination is
+    # column-major, so **columns 1..N of an `M x NP` buffer are its first `M*N`
+    # elements, contiguously** — the GEMM can write the padded width into scratch
+    # of `out`'s own type and the discard is a linear copy, not a gather. Against
+    # the fp32 route that is 11.6 MB of traffic instead of 19.6 on Whisper's
+    # attention shape and 46 instead of 78 on its `fc1`, and the bias and the
+    # activation stay fused in the GEMM's store where the unpadded path has them.
+    if splitk == 1
+        dst = NP == N ? out : scratch!(ctx, eltype(out), M, NP)
+        Lava.coopmat_gemm!(dst, A, Bp, M, NP, K; blk_split, bias, epilogue = epi, gemm...)
+        NP == N || copyto!(out, 1, dst, 1, M * N)
         return out
     end
     C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
-    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
+    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false, gemm...)
     mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out
