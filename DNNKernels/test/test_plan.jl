@@ -12,14 +12,13 @@ Run standalone:
 
 using Test
 using DNNKernels
-using SAM2Runner, MatAnyoneRunner
 using DNNKernels: loadgraph, planslab, checkslab, lifetimes, fusableset, evalshape, alignup
+include("fixtures.jl")
 
-# Nothing here names a directory. Each runner owns its artifacts and hands back
-# loaded graphs; two runners because these are two models, and their layouts
-# differ (SAM 2's JSONs are flat, MatAnyone's are split by precision and travel
-# with the references) — which is exactly the kind of detail a caller must not
-# have to know.
+# Nothing here names a directory. `Fixtures` owns the two layouts (SAM 2's JSONs
+# are flat, MatAnyone's sit under `graphs/`), which is exactly the kind of detail
+# a caller must not have to know. Two models because planning is shape-driven and
+# one of them would not exercise it.
 
 """Every graph we can find, with the dims it is planned at.
 
@@ -28,17 +27,13 @@ graphs and it is not one.
 """
 function testgraphs()
     out = Tuple{String,Any,Any}[]
-    if "autocast" in MatAnyoneRunner.matanyoneprecisions()
-        for n in ("encode_image", "transform_key", "encode_mask_deep",
-                  "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
-                  "segment", "readout_query")
-            push!(out, (n, MatAnyoneRunner.matanyonegraph(n, "autocast"), (h = 32, w = 32)))
-        end
+    for n in ("encode_image", "transform_key", "encode_mask_deep",
+              "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
+              "segment", "readout_query")
+        Fixtures.have(n) && push!(out, (n, Fixtures.matanyone(n), (h = 32, w = 32)))
     end
-    if SAM2Runner.ready()
-        for n in ("sam2_encoder", "sam2_decoder")
-            push!(out, (n, SAM2Runner.sam2graph(n), (res = 1024,)))
-        end
+    for n in ("sam2_encoder", "sam2_decoder")
+        push!(out, (n, Fixtures.sam2(n), (res = 1024,)))
     end
     out
 end
@@ -104,6 +99,36 @@ const GRAPHS = testgraphs()
             # regression guard on the planner, not a claim of optimality.
             @test plan.bytes >= bound
             @test plan.bytes <= 1.6 * bound
+        end
+    end
+end
+
+# ── Every generated block size is reachable ──────────────────────────────────
+#
+# `kernel-library-review.md` finding 5: `ATTN_BLOCKS` generates one kernel per
+# entry, and the dispatchers used to be two hand-written `tk == 32 && return …`
+# chains beside it. Adding a block size generated a kernel and silently did not
+# dispatch to it — dead code that read as live, and nothing failed.
+#
+# The dispatchers are now folded out of the same tuple, so the two cannot
+# disagree by construction. This asserts it anyway, because "by construction"
+# is exactly the claim that rots when someone writes the next chain by hand.
+@testset "every ATTN_BLOCKS entry has a kernel and a dispatch arm" begin
+    for B in DNNKernels.ATTN_BLOCKS
+        for prefix in ("attn_scores_b", "attn_apply_b")
+            @test isdefined(DNNKernels, Symbol(prefix, B, "!"))
+        end
+    end
+
+    # And the arms actually name those kernels. Reading the lowered source is the
+    # only way to see a *missing* arm: a dispatcher with a fallback answers every
+    # `tk`, so calling it can never reveal that one size fell through to the
+    # wrong kernel.
+    for (f, prefix) in ((DNNKernels.scoresblocked!, "attn_scores_b"),
+                        (DNNKernels.applyblocked!,  "attn_apply_b"))
+        body = string(Base.uncompressed_ast(only(methods(f))).code)
+        for B in DNNKernels.ATTN_BLOCKS
+            @test occursin(string(prefix, B, "!"), body)
         end
     end
 end

@@ -39,7 +39,12 @@ reported here beside the speed rather than left to be rediscovered.
 vram() = try
     parse(Int, first(split(read(`nvidia-smi --query-gpu=memory.used --format=csv,noheader`,
                                 String))))
-catch
+catch ex
+    # `nvidia-smi` is simply absent on any non-NVIDIA machine, and that is the
+    # whole reason this returns `nothing` instead of failing. Narrowed to that:
+    # an nvidia-smi that IS present and answers something unparseable is a real
+    # problem, and used to come back as "VRAM unknown" like a missing binary.
+    ex isa Union{Base.IOError, SystemError, Base.ProcessFailedException} || rethrow()
     nothing
 end
 

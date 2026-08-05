@@ -25,7 +25,8 @@ PyTorch's decoder.
 """
 
 using Test, DNNKernels, KernelAbstractions, Lava, SAM2Runner
-using DNNKernels: readsafetensors, SAM2, encode, decode, segment, prompt, toback
+using DNNKernels: readsafetensors, toback
+using SAM2Runner: SAM2, encode, decode, segment, prompt
 const KA = KernelAbstractions
 const DK = DNNKernels
 
@@ -48,7 +49,7 @@ const HAVE_SAM2 = SAM2Runner.ready()
     @testset "only prompt-owned buffers are replayable" begin
         loose = toback(back, zeros(Float32, 2, sam.maxpoints, 1))
         loosel = toback(back, fill(Int32(1), sam.maxpoints, 1))
-        @test !DK.replayable(sam, feats, loose, loosel)
+        @test !SAM2Runner.replayable(sam, feats, loose, loosel)
         sam.replay[] = nothing
         decode(sam, feats, loose, loosel)
         KA.synchronize(back)
@@ -56,7 +57,7 @@ const HAVE_SAM2 = SAM2Runner.ready()
     end
 
     pt, lb = prompt(sam, [(0.5, 0.5)], [true])
-    @test DK.replayable(sam, feats, pt, lb)
+    @test SAM2Runner.replayable(sam, feats, pt, lb)
 
     @testset "the first click captures, the second replays" begin
         sam.replay[] = nothing

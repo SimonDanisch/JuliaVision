@@ -261,7 +261,21 @@ function ransacsimilarity(xs::AbstractVector{<:Real}, ys::AbstractVector{<:Real}
         st = st * UInt32(1664525) + UInt32(1013904223); j = Int(st >> 1) % n + 1
         i == j && continue
         local c
-        try c = solve((i, j)) catch; continue end
+        # A degenerate sample pair gives a singular system, which is expected in
+        # RANSAC and is exactly what `continue` is for. A bug in `solve` is not,
+        # and must not be resampled away silently.
+        #
+        # Tested by where the exception type is DEFINED rather than by naming
+        # `LinearAlgebra.SingularException`: `A \ b`'s method arrives here
+        # transitively and LinearAlgebra is not a declared dependency of this
+        # package, so the module name is not bound. Adding a dependency in order
+        # to catch an exception is the wrong trade; this is exact without it.
+        try
+            c = solve((i, j))
+        catch ex
+            nameof(parentmodule(typeof(ex))) === :LinearAlgebra || rethrow()
+            continue
+        end
         inl = [k for k in 1:n if resid(c, k) < t]
         if length(inl) > length(best)
             best = inl
