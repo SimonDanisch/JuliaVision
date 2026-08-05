@@ -59,7 +59,16 @@ that is deliberate.
 # stale — but working that out from how `frozen_key` is derived is exactly the
 # reasoning the version exists to make unnecessary, and getting it wrong is
 # silent.
-const KERNELS_VERSION = "5"
+#
+# "6": `erf`, `geluexact` and `gelutanh` now evaluate in `accum(T)`, and Lava's
+# `strided_gemm_kernel!` no longer accumulates in the destination's precision.
+# Both change the SPIR-V of kernels a graph reaches. The Lava half is covered by
+# `module_build_id` in `frozen_key` — but the DNNKernels half is NOT: a broadcast
+# over `geluexact` compiles a kernel whose *function* belongs to Lava and whose
+# *argument types* name `typeof(geluexact)`, and a type name does not change when
+# its method body does. That is the gap the build-id key still leaves, and this
+# constant is what closes it.
+const KERNELS_VERSION = "6"
 
 include("assets.jl")
 include("safetensors.jl")

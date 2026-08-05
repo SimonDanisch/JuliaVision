@@ -15,6 +15,19 @@ So the criterion is **amplification**: an op is suspect when its output error is
 much larger than the error already present on its inputs. A genuine bug creates
 error out of nothing (the aliasing bug that corrupted `full` produced 1.0 from
 inputs that were exact), while drift only ever carries error forward.
+
+**That last clause is false at an ill-conditioned op, for every implementation.**
+Whisper's fp16 encoder amplifies 1576x at `add_42` — block 20's feed-forward,
+at eight of its 1500 frames — and PyTorch's own fp16 amplifies **415x** at the
+same node against its own fp32, on the same `max|Δ|` this criterion uses. (In
+*rel rms* the same event is 12x, because the eight frames are a thousandth of
+the tensor: which statistic is quoted changes the number by 35x and not the
+conclusion.) Flagging the op says nothing about whose arithmetic
+it is. Where a *second* reference precision exists, the control is to ask whether
+the reference amplifies there too; `tools/verify_whisper.jl` does exactly that
+before counting a flagged node as a failure. Without that control, this criterion
+will report a correct half-precision port as broken at whichever op the model is
+worst conditioned at.
 """
 
 struct LayerDiff

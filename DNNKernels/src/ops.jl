@@ -140,14 +140,25 @@ names was never defined: neither MatAnyone nor BasicVSR++ contains an `erf`, so
 the op would have thrown `UndefVarError` the first time one did. Wan's `gelu` is
 that first time. Written as a rational approximation rather than pulled from
 SpecialFunctions because it has to compile into a GPU kernel.
+
+**Evaluated in `accum(T)`, and that is not a nicety.** "Max error ~1.5e-7"
+describes the *formula*, not this function: A&S 7.1.26 ends in `1 - poly*exp`,
+which for `|x| > 2` subtracts two quantities that agree to four digits, and fp16
+has three. Run entirely in half it returns 0 at `x = -4` where the answer is
+-1.27e-4, and is 8.5% wrong at `x = -3`. Whisper's encoder is 34 `gelu`s over
+that range: with the half evaluation its gelu carried rel rms 8.94e-4 against
+PyTorch's, and 2.48e-6 with this one — 360x, from the width alone, same
+coefficients. The narrow return keeps the op's dtype the graph's, so only the
+single store rounds.
 """
 @inline function erf(x)
-    T = typeof(float(x))
-    a = abs(x)
+    S = typeof(float(x))
+    T = accum(S)
+    a = abs(T(x))
     t = one(T) / (one(T) + T(0.3275911) * a)
     y = one(T) - (((((T(1.061405429) * t - T(1.453152027)) * t) + T(1.421413741)) * t -
                    T(0.284496736)) * t + T(0.254829592)) * t * exp(-a * a)
-    return x < zero(x) ? -y : y
+    return S(x < zero(x) ? -y : y)
 end
 
 for (name, f) in (("relu.default", :relu_), ("sigmoid.default", :sigmoid_),
@@ -1466,7 +1477,14 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
         push!(devs, value(ctx, String(e)[2:end]))    # attrs store "\$name"
     end
     isempty(dims) && return materialize(ctx, x)
-    if length(dims) == 1
+    # Ascending Julia dimension. `spec` is in torch order, so reversing each
+    # entry's axis walks the Julia dims *backwards* and `dims` comes out
+    # descending — which `indexpaired` does not care about (it sums) and
+    # `indexseparable` very much does: it pairs the j-th indexed dimension with
+    # the j-th broadcast axis, and unsorted that pairing is transposed.
+    p = sortperm(dims)
+    dims, devs = dims[p], devs[p]
+    if length(dims) == 1 || indexseparable(dims, devs)
         idx = Vector{Any}(undef, n)
         fill!(idx, Colon())
         # The index stays ON THE DEVICE. `Int.(collect(iv)) .+ 1` brings it home
@@ -1475,10 +1493,57 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
         # argument", naming the broadcast machinery rather than the index. The
         # `.+ 1` (torch is 0-based) is a broadcast, so it runs on the device and
         # gives back a device vector.
-        idx[dims[1]] = vec(devs[1]) .+ 1
+        for (i, d) in enumerate(dims)
+            idx[d] = vec(devs[i]) .+ 1
+        end
         return materialize(ctx, view(x, idx...))
     end
     indexpaired(ctx, x, dims, [Int.(collect(d)) .+ 1 for d in devs])
+end
+
+"""
+    indexseparable(dims, arrs) -> Bool
+
+Whether these index tensors form an **outer product** over the axes they index —
+the one multi-index case Julia's `view` already computes, and therefore the one
+that can stay on the device.
+
+Torch pairs index tensors by broadcasting them against each other, and Julia's
+`x[i, j]` crosses them. Those are different functions *in general*, and the same
+function when each index tensor varies along its own broadcast axis and is
+size-1 in the others: then the broadcast enumerates every combination, which is
+what the cross does.
+
+SAM 2's position-embedding interpolation is exactly that and is why this exists.
+It indexes a `(7, 7, 144, 1)` table with a `(256,)` and a `(1, 256)` — one row
+selector and one column selector — for a `(256, 256, 144, 1)` result, sixteen
+times. Requiring every axis to be indexed sent it to [`indexpaired`](@ref), which
+refused; before the pairing fix it took `view` and was *correct by accident*,
+because for this shape the two agree.
+
+Three conditions, all necessary:
+
+  * the broadcast has exactly one axis per indexed dimension — otherwise the
+    result has a rank the sliced axes cannot be appended to. Kokoro's ALBERT
+    mask broadcasts a `(1,1,1,1)` against a `(t,1,1,1)` over a 2-d input: four
+    broadcast axes, two indexed dims, and the answer is genuinely paired;
+  * index `i` is the only one that varies along broadcast axis `i`;
+  * the indexed dims are **contiguous**. Torch leaves the gathered axes where
+    they were only when the advanced indices are adjacent, and moves them to the
+    front otherwise; `view` always leaves them in place, so the two agree only in
+    the adjacent case.
+
+`size(a, k)` past `ndims(a)` is 1, so a lower-rank index array needs no padding.
+"""
+function indexseparable(dims::Vector{Int}, arrs)
+    dims == collect(dims[1]:dims[end]) || return false
+    nb = maximum(ndims, arrs)
+    nb == length(dims) || return false
+    bs = ntuple(k -> maximum(a -> size(a, k), arrs), nb)
+    for (i, a) in enumerate(arrs), k in 1:nb
+        size(a, k) == (k == i ? bs[k] : 1) || return false
+    end
+    true
 end
 
 """
@@ -1488,9 +1553,14 @@ Torch's advanced indexing with more than one index tensor: broadcast the index
 arrays against each other, then take one element of `x` per position.
 
 Every axis of `x` must be indexed. The mixed case — some axes indexed, some
-sliced — is where torch also has to decide *where* to put the gathered axis, and
-no graph here produces it; erroring is better than picking one of the two
-conventions and being right half the time.
+sliced — is where torch also has to decide *where* to put the gathered axis; the
+separable half of it is handled before this is reached (see
+[`indexseparable`](@ref)), and what is left errors rather than picking one of the
+two conventions and being right half the time.
+
+The claim this docstring used to make — that no graph here produces the mixed
+case — was false, and cost SAM 2: its encoder has sixteen of them, and requiring
+every axis to be indexed made `Model` throw while folding them as constants.
 
 The gather runs on the **host**. Every use of this form so far is attention-mask
 or position metadata — tens to thousands of elements, produced by
@@ -1526,28 +1596,52 @@ The activation a fused epilogue applies, by name.
 **These have to be the same expressions the standalone ops use**, character for
 character, or folding one into a GEMM changes the model's output. `geluexact`
 below is `runop!(::Val{Symbol("gelu.default")})`'s branch with the operand type
-made implicit — including that `erf` runs at the *component's* precision, fp16
-under autocast, which is where most of the difference between this and a more
-careful gelu lives.
+made implicit.
+
+Both evaluate in `accum(T)` and round once, which is what PyTorch does for a
+half tensor (`opmath_type<scalar_t>` is `float`). The half evaluation this
+replaces lost accuracy twice over — inside [`erf`](@ref), and again at the
+`1 + erf` that follows it, where an argument below -2 makes the sum cancel to a
+couple of significant bits. Measured on Whisper's `gelu_2` against PyTorch's own
+fp16: rel rms 8.94e-4 narrow, 2.48e-6 wide.
 """
-@inline geluexact(v) = oftype(v, 0.5f0 * v * (1 + erf(v / sqrt(typeof(v)(2)))))
+@inline function geluexact(v)
+    T = accum(typeof(float(v)))
+    x = T(v)
+    oftype(v, T(0.5) * x * (one(T) + erf(x / sqrt(T(2)))))
+end
+"""
+`gelu` with `approximate="tanh"`: `x/2 * (1 + tanh(sqrt(2/pi) (x + 0.044715 x³)))`.
+
+Wide for the same two reasons `geluexact` is, plus a third of its own: `x³` in
+half overflows above |x| = 40, which is inside the range Whisper's residual
+stream reaches.
+"""
+@inline function gelutanh(v)
+    T = accum(typeof(float(v)))
+    x = T(v)
+    c = T(0.7978845608028654)             # sqrt(2/pi)
+    oftype(v, T(0.5) * x * (one(T) + tanh(c * (x + T(0.044715) * x^3))))
+end
 @inline relu_epi(v) = max(v, zero(v))
 @inline actfn(name::Symbol) = name === :gelu ? geluexact :
                               name === :relu ? relu_epi : identity
 
 """
-`gelu` with torch's default (exact) formulation: `x/2 * (1 + erf(x/sqrt(2)))`.
-`arg1 = "tanh"` selects the approximation, which differs by ~1e-3 and is a
-different function, not a faster one — so it is dispatched, not assumed.
+`gelu` with torch's default (exact) formulation. `arg1 = "tanh"` selects the
+approximation, which differs by ~1e-3 and is a different function, not a faster
+one — so it is dispatched, not assumed.
+
+The two branches *call* [`geluexact`](@ref) / [`gelutanh`](@ref) rather than
+restating them. When they were written out here as well, the epilogue and the
+standalone op were two copies of one expression that had to agree character for
+character for a fold to be a no-op, and the comment saying so was the only thing
+keeping them in step.
 """
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("gelu.default")})
     x = lhs(ctx, op)
-    if String(get(op.attrs, "arg1", "none")) == "tanh"
-        c = eltype(x)(0.7978845608028654)     # sqrt(2/pi)
-        emit(ctx, Base.broadcasted(v -> 0.5f0 * v * (1 + tanh(c * (v + eltype(x)(0.044715) * v^3))), x))
-    else
-        emit(ctx, Base.broadcasted(v -> 0.5f0 * v * (1 + erf(v / sqrt(eltype(x)(2)))), x))
-    end
+    f = String(get(op.attrs, "arg1", "none")) == "tanh" ? gelutanh : geluexact
+    emit(ctx, Base.broadcasted(f, x))
 end
 
 """
