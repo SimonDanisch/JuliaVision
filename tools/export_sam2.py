@@ -127,6 +127,18 @@ def device():
 
 
 def build(size, dev=None):
+    # `sam2` is used straight from its checkout in `dev/`, like MatAnyone2 (see
+    # `common.bootstrap`) — vendored, not installed, so the venv stays what the
+    # exporter actually needs. Putting it on the path HERE rather than at import
+    # time keeps the module importable on a machine without the checkout.
+    #
+    # It was missing entirely, which nothing noticed: the exporter is normally
+    # run from a shell that already had it, and the only other caller,
+    # `tools/sam2_pytorch_baseline.py`, is the PyTorch half of a comparison
+    # nobody had re-run on this machine. It failed with `ModuleNotFoundError`.
+    upstream = str(ROOT / "dev" / "sam2")
+    if upstream not in sys.path:
+        sys.path.insert(0, upstream)
     from sam2.build_sam import build_sam2
 
     ckpt, cfg = CKPTS[size]

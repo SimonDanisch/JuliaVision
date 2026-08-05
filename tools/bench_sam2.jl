@@ -21,7 +21,13 @@ that happens to threshold the same way.
 """
 
 using DNNKernels, KernelAbstractions, Statistics, Printf
-using DNNKernels: readsafetensors, SAM2, encode, decode, prompt, toback
+# `SAM2`, `encode`, `decode` and `prompt` moved from DNNKernels to SAM2Runner
+# (JuliaVision `5b59cd7`, "the model drivers leave the kernel library"). They are
+# model code, not kernels. This tool followed them here rather than through the
+# stale binding, which still *imported* under the old name and then failed with
+# `UndefVarError` at first use.
+using SAM2Runner: SAM2, encode, decode, prompt
+using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions
 
 const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "sam2-large"))

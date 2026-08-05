@@ -102,9 +102,31 @@ function resizeplanar!(dst::AbstractArray{Float32,4}, img::AbstractMatrix{<:Abst
         throw(ArgumentError("dst batch must be 1, got $(size(dst, 4))"))
     w, h = size(img)
     (w > 0 && h > 0) || throw(ArgumentError("empty source image"))
-    backend = KA.get_backend(img)
-    KA.get_backend(dst) == backend ||
-        throw(ArgumentError("dst is on $(KA.get_backend(dst)), img is on $backend"))
+    backend = KA.get_backend(dst)
+    # A HOST source is uploaded rather than refused. The kernel reads `img` on
+    # the device, so both must live there — but every caller in the repo starts
+    # from a host frame, because that is what a decoder hands the editor, and
+    # `predictlut(model, img)` / `depthmap!(model, img)` both *declare*
+    # `AbstractMatrix{<:AbstractRGB}` with no backend in the type.
+    #
+    # So the documented entry point of two shipped packages could not be called
+    # at all: it threw `dst is on LavaBackend(...), img is on CPU()`. Both the
+    # check and those callers arrived in the same commit (`28782f1`), so the host
+    # path never worked — the numbers in `small-models/REPORT.md` came from
+    # somewhere that already had a device image. Neither package's test suite
+    # runs a forward pass, which is why nothing said so.
+    #
+    # `RGB{N0f8}` is an isbits 3-byte element and round-trips through a
+    # `LavaArray` unchanged, so this is one upload of the source frame, not a
+    # conversion. A *device* image on a different backend is still an error:
+    # that is a genuine mixup and uploading would hide it.
+    if KA.get_backend(img) != backend
+        KA.get_backend(img) isa KA.CPU ||
+            throw(ArgumentError("dst is on $backend, img is on $(KA.get_backend(img))"))
+        gpuimg = KA.allocate(backend, eltype(img), w, h)
+        copyto!(gpuimg, img)
+        return resizeplanar!(dst, gpuimg; mean, std)
+    end
 
     any(iszero, std) && throw(ArgumentError("std has a zero component: $std"))
     μ = NTuple{3,Float32}(Float32.(mean))

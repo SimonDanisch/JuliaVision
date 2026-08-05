@@ -122,6 +122,17 @@ end
 # `GPUFiltering.resizeplanar!` therefore does not fit, and this is its own kernel
 # rather than a generalisation of that one: the two differ in what happens
 # outside the source, which is the whole point of each.
+"""
+    todevice(backend, img) -> AbstractMatrix
+
+`img` on `backend`, uploading it if it is on the host and returning it unchanged
+if it is already there. One allocation and one copy per host frame; nothing at
+all for a caller that already decoded onto the GPU.
+"""
+todevice(backend, img::AbstractMatrix) =
+    KA.get_backend(img) == backend ? img :
+    (d = KA.allocate(backend, eltype(img), size(img)...); copyto!(d, img); d)
+
 @kernel function frames_kernel!(dst, @Const(a), @Const(b), w::Int32, h::Int32)
     I = @index(Global, Cartesian)
     x, y = I[1], I[2]
@@ -236,14 +247,36 @@ function interpolate!(out::AbstractMatrix{<:AbstractRGB}, model::RIFE,
     0 <= t <= 1 || throw(ArgumentError("t must be in [0, 1], got $t"))
 
     fill!(model.timestep, Float32(t))
-    frames_kernel!(model.backend)(model.input, a, b, Int32(w), Int32(h);
+    # Upload host frames first. `frames_kernel!` reads `a` and `b` ON THE DEVICE,
+    # but this function's signature takes `AbstractMatrix{<:AbstractRGB}` with no
+    # backend in the type, and every real caller starts from a host frame because
+    # that is what a decoder produces. Passing them straight through handed
+    # GPUCompiler a `::Matrix{RGB{N0f8}}` argument and failed at
+    # `check_invocation` — the documented entry point could not be called at all.
+    #
+    # Same defect as `GPUFiltering.resizeplanar!` had, from the same commit, in a
+    # second package: a host-typed API in front of a device-only kernel, with no
+    # test that runs a forward pass to notice. `RGB{N0f8}` is isbits, so this is
+    # one upload of the frame rather than a conversion.
+    ga, gb = todevice(model.backend, a), todevice(model.backend, b)
+    frames_kernel!(model.backend)(model.input, ga, gb, Int32(w), Int32(h);
                                   ndrange = (pw, ph))
     vals = execute!(model.graph,
                     Dict{String,Any}("imgs" => model.input, "timestep" => model.timestep),
                     model.weights; dims = (;), backend = model.backend,
                     slab = model.slab, plan = model.plan,
                     ws = model.ws, lazy = model.lazy)
-    unpack_kernel!(model.backend)(out, vals[only(model.graph.outputs)]; ndrange = (w, h))
+    # Same story on the way OUT: `unpack_kernel!` writes `out` on the device, and
+    # `out` is declared `AbstractMatrix{<:AbstractRGB}`. Unpack into a device
+    # buffer and copy back, unless the caller already gave us a device one.
+    if KA.get_backend(out) == model.backend
+        unpack_kernel!(model.backend)(out, vals[only(model.graph.outputs)]; ndrange = (w, h))
+    else
+        gout = KA.allocate(model.backend, eltype(out), w, h)
+        unpack_kernel!(model.backend)(gout, vals[only(model.graph.outputs)]; ndrange = (w, h))
+        KA.synchronize(model.backend)
+        copyto!(out, gout)
+    end
     return out
 end
 
