@@ -993,18 +993,31 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
     dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
     dst .= a
     n = ndims(a)
-    idx = Vector{Any}(undef, n)
-    fill!(idx, Colon())
+    accum = Bool(something(get(op.attrs, "arg3", nothing), false))
+    # Hold the index operands as they came — ON THE DEVICE. They used to be
+    # `collect`ed here for every dim, unconditionally, to decide the
+    # contiguity test that only the `view` path at the bottom consumes. On
+    # Kokoro that cost **17.5 MB of host allocation per utterance** (measured,
+    # `--track-allocation`): the iSTFT overlap-add scatters 235220 entries, so
+    # the index alone is 1.9 MB of Int64 and it was downloaded twice — once
+    # here and again as `Int32.(collect(ivals))` below. Each download also
+    # drags a queue sync with it, which is the part that shows up as time.
+    raw = Vector{Any}(undef, n)
+    fill!(raw, nothing)
     nz = Int[]
     for (k, e) in enumerate(op.attrs["arg1"])
         e === nothing && continue
         jd = n - k + 1
         1 <= jd <= n || error("index_put: dim $k out of range for $(n)-d input")
         push!(nz, jd)
-        iv = vec(Int.(collect(value(ctx, String(e)[2:end])))) .+ 1  # 0-based in torch
-        idx[jd] = iv == collect(first(iv):last(iv)) ? (first(iv):last(iv)) : iv
+        raw[jd] = value(ctx, String(e)[2:end])
     end
-    if Bool(something(get(op.attrs, "arg3", nothing), false))
+    idx = Vector{Any}(undef, n)
+    fill!(idx, Colon())
+    # Only the paths that genuinely need host indices pay for them.
+    hostidx(jd) = (iv = vec(Int.(collect(raw[jd]))) .+ 1;  # 0-based in torch
+                   iv == collect(first(iv):last(iv)) ? (first(iv):last(iv)) : iv)
+    if accum
         # ── accumulate = true: a SCATTER-ADD, and duplicates are the point.
         #
         # `view(dst, idx) .+= src` is NOT this. When `idx` repeats an index —
@@ -1031,14 +1044,20 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         d = nz[1]
         all(k -> k == d || size(a, k) == 1, 1:n) ||
             error("index_put: accumulate needs singleton batch axes (op $(op.id))")
-        ivals = idx[d]
         if eltype(dst) === Float32 && dst isa Lava.LavaArray
-            iv32 = toback(ctx.backend, Int32.(collect(ivals)))
+            # The `+1` and the Int32 narrowing are a broadcast on the DEVICE.
+            # `toback(ctx.backend, Int32.(collect(...)))` did the same arithmetic
+            # by downloading, converting on one core, and uploading again.
+            iv32 = Int32.(vec(raw[d])) .+ Int32(1)
             m = length(src)
             scatteradd_kernel!(ctx.backend)(vec(dst), vec(src), iv32, Int32(m);
                                             ndrange = m)
             return dst
         end
+        # Host fallback (non-fp32: there is no fp16 atomic add to ask for) still
+        # needs the indices on the host, and pays for them here rather than for
+        # every caller.
+        ivals = hostidx(d)
         hv = vec(Array(dst))
         hs = vec(Array(src))
         @inbounds for (j, i) in enumerate(ivals)
@@ -1046,6 +1065,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         end
         copyto!(dst, reshape(hv, size(dst)))
         return dst
+    end
+    for jd in nz
+        idx[jd] = hostidx(jd)
     end
     v = view(dst, idx...)
     v .= reshape(src, size(v))
