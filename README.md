@@ -105,7 +105,7 @@ reports; a row is only worth quoting when it is small.
 |---|---|---:|---:|---:|
 | SAM 2.1 encode | 1024² | **102.9 ms** ±0.7% | 79.3 ms | 0.77x |
 | SAM 2.1 decode | one click | **6.0 ms** | 1.76 ms | 0.29x |
-| Whisper large-v3-turbo encode | 30 s window, fp16 | **124.5 ms** ±42% | 71.9 ms | 0.58x |
+| Whisper large-v3-turbo encode | 30 s window, fp16 | **120.5 ms** (see GC note) | 71.9 ms | 0.60x |
 | Kokoro-82M | one sentence | **535.1 ms** ±25% | — | — |
 | RIFE 4.26 | 1920×1152 | *213.6 ms* ±81% | — | *spread too wide to quote* |
 | Depth Anything V2 S | 518² | *51.7 ms* ±292% | 21.9 ms | *spread too wide to quote* |
@@ -137,6 +137,19 @@ PyTorch reference in Float64 the clamped path is slightly *more* accurate than
 the fallback it replaces. This is the same alignment cliff `Lava.gemm_padn`
 already fixed for the GEMM's N=1500, one kernel over — worth checking wherever a
 sequence length is not a round number.
+
+**Whisper's spread is Julia's GC, and it is worth knowing before you quote any
+row.** Sixty consecutive encodes: `min 119.94 · p25 120.31 · median 120.54 · p75
+126.40 · p90 168.93 · max 286.03 ms`. The core is **±0.5%** — the tail is entirely
+garbage collection. Fifteen of the sixty ran slow, and those carry **68.9 ms of GC
+against 2.96 ms** for the fast ones, at an identical 2265 MHz clock, with
+device-side allocation flat at 3.85 MB. GC is 5% of wall on a quiet machine and
+17% with another Julia process running.
+
+So a spread quoted as "±42%" here is not the GPU being erratic; it is host pauses
+of up to 73 ms landing inside a 120 ms call. That also means **the median is
+sensitive to how many pauses a short sample happens to catch** — an earlier
+15-sample run of this same build read 124.5 ms for that reason alone.
 
 **How to read this, and how not to.** These are honest numbers and mostly not
 flattering ones — the engine is between 1.3x and 3.4x off PyTorch wherever both
