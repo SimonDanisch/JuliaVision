@@ -29,6 +29,39 @@ both ends.
 """Round up to the cooperative-matrix tile."""
 padtile(n::Int) = cld(n, Lava.GEMM_TILE) * Lava.GEMM_TILE
 
+"""
+`K` rounded to the staged kernel's `bk`, which is what a TILING needs — the
+16-wide `padtile` only makes the cooperative-matrix INSTRUCTION legal.
+
+`gemm_divides` tests all three axes and every tiling in `GEMM_TILINGS` has
+`bk = 32`, so a `CRS` padded only to 16 can still land on a K no tiling divides:
+SAM 2's `CRS = 144` pads to 144, `144 % 32 = 16`, and its GEMM drops to the
+register-blocked kernel although M and N are both fine. Same mistake `GEMM_BLOCK`
+exists to fix one axis over — "padtile pads to the cooperative-matrix tile, 16,
+and that is not enough" was true of K as well.
+"""
+const GEMM_BK = lcm(Lava.gemm_bk.(Lava.GEMM_TILINGS)...)
+padbk(n::Int) = cld(n, GEMM_BK) * GEMM_BK
+
+"""
+The reduction extent this convolution will actually run at.
+
+**Adaptive, not simply the wider pad.** Widening every `CRS` to `bk`
+unconditionally is a REGRESSION for shapes whose waste budget the wider pad
+blows: scanning all 1476 convolutions across every export in `gen/graphs`, two
+(`CRS = 48`, wanvae) pass `crswaste` at 48/48 = 1.00 and fail it at 64/48 = 1.33,
+and NO shape is admitted by the wider pad that the narrower one refused. Losing
+`conv_coopmat` entirely to buy a tiling the shape cannot afford is a bad trade —
+and a `CRS` that cannot afford `bk` was never going to get a tiling anyway.
+
+So: take `bk` when it fits the budget, else fall back to the tile. `crswaste`
+then vetoes on whichever was chosen.
+"""
+@inline function crsextent(crs::Int, crspad::Float64)
+    p = padbk(crs)
+    p <= crs * crspad ? p : padtile(crs)
+end
+
 
 
 """
@@ -80,7 +113,8 @@ function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.
     # TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A `Ref` rather than a constant so
     # the two sides can be measured in one session, which is the only comparison this
     # project trusts — set it to `1.0` to get the old refusal exactly.
-    padtile(CRS) <= CRS * crspad || return Decline(:crswaste)
+    CRSP = crsextent(CRS, crspad)
+    CRSP <= CRS * crspad || return Decline(:crswaste)
 
     # Materialising im2col is only worth it when the GEMM reuses each element
     # enough to pay for writing and re-reading it. Every column is read once per
@@ -106,9 +140,11 @@ function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.
     # reasoning, only in their input — nobody had measured the fallback.
     Cout >= dev.tile || return Decline(:reuse)
     NPQ = size(out, 4) * size(out, 2) * size(out, 1)
-    padgemm(NPQ) * padtile(CRS) * sizeof(Float16) <= im2colcap || return Decline(:im2colsize)
+    # `CRSP`, not `padtile(CRS)` — the scratch is allocated at the extent the plan
+    # chose, so budgeting the narrower one would under-count the allocation.
+    padgemm(NPQ) * CRSP * sizeof(Float16) <= im2colcap || return Decline(:im2colsize)
     dev.coopmat || return Decline(:nocoopmat)
-    ConvCoopMatPlan(CRS, padtile(CRS), Cout, NPQ)
+    ConvCoopMatPlan(CRS, CRSP, Cout, NPQ)
 end
 
 """
@@ -312,7 +348,10 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     # anything is zero, so the padded product is the real one — but the weight's
     # pad has to be *written*, not merely reserved: reading uninitialised memory
     # there would multiply a possible NaN by zero and give NaN.
-    CRSP = padtile(CRS)
+    # `plan.CRSP`, never recomputed: the plan chooses between the `bk` pad and
+    # the tile pad by waste budget (`crsextent`), so deriving it again here would
+    # silently disagree with the shape the plan was accepted for.
+    CRSP = plan.CRSP
     backend = ctx.backend
 
     col = scratch!(ctx, Float16, MP, CRSP)
