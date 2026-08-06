@@ -108,39 +108,33 @@ materialised array otherwise.
 end
 
 """
+    place(plan, slab, id, T, dims) -> array | nothing
+
+Storage for buffer `id` out of a static plan, or `nothing` when the plan does not
+cover it and the caller has to allocate.
+
+A function rather than a branch inside `dest`, because `planslab` is not the only
+thing that can answer it. Anything that lays the same graph out its own way — a
+render graph that derives lifetimes from declared usage, say — is one more method
+here, and `dest`, `alloc` and `tupledest` reach it without knowing which planner
+the context carries.
+
+The `Slab` method is in `plan.jl`, next to the planner that produces one.
+"""
+place(::Nothing, slab, id::AbstractString, ::Type{T}, dims) where {T} = nothing
+
+"""
     dest(ctx, T, dims...) -> array
 
 The destination for the op currently running. When the graph has a static plan
-this is a view into the slab at that buffer's planned offset — no allocation.
-Falls back to a fresh allocation for buffers the planner skipped (tuple outputs)
-and for handlers that have not been converted to write into their destination
-yet, so the two can coexist while the conversion proceeds.
+this is a view into the storage that plan reserved for the buffer — no
+allocation. Falls back to a fresh allocation for buffers the planner skipped
+(tuple outputs) and for handlers that have not been converted to write into their
+destination yet, so the two can coexist while the conversion proceeds.
 """
 @inline function dest(ctx::Ctx, id::AbstractString, ::Type{T}, dims::Integer...) where {T}
-    p, sl = ctx.plan, ctx.slab
-    if p !== nothing && sl !== nothing
-        off = get(p.offsets, id, nothing)
-        # The slot was reserved from the *declared* dtype and shape. A caller
-        # asking for a different element type (ops that allocate in `eltype(x)`)
-        # could otherwise overrun into the neighbouring buffer, so fall back to a
-        # real allocation unless it demonstrably fits.
-        if off !== nothing && prod(dims) * sizeof(T) <= get(p.sizes, id, 0)
-            # `derive` hands back a real device array sharing the slab's buffer
-            # rather than a `reshape(reinterpret(view(...)))` stack. Worth ~7% on
-            # Lava (20.6 -> 22.1 steps/s), presumably from the simpler index
-            # arithmetic and fewer wrapper layers reaching each kernel.
-            #
-            # Not, as first assumed, because it switches broadcasts from the
-            # Cartesian kernel to the linear one — it does not, and it should not:
-            # GPUArrays only uses the linear path when every operand is linearly
-            # indexable *and* the shapes match exactly, which is untrue for most
-            # ops here. `broadcast_kernel_cartesian` dominating the dispatch count
-            # is correct behaviour, not a pathology.
-            #
-            # Offsets are 256-byte aligned so the element offset is exact.
-            return slabview(T, sl, dims, off)
-        end
-    end
+    a = place(ctx.plan, ctx.slab, id, T, dims)
+    a === nothing || return a
     m = ctx.diag.planmisses
     if m !== nothing
         c, b = get(m, id, (0, 0))

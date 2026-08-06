@@ -34,6 +34,32 @@ struct Slab
     bytes::Int                  # total slab size
 end
 
+# `place` for the plan this file produces — see its docstring in execute.jl.
+place(p::Slab, ::Nothing, id::AbstractString, ::Type{T}, dims) where {T} = nothing
+
+function place(p::Slab, sl, id::AbstractString, ::Type{T}, dims) where {T}
+    off = get(p.offsets, id, nothing)
+    # The slot was reserved from the *declared* dtype and shape. A caller asking
+    # for a different element type (ops that allocate in `eltype(x)`) could
+    # otherwise overrun into the neighbouring buffer, so fall back to a real
+    # allocation unless it demonstrably fits.
+    (off !== nothing && prod(dims) * sizeof(T) <= get(p.sizes, id, 0)) || return nothing
+    # `derive` hands back a real device array sharing the slab's buffer rather
+    # than a `reshape(reinterpret(view(...)))` stack. Worth ~7% on Lava (20.6 ->
+    # 22.1 steps/s), presumably from the simpler index arithmetic and fewer
+    # wrapper layers reaching each kernel.
+    #
+    # Not, as first assumed, because it switches broadcasts from the Cartesian
+    # kernel to the linear one — it does not, and it should not: GPUArrays only
+    # uses the linear path when every operand is linearly indexable *and* the
+    # shapes match exactly, which is untrue for most ops here.
+    # `broadcast_kernel_cartesian` dominating the dispatch count is correct
+    # behaviour, not a pathology.
+    #
+    # Offsets are 256-byte aligned so the element offset is exact.
+    slabview(T, sl, dims, off)
+end
+
 """
 Buffer ids that outlive the graph: its declared outputs, plus anything they are
 views of. A step chains eight graphs through one slab, so a value that escapes
