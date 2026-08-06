@@ -19,11 +19,18 @@ its positional slot rather than in `ins`. Either side can be the scalar -
 `1 - sigmoid(x)` exports as `sub.Tensor(ins=[sigmoid], arg0=1)` - so both
 positions fall back to attrs and `ins` is consumed in order.
 """
+# The positional attribute names, interned. `"arg$(pos-1)"` built a fresh
+# `String` on EVERY operand access — 463 KB per Kokoro utterance, measured, and
+# the `count` below built one more per earlier position. The set is tiny, fixed,
+# and known at load.
+const ARGKEY = ntuple(i -> "arg$(i-1)", 12)
+@inline argkey(pos::Int) = @inbounds pos <= length(ARGKEY) ? ARGKEY[pos] : "arg$(pos-1)"
+
 function operand(ctx::Ctx, op::Op, pos::Int)
-    key = "arg$(pos-1)"
+    key = argkey(pos)
     haskey(op.attrs, key) && return numattr(ctx, op.attrs[key])
     # the pos'th operand is a tensor: count how many earlier positions were scalars
-    idx = pos - count(p -> haskey(op.attrs, "arg$(p-1)"), 1:(pos - 1))
+    idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
     idx <= length(op.ins) ||
         error("$(op.aten) ($(op.id)) has no operand at position $pos")
     value(ctx, op.ins[idx])

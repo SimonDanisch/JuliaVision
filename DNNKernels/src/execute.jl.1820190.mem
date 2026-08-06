@@ -373,7 +373,7 @@
      5440         p = ndims(c) < length(target) ?
         -             reshape(c, size(c)..., ntuple(_ -> 1, length(target) - ndims(c))...) : c
     36160         all(i -> size(p, i) == target[i], 1:length(target)) && return p
-    54080         return repeat(p, ntuple(i -> size(p, i) == target[i] ? 1 : target[i], length(target))...)
+    53952         return repeat(p, ntuple(i -> size(p, i) == target[i] ? 1 : target[i], length(target))...)
         0     elseif op in ("alias.default", "detach.default")
         0         return parent
         0     elseif op == "split_with_sizes.default"

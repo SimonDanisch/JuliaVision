@@ -100,7 +100,7 @@
         0     isempty(a) && return a
         -     KernelAbstractions.get_backend(a) isa typeof(backend) && return a
         0     d = KernelAbstractions.allocate(backend, eltype(a), size(a)...)
- 49956160     copyto!(d, collect(a))
+    28160     copyto!(d, collect(a))
         -     d
         - end
         - 
