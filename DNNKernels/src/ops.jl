@@ -294,11 +294,39 @@ end
 `clamp` with either bound optional — and either bound possibly **symbolic**: the
 iSTFT clamps an index against the frame count, so `arg2` becomes a function of
 the sequence length once the graph is length-generic.
+
+Through `emit`, like every other elementwise op, and NOT `clamp.(...)`. The
+dotted call allocates through `similar`, so it lands outside the static plan —
+and because the bounds are `Float32`, it also *promotes*: `clamp.(::Float16,
+::Float32, ::Float32)` has `eltype` `Float32`, so an fp16 op wrote an unplanned
+fp32 buffer and needed a second pass to get back. Whisper has 32 of these on
+`(1500, 1280)` fp16, and `opdouble` priced them at **4.22 ms of a 124.66 ms
+encode** — against 0.29 ms for `mul.Tensor`, which moves exactly the same bytes
+over exactly the same shape. Isolated, the two forms are 17.2x apart:
+
+    clamp.(a, f32, f32)        1186.6 us    10 GB/s   <- was shipped
+    d .= clamp.(a, f32, f32)      68.9 us   111 GB/s
+    d .= a * 0.125f0              60.1 us   128 GB/s  <- the reference
+
+This does NOT put the clamp back on the fusion path, and must not: `fuse.jl`
+lists `clamp.default` among the three atens that were added to `FUSABLE` and
+taken back out, because fusing them saved dispatches that were not the cost and
+moved SAM 2's mask IoU from 1.00000 to 0.98750 — a fused chain keeps
+intermediates in fp32 registers where the reference rounds to fp16 at every step.
+`emit` materialises whenever the id is not in `ctx.lazy`, and clamp's never is,
+so the store still rounds to the declared dtype exactly as the reference does.
+
+This is the same bug `_to_copy.default` carries a comment about having already
+fixed — an op that allocates its own output instead of taking the planned one is
+worth grepping for, not just fixing where it was noticed.
 """
-runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")}) =
-    (lo = get(op.attrs, "arg1", nothing); hi = get(op.attrs, "arg2", nothing);
-     clamp.(lhs(ctx, op), lo === nothing ? -Inf32 : Float32(numattr(ctx, lo)),
-            hi === nothing ? Inf32 : Float32(numattr(ctx, hi))))
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
+    lo = get(op.attrs, "arg1", nothing)
+    hi = get(op.attrs, "arg2", nothing)
+    l = lo === nothing ? -Inf32 : Float32(numattr(ctx, lo))
+    h = hi === nothing ? Inf32 : Float32(numattr(ctx, hi))
+    emit(ctx, Base.broadcasted(clamp, lhs(ctx, op), l, h))
+end
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
     a = lhs(ctx, op)
     d = alloc(ctx, op.out, size(a)...)

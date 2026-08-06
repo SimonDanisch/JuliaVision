@@ -59,3 +59,6 @@ include(joinpath(@__DIR__, "test_index_tensor.jl"))
 # `bmm` reaches the same capability dispatch a 2-D matmul does. It did not, and
 # that one line was 79.6% of Depth Anything's forward pass.
 include(joinpath(@__DIR__, "test_batchedmatmul.jl"))
+# An elementwise op that allocates its own output instead of taking the planned
+# one. Values stayed correct, so nothing here caught it for as long as it shipped.
+include(joinpath(@__DIR__, "test_clamp_planned.jl"))
