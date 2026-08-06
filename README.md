@@ -105,7 +105,7 @@ reports; a row is only worth quoting when it is small.
 |---|---|---:|---:|---:|
 | SAM 2.1 encode | 1024² | **102.9 ms** ±0.7% | 79.3 ms | 0.77x |
 | SAM 2.1 decode | one click | **6.0 ms** | 1.76 ms | 0.29x |
-| Whisper large-v3-turbo encode | 30 s window, fp16 | **394.6 ms** ±32% | 71.9 ms | 0.18x |
+| Whisper large-v3-turbo encode | 30 s window, fp16 | **124.5 ms** ±42% | 71.9 ms | 0.58x |
 | Kokoro-82M | one sentence | **535.1 ms** ±25% | — | — |
 | RIFE 4.26 | 1920×1152 | *213.6 ms* ±81% | — | *spread too wide to quote* |
 | Depth Anything V2 S | 518² | *51.7 ms* ±292% | 21.9 ms | *spread too wide to quote* |
@@ -126,10 +126,22 @@ Neural 3D LUT is not broken — at ~7 ms it never spins this card past the clock
 plateau while ten desktop processes share it, so every sample is discarded. It
 needs a longer-running shape or a quiet machine, not a fix.
 
+**Whisper's row was 394.6 ms until 2026-08-06, and the 3.2x came off one flag.**
+The audio context is 1500 frames; the flash kernel's extent gate is
+`clamp || (Lq % BR == 0 && Lk % BC == 0)`; and 1500 = 2²·3·5³ divides no block
+any tiling uses. So all 32 attentions declined *both* flash and the
+cooperative-matrix SDPA and ran the three-pass fallback — ~75% of the model,
+priced by doubling the op family and differencing. `clampattn` exists for exactly
+this case and the encoder never set it. It is not an accuracy trade: against the
+PyTorch reference in Float64 the clamped path is slightly *more* accurate than
+the fallback it replaces. This is the same alignment cliff `Lava.gemm_padn`
+already fixed for the GEMM's N=1500, one kernel over — worth checking wherever a
+sequence length is not a round number.
+
 **How to read this, and how not to.** These are honest numbers and mostly not
-flattering ones — the engine is between 1.3x and 5.5x off PyTorch wherever both
-sides are measured, and worst on Whisper. That is the gap `plans/perf-plan.md`
-argues about.
+flattering ones — the engine is between 1.3x and 3.4x off PyTorch wherever both
+sides are measured, and worst on SAM 2's decode. That is the gap
+`plans/perf-plan.md` argues about.
 
 Every rule below exists because breaking it produced a confidently wrong number
 here at least once:
