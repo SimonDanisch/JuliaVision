@@ -1,0 +1,207 @@
+        - """
+        - Graph loading and shape resolution.
+        - 
+        - Shapes arrive symbolic in `h` and `w` (the stride-16 plane). Nothing here is a
+        - type parameter: resolution is resolved by `evalshape` into plain integers at
+        - instantiate time, so changing it never invokes the Julia compiler.
+        - """
+        - 
+        - struct Buffer
+        -     id::String
+        -     kind::Symbol            # :weight :external :transient :view :host
+        -     shape::Vector{Any}      # ints and symbolic strings, in torch order
+        -     dtype::DataType
+        -     key::String             # weight only: name in weights.safetensors
+        -     live::Tuple{Int,Int}    # transient only: op indices, inclusive
+        -     of::String              # view only: parent buffer id
+        -     viewop::String          # view only: which aten op produced it
+        -     attrs::Dict{String,Any}
+        - end
+        - 
+        - struct Op
+        -     id::String
+        -     aten::String
+        -     ins::Vector{String}
+        -     out::String
+        -     attrs::Dict{String,Any}
+        -     # `runop!` dispatches on `Val(Symbol(aten))`. Building that per call meant
+        -     # interning a Symbol — a hash and a global-table lookup — for every op on
+        -     # every step, which showed up in the profile as `_Symbol` + `hash`. The name
+        -     # is fixed when the graph is loaded, so the tag is too. Dispatch on it is
+        -     # still dynamic, exactly as before; only the interning is gone.
+        -     tag::Val
+        0     Op(id, aten, ins, out, attrs) = new(id, aten, ins, out, attrs, Val(Symbol(aten)))
+        - end
+        - 
+        - struct Graph
+        -     name::String
+        -     symbols::Vector{String}
+        -     inputs::Vector{String}
+        -     outputs::Vector{String}
+        -     buffers::Dict{String,Buffer}
+        -     order::Vector{String}   # buffer ids in declaration order
+        -     ops::Vector{Op}
+        -     # Inductor's fusion decisions for this graph, as lists of op ids that its
+        -     # codegen put in one Triton kernel (tools/dump_plan.py). Advisory: dropping
+        -     # it changes speed, never results. Empty when no plan has been merged.
+        -     fusion::Vector{Vector{String}}
+        - end
+        - 
+        - # Every rewrite pass (`foldbatchnorm`, `foldrelu`, `hoistcasts`, `dropdead`)
+        - # rebuilds a Graph; this keeps them from having to thread the plan through.
+        - Graph(name, symbols, inputs, outputs, buffers, order, ops) =
+        -     Graph(name, symbols, inputs, outputs, buffers, order, ops, Vector{String}[])
+        - 
+        - jget(o, k, default) = haskey(o, k) ? o[k] : default
+        - 
+        - """
+        -     plainattr(v)
+        - 
+        - Convert a JSON3 value to a plain Julia one, once, at load time.
+        - 
+        - Attributes are constant for the life of the graph, but `ints()` used to walk the
+        - lazy `JSON3.Array` and allocate a fresh `Vector` *on every execution of every
+        - op*. That measured 154 of ~430 profiler samples inside `execute!` — 36% of the
+        - whole host-side dispatch cost — for re-deriving values that never change.
+        - """
+        0 plainattr(v::JSON3.Array) = [plainattr(x) for x in v]
+        - plainattr(v::JSON3.Object) = Dict{String,Any}(String(k) => plainattr(x) for (k, x) in pairs(v))
+        - plainattr(v) = v
+        - 
+        0 attrdict(o) = haskey(o, :attrs) ?
+        -     Dict{String,Any}(String(k) => plainattr(v) for (k, v) in pairs(o.attrs)) :
+        -     Dict{String,Any}()
+        - 
+        - function Buffer(o)
+        0     kind = Symbol(o.kind)
+        0     shape = haskey(o, :shape) ? Any[x isa Integer ? Int(x) : String(x) for x in o.shape] : Any[]
+        0     dtype = haskey(o, :dtype) ? DTYPE_NAMES[String(o.dtype)] : Float32
+        0     live = haskey(o, :live) ? (Int(o.live[1]), Int(o.live[2])) : (0, 0)
+        0     attrs = attrdict(o)
+        -     # host scalars carry their symbolic size expression at the top level
+        0     haskey(o, :expr) && (attrs["expr"] = o.expr)
+        -     # A multi-output op (`native_layer_norm`, `_scaled_dot_product_*`,
+        -     # `max_pool2d_with_indices`) declares `shapes`/`dtypes` instead of
+        -     # `shape`/`dtype`. Dropping them, as this did, left `planslab` unable to size
+        -     # those results, so every one of them allocated from the pool on every call —
+        -     # a handful of buffers in MatAnyone, but 151 of them in SAM 2's encoder,
+        -     # which is its whole transformer.
+        0     if haskey(o, :shapes)
+        0         attrs["shapes"] = Any[s === nothing ? nothing :
+        -                               Any[x isa Integer ? Int(x) : String(x) for x in s] for s in o.shapes]
+        -     end
+        0     if haskey(o, :dtypes)
+        -         # `get`, not indexing: a tuple element the runtime never reads can carry a
+        -         # dtype nothing else in the graph uses — sdpa's philox seed and offset are
+        -         # `uint64` — and an unrecognised one should mean "do not plan this
+        -         # element", not "refuse to load the graph".
+        0         attrs["dtypes"] = Any[d === nothing ? nothing :
+        -                               get(DTYPE_NAMES, String(d), nothing) for d in o.dtypes]
+        -     end
+        0     Buffer(String(o.id), kind, shape, dtype,
+        -            haskey(o, :key) ? String(o.key) : "",
+        -            live,
+        -            haskey(o, :of) && o.of !== nothing ? String(o.of) : "",
+        -            haskey(o, :op) ? String(o.op) : "",
+        -            attrs)
+        - end
+        - 
+        - # `complex64`/`complex128` are torch's names for a *pair* of floats — the rotary
+        - # embedding packs its sin/cos that way (`view_as_complex`), so a graph carrying
+        - # RoPE fails to load without them.
+        - const DTYPE_NAMES = Dict("float32" => Float32, "float64" => Float64, "float16" => Float16,
+        -                          "int64" => Int64, "int32" => Int32, "bool" => Bool, "uint8" => UInt8,
+        -                          "complex64" => ComplexF32, "complex128" => ComplexF64)
+        - 
+        - function Op(o)
+        -     Op(String(o.id), String(o.aten), String[String(x) for x in o.ins_],
+        -        String(o.out),
+        -        attrdict(o))
+        - end
+        - 
+        - """
+        -     loadgraph(path) -> Graph
+        - """
+        - function loadgraph(path::AbstractString)
+        0     j = JSON3.read(read(path, String))
+        0     buffers = Dict{String,Buffer}()
+        0     order = String[]
+        0     for o in j.buffers
+        0         b = Buffer(o)
+        0         buffers[b.id] = b
+        0         push!(order, b.id)
+        0     end
+        0     ops = Op[]
+        0     for o in j.ops
+        0         push!(ops, Op(String(o.id), String(o.aten),
+        -                       String[String(x) for x in o["in"]], String(o.out),
+        -                       attrdict(o)))
+        0     end
+        0     fusion = Vector{String}[]
+        0     if haskey(j, :fusion_groups)
+        0         for grp in j.fusion_groups
+        0             push!(fusion, String[String(x) for x in grp.ops])
+        0         end
+        -     end
+        0     Graph(String(j.name), String[String(s) for s in j.symbols],
+        -           String[String(s) for s in j.inputs], String[String(s) for s in j.outputs],
+        -           buffers, order, ops, fusion)
+        - end
+        - 
+        - """
+        -     evalshape(shape, dims) -> NTuple{N,Int}
+        - 
+        - Resolve a symbolic torch-order shape against `dims = (h=..., w=...)` and return
+        - it **reversed**, i.e. in the `(x, y, c, n)` order the arrays actually use.
+        - 
+        - The expressions torch.export emits are products, quotients and sums of the base
+        - symbols; they are evaluated here rather than at kernel launch so no kernel ever
+        - divides by a runtime value.
+        - """
+        - function evalshape(shape, dims)
+   311680     out = Int[]
+        0     for s in shape
+   764160         push!(out, s isa Integer ? Int(s) : evalexpr(String(s), dims))
+        0     end
+  1243840     Tuple(reverse(out))
+        - end
+        - 
+        - # Parsed shape expressions, keyed by their source text.
+        - #
+        - # `Meta.parse` depends only on the string — never on `dims` — yet it ran on every
+        - # shape of every op of every step: 1.03 MB per Kokoro utterance. The graph's
+        - # shape strings are fixed at load, so the parse is done once and the `Expr`
+        - # reused. Process-wide rather than per-graph because the key IS the text: two
+        - # graphs spelling a shape the same way want the same tree.
+        - const SHAPE_EXPRS = Dict{String,Any}()
+        - 
+        - function evalexpr(e::AbstractString, dims)
+        0     ex = get!(SHAPE_EXPRS, String(e)) do
+        -         Meta.parse(e)
+        -     end
+   187520     evalexpr(ex, dims)
+        - end
+        - 
+        - function evalexpr(ex, dims)
+        -     ex isa Integer && return Int(ex)
+        0     ex isa Symbol && return Int(getproperty(dims, ex))
+        0     if ex isa Expr && ex.head === :call
+        0         f = ex.args[1]
+   846720         as = [evalexpr(a, dims) for a in ex.args[2:end]]
+        0         f === :+ && return sum(as)
+        0         f === :* && return prod(as)
+    23040         f === :- && return length(as) == 1 ? -as[1] : as[1] - sum(as[2:end])
+        -         # torch emits floor division for the downsampling paths
+        0         (f === :/ || f === Symbol("//")) && return as[1] ÷ as[2]
+        0         f === :% && return mod(as[1], as[2])
+        -         # sympy prints these in function form
+        0         f === :Mod && return mod(as[1], as[2])
+        0         f === :Max && return maximum(as)
+        0         f === :Min && return minimum(as)
+        0         (f === :floor || f === :floordiv) && return length(as) == 1 ? as[1] : as[1] ÷ as[2]
+        0         f === :ceiling && return length(as) == 1 ? as[1] : cld(as[1], as[2])
+        0         f === :Pow && return as[1]^as[2]
+        0         error("unsupported shape expression: $ex")
+        -     end
+        0     error("unsupported shape expression: $ex")
+        - end

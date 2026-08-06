@@ -254,9 +254,16 @@ Graphs and weights are Julia artifacts, not files in this repository:
 The refs are separate on purpose: they are what the layer-by-layer verification
 compares against, and nobody segmenting a picture should download them.
 
-`DNNKernels.assetpath` resolves an environment variable, then a locally
-generated tree found by walking up from the package, then the artifact — in that
-order, so a checkout that *produces* these files with `tools/export_sam2.py`
-keeps using its own output and a published copy never lands on top of work in
-progress. `tools/publish_artifacts.jl` (in the project that generates them) is
-what packages, uploads and binds a new set.
+**There is no `DNNKernels.assetpath`, and this paragraph used to claim there
+was.** It described an env-var → local-`gen/`-tree → artifact resolution order
+that was deliberately DELETED (see the docstring at the top of
+`DNNKernels/src/assets.jl`): nothing ever set the environment variables, and the
+generated-tree branch made a broken download invisible, because on any machine
+with a `gen/` tree the fallback always answered. Tests had the same fallback and
+it meant the PyTorch parity gate ran only on the machine that produced the export.
+
+Each package writes `assetdir() = @artifact_str("<name>")` and reads its assets
+from that artifact and nowhere else. Changing a model's assets means re-binding
+its artifact: re-export, then `tools/make_artifacts.jl <name>` hashes the new
+tree and rewrites the `Artifacts.toml`; `tools/publish_artifacts.jl` uploads it
+so it reaches anyone else.

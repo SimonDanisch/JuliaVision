@@ -202,5 +202,10 @@ end
     @test length(slow) > length(fast)
 end
 
+# Guards that the SHIPPED assets are the mixed-precision export. The published
+# artifact is currently the fp32 one — 1.68x slower, silently — so its two key
+# assertions are `@test_broken` until it is republished.
+include(joinpath(@__DIR__, "test_assets_are_fp16.jl"))
+
 end  # ready()
 end  # KokoroRunner
