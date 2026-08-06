@@ -278,9 +278,31 @@ whether to download it; a decoder would not.
 **There is no mel front end here yet.** Whisper's own is an STFT, and
 `DNNKernels` has no FFT, so producing `mel` is the caller's problem for now (or
 the reference dump's — `refs["whisper/in0"]` is exactly one).
+
+## `clampattn = true`, and it is worth 3x on this model alone
+
+Whisper's audio context is 1500 frames, and the flash kernel's extent gate is
+`clamp || (Lq % BR == 0 && Lk % BC == 0)`. 1500 = 2^2*3*5^3 divides no block any
+tiling uses (1500%64 = 28, %32 = 28, %16 = 12), so without the clamp all 32
+attentions declined *both* flash and the cooperative-matrix SDPA and ran the
+three-pass fallback — which `opdouble` prices at ~277 ms of a ~360 ms encode,
+about 75% of the model, against a PyTorch baseline of 71.9 ms for the whole
+thing.
+
+This is the same alignment cliff `Lava.gemm_padn` already fixed for the GEMM's
+N=1500, on a different kernel. The clamp is the flash kernel's own answer to it
+and costs nothing here: measured against the PyTorch reference in Float64, the
+clamped path is *slightly more* accurate than the three-pass one it replaces
+(rel rms 3.960e-2 vs 4.078e-2, cosine 0.9992160 vs 0.9991687) — it does less
+fp16 rounding, not more.
+
+Set here rather than as a `Ctx` default: `clampattn` is a property of a run, and
+a model whose extents already divide its blocks should not pay a bounds check it
+does not need.
 """
 function encode(w::WhisperEncoder, mel)
-    out, = call(w.model, "whisper", toback(w.backend, mel); dims = (;))
+    out, = call(w.model, "whisper", toback(w.backend, mel); dims = (;),
+                clampattn = true)
     return out
 end
 
