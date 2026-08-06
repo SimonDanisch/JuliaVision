@@ -106,7 +106,7 @@ reports; a row is only worth quoting when it is small.
 | SAM 2.1 encode | 1024² | **102.9 ms** ±0.7% | 79.3 ms | 0.77x |
 | SAM 2.1 decode | one click | **6.0 ms** | 1.76 ms | 0.29x |
 | Whisper large-v3-turbo encode | 30 s window, fp16 | **120.5 ms** (see GC note) | 71.9 ms | 0.60x |
-| Kokoro-82M | one sentence | **535.1 ms** ±25% | — | — |
+| Kokoro-82M | one sentence | **~390 ms** core (see GC note) | — | — |
 | RIFE 4.26 | 1920×1152 | *213.6 ms* ±81% | — | *spread too wide to quote* |
 | Depth Anything V2 S | 518² | *51.7 ms* ±292% | 21.9 ms | *spread too wide to quote* |
 | MatAnyone2 step | 512×288 | *48.8 ms* ±322%, clock 11% | — | *not trustworthy* |
@@ -137,6 +137,15 @@ PyTorch reference in Float64 the clamped path is slightly *more* accurate than
 the fallback it replaces. This is the same alignment cliff `Lava.gemm_padn`
 already fixed for the GEMM's N=1500, one kernel over — worth checking wherever a
 sequence length is not a round number.
+
+**Kokoro's row was 535.1 ms and that number was mostly garbage collection.**
+Forty consecutive runs: `min 387.1 · p25 390.1 · median 398.9 · p75 488.3 · p90
+501.0 · max 1824.7 ms`. GC is **18.9% of wall**, with single pauses up to 316 ms
+on a ~390 ms call. `bench_all` takes 11 samples, and with p75 already at 488 an
+11-sample median lands anywhere between 400 and 600 — it read 535.1 once and
+611.7 another time, from the same code. **A model whose GC is a fifth of its wall
+time cannot be measured by a short median.** The core is ~390 ms; chasing the
+611.7 as a regression cost an hour and found nothing.
 
 **Whisper's spread is Julia's GC, and it is worth knowing before you quote any
 row.** Sixty consecutive encodes: `min 119.94 · p25 120.31 · median 120.54 · p75
