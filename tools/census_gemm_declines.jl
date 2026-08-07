@@ -189,7 +189,12 @@ function census_graph_matmuls(graph::Dict; tile::Int = 16)
         isempty(ins) && continue
         root = resolveview(buffers, last(ins))
         root === nothing && continue
-        get(root, "kind", "") == "weight" || continue
+        # `weight` OR `transient`: under autocast the weight reaches the op
+        # through a `_to_copy` dtype cast, whose output is a transient. That
+        # accounts for 283 of 1103 matmuls — all of sam2_encoder's — and a cast
+        # preserves the shape, which is what the gate actually tests. Accepting
+        # only `weight` left 26% of the census unexamined.
+        get(root, "kind", "") in ("weight", "transient") || continue
         shp = get(root, "shape", nothing)
         (shp isa Vector && all(x -> x isa Integer, shp)) || continue
         any(d -> d % tile != 0, shp) && push!(out, (get(o, "id", "?"), Vector{Int}(shp)))
@@ -197,8 +202,9 @@ function census_graph_matmuls(graph::Dict; tile::Int = 16)
     out
 end
 
-# ── MEASURED 2026-08-07 across every exported graph: 820 weights resolved, 12
-# with a ragged extent, and whisper.json (the encoder) EMPTY as required.
+# ── MEASURED 2026-08-07 across every exported graph: **1103 of 1103** matmul
+# weights checked (no blind spot), 12 with a ragged extent, and whisper.json
+# (the encoder) EMPTY as required.
 #
 #     whisperdec    x3   (51866, 1280)    vocabulary — 51866 % 16 = 10
 #     kokorovoc     x4   ( 2180,  128)
