@@ -106,6 +106,29 @@ end
 # `"main"` for every kernel Lava emits. Only the planted control caught it. A
 # census with no control is a way of writing "all clean" without checking.
 #
-# ── PER-MODEL CENSUS: pending. Run with the GPU otherwise idle, `control_declines`
-# first, and `Lava.clear_kernel_cache!()` between models so each census describes
-# its own step.
+# ── STATIC CENSUS (host-only, from the exported graph JSON — no GPU, no model
+# load; the artifacts carry every weight shape):
+#
+#     147 of 1150 convolutions (12.8%) have Cout or K not a multiple of 16
+#     basicvsrpp 46, readout_query 21, kokorovoc 20, MatAnyone family ~45,
+#     rife 7, singles in neurallut / depthanything / sam2_encoder
+#
+# Largest by Cout*K are KOKORO's vocoder, not MatAnyone:
+#     (1024, 1090, 3) K=3270 x3     (1024, 1090, 1) K=1090 x3   <- 1x1 -> matmul!
+#     (1024,  514, 3) K=1542        (1024,  514, 1) K= 514      <- 1x1
+# 1090 and 514 are concat-derived (a feature map with extra channels appended),
+# which is the source I failed to predict — I had reasoned that K = Cin*kh*kw is
+# a multiple of 16 whenever Cin is, which is true and misses that a concat makes
+# Cin itself 1090.
+#
+# FIRST VERSION OF THAT CENSUS WAS WRONG: globbing `artifacts/*/graphs/**/*.json`
+# matched only MatAnyone (the one model whose artifact uses a `graphs/` subdir),
+# so "all the big ones are MatAnyone's" was circular. Detect graphs by STRUCTURE
+# — a dict with both `ops` and `buffers` — not by path.
+#
+# WHICH OF THEM COSTS ANYTHING IS STILL UNMEASURED. 1x1 convolutions route to
+# `matmul!` and so hit the gate; general convolutions use the conv planner, which
+# already pads K. A static census sizes the SURFACE, not the time. That is what
+# the runtime half of this file is for: run it per model with the GPU otherwise
+# idle, `control_declines` first, and `Lava.clear_kernel_cache!()` between models
+# so each census describes its own step.
