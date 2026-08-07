@@ -7,3 +7,6 @@ Manifest.toml
 # python bytecode from tools/
 __pycache__/
 *.pyc
+
+# --track-allocation=user output; never source
+*.mem

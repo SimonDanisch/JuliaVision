@@ -263,17 +263,37 @@ function speak(k::Kokoro; phonemes::AbstractString, voice::AbstractString = "af_
     teh = Array(t_en)                                 # (t, 512, 1)
     en = Array{Float32}(undef, f, 640, 1)
     asr = Array{Float32}(undef, f, 512, 1)
-    @inbounds for j in 1:f
-        i = idx[j]
-        for c in 1:640; en[j, c, 1] = dh[c, i, 1]; end
-        for c in 1:512; asr[j, c, 1] = teh[i, c, 1]; end
-    end
+    gatherframes!(en, asr, dh, teh, idx, f)
 
     audio, = call(k.model, "kokorovoc", toback(k.backend, en), toback(k.backend, asr),
                   ref_s; dims = (f = f,),
                   noise = noise ? DNNKernels.RandomNoise() : DNNKernels.ZeroNoise())
     out = Array(audio)
     trim ? trimsilence(out) : out
+end
+
+"""
+Copy the gathered frames, through a FUNCTION BARRIER.
+
+Written inline in `speak`, this loop allocated **2.7 MB per utterance** while
+writing into two arrays it had already allocated — which is impossible unless the
+element reads are boxing. They were: `dh`/`teh` come from `Array(d)` on values
+`speak` does not type, so `dh[c, i, 1]` was a dynamic `getindex` returning a
+boxed scalar, once per element, 640+512 times per frame.
+
+Taking them as arguments makes the method specialise on their concrete types and
+the loop compile to plain loads and stores. The eltypes are deliberately NOT
+asserted here — `d` is fp16 in some exports and fp32 in others, and the
+conversion on store is correct either way.
+"""
+function gatherframes!(en::Array{T,3}, asr::Array{T,3}, dh::AbstractArray{S,3},
+                       teh::AbstractArray{U,3}, idx, f::Int) where {T,S,U}
+    @inbounds for j in 1:f
+        i = idx[j]
+        for c in 1:640; en[j, c, 1] = dh[c, i, 1]; end
+        for c in 1:512; asr[j, c, 1] = teh[i, c, 1]; end
+    end
+    return nothing
 end
 
 """

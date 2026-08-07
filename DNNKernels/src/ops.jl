@@ -19,11 +19,18 @@ its positional slot rather than in `ins`. Either side can be the scalar -
 `1 - sigmoid(x)` exports as `sub.Tensor(ins=[sigmoid], arg0=1)` - so both
 positions fall back to attrs and `ins` is consumed in order.
 """
+# The positional attribute names, interned. `"arg$(pos-1)"` built a fresh
+# `String` on EVERY operand access — 463 KB per Kokoro utterance, measured, and
+# the `count` below built one more per earlier position. The set is tiny, fixed,
+# and known at load.
+const ARGKEY = ntuple(i -> "arg$(i-1)", 12)
+@inline argkey(pos::Int) = @inbounds pos <= length(ARGKEY) ? ARGKEY[pos] : "arg$(pos-1)"
+
 function operand(ctx::Ctx, op::Op, pos::Int)
-    key = "arg$(pos-1)"
+    key = argkey(pos)
     haskey(op.attrs, key) && return numattr(ctx, op.attrs[key])
     # the pos'th operand is a tensor: count how many earlier positions were scalars
-    idx = pos - count(p -> haskey(op.attrs, "arg$(p-1)"), 1:(pos - 1))
+    idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
     idx <= length(op.ins) ||
         error("$(op.aten) ($(op.id)) has no operand at position $pos")
     value(ctx, op.ins[idx])
@@ -287,11 +294,39 @@ end
 `clamp` with either bound optional — and either bound possibly **symbolic**: the
 iSTFT clamps an index against the frame count, so `arg2` becomes a function of
 the sequence length once the graph is length-generic.
+
+Through `emit`, like every other elementwise op, and NOT `clamp.(...)`. The
+dotted call allocates through `similar`, so it lands outside the static plan —
+and because the bounds are `Float32`, it also *promotes*: `clamp.(::Float16,
+::Float32, ::Float32)` has `eltype` `Float32`, so an fp16 op wrote an unplanned
+fp32 buffer and needed a second pass to get back. Whisper has 32 of these on
+`(1500, 1280)` fp16, and `opdouble` priced them at **4.22 ms of a 124.66 ms
+encode** — against 0.29 ms for `mul.Tensor`, which moves exactly the same bytes
+over exactly the same shape. Isolated, the two forms are 17.2x apart:
+
+    clamp.(a, f32, f32)        1186.6 us    10 GB/s   <- was shipped
+    d .= clamp.(a, f32, f32)      68.9 us   111 GB/s
+    d .= a * 0.125f0              60.1 us   128 GB/s  <- the reference
+
+This does NOT put the clamp back on the fusion path, and must not: `fuse.jl`
+lists `clamp.default` among the three atens that were added to `FUSABLE` and
+taken back out, because fusing them saved dispatches that were not the cost and
+moved SAM 2's mask IoU from 1.00000 to 0.98750 — a fused chain keeps
+intermediates in fp32 registers where the reference rounds to fp16 at every step.
+`emit` materialises whenever the id is not in `ctx.lazy`, and clamp's never is,
+so the store still rounds to the declared dtype exactly as the reference does.
+
+This is the same bug `_to_copy.default` carries a comment about having already
+fixed — an op that allocates its own output instead of taking the planned one is
+worth grepping for, not just fixing where it was noticed.
 """
-runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")}) =
-    (lo = get(op.attrs, "arg1", nothing); hi = get(op.attrs, "arg2", nothing);
-     clamp.(lhs(ctx, op), lo === nothing ? -Inf32 : Float32(numattr(ctx, lo)),
-            hi === nothing ? Inf32 : Float32(numattr(ctx, hi))))
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
+    lo = get(op.attrs, "arg1", nothing)
+    hi = get(op.attrs, "arg2", nothing)
+    l = lo === nothing ? -Inf32 : Float32(numattr(ctx, lo))
+    h = hi === nothing ? Inf32 : Float32(numattr(ctx, hi))
+    emit(ctx, Base.broadcasted(clamp, lhs(ctx, op), l, h))
+end
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
     a = lhs(ctx, op)
     d = alloc(ctx, op.out, size(a)...)
@@ -993,18 +1028,31 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
     dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
     dst .= a
     n = ndims(a)
-    idx = Vector{Any}(undef, n)
-    fill!(idx, Colon())
+    accum = Bool(something(get(op.attrs, "arg3", nothing), false))
+    # Hold the index operands as they came — ON THE DEVICE. They used to be
+    # `collect`ed here for every dim, unconditionally, to decide the
+    # contiguity test that only the `view` path at the bottom consumes. On
+    # Kokoro that cost **17.5 MB of host allocation per utterance** (measured,
+    # `--track-allocation`): the iSTFT overlap-add scatters 235220 entries, so
+    # the index alone is 1.9 MB of Int64 and it was downloaded twice — once
+    # here and again as `Int32.(collect(ivals))` below. Each download also
+    # drags a queue sync with it, which is the part that shows up as time.
+    raw = Vector{Any}(undef, n)
+    fill!(raw, nothing)
     nz = Int[]
     for (k, e) in enumerate(op.attrs["arg1"])
         e === nothing && continue
         jd = n - k + 1
         1 <= jd <= n || error("index_put: dim $k out of range for $(n)-d input")
         push!(nz, jd)
-        iv = vec(Int.(collect(value(ctx, String(e)[2:end])))) .+ 1  # 0-based in torch
-        idx[jd] = iv == collect(first(iv):last(iv)) ? (first(iv):last(iv)) : iv
+        raw[jd] = value(ctx, String(e)[2:end])
     end
-    if Bool(something(get(op.attrs, "arg3", nothing), false))
+    idx = Vector{Any}(undef, n)
+    fill!(idx, Colon())
+    # Only the paths that genuinely need host indices pay for them.
+    hostidx(jd) = (iv = vec(Int.(collect(raw[jd]))) .+ 1;  # 0-based in torch
+                   iv == collect(first(iv):last(iv)) ? (first(iv):last(iv)) : iv)
+    if accum
         # ── accumulate = true: a SCATTER-ADD, and duplicates are the point.
         #
         # `view(dst, idx) .+= src` is NOT this. When `idx` repeats an index —
@@ -1031,14 +1079,20 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         d = nz[1]
         all(k -> k == d || size(a, k) == 1, 1:n) ||
             error("index_put: accumulate needs singleton batch axes (op $(op.id))")
-        ivals = idx[d]
         if eltype(dst) === Float32 && dst isa Lava.LavaArray
-            iv32 = toback(ctx.backend, Int32.(collect(ivals)))
+            # The `+1` and the Int32 narrowing are a broadcast on the DEVICE.
+            # `toback(ctx.backend, Int32.(collect(...)))` did the same arithmetic
+            # by downloading, converting on one core, and uploading again.
+            iv32 = Int32.(vec(raw[d])) .+ Int32(1)
             m = length(src)
             scatteradd_kernel!(ctx.backend)(vec(dst), vec(src), iv32, Int32(m);
                                             ndrange = m)
             return dst
         end
+        # Host fallback (non-fp32: there is no fp16 atomic add to ask for) still
+        # needs the indices on the host, and pays for them here rather than for
+        # every caller.
+        ivals = hostidx(d)
         hv = vec(Array(dst))
         hs = vec(Array(src))
         @inbounds for (j, i) in enumerate(ivals)
@@ -1046,6 +1100,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         end
         copyto!(dst, reshape(hv, size(dst)))
         return dst
+    end
+    for jd in nz
+        idx[jd] = hostidx(jd)
     end
     v = view(dst, idx...)
     v .= reshape(src, size(v))
