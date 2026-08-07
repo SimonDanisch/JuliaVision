@@ -12,11 +12,19 @@
 #     1280 x 1536 x 1280  (all %16)     0.134 ms   37.64 TF/s
 #     1288 x 1544 x 1288  (none %16)    0.875 ms    5.86 TF/s      6.43x
 #
-# So a single ragged extent is worth ~6x on that matmul, silently. Ragged M/K
-# does not come from transformer model dims (768/1280/512 are all %16) — it comes
-# from convolutions routed through im2col, where `K = Cin*kh*kw` and an RGB stem
-# is 3*3*3 = 27. Whisper's stem was fixed by hand once (a 2.44x); this asks how
-# many more there are.
+# So a single ragged extent is worth ~6x on that matmul, silently. It does not
+# come from transformer model dims — 768/1280/512 are all %16 — but from
+# convolutions routed through im2col, where `K = Cin*kh*kw`. Three sources, and
+# the census below found one I had not predicted:
+#
+#   * stems, where Cin is 3 or 4              (64,3,7,7) K=147
+#   * one-channel heads, where Cout is 1      ragged M rather than K
+#   * CONCAT-DERIVED channel counts           (1024,1090,1) K=1090
+#
+# The third is the one carrying real work. "K = Cin*kh*kw is a multiple of 16
+# whenever Cin is" is true and led me to conclude only stems could be ragged; it
+# misses that a concat makes Cin ITSELF 1090 or 514. One stem was already fixed
+# by hand for 2.44x; this asks how many more there are.
 #
 # HOW IT COUNTS, and why it needs no instrumentation. Rather than patch
 # `mm_coopmat_plan`, run a step and look at which GEMM kernels the device
