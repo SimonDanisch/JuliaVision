@@ -140,6 +140,11 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     # this one only ever looks at computed values and there is no point offering
     # it buffers the passes above are about to turn into weights.
     graphs, noutcast = foldoutcasts(graphs)
+    # And the other direction: a cast that *widens* a computed value in front of
+    # a reduction whose accumulator is already the wide type. After
+    # `foldoutcasts`, because narrowing a producer's result can turn a cast that
+    # was a no-op into a widening one this pass can then remove.
+    graphs, nincast = foldincasts(graphs)
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes
@@ -162,7 +167,7 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
         weights = Dict{String,Any}(k => v for (k, v) in weights if k in live2)
         ndead += nsubdead
     end
-    @debug "DNNKernels: folded $nfold batch-norms, $nact relus and $noutcast output casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, dropped $ndead dead ops and $dropped orphaned weights"
+    @debug "DNNKernels: folded $nfold batch-norms, $nact relus, $noutcast output casts and $nincast input casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, dropped $ndead dead ops and $dropped orphaned weights"
     Model(graphs, weights, backend, memevery, memframes, topk)
 end
 

@@ -76,13 +76,22 @@ A caller that just wants to segment a picture never fetches these.
 refsdir() = @artifact_str("sam2-large-refs")
 
 """
-    sam2model(; backend, dir, res) -> SAM2
+    sam2model(; backend, dir, res, kw...) -> SAM2
 
 Load the model. Separate from [`runsam2`](@ref) so the workload can build it in
 `@setup_workload`, where the loading is *not* what is being cached.
+
+Anything else `SAM2` accepts is forwarded — `cacheinputs`, `replaydecode`,
+`segmenttie`. Those are policy on the model, and a caller building through this
+convenience constructor could not reach them at all; `SAM2` is immutable, so it
+could not set them afterwards either. That mattered the moment one of them had to
+be turned off: `replaydecode = false` is the way around the capture/replay fault
+(a garbage collection between two clicks makes the replay fault the device), and
+the editor had no way to ask for it.
 """
-function sam2model(; backend = LavaBackend(), dir::AbstractString = assetdir(), res::Int = 1024)
-    return SAM2(dir, joinpath(dir, "weights.safetensors"); backend, res)
+function sam2model(; backend = LavaBackend(), dir::AbstractString = assetdir(),
+                     res::Int = 1024, kw...)
+    return SAM2(dir, joinpath(dir, "weights.safetensors"); backend, res, kw...)
 end
 
 # ── What callers outside this package may ask for ────────────────────────────

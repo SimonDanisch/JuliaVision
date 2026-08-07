@@ -3,6 +3,9 @@ SAM 2.1 on Lava: does the GPU agree with PyTorch, and how fast is it.
 
     julia --project=. tools/bench_sam2.jl [gpu|cpu]
 
+Runs anywhere the runner runs: the model and the references come from
+`SAM2Runner`'s artifacts, so no export directory is needed.
+
 Two questions in one run, because they need the same setup:
 
   * **parity** — the encoder's six outputs and the decoder's masks and IoU
@@ -26,12 +29,22 @@ using DNNKernels, KernelAbstractions, Statistics, Printf
 # model code, not kernels. This tool followed them here rather than through the
 # stale binding, which still *imported* under the old name and then failed with
 # `UndefVarError` at first use.
-using SAM2Runner: SAM2, encode, decode, prompt
-using DNNKernels: readsafetensors, toback
+using SAM2Runner: sam2model, sam2refs, encode, decode, prompt, ready
+using DNNKernels: toback
 const KA = KernelAbstractions
 
-const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "sam2-large"))
+# The model and its references come from the runner's artifacts, not from an
+# export directory. `gen/graphs/sam2-large` exists only on a machine that ran the
+# exporter, so reading it made this script — the one that answers "how fast is
+# SAM 2 here" — the one script a non-exporting machine could not run. `assetdir`
+# and `refsdir` are the runner's to resolve; see `SAM2Runner`'s assets section.
 const RES = 1024
+
+# Still an export-directory path, and deliberately: this is a *measurement
+# record* written by `sam2_pytorch_baseline.py`, not a model asset, and it is
+# optional — absent, the comparison is simply not printed.
+const BASELINE = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "sam2-large",
+                                   "pytorch_baseline.json"))
 
 """
 Device memory in use, in MiB, or `nothing` where `nvidia-smi` is not available.
@@ -65,13 +78,17 @@ else
     KA.CPU()
 end
 
+ready() || error("""
+    no SAM 2 assets. `sam2model` resolves them through `Pkg.Artifacts`, so this
+    is a download away — run `SAM2Runner.sam2model()` once, or check the entries
+    in `SAM2Runner/Artifacts.toml`.""")
+
 @info "loading SAM 2.1 on $mode"
 t0 = time()
-sam = SAM2(joinpath(DIR, "sam2_encoder.json") |> dirname,
-           joinpath(DIR, "weights.safetensors"); backend, res=RES)
+sam = sam2model(; backend, res=RES)
 @printf("  loaded in %.1f s\n", time() - t0)
 
-refs = readsafetensors(joinpath(DIR, "refs.safetensors"))
+refs = sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])
 point = toback(backend, refs["sam2_decoder/in3"])
 label = toback(backend, refs["sam2_decoder/in4"])
@@ -213,7 +230,7 @@ if mode == "gpu"
                 vram() - VRAM_BASE)
 end
 
-base = joinpath(DIR, "pytorch_baseline.json")
+base = BASELINE
 if isfile(base)
     # DNNKernels' JSON3, not a direct dependency of this script's environment.
     b = DNNKernels.JSON3.read(read(base, String))
