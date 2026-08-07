@@ -104,10 +104,17 @@ function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.
     #
     # At `1.25` the line falls between the two cases this repo has:
     #
-    #     SAM 2 stem      7x7x3      CRS 147 -> 160    +8.8%    admitted
-    #     MatAnyone       1x1x17     CRS  17 ->  32   +88.2%    refused
-    #     MatAnyone       1x1x257    CRS 257 -> 272    +5.8%    admitted
-    #     MatAnyone       1x1x769    CRS 769 -> 784    +2.0%    admitted
+    #     SAM 2 stem      7x7x3      CRS 147 -> 160    +8.8%    admitted   (padbk)
+    #     MatAnyone       1x1x17     CRS  17 ->  32   +88.2%    refused    (padtile)
+    #     MatAnyone       1x1x257    CRS 257 -> 288   +12.1%    admitted   (padbk)
+    #     MatAnyone       1x1x769    CRS 769 -> 800    +4.0%    admitted   (padbk)
+    #
+    # The 257 and 769 rows used to read `-> 272 +5.8%` and `-> 784 +2.0%`, which
+    # are `padtile` results — the numbers from BEFORE `crsextent` grew its
+    # adaptive `padbk` branch, left behind when it did. They understated the real
+    # padding by about 2x, and this table is what a reader uses to set `crspad`.
+    # Verdicts were unaffected (both still fit the budget), so nothing behaved
+    # wrongly; the documentation simply described the old rule.
     #
     # The stem is what motivated it: **2.800 -> 1.147 ms, 2.44x**, 0.99 to 2.42
     # TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A `Ref` rather than a constant so
