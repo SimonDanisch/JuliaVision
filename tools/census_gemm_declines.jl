@@ -140,3 +140,74 @@ end
 # the runtime half of this file is for: run it per model with the GPU otherwise
 # idle, `control_declines` first, and `Lava.clear_kernel_cache!()` between models
 # so each census describes its own step.
+
+# ── The STATIC half: which matmul weights land on the tile, read straight out of
+# the exported graph JSON. Needs no GPU and no model load.
+#
+# `mm_coopmat_plan` gates on the weight's extents, and a weight almost never
+# reaches its op directly — 1209 of 1211 arrive through a `permute` view — so the
+# chain has to be followed. A `view` buffer carries `"of"`; addmm's weight is its
+# LAST operand.
+
+"""Follow `of` links until a non-view buffer; `nothing` if the chain breaks."""
+function resolveview(buffers::Dict, id; maxdepth::Int = 12)
+    b = get(buffers, id, nothing)
+    depth = 0
+    while b !== nothing && get(b, "kind", "") == "view" && depth < maxdepth
+        parent = get(b, "of", nothing)
+        parent === nothing && break
+        b = get(buffers, parent, nothing)
+        depth += 1
+    end
+    b
+end
+
+"""
+    census_graph_matmuls(graph; tile = 16) -> Vector
+
+Weights of `addmm`/`mm` ops in one parsed graph whose extents do not land on
+`tile` — i.e. what `mm_coopmat_plan` will refuse with `Decline(:extent)`.
+
+THE SELF-CHECK THIS NEEDS. Three earlier versions of this census were wrong in
+three different ways (scoped to one model's directory layout; read the
+ACTIVATION instead of the weight, so 1500 — a sequence length `gemm_padn`
+already pads — looked like 667 declines; could not see through views). Each
+produced a confident, well-formatted, wrong table.
+
+What separates a right answer from those: **Whisper's ENCODER must come back
+empty.** Its `addmm` measures ~27 TF/s in situ, so it is demonstrably on the
+tensor-core path, and any census that reports encoder declines is misreading the
+graph. Run `whisper.json` through this before believing it on anything else.
+"""
+function census_graph_matmuls(graph::Dict; tile::Int = 16)
+    buffers = Dict(b["id"] => b for b in get(graph, "buffers", []))
+    out = Tuple{String,Vector{Int}}[]
+    for o in get(graph, "ops", [])
+        a = get(o, "aten", "")
+        (occursin("addmm", a) || a == "mm.default") || continue
+        ins = get(o, "in", String[])
+        isempty(ins) && continue
+        root = resolveview(buffers, last(ins))
+        root === nothing && continue
+        get(root, "kind", "") == "weight" || continue
+        shp = get(root, "shape", nothing)
+        (shp isa Vector && all(x -> x isa Integer, shp)) || continue
+        any(d -> d % tile != 0, shp) && push!(out, (get(o, "id", "?"), Vector{Int}(shp)))
+    end
+    out
+end
+
+# ── MEASURED 2026-08-07 across every exported graph: 820 weights resolved, 12
+# with a ragged extent, and whisper.json (the encoder) EMPTY as required.
+#
+#     whisperdec    x3   (51866, 1280)    vocabulary — 51866 % 16 = 10
+#     kokorovoc     x4   ( 2180,  128)
+#     kokorovoc     x1   ( 1028,  128)
+#     kokorotext    x1   (   50,  512)
+#     sam2_decoder  x2   (    2,  128)    tiny head, not worth padding
+#     sam2_decoder  x1   (    4,  256)
+#
+# The decoder's logits projection is the interesting one: padding 51866 -> 51872
+# is SIX columns, +0.01%, against a measured 6.43x penalty for being off the
+# tile. Size it in situ before fixing — the decoder is dispatch-bound and this
+# may not be where its time goes.
