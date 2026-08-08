@@ -161,14 +161,34 @@ single store rounds.
     return S(x < zero(x) ? -y : y)
 end
 
-for (name, f) in (("relu.default", :relu_), ("sigmoid.default", :sigmoid_),
-                  ("tanh.default", :tanh), ("log.default", :log),
-                  ("exp.default", :exp), ("sqrt.default", :sqrt),
-                  ("rsqrt.default", :(x -> inv(sqrt(x)))), ("neg.default", :(-)),
-                  ("abs.default", :abs), ("reciprocal.default", :inv),
-                  ("bitwise_not.default", :(!)), ("logical_not.default", :(!)),
-                  ("sin.default", :sin), ("cos.default", :cos),
-                  ("erf.default", :erf), ("floor.default", :floor))
+"""`rsqrt` as a named function, not `x -> inv(sqrt(x))`.
+
+An anonymous function gets a fresh type per definition site, so the one in this
+table and the one a fusion pass would build are different types naming the same
+arithmetic — two kernels, two frozen entries, for one operation. Named once, they
+are the same singleton everywhere."""
+rsqrt_(x) = inv(sqrt(x))
+
+"""
+Every ATen op that is exactly one function of one operand, and which function.
+
+One table, read twice: `runop!` generates a method per entry below, and
+[`fusedfunc`](@ref) reads the same entry to put that function into a `FusedOp`.
+They were separate lists for about an hour, which is how long it took to notice
+that a fusion emitting `x -> inv(sqrt(x))` would not be the `rsqrt.default`
+anybody had tested.
+"""
+const UNARY_FUSED = Dict{String,Any}(
+    "relu.default" => relu_, "sigmoid.default" => sigmoid_,
+    "tanh.default" => tanh, "log.default" => log,
+    "exp.default" => exp, "sqrt.default" => sqrt,
+    "rsqrt.default" => rsqrt_, "neg.default" => -,
+    "abs.default" => abs, "reciprocal.default" => inv,
+    "bitwise_not.default" => !, "logical_not.default" => !,
+    "sin.default" => sin, "cos.default" => cos,
+    "erf.default" => erf, "floor.default" => floor)
+
+for (name, f) in UNARY_FUSED
     # Writes into the op's planned slab slot instead of returning a fresh array;
     # `opdest` falls back to allocating when the buffer was not planned.
     @eval function runop!(ctx::Ctx, op::Op, ::Val{Symbol($name)})
@@ -394,13 +414,30 @@ function reduced(a, d, keep)
     dropdims(a; dims=Tuple(d))
 end
 
+"""
+The map step `foldpremap` folded into this reduction, or `nothing`.
+
+`sum(f, a; dims)` is `mapreduce(f, +, a; dims)`, so the whole of premapping is
+passing `f` one level down — no new kernel, and the elementwise pass that would
+have materialised `f.(a)` disappears.
+
+Behind a barrier, and for the same reason `addmm_epi!` is: the `FusedOp` comes
+out of a `Dict{String,Any}`, so without one the *per-element* call inside the
+reduction would be a dynamic dispatch. One dispatch per op, none per element.
+"""
+premap(op::Op) = get(op.attrs, "premap", nothing)
+@inline premapsum(a, f, d) = sum(f, a; dims = d)
+@inline premapprod(a, f, d) = prod(f, a; dims = d)
+
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("sum.dim_IntList")}) =
-    (a = lhs(ctx, op); d = torchdims(op, ndims(a)); reduced(sum(a; dims=Tuple(d)), d, keepdim(op)))
+    (a = lhs(ctx, op); d = torchdims(op, ndims(a)); f = premap(op);
+     reduced(f === nothing ? sum(a; dims=Tuple(d)) : premapsum(a, f, Tuple(d)), d, keepdim(op)))
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("mean.dim")}) =
-    (a = lhs(ctx, op); d = torchdims(op, ndims(a)); reduced(sum(a; dims=Tuple(d)) ./ prod(size(a, i) for i in d), d, keepdim(op)))
+    (a = lhs(ctx, op); d = torchdims(op, ndims(a)); f = premap(op);
+     reduced((f === nothing ? sum(a; dims=Tuple(d)) : premapsum(a, f, Tuple(d))) ./ prod(size(a, i) for i in d), d, keepdim(op)))
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("prod.dim_int")}) =
-    (a = lhs(ctx, op); d = [jdim(Int(op.attrs["arg1"]), ndims(a))];
-     reduced(prod(a; dims=Tuple(d)), d, keepdim(op)))
+    (a = lhs(ctx, op); d = [jdim(Int(op.attrs["arg1"]), ndims(a))]; f = premap(op);
+     reduced(f === nothing ? prod(a; dims=Tuple(d)) : premapprod(a, f, Tuple(d)), d, keepdim(op)))
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("any.dim")}) =
     (a = lhs(ctx, op); d = [jdim(Int(op.attrs["arg1"]), ndims(a))];
      reduced(any(a; dims=Tuple(d)), d, keepdim(op)))
@@ -1294,9 +1331,21 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("addmm.default")})
     # `act` is set by `foldgelu`, which deleted the activation op and aliased its
     # buffer onto this one. It is applied inside the GEMM's store, so the fused
     # form reads and writes the result once instead of three times.
-    matmul!(ctx, out, b, a, bias; epi=actfn(Symbol(get(op.attrs, "act", "none"))))
+    #
+    # `epilogue` is the general form of the same thing, set by `foldepilogue`: any
+    # unary elementwise expression, as a `FusedOp`. Through a barrier because it
+    # comes out of a `Dict{String,Any}`, and `matmul!` has to specialise on the
+    # concrete callable or the GEMM's store would dispatch per element.
+    epi = get(op.attrs, "epilogue", nothing)
+    epi === nothing ?
+        matmul!(ctx, out, b, a, bias; epi = actfn(Symbol(get(op.attrs, "act", "none")))) :
+        addmm_epi!(ctx, out, b, a, bias, epi)
     out
 end
+
+"""The barrier for a `FusedOp` epilogue: one dynamic dispatch per op, none per
+element."""
+@inline addmm_epi!(ctx::Ctx, out, b, a, bias, epi) = matmul!(ctx, out, b, a, bias; epi)
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("mm.default")})
     a, b = lhs(ctx, op), value(ctx, op.ins[2])

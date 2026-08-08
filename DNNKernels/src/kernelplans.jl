@@ -14,7 +14,7 @@ each of which is included before at least one of the files that would otherwise
 own its plan. The *constructors* stay with their kernels, where the measurements
 that justify each field are.
 
-Each is built on a live `Lava.DeviceCaps` and holds nothing cached at module scope
+Each is built on a live `M.DeviceCaps` and holds nothing cached at module scope
 (`GUARDRAILS.md` §8), so a plan is per call and per device by construction.
 """
 

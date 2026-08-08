@@ -47,7 +47,7 @@ stem (`7x7x3`), the 1x1 layers with a concatenated scalar channel (`Cin` 17,
 enough, which `conv_coopmat_plan`'s `crspad` decides. `Cout` still is — padding it would
 widen the *output*, not just the reduction.
 """
-function conv_coopmat_plan(dev::Lava.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
+function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
                            im2colcap::Int = im2colbudget(x))
     # The operands have to be *on the Lava device*, not merely of a type
     # cooperative matrices could hold: `coopmat_gemm_available` asks the Vulkan

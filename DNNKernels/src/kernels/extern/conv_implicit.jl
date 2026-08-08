@@ -65,7 +65,7 @@ than it is; otherwise fall back to 64x32.
 
 `cores` is the shader-core count — 48 on the RTX 4000 Ada this was tuned against,
 and `ctx.dev.cores` at the call site. ggml uses 32 as its placeholder when the
-count cannot be queried, and so does the default here: `Lava.DeviceCaps` reports 0 when
+count cannot be queried, and so does the default here: `M.DeviceCaps` reports 0 when
 the device will not say, and 0 would make every `>= 2cores` test trivially true
 and always pick the widest block.
 """
@@ -327,6 +327,17 @@ function convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation; act
     # split contributes a *partial* sum, so applying `relu` inside the write-back
     # would clamp partial sums independently and silently give the wrong answer.
     # It has to be applied once, after the splits have been summed.
+    #
+    # **`splitk > 1` makes this convolution non-reproducible**, because the order
+    # the atomics land in is not fixed and float addition is not associative.
+    # Measured on `segment`'s `convolution_21` (fp32, 3x3, 512 -> 768, NPQ = 64,
+    # `splitk = 4`): two runs on identical inputs differ by 3.05e-5 on 9% of
+    # elements, which carries to ~5e-7 at the graph's outputs. The same
+    # convolution at NPQ = 4096 takes `splitk = 1` and is bit-reproducible.
+    #
+    # Not a bug — it is what buys the 4-8x — but it is the floor for anything
+    # measured on a graph containing one, and it is the first thing to rule out
+    # when a change appears to move a small-NPQ result by ~1e-7.
     acc = (splitk > 1 && (eltype(out) !== Float32 || act !== :none)) ?
           KernelAbstractions.allocate(backend, Float32, size(out)...) : out
     if splitk > 1

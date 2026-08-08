@@ -166,6 +166,6 @@ end
     @test SAM2Runner.maskatframe(odd, 640, 480) == referencemask(odd, 640, 480)
 end
 
-# The decoder's captured-command-buffer path. It lived in `DNNKernels/test`
-# while `sam2.jl` did; it tests SAM 2's decode and belongs with it.
+# The decoder's baked-plan path. It lived in `DNNKernels/test` while `sam2.jl`
+# did; it tests SAM 2's decode and belongs with it.
 include("test_replay_decode.jl")

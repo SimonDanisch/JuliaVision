@@ -1,27 +1,31 @@
 """
-SAM 2's decode as a captured command buffer, replayed per click.
+SAM 2's decode as a baked Mantle plan, reused per click.
 
-    julia --project=. dev/JuliaVision/DNNKernels/test/test_replay_decode.jl
+    julia --project=. dev/JuliaVision/SAM2Runner/test/runtests.jl
 
 The decoder's work is identical on every click but its *inputs* are not, so this
-is only correct if a replay reads the new bytes out of buffers whose addresses
-never move. Two things make that true and both are under test here: the decoder's
-converted inputs are cached (`SAM2.cacheinputs`), and `prompt` writes each
-click into one persistent pair instead of allocating a fresh one.
+is only correct if the plan reads the new bytes out of buffers whose addresses
+never move. Two things make that true and both are under test here: `encode`
+writes the frame and the dtype-converted features into the plan's own buffers
+in place, and `prompt` writes each click into one persistent pair instead of
+allocating a fresh one.
 
-The failure this guards against is silent. A replay whose buffers had been
+The failure this guards against is silent. A plan whose buffers had been
 reallocated does not crash — it re-runs over whatever now lives at those
 addresses and returns a *plausible* mask, which for a segmentation model is
 indistinguishable from a slightly different click. So the load-bearing test is
 not "the same click replays identically"; it is **a different click through the
-same buffers gives the same answer the unreplayed path gives**.
+same buffers gives the same answer the eager path gives**, where the eager path
+is `DNNKernels.call` on the same graphs with the same inputs.
 
-The masks come back in the captured output buffer, which the next decode
+The masks come back in the plan's output buffer, which the next decode
 overwrites. Every comparison below copies to the host first: materialising two
 decodes and comparing them compares one array with itself.
 
-Measured here: record+run 4.40 ms, replay 3.12 ms, bit-exact, 48% -> 67% of
-PyTorch's decoder.
+This file tested the raw `Lava.CapturedSequence` replay until the baked Mantle
+plans replaced it (`SAM2.plans`; see `sam2.jl` for why a plan cannot express the
+GC fault the capture had). The properties under test are unchanged; the
+internals they poke are not.
 """
 
 using Test, DNNKernels, KernelAbstractions, Lava, SAM2Runner
@@ -37,53 +41,56 @@ const DK = DNNKernels
 # a model tarball) and that split is the runner's business, not this file's.
 const HAVE_SAM2 = SAM2Runner.ready()
 
-@testset "SAM 2 decode capture/replay" begin
+# The reference for "is the plan stale": the same graphs run eagerly, on the
+# same inputs. `p.feat` holds the encoder outputs already converted to the
+# decoder's dtypes — exactly what `decode` itself stages.
+function eager_decode(sam, pt, lb)
+    p = SAM2Runner.plansfor(sam)
+    DK.call(sam.model, "sam2_decoder", p.feat[1], p.feat[2], p.feat[3], pt, lb;
+            dims = sam.dims, clampattn = true)
+end
+
+@testset "SAM 2 decode through a baked plan" begin
     back = LavaBackend()
     refs = SAM2Runner.sam2refs()
     sam = SAM2Runner.sam2model(; backend = back, res = 1024)
     feats = encode(sam, toback(back, refs["sam2_encoder/in0"]))
     KA.synchronize(back)
 
-    # `decode` called with tensors that did not come from `prompt` must not
-    # replay: nothing keeps those alive or writes them in place.
-    @testset "only prompt-owned buffers are replayable" begin
-        loose = toback(back, zeros(Float32, 2, sam.maxpoints, 1))
-        loosel = toback(back, fill(Int32(1), sam.maxpoints, 1))
-        @test !SAM2Runner.replayable(sam, feats, loose, loosel)
-        sam.replay[] = nothing
-        decode(sam, feats, loose, loosel)
-        KA.synchronize(back)
-        @test sam.replay[] === nothing
+    @testset "inputs that are not the plan's are staged by copy" begin
+        # `decode` with tensors that did not come from `prompt` copies them into
+        # the plan-owned pair, so a foreign click and the same click through
+        # `prompt` agree.
+        pt, lb = prompt(sam, [(0.5, 0.5), (0.25, 0.75)], [true, false])
+        m1, _ = decode(sam, feats, pt, lb); KA.synchronize(back)
+        m1 = copy(Array(m1))
+        loose = toback(back, Array(pt))
+        loosel = toback(back, Array(lb))
+        @test loose !== pt && loosel !== lb
+        m2, _ = decode(sam, feats, loose, loosel); KA.synchronize(back)
+        @test copy(Array(m2)) == m1
     end
 
     pt, lb = prompt(sam, [(0.5, 0.5)], [true])
-    @test SAM2Runner.replayable(sam, feats, pt, lb)
 
-    @testset "the first click captures, the second replays" begin
-        sam.replay[] = nothing
+    @testset "the plan is built once and reused" begin
+        plans = sam.plans[]
+        @test plans !== nothing
         m, _ = decode(sam, feats, pt, lb); KA.synchronize(back)
         first = copy(Array(m))
-        @test sam.replay[] !== nothing
-        seq = sam.replay[][4]
         m, _ = decode(sam, feats, pt, lb); KA.synchronize(back)
         @test copy(Array(m)) == first
-        @test sam.replay[][4] === seq        # replayed, not re-captured
+        @test sam.plans[] === plans            # replayed, not rebuilt
     end
 
     @testset "a different click through the same buffers is not stale" begin
-        # `prompt` returns the same two arrays, so a replay that ignored their
+        # `prompt` returns the same two arrays, so a plan that ignored their
         # contents would return the mask above and look entirely reasonable.
         pt2, lb2 = prompt(sam, [(0.25, 0.25)], [true])
         @test pt2 === pt && lb2 === lb
         replayed, _ = decode(sam, feats, pt2, lb2); KA.synchronize(back)
         replayed = copy(Array(replayed))
-
-        # A keyword on the call, not a global flipped around it: one model can
-        # serve both halves of the A/B, and a failure between the two lines
-        # cannot leave replay switched off for every test after.
-        sam.replay[] = nothing
-        recorded, _ = decode(sam, feats, pt2, lb2; replay = false); KA.synchronize(back)
-        recorded = copy(Array(recorded))
+        recorded = copy(Array(eager_decode(sam, pt2, lb2)[1]))
 
         @test replayed == recorded
         # ...and it did move, so the equality above is not two copies of one mask.
@@ -120,51 +127,39 @@ const HAVE_SAM2 = SAM2Runner.ready()
         @test all(isfinite, Array(m))
     end
 
-    @testset "a new embedding keeps the capture, and is not stale" begin
-        # `encode` writes into the same slab buffers and returns the same tuple,
-        # so the capture's addresses still hold the right data and the sequence
-        # is deliberately NOT rebuilt. That is only safe if the replay reads the
-        # new features, which is the assertion below — a stale replay would hand
-        # back frame A's mask, and for a segmentation model that is not visibly
-        # wrong. Checked against the recorded path rather than against a guess.
+    @testset "a new embedding reaches the same plan" begin
+        # `encode` writes the frame and the converted features into the plan's
+        # buffers in place, so the plan's addresses still hold the right data
+        # and it is NOT rebuilt. That is only safe if the next decode reads the
+        # new features — a stale plan would hand back frame A's mask, and for a
+        # segmentation model that is not visibly wrong.
         prompt(sam, [(0.5, 0.5)], [true])
-        seq = (decode(sam, feats, pt, lb); KA.synchronize(back); sam.replay[][4])
         maskA = copy(Array(decode(sam, feats, pt, lb)[1])); KA.synchronize(back)
+        plans = sam.plans[]
 
         feats2 = encode(sam, toback(back, refs["sam2_encoder/in0"] .* 0.5f0))
         KA.synchronize(back)
-        @test feats2 === feats                 # in place, hence the paragraph above
         replayed = copy(Array(decode(sam, feats2, pt, lb)[1])); KA.synchronize(back)
-        @test sam.replay[][4] === seq          # served, not re-recorded
+        @test sam.plans[] === plans            # reused, not rebuilt
 
-        sam.replay[] = nothing
-        recorded = copy(Array(decode(sam, feats2, pt, lb; replay = false)[1]))
-        KA.synchronize(back)
-
-        @test replayed == recorded
         @test replayed != maskA                # the new frame did reach the mask
+        @test replayed == copy(Array(eager_decode(sam, pt, lb)[1]))
     end
 
-    @testset "a converted decoder input is refreshed per frame" begin
-        # The shipped autocast decoder declares the dtypes the encoder already
-        # produces, so `args === feats` and there is nothing to go stale. The
-        # fp32 decoder converts, and then `cacheval` holds a *copy* — which the
-        # encoder writing in place would leave holding the previous frame. This
-        # pins the invalidation regardless of which export is loaded.
-        conv = [i for i in 1:3
-                if eltype(feats[i]) !== sam.model.graphs["sam2_decoder"].buffers[
-                       sam.model.graphs["sam2_decoder"].inputs[i]].dtype]
-        decode(sam, feats, pt, lb); KA.synchronize(back)
-        before = sam.cacheval[]
-        encode(sam, toback(back, refs["sam2_encoder/in0"]))
-        @test sam.cachekey[] === nothing       # encode invalidates; `===` cannot
-        decode(sam, feats, pt, lb); KA.synchronize(back)
-        for i in conv
-            # Refreshed in place: same buffer, new contents. A reallocation here
-            # would retire the capture, which is correct but costs the win.
-            @test sam.cacheval[][i] === before[i]
-            @test Array(sam.cacheval[][i]) ≈ Array(feats[i])
+    @testset "encode refreshes the decoder's feature buffers in place" begin
+        # The two graphs are exported under different precision policies, so
+        # three encoder outputs need converting before the decoder can read
+        # them. The conversion is per *frame* and lands in the plan's `feat`
+        # buffers: same addresses, new contents. A reallocation here would not
+        # be wrong — `decode` stages by copy — it would just cost the win.
+        p = sam.plans[]
+        before = p.feat
+        feats3 = encode(sam, toback(back, refs["sam2_encoder/in0"]))
+        KA.synchronize(back)
+        @test sam.plans[] === p
+        for i in 1:3
+            @test p.feat[i] === before[i]
+            @test Array(p.feat[i]) ≈ Array(feats3[i])
         end
-        isempty(conv) && @test sam.cacheval[] == feats[1:3]
     end
 end

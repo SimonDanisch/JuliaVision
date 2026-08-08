@@ -85,12 +85,25 @@ sits beside `sam2-large`. `tools/make_artifacts.jl` deliberately keeps reference
 tensors out of a model's own tarball, because someone matting a clip should not
 download the test fixtures.
 
-Not bound yet, and that is the point of this function existing. The parity test
-used to reach these through a walk up the filesystem for a `gen/` tree, which
-meant it ran on the machine that generated them and silently skipped everywhere
-else — so the one check that catches a kernel which is fast and subtly wrong was
-invisible on every machine that could have disagreed. Throwing here names the
-missing artifact instead.
+**Bound, and downloadable** — `matanyone-refs` in this package's
+`Artifacts.toml`, from the `assets-v1` release. This paragraph used to say "not
+bound yet"; it was, and the stale sentence cost an afternoon of treating the
+parity gate as unrunnable.
+
+The parity test used to reach these through a walk up the filesystem for a
+`gen/` tree, which meant it ran on the machine that generated them and silently
+skipped everywhere else — so the one check that catches a kernel which is fast
+and subtly wrong was invisible on every machine that could have disagreed.
+Throwing here names the missing artifact instead.
+
+If `matanyoneprecisions()` comes back empty, the artifact is bound but not yet
+*installed*: the download is one call away and it is worth retrying, because a
+single transient failure looks exactly like an unbound artifact from the
+outside.
+
+    using Pkg
+    Pkg.Artifacts.ensure_artifact_installed("matanyone-refs",
+        joinpath(pkgdir(MatAnyoneRunner), "Artifacts.toml"))
 """
 function refsdir()
     toml = joinpath(dirname(@__DIR__), "Artifacts.toml")

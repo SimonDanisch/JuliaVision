@@ -11,10 +11,13 @@ graphs whose answers are known.
 Error floor is ~1e-6, which is why this is worth guarding: it catches a wrong
 kernel that a shape check and a smoke test both wave through.
 
-**It has been silently skipping.** The artifacts refactor pointed it at
-`matanyone-refs`, which is bound in no `Artifacts.toml` in this repository, so
-`matanyoneprecisions()` returned empty and the testset went from 61 assertions
-to 1 — still green. Bind it with:
+**It was silently skipping for a while.** The artifacts refactor pointed it at
+`matanyone-refs`, which is bound in `MatAnyoneRunner/Artifacts.toml` but was
+not *installed*, and a first download attempt failed transiently —
+indistinguishable from an unbound artifact at the call site, because
+`matanyoneprecisions()` returns empty for both. The testset went from 61
+assertions to 1 and stayed green. It now runs the full gate; if the refs ever
+go missing again, regenerate and re-bind with:
 
     uv run tools/dump_refs.py --precision autocast --max-size 128
     uv run tools/dump_refs.py --precision fp32     --max-size 128

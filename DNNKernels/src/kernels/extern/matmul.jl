@@ -169,7 +169,7 @@ difference is a factor of several: Whisper's 1500 tokens round to 1504, which no
 tiling's 64- or 128-wide block divides, so every one of its 160 matmuls ran on
 the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
 """
-function mm_coopmat_plan(dev::Lava.DeviceCaps, out, A, B)
+function mm_coopmat_plan(dev::M.DeviceCaps, out, A, B)
     A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
         return Decline(:operands)
     size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)

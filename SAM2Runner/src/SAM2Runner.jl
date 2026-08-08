@@ -24,6 +24,10 @@ does not detect that for you — by design; see `Lava/src/runtime/frozen_cache.j
 module SAM2Runner
 
 using Lava, DNNKernels, KernelAbstractions, ColorTypes
+# The graphs run as Mantle plans — see `plansfor`. `import`, not `using`:
+# `Mantle.run!` and `Mantle.Buffer` collide with names here and in Base.
+import Mantle
+const M = Mantle
 using ColorTypes: RGB, red, green, blue
 # Through ColorTypes rather than as a direct dependency: the workload needs the
 # editor's exact frame element type and nothing else from FixedPointNumbers.
@@ -76,13 +80,28 @@ A caller that just wants to segment a picture never fetches these.
 refsdir() = @artifact_str("sam2-large-refs")
 
 """
-    sam2model(; backend, dir, res) -> SAM2
+    sam2model(; backend, dir, res, kw...) -> SAM2
 
 Load the model. Separate from [`runsam2`](@ref) so the workload can build it in
 `@setup_workload`, where the loading is *not* what is being cached.
+
+Anything else `SAM2` accepts is forwarded — `cacheinputs`, `segmenttie`. Those
+are policy on the model, and a caller building through this convenience
+constructor could not reach them at all; `SAM2` is immutable, so it could not set
+them afterwards either. (`cacheinputs` is inert, like `replaydecode`: the
+conversion it gated moved into `encode`.)
+
+`replaydecode` is still accepted and is now inert. It used to switch off a raw
+`Lava.capture` of the decoder, whose buffers a garbage collection between two
+clicks could free underneath it — and switching it off was the documented way
+around that. It was also, unnoticed, the reason this package's own
+`@setup_workload` lost the device on every fresh precompile and therefore froze
+nothing at all. The decoder is a baked Mantle plan now; a plan holds references
+to everything it names, so there is no longer a fault to work around.
 """
-function sam2model(; backend = LavaBackend(), dir::AbstractString = assetdir(), res::Int = 1024)
-    return SAM2(dir, joinpath(dir, "weights.safetensors"); backend, res)
+function sam2model(; backend = LavaBackend(), dir::AbstractString = assetdir(),
+                     res::Int = 1024, kw...)
+    return SAM2(dir, joinpath(dir, "weights.safetensors"); backend, res, kw...)
 end
 
 # ── What callers outside this package may ask for ────────────────────────────
@@ -428,6 +447,15 @@ end
 # Guarded on the assets and on a working device: precompilation must not fail on
 # a machine without either, it should just produce a package with nothing cached.
 # Anything thrown here would otherwise break `using SAM2Runner` for everyone.
+# Measured, so that nobody has to guess whether this block earns its 100 s of
+# precompile time. First `runsam2` on a cold process, instances still needing
+# inference:
+#
+#     without this workload   67 545 instances   228.8 s
+#     with it                  6 116 instances    52.3 s
+#
+# 91% of the instances and 77% of the inference, gone. What remains is the tail —
+# call shapes this block does not reach, not a failure of the mechanism.
 @setup_workload begin
     dir = assetdir()
     ready = isdir(dir) && isfile(joinpath(dir, "weights.safetensors")) &&
@@ -435,9 +463,7 @@ end
     if ready
         try
             backend = LavaBackend()
-            model = sam2model(; backend, dir)
-            res = model.res
-            image = toback(backend, zeros(Float32, res, res, 3, 1))
+            res = 1024
 
             # The frame type the editor actually hands a segmenter, and the
             # point vector it actually builds. Small on purpose — the shape does
@@ -446,11 +472,35 @@ end
             points = [(0.5, 0.5, true), (0.25, 0.75, false)]
 
             @compile_workload KERNELS_VERSION begin
+                # Building the model is INSIDE the recording, and that is the
+                # point rather than an accident. Loading runs the graph's
+                # constant folding on the device — `arange`, `cumsum`, the
+                # `sin`/`cos` positional encodings, `repeatouter` — which is 46
+                # kernels. `frozen_store` only writes while recording, so
+                # building the model outside this block compiled all 46 in every
+                # process that ever loaded SAM 2 and stored none of them. That
+                # was 37 s of every cold start, and it read as "loading weights
+                # is slow" because nothing attributed it.
+                #
+                # This used to sit outside, with a comment saying the loading is
+                # not what is being cached. The methods are not; the kernels are.
+                model = sam2model(; backend, dir)
+                image = toback(backend, zeros(Float32, res, res, 3, 1))
                 mask, score = runsam2(model, image)
                 # Force the results across the host boundary: the download path
                 # has kernels and specialisations of its own, and it is on every
                 # real call.
                 Array(mask)
+                # The four-argument form, which is what somebody with a picture
+                # and a click actually calls, and which the two-argument one does
+                # NOT reach: its centre prompt is built without going through
+                # `prompt`'s point encoding. Leaving it out left 46 kernels
+                # missing from the frozen set — `arange_body`, `cumsum_body`,
+                # `repeatouter`, `safetrunc` and the scalar broadcasts around
+                # them — and they were recompiled in every process that ever ran
+                # this package, because a miss outside a recording is not stored.
+                m2, _ = runsam2(model, image, [(0.5, 0.5), (0.25, 0.75)], [true, false])
+                Array(m2)
                 # And the path the EDITOR takes, which is a different one: the
                 # closure `sam2segmenter` returns specialises on the frame type,
                 # and `runsam2` above never reaches it. Leaving it out was worth

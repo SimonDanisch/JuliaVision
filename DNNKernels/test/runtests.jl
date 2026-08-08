@@ -37,9 +37,12 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 # A runner owns its graphs and weights and tests them; what stays here are unit
 # tests of DNNKernels' own passes.
 #
-# It had also been silently skipping: pointed at the `matanyone-refs` artifact,
-# which is bound in no `Artifacts.toml` in this repository, it went from 61
-# assertions to 1 and stayed green. See that file for how to bind it.
+# It had also been silently skipping, and the diagnosis in this comment was
+# wrong: `matanyone-refs` IS bound, in `MatAnyoneRunner/Artifacts.toml`, with a
+# download URL. It was bound but not *installed*, and one transient download
+# failure is indistinguishable from an unbound artifact at the call site — so it
+# read as "no fixtures" and went from 61 assertions to 1, still green.
+# `ensure_artifact_installed` succeeds on retry; the gate then runs and passes.
 
 # Host-only, so it belongs in stage 1 with the rest of this file: what the
 # static slab may contain, and that nothing overlaps inside it.
@@ -59,3 +62,7 @@ include(joinpath(@__DIR__, "test_index_tensor.jl"))
 # `bmm` reaches the same capability dispatch a 2-D matmul does. It did not, and
 # that one line was 79.6% of Depth Anything's forward pass.
 include(joinpath(@__DIR__, "test_batchedmatmul.jl"))
+# Elementwise fusion as a graph rewrite, and the `FusedOp` it emits. Asserts on
+# the numbers rather than on op counts: the failure this pass shipped first was a
+# binary op handed one argument, which runs and returns the wrong answer.
+include(joinpath(@__DIR__, "test_fusepass.jl"))

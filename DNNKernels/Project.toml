@@ -13,6 +13,7 @@ JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 
 [compat]
 julia = "1.10"

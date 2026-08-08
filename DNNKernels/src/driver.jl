@@ -119,7 +119,15 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
                backend=KernelAbstractions.CPU(), memevery=5, memframes=5, topk=30,
                names = ["encode_image", "transform_key", "encode_mask_deep",
                         "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
-                        "segment", "readout_query"])
+                        "segment", "readout_query"],
+               # Off is how the fusion passes get checked: build the model twice
+               # and compare the numbers. Every other pass here is verified
+               # against an invariant or a PyTorch reference, but a fusion is
+               # verified against *the same model unfused*, and there has to be a
+               # way to ask for that. It is also the switch to reach for first if
+               # a model ever comes out wrong — see `2026-08-08-elementwise-fusion.md`
+               # for why a bad fusion looks like a precision bug.
+               fuse::Bool = true)
     graphs = Dict(n => loadgraph(joinpath(graphdir, "$n.json")) for n in names)
     # Host-side graph preparation, in order. Folding runs *before* the casts are
     # hoisted so it sees the fp32 master weights through `weightsource` and
@@ -140,6 +148,11 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     # this one only ever looks at computed values and there is no point offering
     # it buffers the passes above are about to turn into weights.
     graphs, noutcast = foldoutcasts(graphs)
+    # And the other direction: a cast that *widens* a computed value in front of
+    # a reduction whose accumulator is already the wide type. After
+    # `foldoutcasts`, because narrowing a producer's result can turn a cast that
+    # was a no-op into a widening one this pass can then remove.
+    graphs, nincast = foldincasts(graphs)
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes
@@ -162,7 +175,26 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
         weights = Dict{String,Any}(k => v for (k, v) in weights if k in live2)
         ndead += nsubdead
     end
-    @debug "DNNKernels: folded $nfold batch-norms, $nact relus and $noutcast output casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, dropped $ndead dead ops and $dropped orphaned weights"
+    # Last, and that ordering is the whole reason it finds anything. Every pass
+    # above changes what is adjacent to what: `hoistcasts` and friends take
+    # SAM 2's `_to_copy` count from 603 to 6, and those casts are what the
+    # elementwise chains were mostly made of. Fusing first would fuse casts that
+    # were about to be deleted, and leave the chains they were sitting between
+    # unfused because a dead op stood in the way.
+    nfused, nepi, npre = 0, 0, 0
+    if fuse
+        graphs, nfused = fuseops(graphs)
+        # After `fuseops`, so a chain it collapsed can be folded into the GEMM
+        # whole rather than only its last link.
+        graphs, nepi = foldepilogue(graphs)
+        # And the mirror image: into the reduction that consumes it. After
+        # `foldepilogue` because an op between an `addmm` and a reduction can be
+        # folded either way and only once; the epilogue is the better home, since
+        # the GEMM's store touches those elements whether or not anything is
+        # folded into it, while a reduction's map step is work either way.
+        graphs, npre = foldpremap(graphs)
+    end
+    @debug "DNNKernels: folded $nfold batch-norms, $nact relus, $noutcast output casts and $nincast input casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, fused $nfused elementwise ops, folded $nepi epilogues and $npre premaps, dropped $ndead dead ops and $dropped orphaned weights"
     Model(graphs, weights, backend, memevery, memframes, topk)
 end
 

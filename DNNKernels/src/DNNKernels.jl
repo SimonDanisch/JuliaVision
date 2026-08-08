@@ -13,6 +13,13 @@ module DNNKernels
 using JSON3
 using KernelAbstractions
 using Lava
+# The API this package builds GPU execution with — placement, lifetimes,
+# barriers, recording and replay. Not `using`: `Mantle.run!`, `Mantle.Buffer` and
+# `Mantle.storage` all collide with names here or in Base, and `M.` at the use
+# site says which one is meant. See `mantle.jl` for why this is a dependency and
+# not an extension.
+import Mantle
+const M = Mantle
 using LinearAlgebra: mul!, transpose
 using Random
 import AcceleratedKernels as AK
@@ -73,6 +80,7 @@ const KERNELS_VERSION = "6"
 include("assets.jl")
 include("safetensors.jl")
 include("graph.jl")
+include("fusedop.jl")
 include("context.jl")
 include("kernelplans.jl")
 include("workspace.jl")
@@ -95,9 +103,12 @@ include("hoistcasts.jl")
 include("foldbn.jl")
 include("foldrelu.jl")
 include("foldoutcasts.jl")
+include("foldincasts.jl")
 include("dce.jl")
 include("fuse.jl")
+include("fusepass.jl")
 include("driver.jl")
+include("mantle.jl")
 include("wan.jl")
 # `sam2.jl` moved to SAM2Runner. It arrived here in `7273481` "Import LavaDNN as
 # DNNKernels" — the rename described half the package and moved nothing — and it

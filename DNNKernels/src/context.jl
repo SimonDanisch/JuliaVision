@@ -9,7 +9,7 @@ defined. `graph.jl` is the only thing above this file.
 """
 
 """
-    caps(backend) -> Lava.DeviceCaps
+    caps(backend) -> M.DeviceCaps
 
 What the kernels need to know about the device they are about to run on,
 answered **once per context**, at construction, from a live device.
@@ -29,7 +29,7 @@ a device, so a second device must get its own answers.
 
 This was a `DNNKernels.Device` struct assembled here out of eight separate Lava
 lookups. Every one of them was a question about the device, so the device is what
-answers them: `Lava.DeviceCaps` is now the record, and the version that lived
+answers them: `M.DeviceCaps` is now the record, and the version that lived
 here was a second copy of it that could drift — and did, holding
 `Lava.WORKGROUP_LIMIT[]`, a module-level `Ref(1024)` on Lava's side that claimed
 to be a query and was not.
@@ -52,7 +52,10 @@ was missing took running on a second vendor.
 So the caps read from a pinned backend describe **that** device, and two of them
 can be alive at once.
 """
-caps(b::Lava.LavaBackend) = Lava.caps(b)
+# Through Mantle, not `Lava.caps` directly: the backend's extension converts its
+# own record into the portable one, so this stays right when a second backend
+# exists and wrong-by-construction if it did the conversion here.
+caps(b::Lava.LavaBackend) = M.caps(b)
 
 """
 Device facts for a backend that is not Lava's — the CPU verification path.
@@ -65,7 +68,7 @@ This method is DNNKernels' and not Lava's on purpose. Lava answers for devices i
 owns; what a *non*-Vulkan backend should pretend to be is a question about this
 library's verification path, and only this library can answer it.
 """
-caps(::Any) = Lava.DeviceCaps(false, 16, 1, 1, 48 * 1024, 1024, 0, 0)
+caps(::Any) = M.DeviceCaps(false, 16, 1, 1, 48 * 1024, 1024, 0, 0)
 
 """
     NoiseSource
@@ -124,7 +127,7 @@ The one number in a `Ctx`'s device record that Lava does not own. 256 is measure
 — it is a property of these kernels, not of the card — and the clamp is the part
 that is the device's.
 """
-launchgroup(dev::Lava.DeviceCaps) = min(256, dev.workgrouplimit)
+launchgroup(dev::M.DeviceCaps) = min(256, dev.workgrouplimit)
 
 """
 The `VkContext` a backend runs on. Kept for the paths that need the context
@@ -242,7 +245,7 @@ struct Ctx{B,N,S,P,W,L,R}
     graph::Graph
     dims::NamedTuple
     backend::B
-    dev::Lava.DeviceCaps          # what this backend's device can do — see `caps`
+    dev::M.DeviceCaps          # what this backend's device can do — see `caps`
 
     # ── Let an attention whose extents do not divide the tile take the fused
     # cooperative-matrix path anyway, padded and masked.
@@ -254,7 +257,9 @@ struct Ctx{B,N,S,P,W,L,R}
     # would go along at 50% waste and cost **+2.12 ms of encode** for nothing.
     # Measured interleaved in one process on the autocast export, which is the
     # only form that means anything for a 4 ms call on a shared card: decode
-    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75.
+    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75. (On an RTX 4000
+    # Ada; the Radeon 8060S APU runs the same encode in ~270 ms — 2.3x is the
+    # card, not a regression.)
     #
     # This was a `Ref` that `sam2.jl` set around the decode and restored in a
     # `finally`, defended on the grounds that "`flashcm_tiling` reads it six
