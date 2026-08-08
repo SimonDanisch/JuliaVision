@@ -11,6 +11,7 @@ GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 

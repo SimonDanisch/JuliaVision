@@ -13,6 +13,7 @@ module DNNKernels
 using JSON3
 using KernelAbstractions
 using Lava
+import Mantle
 using LinearAlgebra: mul!, transpose
 using Random
 import AcceleratedKernels as AK
