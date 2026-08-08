@@ -67,7 +67,23 @@ fallback. Nothing here is pathological.
 Two things are visible as overhead rather than work:
 
 **`clone.default`, 90 calls for 17.3 ms** — pure copies, costing more than every
-convolution and pooling op combined. Copy elision is worth a look.
+convolution and pooling op combined. **Elision has had its look: the clones are
+an optimisation, not waste.** They materialise a permuted activation (the
+attention head rearrangement, `addmm -> view -> permute -> clone`) so its
+consumers read dense. 45 feed a GEMM, which needs the layout outright; 45 feed
+a residual `add.Tensor`, and there the alternative is reading the permuted nest
+directly — measured at the real size (18.9 MB fp16, perm `(1,2,4,3,5,6)`):
+
+```
+clone (permutedims!) + dense add   0.807 ms
+add reading the nest directly      0.934 ms
+```
+
+which is what `execute.jl`'s `contiguous` docstring already measured at a
+smaller size (0.053 vs 0.103). Removing the clones would make the encoder
+*slower*. The only remaining win is a GEMM that stores in the permuted layout
+directly, and the store scatter that implies (uncoalesced fp16 writes against a
+head/token interleave) is as likely to lose the 0.5 ms as save it.
 
 **`add.Tensor`, 98 calls for 18.6 ms** — the residual streams. These are exactly
 the ops `fuseops` cannot touch, because each feeds both a norm and the next skip

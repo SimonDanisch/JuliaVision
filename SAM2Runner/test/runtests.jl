@@ -24,6 +24,8 @@ is one interpolated string per dispatch on a 0.6 s run.
 """
 
 using Test, SAM2Runner, Random
+using DNNKernels: verifygraph
+import Lava
 
 const SUBPROCESS = """
 using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
@@ -164,6 +166,45 @@ end
     # Non-square logits, since nothing in the signature promises 256x256.
     odd = Float32.(randn(37, 91))
     @test SAM2Runner.maskatframe(odd, 640, 480) == referencemask(odd, 640, 480)
+end
+
+# The layer-by-layer gate against PyTorch, on the graphs as they SHIP — after
+# every rewrite pass, on the GPU. `tools/verify_sam2.jl` covers the raw export
+# on the CPU; this one is what catches a rewrite pass or a kernel drifting.
+# The decoder is fully green. The encoder carries one known output-level
+# mismatch, pinned so its moving in EITHER direction is loud.
+@testset "graphs vs PyTorch, layer by layer" begin
+    if !SAM2Runner.ready()
+        @info "no SAM 2 assets; the layer-by-layer gate is SKIPPED, not passing"
+        @test_skip SAM2Runner.ready()
+    else
+        back = Lava.LavaBackend()
+        sam = SAM2Runner.sam2model(; backend = back)
+        refs = SAM2Runner.sam2refs()
+
+        ok, diffs, _ = verifygraph(sam.model.graphs["sam2_decoder"], refs,
+                                   sam.model.weights;
+                                   dims = (res = 1024,), backend = back,
+                                   verbose = false)
+        ok || @info "decoder first mismatch" first(diffs)
+        @test ok
+
+        oke, diffse, _ = verifygraph(sam.model.graphs["sam2_encoder"], refs,
+                                     sam.model.weights;
+                                     dims = (res = 1024,), backend = back,
+                                     verbose = false)
+        # Known, and so far unlocalised: the dump covers the encoder at its six
+        # outputs only, so `add_129` carries the accumulated fp16 difference of
+        # the 543 unchecked ops before it. `runsam2`'s score is unaffected and
+        # the value is identical fused and unfused. Localising it is
+        # `uv run tools/dump_sam2_refs.py --nodes all` — which needs a torch
+        # install this machine does not have. Until then the gate pins the
+        # signature: same node, same magnitude, and a change either way fails.
+        f = first(diffse)
+        @test !oke
+        @test f.id == "add_129"
+        @test 0.2 < f.maxabs < 0.6
+    end
 end
 
 # The decoder's baked-plan path. It lived in `DNNKernels/test` while `sam2.jl`

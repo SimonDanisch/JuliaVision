@@ -373,19 +373,43 @@ This is the gate this whole pass needed, and it is green with fusion on.
 
 ### SAM 2
 
-SAM 2's refs are bound too (1515 entries), so `verifygraph` runs there as well,
-fused against unfused:
+SAM 2's refs are bound too (1515 entries), so `verifygraph` runs there as well.
+Current state, on the rewritten graphs as they ship, GPU backend:
 
 ```
-                 ops        result                first mismatch
-decoder fused    133        1 mismatch            add_8    max|Δ| 0.018786251544952393
-decoder unfused  149        1 mismatch            add_8    max|Δ| 0.018786251544952393
-encoder fused    548        1 mismatch            add_129  max|Δ| 0.36749267578125
-encoder unfused  549        1 mismatch            add_129  max|Δ| 0.36749267578125
+                 ops        result
+decoder fused    133        green — 121/133 checked, worst 0.0398 (fp16 region)
+decoder unfused  149        green — 137/149 checked, same worst
+encoder fused    548        1 known mismatch      add_129  max|Δ| 0.36749267578125
+encoder unfused  549        1 known mismatch      add_129  max|Δ| 0.36749267578125
 ```
 
-**Identical to the last digit.** Both mismatches predate this pass; fusion moves
-neither.
+The decoder was not always green, and getting it there changed `verifygraph`
+rather than the model — the mismatch was real but the *attribution* was wrong,
+four holes stacked on one chain. `add_8` sums `permute_1` and `permute_2`; the
+second carries 0.0188 from `view_9 -> view_7 -> clone_1`, which ends at a
+**constant-folded weight**: torch folded it in fp16, we fold in fp32 (ours is
+the more accurate one), and the gate then failed the fp32 `add_8` for carrying
+an fp16-sized error. The holes:
+
+1. **Folded weights were never compared**, even when the dump names them — the
+   op loop only checks op outputs, so the error entered the graph unattributed.
+2. **Reffed views likewise** — in a rewritten graph a view is buffer metadata,
+   not an op. Behind `add_8` sat `addmm_32`, flagged at rel 1.0 for "creating"
+   13.7 from clean inputs; the actual values matched its ref everywhere they
+   were nonzero.
+3. **An op carrying a folded activation was compared against the wrong node** —
+   the dump's `node/addmm_32` is pre-activation, our stored values are post
+   (`foldepilogue` had folded `relu_2` in), so the GEMM looked like it zeroed
+   the negative half of the vector. The folded-away op survives as an alias
+   view with its own ref; the comparison now repoints to it.
+4. **An unchecked node read as a fresh zero.** Error now propagates through
+   ops the dump does not cover, so the growth gate only fires on error an op
+   *created*.
+
+All four are in `verify.jl`; none touches execution. With them, the decoder is
+green fused and unfused — and the pre-fix table here claimed "identical to the
+last digit" for two mismatches, which was true and useless.
 
 One cautionary measurement: a single `verifygraph` run in an earlier session
 reported `add_129` at max|Δ| **4.72** — 13x this value — on the fused encoder
@@ -396,20 +420,6 @@ encoder's graph and outputs are bit-identical with and without the guard. That
 session had five models resident on a shared-memory APU under GC pressure; the
 reading is recorded here as environment noise, not waved away — if 4.72 ever
 shows up again, it is not this pass.
-
-Worth having diagnosed, since a gate that fails is a gate nobody reads. `add_8`
-sums `permute_1` and `permute_2`; the first matches the reference exactly and
-the second is off by 0.018786252, which passes straight through the addition
-unchanged. Following `view_9 -> view_7 -> clone_1` ends at a **weight** — a
-constant-folded tensor, Float32 for us and Float16 in the reference dump.
-Rounding ours to Float16 does not reproduce theirs, so it is not quantisation of
-our value: torch folded that constant *in* fp16 and we fold it in fp32.
-
-Ours is the more accurate one. It is flagged because `verifygraph` picks its
-tolerance from the checked tensor's dtype — `view_9` itself passes under
-`rtol16 = 3e-2`, and then `add_8`, which is Float32 on both sides, is held to
-`rtol = 1e-3` while carrying an error of fp16 size. An fp32 op fed by an fp16
-constant fails a gate that is right about every tensor it looks at.
 
 The encoder's `add_129` cannot be localised at all, and finding out why is the
 more useful result:
@@ -454,10 +464,10 @@ no `.venv` and torch resolves from a CUDA 12.8 index on an AMD card — so it is
 a deliberate ask rather than something to run unprompted. (An earlier version of
 this section named `tools/dump_refs.py`; that one is MatAnyone's.)
 
-**Neither is caught by CI.** `SAM2Runner/test/runtests.jl` reads the refs but
-never calls `verifygraph`, so the layer-by-layer gate is not wired into any
-suite — which is how two mismatches stay resident. Wiring it in means deciding
-what to do about the two above first, since it would land red.
+**The decoder gate is wired into CI now; the encoder's is pinned.**
+`SAM2Runner/test/runtests.jl` runs `verifygraph` on both rewritten graphs: the
+decoder must pass outright, and the encoder must fail at exactly `add_129` with
+max|Δ| in 0.2..0.6 — so the known mismatch going away is as loud as it growing.
 
 ## Fused graphs through baked Mantle plans
 

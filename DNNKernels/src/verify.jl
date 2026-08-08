@@ -170,17 +170,76 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
         err[id] = 0.0
         half[id] = eltype(inputs[id]) === Float16
     end
+
+    # Constant-folded weights carry errors the op loop below cannot see: the
+    # fold happened at build time, so the buffer has no op and is never
+    # checked — but the reference dump may still name it, and ops downstream
+    # then inherit its error with no attribution (SAM 2's `clone_1`: torch
+    # folded it in fp16, we fold in fp32, and `add_8` two views later was
+    # flagged for the 0.0188 that entered here). Check the ones the refs name,
+    # record rather than flag — the dtype-aware gate in the op loop treats the
+    # inherited error as fp16-tainted, which is what it is.
+    for (id, b) in g.buffers
+        (b.kind === :weight && !isempty(b.key)) || continue
+        k = "$(g.name)/node/$id"
+        haskey(refs, k) || continue
+        w = get(weights, b.key, nothing)
+        w === nothing && continue
+        got, want = tohost(w), refs[k]
+        (size(got) == size(want) && eltype(got) !== Bool && eltype(want) !== Bool) || continue
+        err[id] = maxerr(got, want)
+        half[id] = eltype(want) === Float16 || b.dtype === Float16
+    end
+
+    # Reffed VIEW buffers have the same invisibility: in a rewritten graph a
+    # view is buffer metadata, not an op, so the loop below never compares it —
+    # and a wrong selection (SAM 2's `select_9` picking a mask token) only
+    # surfaces ops later, as a GEMM "creating" rel-1.0 error. Resolve each
+    # reffed view through the same machinery execution uses and record its
+    # error, so attribution starts at the view instead of its consumer.
+    # `resolvable` first: a view left behind by a rewrite pass can have a
+    # parent no op produces any more (its consumers were folded with it) — it
+    # is dead at run time and there is nothing to compare.
+    function resolvable(id)
+        haskey(values, id) && return true
+        b = get(g.buffers, id, nothing)
+        b === nothing && return false
+        b.kind === :view && !isempty(b.of) && return resolvable(b.of)
+        false
+    end
+    vctx = nothing
+    for (id, b) in g.buffers
+        (b.kind === :view && !haskey(values, id)) || continue
+        k = "$(g.name)/node/$id"
+        (haskey(refs, k) && resolvable(b.of)) || continue
+        vctx === nothing && (vctx = Ctx(values, g, dims, backend; ws))
+        got, want = tohost(value(vctx, id)), refs[k]
+        (size(got) == size(want) && eltype(got) !== Bool && eltype(want) !== Bool) || continue
+        err[id] = maxerr(got, want)
+        half[id] = eltype(want) === Float16 || b.dtype === Float16
+    end
     diffs = LayerDiff[]
     ties = Tuple{String,Int,Int}[]
     worst, worstid, checked = 0.0, "", 0
+    producer = Dict(op.out => op for op in g.ops)
 
-    # a view inherits its parent's error; a weight has none
+    # A view inherits its parent's error; a weight has none. An op the reference
+    # dump does not cover carries its inputs' error FORWARD — an unchecked node
+    # is not a fresh zero. Without that walk, an error that legitimately entered
+    # through a checked-and-passed fp16 node (SAM 2's `view_9`, held to rtol16)
+    # reappears at the first unchecked op downstream as if created there, and
+    # the growth gate flags an op that only reported what it was handed.
+    # Memoised into `err`: the graph is a DAG, so the naive walk is exponential.
     function inerr(id)
         haskey(err, id) && return err[id]
         b = get(g.buffers, id, nothing)
         b === nothing && return 0.0
         b.kind === :view && !isempty(b.of) && return inerr(b.of)
-        0.0
+        op = get(producer, id, nothing)
+        op === nothing && return 0.0
+        e = maximum((inerr(x) for x in op.ins); init = 0.0)
+        err[id] = e
+        e
     end
 
     function inhalf(id)
@@ -192,11 +251,41 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
         false
     end
 
+    # Where each view chain ends, for the folded-activation repointing below.
+    viewroot = Dict{String,String}()
+    for (id, b) in g.buffers
+        b.kind === :view || continue
+        rid = b.of
+        while haskey(g.buffers, rid) && g.buffers[rid].kind === :view &&
+              !isempty(g.buffers[rid].of)
+            rid = g.buffers[rid].of
+        end
+        viewroot[id] = rid
+    end
+
     for (i, op) in enumerate(g.ops)
         k = "$(g.name)/node/$(op.out)"
         got = get(values, op.out, nothing)
         got === nothing && continue
         got isa Tuple && (got = got[1]; k = "$(g.name)/node/$(op.out).0")
+        # An op carrying a folded activation stores POST-activation values while
+        # the dump's `node/<op.out>` is pre-activation — comparing those flags a
+        # relu as "the GEMM zeroed half the vector" (SAM 2's `addmm_32`). The
+        # folded-away relu/gelu survives as an alias view with its own ref;
+        # compare against that.
+        if haskey(op.attrs, "act") || haskey(op.attrs, "epilogue")
+            for (id2, b2) in g.buffers
+                # Only `alias.default` views: the folds create exactly one, for
+                # the folded-away op's output. A plain reshape view of the same
+                # root holds PRE-activation values and its ref must not be used.
+                (b2.kind === :view && b2.viewop == "alias.default" &&
+                 get(viewroot, id2, "") == op.out) || continue
+                k2 = "$(g.name)/node/$id2"
+                haskey(refs, k2) || continue
+                k = k2
+                break
+            end
+        end
         haskey(refs, k) || continue
         got = tohost(got)
         want = refs[k]
