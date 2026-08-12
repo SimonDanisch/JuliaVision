@@ -154,8 +154,10 @@ with no padding, where the two agree. A padded call would need the divisor to
 switch between the window area and the in-bounds count.
 """
 @kernel function avg_pool2d_kernel!(out, @Const(x), kw::Int32, kh::Int32,
-                                    sx::Int32, sy::Int32, px::Int32, py::Int32)
-    i, j, c, n = @index(Global, NTuple)
+                                    sx::Int32, sy::Int32, px::Int32, py::Int32,
+                                    W4::Int32, H4::Int32, C4::Int32)
+    # 1-D ndrange + `coords4` — see `coords4`; the tuple index costs 3.5x at rank 4.
+    i, j, c, n = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H = size(x, 1), size(x, 2)
         acc = zero(Float32)
@@ -174,8 +176,10 @@ end
 function avg_pool2d!(out, x, kw::Integer, kh::Integer, sx::Integer, sy::Integer,
                      px::Integer = 0, py::Integer = 0)
     backend = KernelAbstractions.get_backend(out)
+    nd, W4, H4, C4 = flat4(out)
     avg_pool2d_kernel!(backend)(out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
-                                Int32(px), Int32(py); ndrange = size(out), workgroupsize = launchgroup(size(out)))
+                                Int32(px), Int32(py), W4, H4, C4;
+                                ndrange = nd, workgroupsize = launchgroup(nd))
     return out
 end
 
@@ -194,8 +198,12 @@ Out-of-range samples contribute zero rather than clamping, which is what makes a
 warp reveal black at the frame edge instead of smearing the border pixel.
 """
 @kernel function grid_sample2d_kernel!(out, @Const(x), @Const(grid), ::Val{ALIGN},
-                                       ::Val{PAD}) where {ALIGN,PAD}
-    i, j, c, n = @index(Global, NTuple)
+                                       ::Val{PAD}, W4::Int32, H4::Int32,
+                                       C4::Int32) where {ALIGN,PAD}
+    # 1-D ndrange + `coords4`, not `@index(Global, NTuple)`: the tuple index costs
+    # 3.5x at rank 4 here, and a bare copy over this ndrange was 88% of this
+    # kernel's runtime. See `coords4`.
+    i, j, c, n = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H = size(x, 1), size(x, 2)
         gx = Float32(grid[1, i, j, n]); gy = Float32(grid[2, i, j, n])
@@ -256,8 +264,10 @@ card stays fed.
 """
 function grid_sample2d!(out, x, grid; align_corners::Bool = true, padding::Symbol = :zeros)
     backend = KernelAbstractions.get_backend(out)
-    grid_sample2d_kernel!(backend)(out, x, grid, Val(align_corners), Val(padding);
-                                   ndrange = size(out), workgroupsize = launchgroup(size(out)))
+    nd, W4, H4, C4 = flat4(out)
+    grid_sample2d_kernel!(backend)(out, x, grid, Val(align_corners), Val(padding),
+                                   W4, H4, C4;
+                                   ndrange = nd, workgroupsize = launchgroup(nd))
     return out
 end
 
@@ -283,8 +293,9 @@ plausible-but-wrong warp if mirrored.
                                        @Const(w), @Const(bias),
                                        sx::Int32, sy::Int32, px::Int32, py::Int32,
                                        dlx::Int32, dly::Int32, dg::Int32, groups::Int32,
-                                       ::Val{HASMASK}) where {HASMASK}
-    i, j, co, n = @index(Global, NTuple)
+                                       ::Val{HASMASK}, W4::Int32, H4::Int32,
+                                       C4::Int32) where {HASMASK}
+    i, j, co, n = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H, Cin = size(x, 1), size(x, 2), size(x, 3)
         KW, KH, Cpg = size(w, 1), size(w, 2), size(w, 3)
@@ -332,14 +343,15 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
                         stride = (1, 1), padding = (0, 0), dilation = (1, 1),
                         groups::Integer = 1, deform_groups::Integer = 1)
     backend = KernelAbstractions.get_backend(out)
+    nd, W4, H4, C4 = flat4(out)
     deform_conv2d_kernel!(backend)(out, x, offset,
                                    mask === nothing ? offset : mask, w, bias,
                                    Int32(stride[1]), Int32(stride[2]),
                                    Int32(padding[1]), Int32(padding[2]),
                                    Int32(dilation[1]), Int32(dilation[2]),
                                    Int32(deform_groups), Int32(groups),
-                                   Val(mask !== nothing); ndrange = size(out),
-                                   workgroupsize = launchgroup(size(out)))
+                                   Val(mask !== nothing), W4, H4, C4;
+                                   ndrange = nd, workgroupsize = launchgroup(nd))
     return out
 end
 
@@ -353,8 +365,8 @@ refuses ("scalar iteration is disallowed"), so the host fallback is not an
 option here. The reversed dimensions are a `Val` so the index arithmetic
 specialises and the kernel stays branch-free.
 """
-@kernel function flip_kernel!(out, @Const(x), ::Val{DIMS}) where {DIMS}
-    I = @index(Global, NTuple)
+@kernel function flip_kernel!(out, @Const(x), ::Val{DIMS}, W4::Int32, H4::Int32, C4::Int32) where {DIMS}
+    I = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
     @inbounds begin
         J = ntuple(k -> (k in DIMS) ? size(x, k) - I[k] + 1 : I[k], length(I))
         out[I...] = x[J...]
@@ -363,7 +375,9 @@ end
 
 function flip!(out, x, dims::Tuple)
     backend = KernelAbstractions.get_backend(out)
-    flip_kernel!(backend)(out, x, Val(dims); ndrange = size(x), workgroupsize = launchgroup(size(x)))
+    nd, W4, H4, C4 = flat4(x)
+    flip_kernel!(backend)(out, x, Val(dims), W4, H4, C4;
+                          ndrange = nd, workgroupsize = launchgroup(nd))
     return out
 end
 

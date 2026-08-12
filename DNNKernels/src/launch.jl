@@ -156,6 +156,52 @@ Note in particular the warning it carries about `kernel(backend, wg)` versus the
 @inline launchgroup(ctx::Ctx, sz::Dims) = Lava.launchgroup(sz, launchgroup(ctx.dev))
 
 """
+    flat4(a) -> (ndrange, W, H, C)
+
+The launch geometry for a rank-4 kernel that indexes through [`coords4`](@ref):
+a **1-D** ndrange over `length(a)`, and the three leading extents as `Int32`.
+
+Both come off the same array in one call, so the ndrange and the extents the
+kernel divides by cannot drift apart — passing `size(a)` to one and a stale
+`W`/`H`/`C` to the other silently reads the wrong elements, and nothing checks it.
+"""
+@inline flat4(a) = ((length(a),), Int32(size(a, 1)), Int32(size(a, 2)), Int32(size(a, 3)))
+
+"""
+    coords4(q::Int32, W, H, C) -> (i, j, c, n)
+
+A 1-based rank-4 coordinate recovered from a **linear** thread index, in Int32.
+
+`@index(Global, NTuple)` is the obvious way to write a rank-4 kernel and costs
+**3.5x** on this backend. `KA.expand` recovers the block coordinate by indexing a
+`CartesianIndices` with a flattened index — `2(N-1)` integer divisions by
+*runtime* extents, in Int64. `Lava.directdispatch` removes that for rank <= 3 by
+reading the dispatch builtins directly, but a rank-4 block grid with a non-unit
+axis past the third is flattened by `pad_to_3d` and cannot use it.
+
+Doing the same recovery ourselves, in Int32, over a 1-D ndrange gets it back.
+A 4-D copy of 1920x1152x4, measured interleaved:
+
+    rank-4 @index(Global, NTuple)   1.036 ms    68 GB/s
+    rank-1 @index(Global, Linear)   0.293      241   3.53x
+    1-D ndrange + coords4           0.310      228   3.34x
+
+within 6% of a bare linear copy. This is why `grid_sample2d_kernel!` looked like
+a slow gather: a plain copy over its ndrange cost 88% of it, and the sampling was
+never the expense. See [[ka-ntuple-index-costs-3.6x]] in the project notes.
+
+**Indexing stays multi-dimensional** — `out[i, j, c, n]`, not `out[q]` — so this
+is correct for a strided view as well; only `length(a) == W*H*C*N` is assumed,
+which `flat4` guarantees by construction.
+"""
+@inline function coords4(q::Int32, W::Int32, H::Int32, C::Int32)
+    i = q % W;  r = q ÷ W
+    j = r % H;  s = r ÷ H
+    c = s % C;  n = s ÷ C
+    (Int(i) + 1, Int(j) + 1, Int(c) + 1, Int(n) + 1)
+end
+
+"""
     launch!(ctx, f, out, args...)
 
 The form every op body and kernel entry point uses: the backend and the launch
