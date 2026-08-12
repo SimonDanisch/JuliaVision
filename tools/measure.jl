@@ -240,7 +240,98 @@ struct Result
     rejected::Int
     clock::Float64           # mean SM clock over the kept samples, fraction of max
     gc::Float64              # median host GC inside the timed region, fraction of median
+    # ── Which PROCESS produced this. Two Results with different `session`s were
+    # measured on differently-warmed cards and cannot be divided; `ratio` refuses
+    # to. Cross-session variance here is ~13% against a ~5% within-session figure
+    # (see `lavadnn-benchmark-variance`), so a 1.4% effect is invisible across a
+    # restart — and reading one as a null is how working code got reverted.
+    session::UInt64
     samples::Vector{Sample}
+end
+
+"""A value unique to this process, stamped into every `Result`."""
+const SESSION = rand(UInt64)
+
+"""
+    ratio(a::Result, b::Result) -> Float64
+
+`a.median / b.median`, **or an error naming why the division is meaningless.**
+
+The three ways a ratio here has been wrong, each of which this refuses:
+
+  * **different processes.** 91.85 vs 91.05 ms across a restart was reported as
+    "1.01x, nothing"; the same pair measured in one session is 0.986x and
+    trustworthy. Cross-session noise is ~13%.
+  * **different clocks.** Two `bench` calls whose arms ran at 14% and 73% of the
+    clock were read as equal. The `clock` field existed the whole time.
+  * **no trustworthy sample.** A `NaN` median divides to `NaN` and prints as a
+    number-shaped thing.
+
+`compare` produces Results that satisfy all three by construction, which is why
+it is the only supported way to get two numbers to divide.
+"""
+function ratio(a::Result, b::Result)
+    a.session == b.session || error(
+        "ratio: these Results are from DIFFERENT PROCESSES ($(a.label), $(b.label)). " *
+        "Cross-session variance is ~13% here, so anything under that is noise. " *
+        "Measure both arms in one session with `compare`.")
+    (a.kept > 0 && b.kept > 0) || error(
+        "ratio: $(a.kept == 0 ? a.label : b.label) has no sample the clock gate kept.")
+    # 0.30, and both bounds are observations rather than a guess. The failure to
+    # catch is two separate `bench` calls at **14% and 73%** (relative difference
+    # 0.81) read as equal. The false positive to avoid is that `compare`'s own
+    # interleaved arms routinely differ — 35% vs 45% here, relative 0.22 — because
+    # `clock` is the mean of single `nvidia-smi` readings of a noisy quantity, not
+    # a measurement of the clock the kernel actually ran at. Interleaving makes
+    # the true clocks equal in expectation; it cannot make the READINGS equal.
+    rel = abs(a.clock - b.clock) / max(a.clock, b.clock)
+    rel <= 0.30 || error(
+        "ratio: the arms ran at different clocks — $(a.label) at " *
+        "$(round(100a.clock))% and $(b.label) at $(round(100b.clock))%, " *
+        "a relative difference of $(round(rel; digits = 2)). That difference IS " *
+        "the ratio. Use `compare`, which interleaves them.")
+    a.median / b.median
+end
+
+"""
+    L2_BYTES
+
+48 MB — this card's L2, and the line a bandwidth number has to declare which side
+of it lives on.
+
+A staging benchmark on a 16.8 MB working set measured 693 GB/s and that was
+written down as "the card's ceiling"; the same kernels on 134 MB measure
+**278 GB/s**, and the second is the one that describes a GEMM streaming weights.
+`bandwidth` refuses to report a figure without saying which regime it is.
+"""
+const L2_BYTES = 48 * 1024 * 1024
+
+"""
+    bandwidth(r::Result, bytes::Integer, workingset::Integer) -> NamedTuple
+
+`(; gbps, resident)` for a `Result` that moved `bytes` per timed call over a
+`workingset` of distinct memory.
+
+**Both, because they are different numbers and conflating them is how the 693
+GB/s mistake was made.** A sample that repeats a kernel 40 times moves 40x the
+traffic over the SAME working set: divide by the traffic and you get a rate,
+judge residency by the traffic and a 25 MB array "does not fit in L2" because it
+was touched forty times. That combination reported 1447 GB/s — four times this
+card's DRAM peak — labelled as a streaming figure.
+
+`resident = workingset <= L2_BYTES`, and a resident figure is L2 bandwidth. Say
+which one a number is whenever you write it down.
+"""
+function bandwidth(r::Result, bytes::Integer, workingset::Integer)
+    r.kept > 0 || error("bandwidth: no trustworthy sample for $(r.label)")
+    gbps = bytes / 1e9 / r.median
+    # ~360 GB/s is this card's spec. Anything well past it is either an L2 figure
+    # or an arithmetic slip, and both deserve to be said out loud.
+    resident = workingset <= L2_BYTES
+    (!resident && gbps > 400) && @warn "bandwidth: $(round(Int, gbps)) GB/s exceeds this " *
+        "card's ~360 GB/s DRAM peak but the working set is $(round(workingset/1e6)) MB — " *
+        "check whether `bytes` is per-call and `workingset` is distinct memory" r.label
+    (; gbps, resident)
 end
 
 # ── repeating a short call within a sample: TRIED, and REMOVED ──────────────
@@ -303,13 +394,13 @@ function bench(f; samples::Int = 15, floor::Real = 0.90, warm::Bool = true,
         push!(out, Sample(t, gc, a, b, a >= lo && b >= lo))
     end
     keep = [s for s in out if s.ok]
-    isempty(keep) && return Result(label, NaN, NaN, 0, length(out), plat / smmax, NaN, out)
+    isempty(keep) && return Result(label, NaN, NaN, 0, length(out), plat / smmax, NaN, SESSION, out)
     ts = sort([s.seconds for s in keep])
     med = median(ts)
     p(q) = ts[clamp(round(Int, q * length(ts)), 1, length(ts))]
     Result(label, med, (p(0.9) - p(0.1)) / med, length(keep), length(out) - length(keep),
            mean(s -> (s.smbefore + s.smafter) / 2, keep) / smmax,
-           median([s.gc for s in keep]) / med, out)
+           median([s.gc for s in keep]) / med, SESSION, out)
 end
 
 function Base.show(io::IO, r::Result)
@@ -390,12 +481,12 @@ function compare(fs::Tuple; samples::Int = 15, floor::Real = 0.90,
     end
     map(zip(acc, labels)) do (s, l)
         keep = [z for z in s if z.ok]
-        isempty(keep) && return Result(l, NaN, NaN, 0, length(s), 0.0, NaN, s)
+        isempty(keep) && return Result(l, NaN, NaN, 0, length(s), 0.0, NaN, SESSION, s)
         ts = sort([z.seconds for z in keep]); med = median(ts)
         p(q) = ts[clamp(round(Int, q * length(ts)), 1, length(ts))]
         Result(l, med, (p(0.9) - p(0.1)) / med, length(keep), length(s) - length(keep),
                mean(z -> (z.smbefore + z.smafter) / 2, keep) / smmax,
-               median([z.gc for z in keep]) / med, s)
+               median([z.gc for z in keep]) / med, SESSION, s)
     end
 end
 
