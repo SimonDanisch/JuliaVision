@@ -79,6 +79,16 @@ function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
                bounds::Union{Nothing, NTuple{4, <:Integer}} = nothing) where {T <: AbstractRGB,
                                                                              S <: AbstractRGB}
     backend = KA.get_backend(img)
+    # The kernel runs on the SOURCE's backend, so a destination living somewhere
+    # else is handed to it as a foreign array. On a GPU backend that surfaces as
+    # `KernelError: passing non-bitstype argument / Argument 3 ... Matrix{RGB{N0f8}}`
+    # from inside GPUCompiler, naming neither `warp!` nor which of its arguments
+    # is wrong — `renderpreview` in the editor hit exactly that and it took a
+    # stack trace to attribute. Refuse it here, where the two arrays are visible.
+    typeof(KA.get_backend(out)) === typeof(backend) ||
+        throw(ArgumentError("warp!: `out` is on $(KA.get_backend(out)) and `img` on \
+                             $backend. The kernel runs on the source's backend; \
+                             allocate `out` there and copy afterwards."))
     w, h = size(img, 1), size(img, 2)
     b = bounds === nothing ? (1, 1, w, h) : bounds
     warp_kernel!(backend)(out, img, M, skipoutside, Int32(b[1]), Int32(b[2]),
