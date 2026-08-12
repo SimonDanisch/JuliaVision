@@ -43,9 +43,27 @@ const JV = joinpath(ROOT, "dev", "JuliaVision")
 
 # artifact name => (package that binds it, the export directory under gen/graphs)
 const MODELS = Dict(
+    # `neurallut` stays fp32 — measured, not assumed. Its autocast export is
+    # **1.02x**, i.e. nothing, and `compare` flags it `trustworthy = false`. The
+    # model is 39 ops and 0.46 ms of PyTorch; there is no tensor-core work in it
+    # to win.
     "neurallut"     => ("NeuralLUTRunner", "neurallut"),
-    "rife"          => ("RIFERunner", "rife"),
-    "depthanything" => ("DepthAnythingRunner", "depthanything"),
+    # The fp16 exports, measured against the fp32 ones they replace, interleaved
+    # on one clock plateau (2026-08-12):
+    #
+    #     rife           206.5 -> 168.1 ms   1.23x   rel rms 9.4e-06
+    #     depthanything   46.7 ->  40.5      1.15x   rel rms 4.5e-04
+    #
+    # rife's largest per-channel deviation is 0.0039, which is exactly one 8-bit
+    # level; depthanything's is 4.9e-03 on a 1.18..4.04 depth range.
+    #
+    # **Neither was shippable before `bmmpad`.** Depth Anything's autocast export
+    # was 3.75x SLOWER than fp32 until two bugs in the batched-GEMM router were
+    # fixed — see `planewise_worth` and `bmmpad` in DNNKernels' matmul.jl. Do not
+    # read this pair as "fp16 always wins": it did not, for six days, and the
+    # reason was ours.
+    "rife"          => ("RIFERunner", "rife-fp16"),
+    "depthanything" => ("DepthAnythingRunner", "depthanything-fp16"),
     # Not ported yet — listed so the instruction their `assetdir()` prints is one
     # that actually runs. Each errors here until its exporter has been run.
     # The **fp16** export, not the fp32 one beside it. Half the download (1.19 GiB
