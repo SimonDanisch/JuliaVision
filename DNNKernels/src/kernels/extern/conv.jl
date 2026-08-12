@@ -229,6 +229,62 @@ the function it describes.
     size(w, 1) == stride[1] && size(w, 2) == stride[2]
 
 """
+    phasecase(w, stride, padding, dilation, outpad, groups) -> Bool
+
+Whether a **1-D** transposed convolution can be done as one ordinary convolution
+plus an interleave — the OVERLAPPING generalisation of [`shufflecase`](@ref).
+
+`shufflecase` needs `K == S`, so each output position comes from exactly one
+input. Every upsampler in the HiFi-GAN family — Kokoro's iSTFTNet included —
+uses `K == 2S` with `P == S/2` instead, so neighbouring receptive fields overlap
+by half and `shufflecase` refuses. Those calls fell to `convtranspose2d`, one
+thread per output element with no reuse, and on Kokoro that is **137 ms of a
+217 ms utterance**: 0.019 and 0.032 TF/s where an ordinary convolution of the
+same arithmetic runs at 8-20.
+
+The decomposition holds for any `K`, `S`, `P`. Writing `t = o + P`, `d = t % S`,
+`q = t ÷ S` and `j = q - i`, the defining sum
+
+    out[o, co] = Σ_i Σ_k x[i, ci] W[k, co, ci]        over  i*S - P + k == o
+
+becomes, for each phase `d` independently,
+
+    out[q*S + d - P, co] = Σ_j Σ_ci x[q - j, ci] W[d + j*S, co, ci]
+
+which is an ordinary correlation of `x` with a phase-sliced kernel of length
+`J = cld(K - d, S)`. Stack the `S` phases along the output-channel axis and it is
+ONE convolution producing `S*C_out` channels, then an interleave — the same
+pixel-shuffle identity `shufflecase` uses, one step more general.
+
+2-D is excluded deliberately: SAM 2's decoder is the only 2-D user and it already
+satisfies `shufflecase`, so the extra weight-permute machinery would be untested
+code on a path that never runs.
+"""
+@inline phasecase(w, stride, padding, dilation, outpad, groups) =
+    groups == 1 && length(stride) == 2 &&
+    size(w, 2) == 1 && stride[2] == 1 && padding[2] == 0 &&      # genuinely 1-D
+    all(==(1), dilation) && all(==(0), outpad) &&
+    stride[1] > 1 && size(w, 1) >= stride[1]
+
+"""
+Interleave the `S` phases of [`phasecase`](@ref)'s convolution into the output.
+
+`y` is `(Q, 1, S*C_out, 1)`; element `(q, d, co)` belongs at output position
+`q*S + d - P`. Written from the output's point of view so consecutive threads
+write consecutive addresses, and positions whose `q` fell outside the convolution
+are zero — they are the ones the padding removed.
+"""
+@inline function phaseout(I, Y, bias, ::Val{S}, ::Val{P}, Q::Int32) where {S,P}
+    ox, oy, co, n = I
+    @inbounds begin
+        t = ox - 1 + P
+        d, q = Lava.splitidx(t, Val(S))
+        v = (q >= 0 && q < Int(Q)) ? Y[1 + q, 1, 1 + d + S * (co - 1), 1] : zero(eltype(Y))
+        bias === nothing ? v : v + bias[co]
+    end
+end
+
+"""
 Scatter the GEMM's `(H*W, S*S*C_out)` result into `(S*H, S*W, C_out)`.
 
 Reads are the transposed convolution's own output order, so consecutive threads
@@ -274,6 +330,15 @@ function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, 
     # The non-overlapping case is a GEMM; everything else is the gather below.
     # `size(x, 4) == 1` because the flatten fuses `W` and `H`, which are only
     # adjacent in memory within one batch element.
+    # The overlapping 1-D case: one ordinary convolution over `S` stacked phases,
+    # then an interleave. Checked before `shufflecase` only in the sense that it
+    # is the more general test; `shufflecase`'s `K == S` shapes are left to it
+    # because its GEMM needs no phase weight and no padding.
+    if ctx.ws !== nothing && size(x, 4) == 1 &&
+       !shufflecase(w, stride, padding, dilation, outpad, groups) &&
+       phasecase(w, stride, padding, dilation, outpad, groups)
+        return convolutiontranspose_phase!(ctx, out, x, w, bias, stride, padding)
+    end
     if groups == 1 && ctx.ws !== nothing && size(x, 4) == 1 &&
        shufflecase(w, stride, padding, dilation, outpad, groups)
         Wi, Hi, Ci, _ = size(x)
@@ -291,6 +356,57 @@ function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, 
     launch!(ctx, convtranspose2d, out, x, w, bias,
             Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
             Val(dilation[1]), Val(dilation[2]), Val(groups))
+end
+
+"""
+    convolutiontranspose_phase!(ctx, out, x, w, bias, stride, padding)
+
+[`phasecase`](@ref)'s decomposition: build the phase-sliced weight, run ONE
+ordinary convolution producing `S*C_out` channels, interleave.
+
+`w` is `(K, 1, C_out, C_in)` — torch stores a transposed weight `C_in`-major and
+the reversed layout puts `C_in` last. The phase weight is
+`Wp[J-j, 1, d + S*(co-1), ci] = w[d + j*S + 1, 1, co, ci]`, zero where
+`d + j*S >= K`. The `J-j` rather than `j+1` is the flip that turns the
+correlation `convolution!` computes into the `x[q - j]` this needs; getting it
+backwards produces audio that is still speech-shaped, which is why the test
+compares against the gather kernel elementwise rather than by ear.
+
+The weight is rebuilt per call. It is a graph constant and belongs at load time
+(`hoistpermutes` territory), exactly as the note on `shufflecase`'s `wm` says;
+`S*J` slice copies of `(C_out, C_in)` is 5.2 MB on Kokoro's largest, against the
+72 ms the old path spent.
+"""
+function convolutiontranspose_phase!(ctx, out, x, w, bias, stride, padding)
+    S, P = stride[1], padding[1]
+    K, Cout, Cin = size(w, 1), size(w, 3), size(w, 4)
+    M = size(x, 1)
+    J = cld(K, S)
+    T = eltype(out)
+
+    # `(KW, KH, C_in, C_out)` is what `convolution!` wants, and a TRANSPOSED
+    # weight arrives `(KW, KH, C_out, C_in)` — torch stores it `C_in`-major. The
+    # permute is once for the whole weight rather than once per phase slice;
+    # building `Wp` the other way round silently computes a different product and
+    # still returns speech-shaped audio, which is why the test below diffs
+    # against the gather kernel elementwise.
+    wp = permutedims(w, (1, 2, 4, 3))                 # (K, 1, C_in, C_out)
+    Wp = scratch!(ctx, T, J, 1, Cin, S * Cout)
+    fill!(Wp, zero(T))
+    for j in 0:(J - 1), d in 0:(S - 1)
+        kk = d + j * S
+        kk < K || continue
+        # `J - j` is the flip; `d + S*(co-1)` is the channel-major stacking the
+        # interleave above reads back.
+        copyto!(view(Wp, J - j, 1, :, (d + 1):S:(d + 1 + S * (Cout - 1))),
+                view(wp, kk + 1, 1, :, :))
+    end
+
+    Q = M + J - 1                       # `padding = J-1` on both sides, stride 1
+    Y = scratch!(ctx, T, Q, 1, S * Cout, 1)
+    convolution!(ctx, Y, x, Wp, nothing, [1, 1], [J - 1, 0], [1, 1], 1)
+    launch!(ctx, phaseout, out, Y, bias, Val(S), Val(P), Int32(Q))
+    out
 end
 
 """One thread per output element, no reuse. Kept for grouped convolutions and as

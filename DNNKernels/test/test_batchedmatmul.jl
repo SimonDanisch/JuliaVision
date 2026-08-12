@@ -193,14 +193,14 @@ end
             ref = KA.allocate(back, Float16, M, N, nb)
 
             @test DNNKernels.bmmpad_worth(ctx, out, A, B)
-            reset!(ctx.ws)
+            DK.reset!(ctx.ws)
             # Poison the workspace so an accidental read of the pad shows up.
-            fill!(scratch!(ctx, Float16, 4 << 20), Float16(NaN))
-            reset!(ctx.ws)
+            fill!(DK.scratch!(ctx, Float16, 4 << 20), Float16(NaN))
+            DK.reset!(ctx.ws)
             DNNKernels.batchedmatmul_padded!(ctx, out, A, B)
-            reset!(ctx.ws)
+            DK.reset!(ctx.ws)
             for b in 1:nb
-                matmul!(ctx, view(ref, :, :, b), view(A, :, :, b), view(B, :, :, b))
+                DK.matmul!(ctx, view(ref, :, :, b), view(A, :, :, b), view(B, :, :, b))
             end
             KA.synchronize(back)
             g, r = Float32.(Array(out)), Float32.(Array(ref))

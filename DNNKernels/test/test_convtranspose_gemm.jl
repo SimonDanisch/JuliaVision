@@ -225,3 +225,69 @@ end
         x = w = o = nothing; GC.gc()
     end
 end
+
+# ── The OVERLAPPING transposed convolution: one ordinary convolution over `S`
+# stacked phases, then an interleave.
+#
+# `shufflecase` only covers `K == S`, where each output comes from one input.
+# Every HiFi-GAN-family upsampler — Kokoro's iSTFTNet — uses `K == 2S` with
+# `P == S/2`, which it refuses, so those calls took `convtranspose2d`: one thread
+# per output element, no reuse, **137 ms of a 217 ms utterance** at 0.02 TF/s.
+#
+# The reference here is that same gather kernel, elementwise. It has to be:
+# getting the phase flip backwards produces audio that is still speech-shaped,
+# and the PyTorch cross-correlation gate in KokoroRunner's suite passes things a
+# diff would not.
+@testset "an overlapping transposed convolution is a phased convolution" begin
+    back = LavaBackend()
+    ws = DK.Workspace(back)
+    ctx = DK.Ctx(back; ws)
+
+    @testset "M$M K$K S$S P$P $cin->$cout" for (M, K, S, P, cin, cout) in
+            ((260, 20, 10, 5, 512, 256),   # Kokoro convolution_44
+             (2600, 12, 6, 3, 256, 128),   # Kokoro convolution_70
+             (37, 8, 4, 2, 32, 16),        # odd length
+             (20, 6, 3, 1, 8, 8),          # K == 2S, P != S/2
+             (16, 5, 2, 1, 16, 32))        # K not a multiple of S
+        Lout = (M - 1) * S - 2P + K
+        x = KA.allocate(back, Float16, M, 1, cin, 1)
+        copyto!(x, Float16.(randn(Float32, M, 1, cin, 1) .* 0.3f0))
+        w = KA.allocate(back, Float16, K, 1, cout, cin)
+        copyto!(w, Float16.(randn(Float32, K, 1, cout, cin) .* 0.2f0))
+        b = KA.allocate(back, Float16, cout)
+        copyto!(b, Float16.(randn(Float32, cout) .* 0.1f0))
+        got = KA.allocate(back, Float16, Lout, 1, cout, 1)
+        want = KA.allocate(back, Float16, Lout, 1, cout, 1)
+
+        @test DK.phasecase(w, [S, 1], [P, 0], [1, 1], [0, 0], 1)
+        DK.reset!(ws)
+        DK.convolutiontranspose_phase!(ctx, got, x, w, b, [S, 1], [P, 0])
+        DK.reset!(ws)
+        DK.launch!(ctx, DK.convtranspose2d, want, x, w, b,
+                   Val(S), Val(1), Val(P), Val(0), Val(1), Val(1), Val(1))
+        KA.synchronize(back)
+        g, r = Float32.(Array(got)), Float32.(Array(want))
+        # fp16, and the two paths accumulate in different orders.
+        @test sqrt(sum(abs2, g .- r) / sum(abs2, r)) < 5e-3
+        x = w = b = got = want = nothing
+        GC.gc()
+    end
+
+    # SAM 2's decoder is `K == S`, and must keep its own GEMM+shuffle path: the
+    # phase form would build a weight and a padded convolution to express what
+    # that one does with a single matmul.
+    @testset "the non-overlapping case still belongs to shufflecase" begin
+        w = KA.allocate(back, Float16, 2, 2, 32, 64)
+        @test DK.shufflecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
+        # 2-D is out of scope for the phase path — it requires a 1-D weight.
+        @test !DK.phasecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
+        w = nothing
+    end
+    # Grouped stays on the gather: the phase weight flattens all input channels
+    # into one convolution, which is what groups forbid.
+    @testset "grouped is refused" begin
+        w = KA.allocate(back, Float16, 12, 1, 128, 256)
+        @test !DK.phasecase(w, [6, 1], [3, 0], [1, 1], [0, 0], 4)
+        w = nothing
+    end
+end
