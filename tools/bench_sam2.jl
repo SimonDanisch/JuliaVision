@@ -164,6 +164,39 @@ d = timed(() -> decode(sam, feats, point, label), 3, mode == "gpu" ? 50 : 1)
 @printf("  encode  p50 %7.2f ms   min %7.2f\n", e.p50, e.min)
 @printf("  decode  p50 %7.2f ms   min %7.2f\n", d.p50, d.min)
 
+# What attention's coopmat2 kernel is worth on the model, in this session.
+#
+# The arm is selected by emptying `wggran` on the cached device caps, so the
+# planner decides as if this card had no workgroup-scope cooperative matrices —
+# the mechanism `DeviceCaps` documents, and one line instead of a flag threaded
+# through `Model` and `call`.
+#
+# **`s.plans[] = nothing` is the part that makes it a measurement.** `encode`
+# runs a BAKED Mantle plan: the first call records command buffers and every
+# later call replays them, so flipping the caps between two `encode`s changes
+# nothing at all and the two arms are the same recording. Written that way it
+# reported -0.1%, which is the noise between two identical replays and reads
+# exactly like "the new kernel is worth nothing". Dropping the plans forces each
+# arm to re-plan and re-bake, which is what actually differs.
+#
+# Alternating, same session: this card's run-to-run spread on one kernel is ~13%
+# and a cross-session comparison could not see a change smaller than that.
+if mode == "gpu" && !isempty(Lava.caps().wggran)
+    full = Lava.caps()
+    function arm(withcm2)
+        Lava.vk_context().caches.caps =
+            withcm2 ? full : Lava.DeviceCaps(full; wggran = NTuple{4,Int}[])
+        sam.plans[] = nothing                 # re-plan and re-bake under this arm
+        encode(sam, image); KA.synchronize(backend)
+        timed(() -> encode(sam, image), 3, 20)
+    end
+    a1, b1, a2, b2 = arm(false), arm(true), arm(false), arm(true)
+    cm1, cm2 = min(a1.min, a2.min), min(b1.min, b2.min)
+    @printf("  encode  cm1 %7.2f ms   cm2 %7.2f ms   %+.1f%%  (attention kernel A/B)\n",
+            cm1, cm2, 100 * (cm2 - cm1) / cm1)
+    Lava.vk_context().caches.caps = full
+end
+
 
 # Settled HERE, before the click loop, and printed further down. This process is
 # the only thing anywhere that runs both decode paths: the loop below captures,

@@ -14,7 +14,7 @@ Two signals, one run, because they answer different halves:
   * `Lava.with_dispatch_timing` — which *kernel* costs what. It is the arbiter:
     isolated microbenchmarks in this project have three times shown a win the
     encode did not move at all.
-  * `DNNKernels.LAUNCH_PROBE` — which *launch site and shape* produced it. A grid
+  * `Diagnostics.launches` — which *launch site and shape* produced it. A grid
     of 64 workgroups on a 48-SM card leaves the device idle however good the
     kernel is, and that is invisible in a timing table.
 
@@ -52,18 +52,19 @@ function main()
     # Warm up enough to raise the clock and compile every kernel, but NOT so long
     # that the allocator's state becomes the thing being measured — a 1.5 s
     # warm-up once flattered a replacement by 8x (see perf-plan.md).
-    DNNKernels.encode(model, img); KA.synchronize(backend)
-    DNNKernels.encode(model, img); KA.synchronize(backend)
+    encode(model, img); KA.synchronize(backend)
+    encode(model, img); KA.synchronize(backend)
 
     probe = Dict{Any,Any}()
     bprobe = Dict{Any,Any}()
-    DNNKernels.LAUNCH_PROBE[] = probe
+    # was `DNNKernels.LAUNCH_PROBE[]`, a module-level Ref; now a `Diagnostics` field
+    model.model.diag.launches = probe
     Lava.BROADCAST_PROBE[] = bprobe
     report = Lava.with_dispatch_timing() do
-        DNNKernels.encode(model, img)
+        encode(model, img)
         KA.synchronize(backend)
     end
-    DNNKernels.LAUNCH_PROBE[] = nothing
+    model.model.diag.launches = nothing
     Lava.BROADCAST_PROBE[] = nothing
 
     sort!(report; by = r -> -r.total_ns)

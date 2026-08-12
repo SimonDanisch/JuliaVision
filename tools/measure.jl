@@ -37,20 +37,55 @@
 
 using Printf, Statistics
 
-"""
-    gpustate() -> NamedTuple
+const SMIQUERY = "clocks.sm,clocks.max.sm,utilization.gpu,memory.used,memory.total," *
+                 "temperature.gpu,power.draw"
 
-`(; sm, smmax, util, mem, memtotal, temp, power, load1)`, clocks in MHz and
-memory in MiB. One `nvidia-smi` call, ~20 ms.
-"""
-function gpustate()
-    q = "clocks.sm,clocks.max.sm,utilization.gpu,memory.used,memory.total," *
-        "temperature.gpu,power.draw"
-    out = read(`nvidia-smi --query-gpu=$q --format=csv,noheader,nounits`, String)
+smiproc() = open(`nvidia-smi --query-gpu=$SMIQUERY --format=csv,noheader,nounits`, "r")
+
+function smiparse(out::AbstractString)
     v = parse.(Float64, strip.(split(strip(out), ',')))
     load1 = parse(Float64, first(split(read("/proc/loadavg", String))))
     (; sm = v[1], smmax = v[2], util = v[3], mem = v[4], memtotal = v[5],
        temp = v[6], power = v[7], load1)
+end
+
+"""
+    gpustate() -> NamedTuple
+
+`(; sm, smmax, util, mem, memtotal, temp, power, load1)`, clocks in MHz and
+memory in MiB. One `nvidia-smi` call, ~26 ms.
+
+**This reports an IDLE card whenever it is called between synchronised samples,
+and that is not a quirk — it is the reason the whole clock gate read 7% while the
+card was at 2070 MHz.** `nvidia-smi` takes 26 ms; if the workload ended in a
+`synchronize`, the queue is empty for every one of them, and the SM clock
+collapses to 210 MHz and comes back the moment work resumes. Nothing survives
+that: `plateau` measured 210, `bench` gated 210 against 210 and kept everything,
+and a 15 us copy was reported at 164 us.
+
+The check that misled me first: a busy loop of *unsynchronised* launches shows no
+decay at all, even after 500 ms of "idle", because thousands of queued copies are
+still draining through the read. Both arms have to end in a sync before the
+question means anything.
+
+Use [`gpustate(f)`](@ref) for a reading that means something under load.
+"""
+gpustate() = smiparse(read(smiproc(), String))
+
+"""
+    gpustate(f; window = 0.2) -> NamedTuple
+
+Machine state sampled **while `f` runs**, which is the only kind worth gating on.
+
+`nvidia-smi` is started first and `f` is run back to back until it has answered,
+so the sample it takes internally lands on a card that is doing the work being
+measured, not on the hole its own 26 ms dug. `f` runs untimed here — this changes
+how often the workload runs, not what is measured.
+"""
+function gpustate(f; window::Real = 0.2)
+    p = smiproc()
+    busy(f, window)
+    smiparse(read(p, String))
 end
 
 """
@@ -79,8 +114,16 @@ function otherprocs()
     rows
 end
 
+"""Run `f` back to back for `seconds`, untimed, to hold the card at its clock."""
+function busy(f, seconds::Real)
+    t0 = time()
+    while time() - t0 < seconds
+        f()
+    end
+end
+
 """
-    plateau(f; seconds = 5) -> (clock, smmax)
+    plateau(f; seconds = 5, window = 0.25) -> (clock, smmax)
 
 The SM clock this workload actually **sustains**, in MHz.
 
@@ -97,14 +140,28 @@ know that is to run it and look.
 
 The first second is discarded: that is the ramp, and including it drags the
 plateau down by whatever fraction of the window it occupies.
+
+**`window` is what makes this work at all, and it was missing.** The loop used to
+read the clock after every 5 calls of `f`; [`gpustate`](@ref) is an `nvidia-smi`
+*subprocess* costing 26 ms, so for a kernel of tens of microseconds the card was
+idle 99.7% of a "warm-up" whose entire job is to make it busy. It never left
+210 MHz, the plateau came back as the idle clock, and [`bench`](@ref)'s gate then
+compared idle against idle and kept every sample — a 15 us copy reported as
+164 us, and layer-norm against a copy of the same tensor reported at 1.17x when
+it is 2.68x. Measured, not reasoned: the clock does **not** decay for at least
+500 ms after a load stops, so the failure is entirely that the ramp never
+happens, and one busy window per clock reading is the whole fix.
+
+`f` runs uninstrumented inside the window. That is safe for a *stateful* model in
+the way that repeating it inside a timed sample is not — see the note above
+`bench` — because it changes how often `f` is called, not what is measured.
 """
-function plateau(f; seconds::Real = 5)
+function plateau(f; seconds::Real = 5, window::Real = 0.25)
     t0 = time()
     clocks = Float64[]
-    st = gpustate()
+    st = gpustate(f; window)
     while time() - t0 < seconds
-        for _ in 1:5; f(); end
-        st = gpustate()
+        st = gpustate(f; window)
         time() - t0 > 1 && push!(clocks, st.sm)
     end
     (isempty(clocks) ? st.sm : median(clocks), st.smmax)
@@ -116,9 +173,17 @@ end
 One timing and the machine state around it. `ok` is false when the clock dipped
 below the floor at either end, which is the only automatic rejection: everything
 else is reported and left to the reader.
+
+`gc` is host garbage collection **inside** the timed region, and it is recorded
+because on this workload it is not a rounding error: `depthanything` read
+73.20 ms ±216% and is 47.17 ms ±3% — a 36% error and a spread that reads as a
+broken measurement, all of it one collection landing in some samples and not
+others. A median does not save you when most samples are hit. See
+[[gpu-spread-is-host-gc]] for the same trap costing a whole afternoon.
 """
 struct Sample
     seconds::Float64
+    gc::Float64
     smbefore::Float64
     smafter::Float64
     ok::Bool
@@ -174,11 +239,33 @@ struct Result
     kept::Int
     rejected::Int
     clock::Float64           # mean SM clock over the kept samples, fraction of max
+    gc::Float64              # median host GC inside the timed region, fraction of median
     samples::Vector{Sample}
 end
 
+# ── repeating a short call within a sample: TRIED, and REMOVED ──────────────
+#
+# A call too short to hold the clock up gets every sample rejected — `neurallut`
+# (a 256x256 classifier) reported `NaN ms, 0/11 kept`, which reads as a broken
+# model. The obvious fix is to repeat the call within the sample until it is long
+# enough, and divide.
+#
+# **It is not safe, because a model may be STATEFUL.** `matanyone-step` carries a
+# five-frame memory bank; timing two steps per sample is not timing one step
+# twice, and the row moved 36.57 -> 42.00 ms the moment repetition kicked in at a
+# 50 ms target. A harness that silently changes the workload to make its own gate
+# happy is worse than one that reports nothing.
+#
+# It did not even fix the case it was for: with repetition `neurallut` passes
+# alone (4.25 ms, 11/11) and still returns `NaN` in the full sweep, at 5 ms and at
+# 50 — `predictlut` takes a host `RGB{N0f8}` frame and does enough host work that
+# the GPU idles *inside* the sample. **The gate is right and that model is
+# host-bound.** `bench_all` prints the ungated median with a `!` instead of
+# `NaN`, which says exactly that and changes no measurement.
+
 function bench(f; samples::Int = 15, floor::Real = 0.90, warm::Bool = true,
-               label::AbstractString = "", sync = nothing, plat = nothing)
+               label::AbstractString = "", sync = nothing, plat = nothing,
+               hold::Real = 0.05)
     g = sync === nothing ? f : (() -> (f(); sync()))
     g()                                     # compile, allocate, page in
     plat, smmax = plat !== nothing ? (plat, gpustate().smmax) :
@@ -186,18 +273,43 @@ function bench(f; samples::Int = 15, floor::Real = 0.90, warm::Bool = true,
     lo = floor * plat
     out = Sample[]
     for _ in 1:samples
-        a = gpustate().sm
+        # ── hold, read, hold, time, read. Every step of that order is load-bearing.
+        #
+        # `gpustate` is a 26 ms `nvidia-smi` subprocess and the card is idle for
+        # all of it, so a clock read placed anywhere near the timed region digs
+        # the hole it then reports. The workload runs untimed on both sides of the
+        # read: the first hold makes `a` a genuine under-load reading, the second
+        # makes the timed region start on a busy card. With the read before the
+        # first hold instead, every `depthanything` sample was rejected (0/11) by
+        # a gate comparing an idle reading against a loaded plateau.
+        #
+        # `g` in a hold is outside `@elapsed`, so this changes how OFTEN the
+        # workload runs, not what is measured — the distinction that makes it safe
+        # for a stateful model where repeating inside the sample was not.
+        a = gpustate(g; window = hold).sm
+        # Take the collection the hold just earned, HERE, where it is not being
+        # timed. Without it, whether a sample contains a GC is a coin flip:
+        # `depthanything` read 73.20 ms ±216% and is 47 ms ±3%.
+        GC.gc(false)
+        # `b` covers the timed region itself: start `nvidia-smi` before it and
+        # keep the card busy after it until the read returns, so whichever moment
+        # the driver samples, it samples a card doing this work.
+        p = smiproc()
+        g0 = Base.gc_num().total_time
         t = @elapsed g()
-        b = gpustate().sm
-        push!(out, Sample(t, a, b, a >= lo && b >= lo))
+        gc = (Base.gc_num().total_time - g0) / 1e9
+        busy(g, hold)
+        b = smiparse(read(p, String)).sm
+        push!(out, Sample(t, gc, a, b, a >= lo && b >= lo))
     end
     keep = [s for s in out if s.ok]
-    isempty(keep) && return Result(label, NaN, NaN, 0, length(out), plat / smmax, out)
+    isempty(keep) && return Result(label, NaN, NaN, 0, length(out), plat / smmax, NaN, out)
     ts = sort([s.seconds for s in keep])
     med = median(ts)
     p(q) = ts[clamp(round(Int, q * length(ts)), 1, length(ts))]
     Result(label, med, (p(0.9) - p(0.1)) / med, length(keep), length(out) - length(keep),
-           mean(s -> (s.smbefore + s.smafter) / 2, keep) / smmax, out)
+           mean(s -> (s.smbefore + s.smafter) / 2, keep) / smmax,
+           median([s.gc for s in keep]) / med, out)
 end
 
 function Base.show(io::IO, r::Result)
@@ -209,6 +321,10 @@ function Base.show(io::IO, r::Result)
     @printf(io, "%-28s %8.3f ms  ±%4.1f%%  clock %3.0f%%  %d/%d kept",
             r.label, r.median * 1000, 100 * r.spread, 100 * r.clock,
             r.kept, r.kept + r.rejected)
+    # Only when it is worth acting on. A GC share above a few percent means the
+    # number is partly host memory pressure and moves with the rest of the
+    # process, not with the kernel under test.
+    r.gc > 0.01 && @printf(io, "  GC %2.0f%%", 100 * r.gc)
 end
 
 """
@@ -247,7 +363,8 @@ written to prevent exactly this. `bench` is for **one** number; anything being
 compared goes through this.
 """
 function compare(fs::Tuple; samples::Int = 15, floor::Real = 0.90,
-                 labels = ntuple(i -> "arm $i", length(fs)), sync = nothing)
+                 labels = ntuple(i -> "arm $i", length(fs)), sync = nothing,
+                 hold::Real = 0.05)
     # NEW names. `fa = () -> (fa(); sync())` captures the *variable*, so the
     # closure calls itself — a StackOverflowError from a benchmark harness, which
     # is a confusing place to get one.
@@ -256,19 +373,29 @@ function compare(fs::Tuple; samples::Int = 15, floor::Real = 0.90,
     plat, smmax = plateau(() -> for g in gs; g(); end)
     lo = floor * plat
     acc = [Sample[] for _ in gs]
+    # Same hold/GC discipline as `bench` — see there. An interleaved comparison is
+    # not protected from either defect: both arms get measured inside the same
+    # instrument hole, which compresses the ratio toward 1 rather than biasing it
+    # one way, and that is the failure mode hardest to notice.
     for _ in 1:samples, (i, g) in enumerate(gs)
-        x = gpustate().sm
+        x = gpustate(g; window = hold).sm
+        GC.gc(false)
+        p = smiproc()
+        g0 = Base.gc_num().total_time
         t = @elapsed g()
-        y = gpustate().sm
-        push!(acc[i], Sample(t, x, y, x >= lo && y >= lo))
+        gc = (Base.gc_num().total_time - g0) / 1e9
+        busy(g, hold)
+        y = smiparse(read(p, String)).sm
+        push!(acc[i], Sample(t, gc, x, y, x >= lo && y >= lo))
     end
     map(zip(acc, labels)) do (s, l)
         keep = [z for z in s if z.ok]
-        isempty(keep) && return Result(l, NaN, NaN, 0, length(s), 0.0, s)
+        isempty(keep) && return Result(l, NaN, NaN, 0, length(s), 0.0, NaN, s)
         ts = sort([z.seconds for z in keep]); med = median(ts)
         p(q) = ts[clamp(round(Int, q * length(ts)), 1, length(ts))]
         Result(l, med, (p(0.9) - p(0.1)) / med, length(keep), length(s) - length(keep),
-               mean(z -> (z.smbefore + z.smafter) / 2, keep) / smmax, s)
+               mean(z -> (z.smbefore + z.smafter) / 2, keep) / smmax,
+               median([z.gc for z in keep]) / med, s)
     end
 end
 

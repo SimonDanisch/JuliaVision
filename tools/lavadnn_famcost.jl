@@ -1,4 +1,4 @@
-# Per-op-family device cost by differential ablation. See `DNNKernels.OPDOUBLE`.
+# Per-op-family device cost by differential ablation. See `Diagnostics.opdouble`.
 include(joinpath(@__DIR__, "lavadnn_bench.jl"))
 
 const FAMILIES = ["convolution.default", "relu.default", "add.Tensor", "addmm.default",
@@ -22,7 +22,11 @@ Bracketing each family with its own baseline cancels any drift slower than one
 measurement triple.
 """
 function famcost(m, s, image, names=FAMILIES; n=15, reps=3)
-    DNNKernels.OPDOUBLE[] = ""
+    # `DNNKernels.OPDOUBLE[]`, a module-level Ref, is now `m.diag.opdouble` on
+    # the model's `Diagnostics` — off is still `""`. See `Diagnostics` for why
+    # the five Refs became a field: two instrumented runs can coexist, and a
+    # failure cannot leave module state flipped.
+    m.diag.opdouble = ""
     bench() = median([benchsteps(m, s, image; n) for _ in 1:reps])
     for _ in 1:3; bench(); end          # let the clocks settle before anything counts
     base = bench()
@@ -30,9 +34,9 @@ function famcost(m, s, image, names=FAMILIES; n=15, reps=3)
     drift = 0.0
     for nm in names
         b1 = bench()
-        DNNKernels.OPDOUBLE[] = nm
+        m.diag.opdouble = nm
         t = bench()
-        DNNKernels.OPDOUBLE[] = ""
+        m.diag.opdouble = ""
         b2 = bench()
         push!(out, (nm, t - (b1 + b2) / 2))
         drift = max(drift, abs(b2 - b1))

@@ -26,7 +26,12 @@ using Lava, DNNKernels, SAM2Runner, KernelAbstractions
 # Through DNNKernels rather than as a direct dependency, the way its own
 # test suite does: this reads one JSON file and does not warrant a dep.
 const JSON3 = DNNKernels.JSON3
-using DNNKernels: encode, toback, readsafetensors, evalshape
+# `encode` lives in SAM2Runner, not DNNKernels (JuliaVision `5b59cd7`, "the model
+# drivers leave the kernel library"). Importing it from the old home still
+# *imports* — the binding exists, undefined — and then fails with `UndefVarError`
+# at first use, which is exactly the trap `bench_sam2.jl`'s header describes.
+using SAM2Runner: encode
+using DNNKernels: toback, readsafetensors, evalshape
 
 const KA = KernelAbstractions
 # A tool, and it wants a file the runner has no accessor for, so it takes the
@@ -67,16 +72,32 @@ function graphflops(g, dims)
     out
 end
 
-"""`{aten => (calls, ms)}` for one encode, device time, serialised per op."""
+"""`{aten => (calls, ms)}` for one encode, device time, serialised per op.
+
+**`call`, not `encode`.** `encode` runs a baked Mantle plan — the first call
+records command buffers and every later call replays them — and a replay never
+reaches `timeop!`, so instrumenting `encode` yields an EMPTY table and this
+printed a page of zeros without saying anything was wrong. Found 2026-08-11 while
+trying to attribute an attention change; `sam2_attn_share.jl` has the same note.
+The interpreted path is slower and is the only one that can be attributed.
+"""
 function ourtimes(model, img; iters = 5)
-    encode(model, img); KA.synchronize(model.model.backend)   # warm
+    m = model.model
+    DNNKernels.call(m, "sam2_encoder", img; dims = model.dims)   # warm
+    KA.synchronize(m.backend)
+    # `DNNKernels.OPTIMES[]`, a module-level Ref, became `m.diag.optimes` on the
+    # model's `Diagnostics` — so two differently instrumented runs can coexist in
+    # one process and a failure cannot leave module state flipped.
     t = Dict{String,Tuple{Int,Float64}}()
-    DNNKernels.OPTIMES[] = t
+    m.diag.optimes = t
     for _ in 1:iters
-        encode(model, img)
+        DNNKernels.call(m, "sam2_encoder", img; dims = model.dims)
     end
-    KA.synchronize(model.model.backend)
-    DNNKernels.OPTIMES[] = nothing
+    KA.synchronize(m.backend)
+    m.diag.optimes = nothing
+    isempty(t) && error("optimes recorded nothing — the run never went through " *
+                        "`timeop!`. A baked plan replays command buffers and " *
+                        "cannot be attributed; see this function's docstring.")
     Dict(k => (v[1] ÷ iters, v[2] / iters) for (k, v) in t)
 end
 

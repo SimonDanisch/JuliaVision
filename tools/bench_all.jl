@@ -127,10 +127,18 @@ for name in want
         f = () -> (call(); sync())
         plat, _ = plateau(f; seconds = 4)              # warm, and report what it reached
         r = bench(f; sync = nothing, plat, samples = 11, label = name)
-        results[name] = (; ms = r.median * 1000, spread = r.spread, shape,
-                           kept = r.kept, clock = r.clock)
-        @printf("%9.2f ms  ±%4.1f%%  clock %3.0f%%  %d/%d  (%s)\n",
-                r.median * 1000, 100r.spread, 100r.clock, r.kept, r.kept + r.rejected, shape)
+        # A row where the clock gate rejected everything used to print `NaN`,
+        # which reads as a broken model. It is not: `neurallut` is host-bound, so
+        # the GPU idles inside its own sample and never holds the clock however
+        # long the sample is made. Print the UNGATED median with a `!` — the
+        # number is worth less than a gated one and is worth more than nothing,
+        # and the marker is what says which it is.
+        ms = r.kept > 0 ? r.median * 1000 :
+             median([s.seconds for s in r.samples]) * 1000
+        results[name] = (; ms, spread = r.spread, shape, kept = r.kept, clock = r.clock)
+        @printf("%9.2f ms%s ±%4.1f%%  clock %3.0f%%  %d/%d  (%s)\n",
+                ms, r.kept > 0 ? " " : "!", 100r.spread, 100r.clock,
+                r.kept, r.kept + r.rejected, shape)
     catch e
         println("FAILED: ", first(split(sprint(showerror, e), '\n'))[1:min(end, 90)])
     end
@@ -141,5 +149,7 @@ println("\n── summary (median, warm) ──")
 for n in want
     haskey(results, n) || continue
     r = results[n]
-    @printf("%-18s %9.2f ms   %s\n", n, r.ms, r.shape)
+    # `!` carries through to the summary: a number the clock gate rejected is
+    # still a number, and hiding which rows those are is how a summary lies.
+    @printf("%-18s %9.2f ms%s  %s\n", n, r.ms, r.kept > 0 ? " " : "!", r.shape)
 end
