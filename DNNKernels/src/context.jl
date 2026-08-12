@@ -270,6 +270,24 @@ struct Ctx{B,N,S,P,W,L,R}
     # for the next encode.
     clampattn::Bool
 
+    # ── May attention take the coopmat2 kernel?
+    #
+    # On, because it is measured faster on every shape it accepts — -27% on SAM
+    # 2's global attention blocks and -45% on the windowed ones — and it declines
+    # the rest (`flashcm2_tiling`).
+    #
+    # A field rather than a global for the reason `clampattn` is one: it is a
+    # property of a run. It is the kill switch for a newly routed kernel — the
+    # thing to flip first when attention looks wrong — and `test_flash_cm2.jl`
+    # asserts that flipping it really does hand the call back to `FlashCMPlan`,
+    # because an off switch nothing exercises is one that quietly stops working.
+    #
+    # It is NOT how the model-level A/B is done: `bench_sam2.jl` empties
+    # `wggran` on the device caps instead, which makes the whole planner decide
+    # as if the card had no workgroup-scope matrices, and needs no flag threaded
+    # through `Model` and `call`.
+    flashcm2::Bool
+
     # ── Where `rand`/`randn_like` get their values.
     #
     # A property of this run, like `clampattn`. Kokoro's `SineGen` draws a noise
@@ -311,8 +329,9 @@ end
 function Ctx(values, graph, dims, backend;
              slab = nothing, plan = nothing, outid = Ref(""), ws = nothing,
              lazy = nothing, rec = nothing, diag::Diagnostics = Diagnostics(),
-             clampattn::Bool = false, noise::NoiseSource = RandomNoise())
-    Ctx(values, graph, dims, backend, caps(backend), clampattn, noise,
+             clampattn::Bool = false, flashcm2::Bool = true,
+             noise::NoiseSource = RandomNoise())
+    Ctx(values, graph, dims, backend, caps(backend), clampattn, flashcm2, noise,
         slab, plan, outid, ws, lazy, rec, diag)
 end
 

@@ -517,3 +517,18 @@ function heldacc(BR = 64, BC = 32, NW = 8)
         q = k = v = out = nothing; GC.gc()
     end
 end
+
+"""
+The formulations of `attn_flash_cm2!` that are under measurement, as keyword
+arguments to `sdpaflashcm2!`. The first is the baseline every percentage is
+against.
+
+It lives here rather than in either tool because `flash_cm2_variants.jl` times
+them and `flash_cm2_regs.jl` reads the driver's register count for them — two
+tools whose rows only line up if they are talking about the same kernels.
+"""
+const VARIANTS = [("3pass",     (; fused = false, osum = :off)),
+                  ("FUSED",     (; fused = true,  osum = :off)),
+                  ("osum:pass", (; fused = false, osum = :pass)),
+                  ("osum:fill", (; fused = false, osum = :fill)),
+                  ("both",      (; fused = true,  osum = :fill))]

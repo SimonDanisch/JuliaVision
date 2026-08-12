@@ -2,11 +2,17 @@
 Fused attention: one kernel, no score matrix.
 
 **Two kernels live here.** `attn_flash!` comes first and is the scalar form: kept
-and still tested, never routed to. `attn_flash_cm!` follows it and is the one
-`sdpa` runs — both products on the tensor cores, and **2.2x the two-GEMM path**
-on the encoder's global blocks (9.50 -> 4.39 ms), 2.0x on the windowed ones
-(0.883 -> 0.450). Its switches, tiling table and launcher are below it, each
-carrying the measurement that set it.
+and still tested, never routed to. `attn_flash_cm!` follows it — both products on
+the tensor cores, and **2.2x the two-GEMM path** on the encoder's global blocks
+(9.50 -> 4.39 ms), 2.0x on the windowed ones (0.883 -> 0.450). Its switches,
+tiling table and launcher are below it, each carrying the measurement that set it.
+
+**A third kernel now takes most of the calls**, from `flash_cm2.jl`: workgroup-
+scope cooperative matrices and tensor-addressed loads, measured -27% on the global
+blocks and -45% on the windowed ones against this one. `attn_flash_cm!` is still
+what runs wherever that declines — chiefly the decoder's `Lq = 23`, where its
+key-axis split (`splitcount`) beats the newer kernel by 84%, and on any device
+without `VK_NV_cooperative_matrix2`, which is every non-NVIDIA one.
 
 Everything from here to `attn_flash!` is about the scalar form. Its conclusion —
 "this shape cannot win here" — is correct **for that arrangement** and was read

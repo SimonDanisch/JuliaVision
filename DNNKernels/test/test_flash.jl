@@ -325,7 +325,7 @@ end
         # order stands. Asked by describing a one-core device rather than by
         # writing to a global and restoring it — which a failing `@test` inside
         # the `try` would have skipped, leaving it flipped for everything after.
-        one = Lava.DeviceCaps(dev; cores = 1)
+        one = DNNKernels.M.DeviceCaps(dev; cores = 1)
         onetiling(args...) = DNNKernels.flashcm_tiling(one, args...; clamp = true)
         @test onetiling(16, 23, 4096, 8) == onetiling(16, 23, 4096)
     end
@@ -360,7 +360,7 @@ end
                                   NW = 8).reason === :tiling
     f32 = DNNKernels.toback(back, randn(Float32, E, L, H, B))
     @test DNNKernels.flashcm_plan(dev, f32, k, v, nothing).reason === :eltype
-    nocm = Lava.DeviceCaps(dev; coopmat = false)
+    nocm = DNNKernels.M.DeviceCaps(dev; coopmat = false)
     @test DNNKernels.flashcm_plan(nocm, q, k, v, nothing).reason === :nocoopmat
     @test DNNKernels.flashcm_plan(dev, q, k, v, nothing; BR = 23).reason === :extent
 
@@ -370,7 +370,7 @@ end
     # An RDNA3-shaped device: default width 64, but Lava PINS coopmat modules to
     # 32, so the workgroup must still be sized in 32s. Sizing it in 64s is the
     # bug this field exists to prevent, and it is invisible on this card.
-    w64 = Lava.DeviceCaps(true, 16, 64, 32, 65536, 1024, 40, 0)
+    w64 = DNNKernels.M.DeviceCaps(true, 16, 64, 32, 65536, 1024, 40, 0)
     p64 = DNNKernels.flashcm_plan(w64, q, k, v, nothing)
     @test p64 isa DNNKernels.FlashCMPlan
     @test p64.NT == p64.NW * 32              # …not * 64

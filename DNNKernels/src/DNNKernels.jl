@@ -91,6 +91,7 @@ include("kernels/extern/conv_coopmat.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")
 include("kernels/extern/flash.jl")
+include("kernels/extern/flash_cm2.jl")
 include("kernels/extern/lstm.jl")       # aten::lstm kept whole, loop in-kernel
 include("kernels/extern/spectral.jl")   # STFT + mel, on Lava's FFT
 include("kernels/layernorm.jl")

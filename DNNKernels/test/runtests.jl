@@ -66,3 +66,17 @@ include(joinpath(@__DIR__, "test_batchedmatmul.jl"))
 # the numbers rather than on op counts: the failure this pass shipped first was a
 # binary op handed one argument, which runs and returns the wrong answer.
 include(joinpath(@__DIR__, "test_fusepass.jl"))
+
+# ── The three attention paths, and the plan that chooses between them.
+#
+# These three files existed and `runtests.jl` did not include any of them, so
+# nothing ran them: `test_flash.jl` and `test_coopmat_attention.jl` had been
+# calling `Lava.DeviceCaps(dev; …)` since `caps` started returning MANTLE's
+# struct, which is a `MethodError` on the first line that reaches it. Found
+# 2026-08-11 by running them by hand while routing `attn_flash_cm2!`. A test
+# nothing runs is not a test — the same lesson the fuzz suite taught.
+#
+# GPU-only, and they skip themselves without one.
+include(joinpath(@__DIR__, "test_flash.jl"))
+include(joinpath(@__DIR__, "test_coopmat_attention.jl"))
+include(joinpath(@__DIR__, "test_flash_cm2.jl"))

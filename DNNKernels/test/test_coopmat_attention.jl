@@ -127,7 +127,7 @@ bothpaths(E, L, H, B) = coopmatpath(E, L, H, B)[1]
             # fp32 operands have no cooperative-matrix load.
             @test coopmat_sdpa_plan(dev, f32(72, 1024, 4, 1), q, q, nothing).reason === :eltype
             # And a device without the feature refuses regardless of shape.
-            nocm = Lava.DeviceCaps(dev; coopmat = false)
+            nocm = DNNKernels.M.DeviceCaps(dev; coopmat = false)
             @test coopmat_sdpa_plan(nocm, q, q, q, nothing).reason === :nocoopmat
             q = nothing
             GC.gc()

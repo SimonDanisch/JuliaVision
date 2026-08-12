@@ -732,6 +732,14 @@ the arithmetic — and on the windowed blocks the padding kernels alone were hal
 the op.
 """
 function sdpaplan(ctx, q, k, v, bias)
+    # The coopmat2 kernel first, where the device has workgroup-scope matrices.
+    # Measured 2026-08-11 against the cm1 path, interleaved: -27% on the global
+    # blocks, -45% on the windowed ones, -33% at 1024. It declines every shape it
+    # is not right for — chiefly the decoder's `Lq = 23`, where the grid is 8
+    # workgroups and cm1's key-axis split wins by 84%. See `flashcm2_tiling`.
+    cm2 = ctx.flashcm2 ? flashcm2_plan(ctx.dev, q, k, v, bias) : Decline(:off)
+    cm2 isa FlashCM2Plan && return (cm2, k, v)
+
     plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
 
     # The one refusal that is recoverable, and now it actually recovers. An
@@ -749,6 +757,10 @@ function sdpaplan(ctx, q, k, v, bias)
     # encode and 8.35 ms, which is why this is a fallback and not the default.
     if plan isa Decline && plan.reason === :wrapped
         k, v = densify(ctx, k), densify(ctx, v)
+        # Retry the coopmat2 plan too: it refuses the same operand stacks for the
+        # same reason, and densifying is exactly what it was waiting for.
+        cm2 = ctx.flashcm2 ? flashcm2_plan(ctx.dev, q, k, v, bias) : Decline(:off)
+        cm2 isa FlashCM2Plan && return (cm2, k, v)
         plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
     end
     plan isa FlashCMPlan && return (plan, k, v)
