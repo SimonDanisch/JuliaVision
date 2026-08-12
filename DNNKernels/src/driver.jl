@@ -72,7 +72,17 @@ function scratchfor(m::Model, dims)
         plans = Dict(n => planslab(g, dims)
                      for (n, g) in m.graphs if all(s -> haskey(dims, Symbol(s)), g.symbols))
         nb = maximum(p -> p.bytes, values(plans); init = 0)
-        slab = KernelAbstractions.allocate(m.backend, UInt8, max(nb, 1))
+        # From MANTLE'S pool, not `KA.allocate`. This slab is the largest thing a
+        # model allocates and it is scratch — dead the moment the graph is done —
+        # so it is exactly what an allocator that sees every workload should be
+        # reusing. Allocated privately it was invisible: an editor previewing
+        # frames and a model running on a click cannot both be resident, yet each
+        # held its own bytes.
+        dev = Mantle.Device(m.backend)
+        region = Mantle.allocate(Mantle.pool(dev), dev, Mantle.Persistent(),
+                                 UInt8, (max(nb, 1),);
+                                 align = 256, blocksize = Mantle.blocksize(dev))
+        slab = Mantle.deviceview(dev, region)
         @debug "DNNKernels: static scratch slab $(round(nb/2^20, digits=2)) MB at $dims"
         # One workspace for every graph at this resolution: it is reset per op,
         # so the graphs cannot collide over it any more than two ops can.

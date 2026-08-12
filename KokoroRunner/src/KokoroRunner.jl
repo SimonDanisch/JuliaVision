@@ -234,9 +234,17 @@ is cheaper than a second dispatch on a call that is already host-bound.
 `j` varies fastest so the writes are coalesced — both destinations have the frame
 axis first. The reads are not, and do not need to be: `idx` is a
 `repeat_interleave`, so consecutive lanes mostly share one `i`.
+
+**No `cpu = false`**, unlike the other kernels here, so this is the only copy of
+the gather for every backend. It replaced a host loop that main had just fixed a
+different way — a `gatherframes!` function barrier, to stop `dh[c, i, 1]` boxing
+a scalar per element because `speak` does not type what `call` returns. That
+diagnosis was right and the barrier worked; keeping both would have left two
+implementations of one gather to drift apart, which is the thing that must not
+happen.
 """
-@kernel cpu=false function gather_align_kernel!(en, asr, @Const(d), @Const(t_en),
-                                                @Const(idx), F::Int32, C2::Int32)
+@kernel function gather_align_kernel!(en, asr, @Const(d), @Const(t_en),
+                                      @Const(idx), F::Int32, C2::Int32)
     g = @index(Global, Linear) - 1
     j = g % Int(F) + 1
     c = g ÷ Int(F) + 1

@@ -166,8 +166,19 @@ function evalshape(shape, dims)
     Tuple(reverse(out))
 end
 
+# Parsed shape expressions, keyed by their source text.
+#
+# `Meta.parse` depends only on the string — never on `dims` — yet it ran on every
+# shape of every op of every step: 1.03 MB per Kokoro utterance. The graph's
+# shape strings are fixed at load, so the parse is done once and the `Expr`
+# reused. Process-wide rather than per-graph because the key IS the text: two
+# graphs spelling a shape the same way want the same tree.
+const SHAPE_EXPRS = Dict{String,Any}()
+
 function evalexpr(e::AbstractString, dims)
-    ex = Meta.parse(e)
+    ex = get!(SHAPE_EXPRS, String(e)) do
+        Meta.parse(e)
+    end
     evalexpr(ex, dims)
 end
 

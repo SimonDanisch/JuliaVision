@@ -99,8 +99,27 @@ def exact():
     0.9901 -> 0.8662 -> 0.7549 across medium, long and very long inputs, while
     every policy holding F0 in fp32 stays flat at 0.994+.
 
-    Keeping these two exact leaves **88% of the weights in fp16** — including all
-    90 convolutions, which is where the time goes.
+    Keeping these two exact leaves **88% of the weights in fp16** — including 81
+    of the 90 convolutions, which is where the time goes.
+
+    **Not all 90, and this used to claim otherwise.** `predictor.F0` is held
+    exact, and its blocks CONTAIN convolutions — the AdainResBlk1d stack plus
+    `F0_proj` — so nine convolutions ship with fp32 weights:
+
+        3x (256, 256, 3)   2x (512, 512, 3)   1x (512, 1, 3)
+        1x (256, 512, 3)   1x (256, 512, 1)   1x (1, 256, 1)  <- F0_proj
+
+    That matters on the Lava side: `conv_coopmat_plan` gates on both operands
+    being fp16, and the target device has no fp32 tensor-core path at all, so
+    those nine decline the cooperative-matrix kernel by construction.
+
+    Whether they NEED to be exact is untested. The mechanism above is
+    accumulation of phase in `cumsum`/`sin`; `precision_blame.py` rounds a whole
+    submodule at a time, so it cannot separate "F0's convolutions need fp32" from
+    "F0's ACCUMULATION needs fp32". If the convolutions can go fp16 while the
+    cumsum/sin stay exact, nine of them move onto the tensor cores — but that
+    must be validated with the same long-utterance cosine check this policy was
+    chosen by, not assumed.
 
     bf16 was tried first and is WORSE, not better: 0.4462 against fp16's 0.8662
     on a long utterance. Its fp32 exponent range does not help because these

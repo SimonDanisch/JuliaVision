@@ -18,12 +18,13 @@ never grows again.
 
 mutable struct Workspace
     buf::Any            # device Vector{UInt8}, or nothing until first use
+    region::Any         # the pool region `buf` views, so `reset!` can give it back
     used::Int
     backend::Any
     retired::Vector{Any}
 end
 
-Workspace(backend) = Workspace(nothing, 0, backend, Any[])
+Workspace(backend) = Workspace(nothing, nothing, 0, backend, Any[])
 
 """
 Start a fresh op: everything handed out before is free again.
@@ -41,6 +42,12 @@ the final size. On SAM 2's encoder that was gigabytes of dead buffers held for
 the lifetime of the model.
 """
 function reset!(ws::Workspace)
+    # Give the retired REGIONS back now that no dispatch of the previous op can
+    # still be pointing into them — the pool cannot know that, so the workspace
+    # says so.
+    for (_, r) in ws.retired
+        r === nothing || Mantle.release!(Mantle.region(r))
+    end
     isempty(ws.retired) || empty!(ws.retired)
     ws.used = 0
     ws
@@ -66,8 +73,16 @@ function scratch!(ws::Workspace, backend, ::Type{T}, dims::Integer...) where {T}
         # retaining does *not* fix it: the stranded array is still in use by a
         # dispatch this op has yet to record. Growth is geometric and stops after
         # warm-up, so the retained set stays tiny.
-        ws.buf === nothing || push!(ws.retired, ws.buf)
-        ws.buf = KernelAbstractions.allocate(backend, UInt8, max(need + need ÷ 2, 1 << 20))
+        # Retire, never release here: arrays handed out earlier in this op point
+        # into the old buffer and their dispatches are already recorded. The
+        # region goes back at `reset!`, which is the point the comment above
+        # identifies as safe — one op later.
+        ws.buf === nothing || push!(ws.retired, (ws.buf, ws.region))
+        dev = Mantle.Device(backend)
+        ws.region = Mantle.allocate(Mantle.pool(dev), dev, Mantle.Persistent(),
+                                    UInt8, (max(need + need ÷ 2, 1 << 20),);
+                                    align = 256, blocksize = Mantle.blocksize(dev))
+        ws.buf = Mantle.deviceview(dev, ws.region)
     end
     ws.used = need
     # `slabview`, not `GPUArrays.derive` directly: the CPU backend's buffer is an

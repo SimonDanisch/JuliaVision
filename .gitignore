@@ -13,3 +13,5 @@ __pycache__/
 # still resolve them as `@__DIR__/../gen`, so a symlink puts them where those
 # tools look. It is per-machine, hence ignored rather than committed.
 gen
+# --track-allocation=user output; never source
+*.mem

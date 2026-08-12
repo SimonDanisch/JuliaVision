@@ -210,7 +210,14 @@ is what makes the decode run at all, not an optimisation.
 function scratchfor(pipe::WanPipeline, name::AbstractString, g::Graph)
     get!(pipe.scratch, name) do
         plan = planslab(g, (;))
-        slab = KernelAbstractions.allocate(pipe.backend, UInt8, max(plan.bytes, 1))
+        # From Mantle's pool, like `driver.jl`'s. Wan's VAE decoder is 1326 ops
+        # at 256x256x9 — this slab is the reason the decode runs at all, and it
+        # is the single largest scratch allocation in the package.
+        dev = Mantle.Device(pipe.backend)
+        region = Mantle.allocate(Mantle.pool(dev), dev, Mantle.Persistent(),
+                                 UInt8, (max(plan.bytes, 1),);
+                                 align = 256, blocksize = Mantle.blocksize(dev))
+        slab = Mantle.deviceview(dev, region)
         @debug "DNNKernels: $name slab $(round(plan.bytes / 2^20, digits = 1)) MB"
         (slab, plan, Workspace(pipe.backend), fusableset(g))
     end

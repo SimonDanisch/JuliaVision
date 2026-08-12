@@ -80,3 +80,6 @@ include(joinpath(@__DIR__, "test_fusepass.jl"))
 include(joinpath(@__DIR__, "test_flash.jl"))
 include(joinpath(@__DIR__, "test_coopmat_attention.jl"))
 include(joinpath(@__DIR__, "test_flash_cm2.jl"))
+# An elementwise op that allocates its own output instead of taking the planned
+# one. Values stayed correct, so nothing here caught it for as long as it shipped.
+include(joinpath(@__DIR__, "test_clamp_planned.jl"))

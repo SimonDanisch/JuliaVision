@@ -69,7 +69,23 @@ const MODELS = Dict(
     "basicvsrpp"    => ("BasicVSRRunner", "basicvsrpp-fp32"),
     "deepfilternet" => ("DeepFilterRunner", "deepfilternet"),
     "demucs"        => ("DemucsRunner", "demucs"),
-    "kokoro"        => ("KokoroRunner", "kokoro-dyn"),
+    # `kokoro-fp16`, NOT `kokoro-dyn`. Both are length-generic (`symbols = ["f"]`),
+    # so nothing is given up — but `kokoro-dyn` has zero fp16 buffers, and
+    # `conv_coopmat_plan` gates on both operands being fp16 while this device has
+    # no fp32 tensor-core path at all. Every one of the 90 convolutions therefore
+    # declined the cooperative-matrix kernel, which an `opdouble` ablation prices
+    # at +341 ms of a 477 ms utterance — about 72% of the model.
+    #
+    # Measured, same code, only the asset tree differing:
+    #     kokoro-dyn (published)   min 380.9 ms
+    #     kokoro-fp16              min 227.1 ms      1.68x
+    #
+    # The mixed-precision export (#71) landed but this mapping was never moved to
+    # it, so the artifact kept shipping the fp32 graphs. Re-binding needs
+    # `tools/make_artifacts.jl kokoro` AND an upload — the Artifacts.toml download
+    # URL is content-addressed, so rewriting the hash without publishing leaves a
+    # fresh clone unable to fetch it.
+    "kokoro"        => ("KokoroRunner", "kokoro-fp16"),
     "propainter"    => ("ProPainterRunner", "propainter"),
 )
 
