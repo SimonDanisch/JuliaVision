@@ -137,6 +137,7 @@ function fuseattention(g::Graph)
     for (i, op) in enumerate(ops)
         op.aten == "bmm.default" || continue
         op.id in drop && continue
+        n >= FUSEATTENTIONLIMIT[] && break
         got = attentiongroup(g, producer, op)
         got === nothing && continue
         q, k, v, b1, sc, b2, skipped = got
@@ -185,6 +186,16 @@ Also the A/B switch: comparing fused against unfused needs two driver runs on on
 model, because the raw graph cannot be run against a driver-built model's weights.
 """
 const FUSEATTENTION = Ref(false)
+
+"""
+    FUSEATTENTIONLIMIT[] = 1
+
+Fuse at most this many blocks. For bisecting: fusing one block at a time and
+watching where the model's output first diverges separates "every block is
+slightly off and it compounds" from "one block resolves an operand differently
+from the one that was checked by hand".
+"""
+const FUSEATTENTIONLIMIT = Ref(typemax(Int))
 
 function fuseattention(graphs::AbstractDict)
     FUSEATTENTION[] || return (graphs, 0)
