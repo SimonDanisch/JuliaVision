@@ -347,6 +347,37 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
     h = hi === nothing ? Inf32 : Float32(numattr(ctx, hi))
     emit(ctx, Base.broadcasted(clamp, lhs(ctx, op), l, h))
 end
+"""
+`fused.sdpa` — the attention [`fuseattention`](@ref) collapses a
+`bmm -> softmax -> [clone] -> bmm` into.
+
+Its operands are `(q, k, v)` as `(D, S, H, B)`, which is what `sdpa` wants and
+what the exporter's own 4-D buffers already are. The scale is **not** applied
+here: the `mul` that scaled q is left in the graph, so this runs at `scale = 1`.
+
+The declared output keeps the second `bmm`'s shape, `(H, S, D)` in torch order
+and `(D, S, H)` in Julia's — the same elements as `sdpa`'s `(D, S, H, B)` with
+`B == 1`, so the result is reshaped rather than copied.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
+    q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
+    # `sdpa` reads these as dense operands; q/k/v here are usually views over the
+    # QKV projection, and `contiguous` is what every other op does with those.
+    qc = contiguous(ctx, op.ins[1], q)
+    kc = contiguous(ctx, op.ins[2], k)
+    vc = contiguous(ctx, op.ins[3], v)
+    # `sdpa` accumulates in `accum(eltype(q))` — Float32 — which is what the ATen
+    # handler gives it via `tupledest`. Handing it the graph's Float16 output
+    # buffer as `out` does NOT convert: the buffer came back untouched and the
+    # whole model produced a constant. Take the result and convert into the
+    # declared slot; the copy is 1 MB against the 22.5 MB of scores this op
+    # exists to never write.
+    o = sdpa(ctx, qc, kc, vc, nothing, 1.0)
+    d = alloc(ctx, op.out, size(vc, 1), size(qc, 2), size(qc, 3))
+    d .= reshape(o, size(d))
+    d
+end
+
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
     a = lhs(ctx, op)
     d = alloc(ctx, op.out, size(a)...)

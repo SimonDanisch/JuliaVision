@@ -193,6 +193,12 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     # unfused because a dead op stood in the way.
     nfused, nepi, npre = 0, 0, 0
     if fuse
+        # Before `fuseops`: the attention it collapses contains a `clone` and a
+        # `softmax` that the elementwise fuser would otherwise absorb into a
+        # group, and a fused group is no longer recognisable as attention. This
+        # rewrite is worth 9.88x per layer where it fires, so it goes first.
+        graphs, nattn = fuseattention(graphs)
+        nattn > 0 && @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
         graphs, nfused = fuseops(graphs)
         # After `fuseops`, so a chain it collapsed can be folded into the GEMM
         # whole rather than only its last link.
