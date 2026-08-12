@@ -256,15 +256,15 @@ which is an ordinary correlation of `x` with a phase-sliced kernel of length
 ONE convolution producing `S*C_out` channels, then an interleave — the same
 pixel-shuffle identity `shufflecase` uses, one step more general.
 
-2-D is excluded deliberately: SAM 2's decoder is the only 2-D user and it already
-satisfies `shufflecase`, so the extra weight-permute machinery would be untested
-code on a path that never runs.
+Both axes, so 1-D falls out as `Sy = Ky = 1, Py = 0`. RIFE's flow decoder has
+**seven** of these at `K = 4, S = 2, P = 1` — the same overlap one dimension up —
+and they were 63.0 ms of a 170 ms interpolation at 0.24 TF/s.
 """
 @inline phasecase(w, stride, padding, dilation, outpad, groups) =
     groups == 1 && length(stride) == 2 &&
-    size(w, 2) == 1 && stride[2] == 1 && padding[2] == 0 &&      # genuinely 1-D
     all(==(1), dilation) && all(==(0), outpad) &&
-    stride[1] > 1 && size(w, 1) >= stride[1]
+    (stride[1] > 1 || stride[2] > 1) &&
+    size(w, 1) >= stride[1] && size(w, 2) >= stride[2]
 
 """
 Interleave the `S` phases of [`phasecase`](@ref)'s convolution into the output.
@@ -274,12 +274,16 @@ Interleave the `S` phases of [`phasecase`](@ref)'s convolution into the output.
 write consecutive addresses, and positions whose `q` fell outside the convolution
 are zero — they are the ones the padding removed.
 """
-@inline function phaseout(I, Y, bias, ::Val{S}, ::Val{P}, Q::Int32) where {S,P}
+@inline function phaseout(I, Y, bias, ::Val{SX}, ::Val{SY}, ::Val{PX}, ::Val{PY},
+                          QX::Int32, QY::Int32) where {SX,SY,PX,PY}
     ox, oy, co, n = I
     @inbounds begin
-        t = ox - 1 + P
-        d, q = Lava.splitidx(t, Val(S))
-        v = (q >= 0 && q < Int(Q)) ? Y[1 + q, 1, 1 + d + S * (co - 1), 1] : zero(eltype(Y))
+        dx, qx = Lava.splitidx(ox - 1 + PX, Val(SX))
+        dy, qy = Lava.splitidx(oy - 1 + PY, Val(SY))
+        inside = qx >= 0 && qx < Int(QX) && qy >= 0 && qy < Int(QY)
+        # `dx + SX*(dy + SY*(co-1))` is the phase stacking the weight build uses.
+        v = inside ? Y[1 + qx, 1 + qy, 1 + dx + SX * (dy + SY * (co - 1)), 1] :
+                     zero(eltype(Y))
         bias === nothing ? v : v + bias[co]
     end
 end
@@ -378,34 +382,38 @@ The weight is rebuilt per call. It is a graph constant and belongs at load time
 72 ms the old path spent.
 """
 function convolutiontranspose_phase!(ctx, out, x, w, bias, stride, padding)
-    S, P = stride[1], padding[1]
-    K, Cout, Cin = size(w, 1), size(w, 3), size(w, 4)
-    M = size(x, 1)
-    J = cld(K, S)
+    SX, SY = stride[1], stride[2]
+    PX, PY = padding[1], padding[2]
+    KX, KY, Cout, Cin = size(w, 1), size(w, 2), size(w, 3), size(w, 4)
+    MX, MY = size(x, 1), size(x, 2)
+    JX, JY = cld(KX, SX), cld(KY, SY)
     T = eltype(out)
 
     # `(KW, KH, C_in, C_out)` is what `convolution!` wants, and a TRANSPOSED
     # weight arrives `(KW, KH, C_out, C_in)` — torch stores it `C_in`-major. The
     # permute is once for the whole weight rather than once per phase slice;
     # building `Wp` the other way round silently computes a different product and
-    # still returns speech-shaped audio, which is why the test below diffs
-    # against the gather kernel elementwise.
-    wp = permutedims(w, (1, 2, 4, 3))                 # (K, 1, C_in, C_out)
-    Wp = scratch!(ctx, T, J, 1, Cin, S * Cout)
+    # still returns speech-shaped audio, which is why the test diffs against the
+    # gather kernel elementwise.
+    wp = permutedims(w, (1, 2, 4, 3))                 # (KX, KY, C_in, C_out)
+    NP = SX * SY
+    Wp = scratch!(ctx, T, JX, JY, Cin, NP * Cout)
     fill!(Wp, zero(T))
-    for j in 0:(J - 1), d in 0:(S - 1)
-        kk = d + j * S
-        kk < K || continue
-        # `J - j` is the flip; `d + S*(co-1)` is the channel-major stacking the
-        # interleave above reads back.
-        copyto!(view(Wp, J - j, 1, :, (d + 1):S:(d + 1 + S * (Cout - 1))),
-                view(wp, kk + 1, 1, :, :))
+    for jx in 0:(JX - 1), jy in 0:(JY - 1), dx in 0:(SX - 1), dy in 0:(SY - 1)
+        kx, ky = dx + jx * SX, dy + jy * SY
+        (kx < KX && ky < KY) || continue
+        # `JX - jx` is the flip; `dx + SX*(dy + SY*(co-1))` is the phase stacking
+        # `phaseout` reads back, so the two must be written together.
+        c0 = 1 + dx + SX * dy
+        copyto!(view(Wp, JX - jx, JY - jy, :, c0:NP:(c0 + NP * (Cout - 1))),
+                view(wp, kx + 1, ky + 1, :, :))
     end
 
-    Q = M + J - 1                       # `padding = J-1` on both sides, stride 1
-    Y = scratch!(ctx, T, Q, 1, S * Cout, 1)
-    convolution!(ctx, Y, x, Wp, nothing, [1, 1], [J - 1, 0], [1, 1], 1)
-    launch!(ctx, phaseout, out, Y, bias, Val(S), Val(P), Int32(Q))
+    QX, QY = MX + JX - 1, MY + JY - 1   # `padding = J-1` on both sides, stride 1
+    Y = scratch!(ctx, T, QX, QY, NP * Cout, 1)
+    convolution!(ctx, Y, x, Wp, nothing, [1, 1], [JX - 1, JY - 1], [1, 1], 1)
+    launch!(ctx, phaseout, out, Y, bias, Val(SX), Val(SY), Val(PX), Val(PY),
+            Int32(QX), Int32(QY))
     out
 end
 

@@ -75,21 +75,29 @@ const DK = DNNKernels
         w22 = w33 = nothing; GC.gc()
     end
 
-    @testset "an overlapping kernel still goes through the gather" begin
-        # 3x3 stride 2: the fields overlap, so the GEMM route must not fire and
-        # the answer must still be right.
+    @testset "an overlapping kernel takes the PHASE path, not the gather" begin
+        # 3x3 stride 2: the fields overlap, so `shufflecase`'s GEMM route must
+        # not fire. It used to fall to the gather and this asserted the two were
+        # bit-identical — which they were, because both arms WERE the gather.
+        # `phasecase` now routes it, so the workspace arm is a real convolution
+        # and the no-workspace arm is still the gather: same answer, different
+        # summation order, no longer bit-equal.
         Ci, Hi, Co = 16, 8, 8
         hx = randn(Float32, Hi, Hi, Ci, 1) .* 0.1f0
         hw = randn(Float32, 3, 3, Co, Ci) .* 0.1f0
         x, w = DK.toback(back, hx), DK.toback(back, hw)
+        @test !DK.shufflecase(w, (2,2), (0,0), (1,1), (0,0), 1)
+        @test DK.phasecase(w, (2,2), (0,0), (1,1), (0,0), 1)
         ox = DK.convtransposesize(Hi, 3, 2, 0, 1, 0)
         ref = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(ref, 0f0)
         got = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(got, 0f0)
+        # `nows` has no workspace, so it cannot take either fast route.
         DK.convolutiontranspose!(nows, ref, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
         DK.reset!(ws)
         DK.convolutiontranspose!(ctx, got, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
         KA.synchronize(back)
-        @test Array(ref) == Array(got)
+        r, g = Array(ref), Array(got)
+        @test maximum(abs, r .- g) < 1e-5 * maximum(abs, r)
         x = w = ref = got = nothing; GC.gc()
     end
 end
@@ -279,8 +287,12 @@ end
     @testset "the non-overlapping case still belongs to shufflecase" begin
         w = KA.allocate(back, Float16, 2, 2, 32, 64)
         @test DK.shufflecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
-        # 2-D is out of scope for the phase path — it requires a 1-D weight.
-        @test !DK.phasecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
+        # `phasecase` would also accept `K == S` — it is the more general test —
+        # so the ORDER in `convolutiontranspose!` is what keeps SAM 2's decoder on
+        # its own GEMM: the phase route is guarded by `!shufflecase(...)`. Asserting
+        # `!phasecase` here was true only while the phase path was 1-D, and became
+        # a false statement about the dispatch the moment it covered 2-D.
+        @test DK.phasecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
         w = nothing
     end
     # Grouped stays on the gather: the phase weight flattens all input channels
