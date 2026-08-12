@@ -363,9 +363,16 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
     # `sdpa` reads these as dense operands; q/k/v here are usually views over the
     # QKV projection, and `contiguous` is what every other op does with those.
-    qc = contiguous(ctx, op.ins[1], q)
-    kc = contiguous(ctx, op.ins[2], k)
-    vc = contiguous(ctx, op.ins[3], v)
+    # `materialize`, not just `contiguous`. An elementwise producer stays LAZY —
+    # `mul.Tensor`, which scales q, is fusable, so `value` hands back an
+    # unevaluated broadcast that its consumer is expected to force. `contiguous`
+    # only collapses a `PermutedDimsArray`, so the operand arrived unevaluated
+    # and read as **all zeros**: `in mul [0.0000, 0.0000]`. That is why three
+    # different output destinations all produced the same wrong answer — the
+    # input was zero every time and the destination was never the problem.
+    qc = contiguous(ctx, op.ins[1], materialize(ctx, q))
+    kc = contiguous(ctx, op.ins[2], materialize(ctx, k))
+    vc = contiguous(ctx, op.ins[3], materialize(ctx, v))
     # Return `sdpa`'s own result and let `execute!`'s `coerce` put it in the
     # declared dtype — `sdpa` accumulates in `accum(eltype(q))` = Float32 while
     # this buffer is Float16.
