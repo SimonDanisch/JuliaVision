@@ -374,7 +374,29 @@ wrong by a factor of thirty.
        size(A, 1) % t == 0 && size(A, 2) % t == 0
         return true
     end
-    eltype(out) === Float32 || return false
+    # ── The tile-count clause applies to BOTH dtypes.
+    #
+    # This used to be `eltype(out) === Float32 || return false`, i.e. "fp16's only
+    # real kernel is the cooperative-matrix one, so an fp16 plane that missed the
+    # branch above has nothing to go per-plane FOR". That was true when it was
+    # written and is not any more: `matmul!` pads a plane onto a real kernel, and
+    # the flat `mm3` it fell back to instead is roughly a 1 TF/s path.
+    #
+    # It cost Depth Anything's autocast export a factor of **3.75 end to end**,
+    # invisibly, because every extent it has is 1370 (37x37 patches + cls) and
+    # 1370 % 16 = 10. Measured on its own `QK^T`, (1370,64,6) x (64,1370,6):
+    #
+    #     fp16 via mm3        1.440 ms   1.00 TF/s     <- what this line caused
+    #     fp32 planewise      0.400      3.60
+    #     fp16 planewise      0.209      7.29
+    #
+    # So the fp16 arm was 3.6x SLOWER than the fp32 one for a dtype that should
+    # win, which is what made the whole export look like a dead end.
+    #
+    # MatAnyone — the model the clause below was added to protect, whose 16x32
+    # fp16 planes lose 14.5% when routed per plane — is unaffected: those planes
+    # are already rejected by the `M >= SGEMM_BM && N >= SGEMM_BN` test above,
+    # which is dtype-independent and fires first.
     tm, tn = cld(M, Lava.SGEMM_BM), cld(N, Lava.SGEMM_BN)
     return tm * tn >= Lava.SGEMM_MINTILES &&
            (tm * Lava.SGEMM_BM) * (tn * Lava.SGEMM_BN) <= Lava.SGEMM_MAXWASTE * M * N
