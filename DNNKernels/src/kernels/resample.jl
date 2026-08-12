@@ -237,6 +237,22 @@ Nothing needs the host to wait here: the device orders the writes against any
 later kernel that reads `out` through the batch's own buffer dependencies. A
 caller that genuinely wants the result on the host syncs there, which is the one
 place that can know it.
+
+**What it cost, and why**, sampling `utilization.gpu` from outside the process
+during a sustained RIFE loop with this one sync toggled:
+
+                  wall     util    GPU busy   GPU IDLE
+    with sync    98.7 ms   68.7%    67.8 ms    30.9 ms
+    without      91.9      71.8%    66.0       25.9
+
+GPU busy time is unchanged — the sync does no work — and the whole 6.1 ms is
+idle: host recording that was hiding under execution, exposed. An MWE of the same
+18 launches reproduces only 0.87 ms of that, because its filler ops were trivial
+broadcasts where these are convolutions with plan lookups and scratch allocation.
+
+The row worth staring at is the last one: **RIFE idles ~26 ms even without the
+sync, 28% of the model.** 350 ops is more than this host can record while the
+card stays fed.
 """
 function grid_sample2d!(out, x, grid; align_corners::Bool = true, padding::Symbol = :zeros)
     backend = KernelAbstractions.get_backend(out)
