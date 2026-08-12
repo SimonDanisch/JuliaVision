@@ -177,6 +177,48 @@ end
         end
     end
 
+    # ── The fp16 pad path: `M` off a tiling block is padded up and the sub-block
+    # copied back. It is only safe because `K` is never padded, so no garbage in
+    # the uninitialised scratch can reach the kept result — assert that directly
+    # by running it against scratch deliberately poisoned with NaN.
+    if back isa Lava.LavaBackend
+        @testset "padded fp16 planes agree, and K is never padded" begin
+            M, K, N, nb = 1370, 64, 1370, 2            # Depth Anything's QK^T
+            @test DNNKernels.bmmpad(M) == 1408          # 64, not GEMM_BLOCK's 192
+            Ah = Float16.(randn(Float32, M, K, nb) .* 0.1f0)
+            Bh = Float16.(randn(Float32, K, N, nb) .* 0.1f0)
+            A = KA.allocate(back, Float16, M, K, nb); copyto!(A, Ah)
+            B = KA.allocate(back, Float16, K, N, nb); copyto!(B, Bh)
+            out = KA.allocate(back, Float16, M, N, nb)
+            ref = KA.allocate(back, Float16, M, N, nb)
+
+            @test DNNKernels.bmmpad_worth(ctx, out, A, B)
+            reset!(ctx.ws)
+            # Poison the workspace so an accidental read of the pad shows up.
+            fill!(scratch!(ctx, Float16, 4 << 20), Float16(NaN))
+            reset!(ctx.ws)
+            DNNKernels.batchedmatmul_padded!(ctx, out, A, B)
+            reset!(ctx.ws)
+            for b in 1:nb
+                matmul!(ctx, view(ref, :, :, b), view(A, :, :, b), view(B, :, :, b))
+            end
+            KA.synchronize(back)
+            g, r = Float32.(Array(out)), Float32.(Array(ref))
+            @test all(isfinite, g)                       # the NaN pad stayed out
+            # Not bit-identical: the padded shape can pick another tiling and sum
+            # K in another order. Measured 2 ULPs / rel rms 1e-5 on this shape.
+            @test sqrt(sum(abs2, g .- r) / sum(abs2, r)) < 1e-4
+
+            # The gate is `M`, not `N`: Depth Anything's OTHER product has a bad
+            # `N` and a fine `M`, and padding it means copying the big operand —
+            # measured 0.7x, a regression. It must decline.
+            outpv = KA.allocate(back, Float16, K, N, nb)
+            Apv = KA.allocate(back, Float16, K, N, nb)
+            Bpv = KA.allocate(back, Float16, N, N, nb)
+            @test !DNNKernels.bmmpad_worth(ctx, outpv, Apv, Bpv)
+        end
+    end
+
     # `mm3` is still the path for anything not sliceable plane-wise, and it has
     # to stay correct: a mismatched batch extent must not silently take the loop.
     @testset "non-sliceable shapes still work" begin

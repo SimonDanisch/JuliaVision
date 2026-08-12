@@ -402,9 +402,97 @@ wrong by a factor of thirty.
            (tm * Lava.SGEMM_BM) * (tn * Lava.SGEMM_BN) <= Lava.SGEMM_MAXWASTE * M * N
 end
 
+"""
+    BMM_PADSTEP
+    bmmpad(n) -> Int
+
+Round a batched-GEMM plane extent up to something a tiling block divides.
+
+`Lava.gemm_tiling` takes the first tiling whose block **divides the shape
+exactly**, so an extent that divides nothing gets the register-blocked kernel
+however healthy it looks. Depth Anything's every extent is 1370 (37x37 patches
+plus a cls token); 1370 is `2 * 5 * 137` and divides none of 16/32/64/96/128.
+
+64, not `GEMM_BLOCK`. `GEMM_BLOCK` is `lcm(96, 64, 32) = 192` — it makes *every*
+tiling applicable, which is what the im2col row pad wants, but it takes 1370 to
+1536 and 25.7% more arithmetic. Measured on the real QK^T shape,
+`(1370,64,6) x (64,1370,6)` fp16:
+
+    L = 1370   1.289 ms   1.12 TF/s   (+0.0% work)  <- divides nothing
+    L = 1408   0.212      7.19        (+5.6%)       <- 64, and the fastest
+    L = 1536   0.227      8.00       (+25.7%)       <- GEMM_BLOCK, better rate
+                                                       and worse wall time
+
+The higher rate at 1536 with the worse time is the trap in picking this constant
+off TF/s instead of milliseconds.
+"""
+const BMM_PADSTEP = 64
+bmmpad(n::Int) = cld(n, BMM_PADSTEP) * BMM_PADSTEP
+
+"""Would padding this plane's `M`/`N` onto a block buy a real kernel?"""
+@inline function bmmpad_worth(ctx, out, A, B)
+    ctx.ws === nothing && return false
+    eltype(out) === Float16 && eltype(A) === Float16 && eltype(B) === Float16 || return false
+    A isa Lava.LavaArray && B isa Lava.LavaArray && out isa Lava.LavaArray || return false
+    M, N = size(out, 1), size(out, 2)
+    Mp, Np = bmmpad(M), bmmpad(N)
+    # **`M` is the gate, not `M` or `N`.** The pad is not free — the operands have
+    # to be copied into the padded scratch and the result copied back out — so it
+    # only pays where the tiling is actually stuck, and that is the block-row axis.
+    #
+    # Both of Depth Anything's attention products have a bad `N`, and they
+    # disagree completely, measured fp16 against the unpadded planewise path:
+    #
+    #     QK^T  (1370,64,6)x(64,1370,6)   M 1370 bad   1.283 -> 0.563 ms   2.3x
+    #     P.V   (64,1370,6)x(1370,1370,6) M   64 fine  1.079 -> 1.623      0.7x
+    #
+    # P.V regresses because fixing its `N` means copying `B`, which is the
+    # 1370x1370 operand — 22.5 MB moved to pad an axis that was not what held it
+    # back. Gating on `M` leaves it alone.
+    Mp == M && return false
+    # The pad is also paid for in arithmetic, so cap it. 1.25 matches `crspad`
+    # next door; 1370 -> 1408 is 1.056, and a 100-row plane padded to 128 is 1.28
+    # and correctly refused.
+    (Mp * Np) <= 1.25 * M * N
+end
+
+"""
+Batched GEMM on planes padded up to a tiling block, then the sub-block copied out.
+
+**Nothing is zeroed, and that is not an oversight.** Only `M` and `N` are padded,
+never `K`, so a padded row of `A` only ever produces a padded row of `C` and a
+padded column of `B` only a padded column of `C` — both discarded. No garbage in
+the scratch can reach `out[1:M, 1:N, :]`, which is what makes this cheap enough
+to be worth doing.
+
+That is a statement about *contamination*, not about bits. The padded shape can
+pick a different tiling, and a different tiling sums `K` in a different order, so
+the result is not bit-identical — measured on the QK^T shape against the unpadded
+planewise product: **rel rms 1.0e-05, max 2 ULPs, 0.074% of elements differ**.
+(The `(64,1370,6)` shape, where only `N` moves, IS exact.) Floating-point
+addition is not associative; this is that and nothing more.
+"""
+function batchedmatmul_padded!(ctx, out, A, B)
+    T = eltype(out)
+    M, N, nb = size(out, 1), size(out, 2), size(out, 3)
+    K = size(A, 2)
+    Mp, Np = bmmpad(M), bmmpad(N)
+    Ap = scratch!(ctx, T, Mp, K, nb)
+    Bp = scratch!(ctx, T, K, Np, nb)
+    Cp = scratch!(ctx, T, Mp, Np, nb)
+    copyto!(view(Ap, 1:M, :, :), A)
+    copyto!(view(Bp, :, 1:N, :), B)
+    for b in 1:nb
+        matmul!(ctx, view(Cp, :, :, b), view(Ap, :, :, b), view(Bp, :, :, b))
+    end
+    copyto!(out, view(Cp, 1:M, 1:N, :))
+    out
+end
+
 function batchedmatmul!(ctx, out, A, B)
     if ndims(out) == 3 && ndims(A) == 3 && ndims(B) == 3 &&
        size(A, 3) == size(B, 3) == size(out, 3) && planewise_worth(ctx, out, A, B)
+        bmmpad_worth(ctx, out, A, B) && return batchedmatmul_padded!(ctx, out, A, B)
         for b in axes(out, 3)
             matmul!(ctx, view(out, :, :, b), view(A, :, :, b), view(B, :, :, b))
         end
