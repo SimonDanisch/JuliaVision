@@ -38,14 +38,15 @@ using Test, KokoroRunner, DNNKernels, Lava
         # operands; the fp32 export has 0 and 0. The thresholds are deliberately
         # loose — this catches "the wrong export shipped", not a small drift.
         #
-        # `@test_broken` because the CURRENTLY PUBLISHED artifact fails both, and
-        # a red suite for a stale upload helps nobody. Republishing
-        # gen/graphs/kokoro-fp16 (tools/publish_artifacts.jl + an Artifacts.toml
-        # bump) flips these to "Unexpectedly Passing", which is the signal to
-        # turn them back into plain `@test`.
+        # These were `@test_broken` while the published artifact was the fp32
+        # export. Rebound to `kokoro-fp16` (tree e72003e9) and uploaded to
+        # assets-v1 on 2026-08-12, at which point both reported "Unexpectedly
+        # Passing" — the signal this comment asked for — and became plain tests.
+        # Measured then: 1278 fp16 buffers, 81 fp16 convolutions, and the
+        # utterance 658.8 -> 285.7 ms.
         @info "shipped Kokoro assets" fp16_buffers = nfp16 fp16_convs = fp16convs
-        @test_broken nfp16 > 500
-        @test_broken fp16convs >= 70
+        @test nfp16 > 500
+        @test fp16convs >= 70
 
         # The nine that stay fp32 are `predictor.F0`'s convolutions, held exact
         # because its error accumulates phase through sin(cumsum(F0)). If this
