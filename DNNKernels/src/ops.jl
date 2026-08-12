@@ -366,16 +366,19 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     qc = contiguous(ctx, op.ins[1], q)
     kc = contiguous(ctx, op.ins[2], k)
     vc = contiguous(ctx, op.ins[3], v)
-    # `sdpa` accumulates in `accum(eltype(q))` — Float32 — which is what the ATen
-    # handler gives it via `tupledest`. Handing it the graph's Float16 output
-    # buffer as `out` does NOT convert: the buffer came back untouched and the
-    # whole model produced a constant. Take the result and convert into the
-    # declared slot; the copy is 1 MB against the 22.5 MB of scores this op
-    # exists to never write.
+    # Return `sdpa`'s own result and let `execute!`'s `coerce` put it in the
+    # declared dtype — `sdpa` accumulates in `accum(eltype(q))` = Float32 while
+    # this buffer is Float16.
+    #
+    # Do NOT `alloc(ctx, op.out, ...)` and copy into it. `execute!` sets
+    # `ctx.outid[] = op.out` before the call, so `sdpa`'s internal `dest` hands
+    # back THE SAME planned slot that `alloc` does — the copy was a buffer
+    # assigned to itself through a differently-typed view, and the model came out
+    # a constant. Two different guesses at the destination both produced the
+    # bit-identical wrong answer, which is what said the fault was the slot and
+    # not the dtype.
     o = sdpa(ctx, qc, kc, vc, nothing, 1.0)
-    d = alloc(ctx, op.out, size(vc, 1), size(qc, 2), size(qc, 3))
-    d .= reshape(o, size(d))
-    d
+    reshape(o, size(o, 1), size(o, 2), size(o, 3))
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
