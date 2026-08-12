@@ -111,6 +111,21 @@ k = Kokoro()
     @test length(ids) == 7
     # A character outside the vocabulary is dropped, not substituted.
     @test length(tokenize(k, "hˈɛlO☃")) == length(ids)
+
+    # ── The artifact carries the fp16 export, and this is the only thing that
+    # says so. `tools/make_artifacts.jl` packed `gen/graphs/kokoro-dyn` — the fp32
+    # export sitting next to the fp16 one — for six days. Every test passed, the
+    # audio was correct, and the only symptom was a benchmark number: this device
+    # has no fp32 tensor-core path, so all ~90 convolutions declined the
+    # cooperative-matrix kernel and the utterance cost 659 ms instead of 286.
+    #
+    # Assert the PROPERTY the export promises, not just that the model runs. A
+    # stale publish is invisible otherwise — the runner asks for a hash and trusts
+    # whatever is behind it.
+    half = sum(length(v) for (_, v) in k.model.weights
+               if v isa AbstractArray && eltype(v) === Float16; init = 0)
+    total = sum(length(v) for (_, v) in k.model.weights if v isa AbstractArray; init = 0)
+    @test half / total > 0.4
 end
 
 @testset "alignment" begin

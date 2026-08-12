@@ -219,6 +219,48 @@ function align(duration::AbstractVector, speed::Real)
 end
 
 """
+    gather_align_kernel!(en, asr, d, t_en, idx)
+
+Both halves of the frame-level gather in one launch.
+
+`idx` is the per-frame token index [`align`](@ref) produces, so this is
+`en[j, c] = d[c, idx[j]]` and `asr[j, c] = t_en[idx[j], c]` — the duration
+model's expansion of `t` tokens into `f` frames.
+
+One kernel rather than two because `asr`'s 512 channels are a prefix of `en`'s
+640: the wider launch covers both and the narrower write is one predicate, which
+is cheaper than a second dispatch on a call that is already host-bound.
+
+`j` varies fastest so the writes are coalesced — both destinations have the frame
+axis first. The reads are not, and do not need to be: `idx` is a
+`repeat_interleave`, so consecutive lanes mostly share one `i`.
+"""
+@kernel cpu=false function gather_align_kernel!(en, asr, @Const(d), @Const(t_en),
+                                                @Const(idx), F::Int32, C2::Int32)
+    g = @index(Global, Linear) - 1
+    j = g % Int(F) + 1
+    c = g ÷ Int(F) + 1
+    @inbounds i = Int(idx[j])
+    @inbounds en[j, c, 1] = d[c, i, 1]
+    @inbounds if c <= Int(C2)
+        asr[j, c, 1] = t_en[i, c, 1]
+    end
+end
+
+"""
+    gather_align!(backend, en, asr, d, t_en, idx) -> nothing
+
+Launch [`gather_align_kernel!`](@ref) over `size(en, 1) * size(en, 2)` elements.
+"""
+function gather_align!(backend, en, asr, d, t_en, idx)
+    f, c1 = size(en, 1), size(en, 2)
+    gather_align_kernel!(backend, 256)(en, asr, d, t_en, idx,
+                                       Int32(f), Int32(size(asr, 2));
+                                       ndrange = f * c1)
+    nothing
+end
+
+"""
     speak(k, text; voice, speed, trim) -> Vector{Float32}
 
 Text -> 24 kHz mono audio. The whole path: [`phonemize`](@ref), tokenize, the
@@ -256,21 +298,27 @@ function speak(k::Kokoro; phonemes::AbstractString, voice::AbstractString = "af_
     idx = align(vec(Array(duration)), speed)
     f = length(idx)
 
-    # `en` is `d` transposed and gathered; `asr` is `t_en` gathered. Both on the
-    # host: the gather is `f` int reads and the graphs want contiguous inputs, so
-    # a device kernel here would buy nothing and cost an upload either way.
-    dh = Array(d)                                     # (640, t, 1)
-    teh = Array(t_en)                                 # (t, 512, 1)
-    en = Array{Float32}(undef, f, 640, 1)
-    asr = Array{Float32}(undef, f, 512, 1)
-    @inbounds for j in 1:f
-        i = idx[j]
-        for c in 1:640; en[j, c, 1] = dh[c, i, 1]; end
-        for c in 1:512; asr[j, c, 1] = teh[i, c, 1]; end
-    end
+    # `en` is `d` transposed and gathered; `asr` is `t_en` gathered, **on the
+    # device**. Only `duration` — `t` floats — has to reach the host, because the
+    # model decides its own output length and `f` is a launch dimension.
+    #
+    # This was a host loop, defended on the grounds that "the gather is `f` int
+    # reads and the graphs want contiguous inputs, so a device kernel here would
+    # buy nothing and cost an upload either way". Right about the bytes (0.83 MB
+    # round trip) and wrong about everything else, measured 2026-08-12:
+    #
+    #   * `call` returns `Any`, so `dh`/`teh` were untyped and the inner loops
+    #     **boxed every element** — 166 660 of the utterance's 324 967 host
+    #     allocations, from two lines;
+    #   * three extra device syncs, on a call where the GPU is already idle 60% of
+    #     the time against SAM 2's 3%.
+    #
+    # The gather itself is `f * 1152` reads and the device does it in one launch.
+    en = KA.allocate(k.backend, Float32, f, 640, 1)
+    asr = KA.allocate(k.backend, Float32, f, 512, 1)
+    gather_align!(k.backend, en, asr, d, t_en, toback(k.backend, idx))
 
-    audio, = call(k.model, "kokorovoc", toback(k.backend, en), toback(k.backend, asr),
-                  ref_s; dims = (f = f,),
+    audio, = call(k.model, "kokorovoc", en, asr, ref_s; dims = (f = f,),
                   noise = noise ? DNNKernels.RandomNoise() : DNNKernels.ZeroNoise())
     out = Array(audio)
     trim ? trimsilence(out) : out

@@ -1,9 +1,9 @@
 [kokoro]
-git-tree-sha1 = "5d3fbde5d3fd67686d18261ef141d163c148dbe9"
+git-tree-sha1 = "e72003e9926bfa5f1b1061c7f32803918d8090a8"
 lazy = true
 
     [[kokoro.download]]
-    sha256 = "0fe8a6d4002267ac9c3478a97ff18565e255cd772ea438c9fa6804243e5e5bd5"
+    sha256 = "fe2333483e6405b74aabaa8ae8d2767b8b630acfb6dbd9e57be9ba8e0ff3848e"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/kokoro.tar.gz"
 
 [kokoro-ckpt]
