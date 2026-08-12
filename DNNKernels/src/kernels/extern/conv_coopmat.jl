@@ -183,8 +183,28 @@ fallback a slower convolution rather than an allocation failure.
 
 When the driver has no `VK_EXT_memory_budget` (`budget == 0`), this falls back to
 `IM2COL_CAP` unchanged, which is the old behaviour exactly.
+**512 MiB, raised from 128 — because 128 was the binding constraint on a 20 GB
+card, which is the wrong knob doing the work.** `free ÷ 4` is meant to be the real
+guard and this the backstop; with 17 GB free that quarter-share is ~4.3 GB, so the
+backstop was deciding every case instead. RIFE's flow encoder has five
+convolutions whose im2col is 159 MB to 1.11 GB and they declined to the
+implicit-GEMM kernel: **28.0 ms of a 110 ms interpolation for 10% of its
+arithmetic** — 0.52 TF/s where the 51 that fit run at 6.1.
+
+Swept on RIFE, all else equal:
+
+    cap    accepting   RIFE
+    128 MB   51/56    109.80 ms
+    192      55/56    102.10
+    256      55/56    101.41
+    384      56/56     96.90
+    1536     56/56     96.96      <- saturated; the extra ceiling buys nothing
+
+384 captures all of it, so 512 is that with margin rather than a number fitted to
+one model. Above it there is nothing to gain and only a larger transient to lose,
+and `free ÷ 4` still binds first on a busy card — the case this ceiling is for.
 """
-const IM2COL_CAP = Ref(128 << 20)
+const IM2COL_CAP = Ref(512 << 20)
 
 function im2colbudget(x)
     # The context comes from the OPERAND, not from a backend or a `DeviceCaps` —
