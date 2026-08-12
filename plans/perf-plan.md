@@ -18,6 +18,54 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-08-11: attention improved 33% and is STILL the largest gap
+
+**Do not read the section below as "attention is done".** After the coopmat2
+rewrite, a per-op comparison against PyTorch's own kernel times
+(`tools/sam2_kernel_table.jl` against `gen/graphs/sam2-large/pytorch_kernels.json`)
+decomposes the remaining 24 ms of the encode as:
+
+    op            ours~ms   torch   delta
+    attention        20.6    8.17   +12.4   <- still the biggest single item
+    addmm            41.3   29.69   +11.6
+    layer_norm        9.1    5.12    +4.0
+    add               7.8    4.67    +3.1
+    convolution       3.3    0.79    +2.5
+    max_pool          2.1    1.04    +1.0
+    clone             5.6   11.05    -5.4   <- we are FASTER
+    gelu              0.0    5.80    -5.8   <- folded into producers
+    SUM              90.6   66.33   +24.0   (measured gap +24.0)
+
+"ours" is the serialised per-op measurement scaled by 0.714 — the ratio of that
+run's total to the real encode — so the rows are indicative and the SUM
+reconciling exactly to the measured gap is the check that the decomposition is
+self-consistent. PyTorch's column is read from its own profile and needs no
+scaling.
+
+**PyTorch's flash attention runs at 24.9 TFLOP/s** (203.1 GFLOP in 8.17 ms).
+Our coopmat2 kernel does the 4096-long shape at **12.0**. So the -33% this
+rewrite bought closed about a third of that bucket's gap and left roughly 12 ms,
+which is half of everything remaining. The other half is `addmm`, where our
+staged GEMM is at 85% of cuBLAS and the coopmat2 route has been measured and
+declined (`Lava/src/array/gemm_cm2.jl`).
+
+## 2026-08-11: the attention rewrite happened, and it was the operands' layout
+
+**Improved by `attn_flash_cm2!`** (`kernels/extern/flash_cm2.jl`), not by any of
+the seven hypotheses below. Workgroup-scope cooperative matrices and
+tensor-addressed loads: attention **43.19 -> 28.85 ms** per encode measured per
+op, the encode **103.45 -> 90.61 ms (-12.4%)**, 72.9% of PyTorch from 64%. The
+section below stays because its *method* is right and its conclusions were: it
+correctly bounded the softmax's structure at ~2 ms, and the win came from
+somewhere it was not looking — not doing the staging at all.
+
+One warning it did not contain, and every future entry here needs it: **`encode`
+runs a baked plan.** Flipping a decision between two `encode` calls changes
+nothing (the dispatches are already recorded) and `optimes` records nothing (a
+replay never reaches `timeop!`). Two measurements of this change reported "worth
+nothing" before that was noticed. Drop `sam.plans[]` per arm, or measure through
+`DNNKernels.call`.
+
 ## 2026-08-02: sizing the attention rewrite before anyone starts it
 
 The remaining encode gap is attention — 34.27 ms against PyTorch's ~19.3 on the

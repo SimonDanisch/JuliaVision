@@ -7,3 +7,9 @@ Manifest.toml
 # python bytecode from tools/
 __pycache__/
 *.pyc
+
+# Workspace layout: the model exports live at the workspace root (`gen/`),
+# which is one level above this repo since the monorepo move. Fourteen tools
+# still resolve them as `@__DIR__/../gen`, so a symlink puts them where those
+# tools look. It is per-machine, hence ignored rather than committed.
+gen

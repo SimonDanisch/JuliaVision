@@ -423,11 +423,68 @@ is using it.
 | # | feature | what it would change | state | est. value | task |
 |---|---|---|---|---|---|
 | 17 | coopmat2 **reductions** | flash softmax's row max/sum, currently a shared round-trip + 2 barriers | **INSTRUCTION DONE 2026-08-03; K3's premise is dead — see below** | ~0 | K3 |
-| 18 | coopmat2 **flexible dimensions** | `E = 72` stops padding to `EP = 80`; reopens the tiling space | **open** | 10% of both attention products | K4 |
-| 19 | coopmat2 **tensor addressing / block loads** | replaces flash's hand-coded root+stride staging and the GEMM's 2-barrier k-step | **open** | unknown; a route past the GEMM's 35% | K5 |
+| 18 | coopmat2 **flexible dimensions** | `E = 72` stops padding to `EP = 80`; reopens the tiling space | **DONE 2026-08-11 — and it padded to 80 anyway, see below** | 10% of both attention products | K4 |
+| 19 | coopmat2 **tensor addressing / block loads** | replaces flash's hand-coded root+stride staging and the GEMM's 2-barrier k-step | **DONE 2026-08-11 for attention: -27%/-45%** | unknown; a route past the GEMM's 35% | K5 |
+| 23 | coopmat2 **workgroup scope** | one matrix per operand over the whole workgroup instead of per-subgroup tiles | **DONE 2026-08-11**, not in this table before | it is what carries 18 and 19 | K5 |
 | 20 | **fp8 coopmat at K32** | twice the reduction depth per instruction on the 44.4 ms addmm bucket | **open** | unproven — see below, measure with int8 first | K6 |
 | 21 | **maximal_reconvergence** + uniform control flow | makes a spin-wait well-defined, i.e. producer/consumer GEMM staging | **open** | the only identified route past 35% | K7 |
 | 22 | **AMD fallback matrix** | every coopmat2-gated kernel needs a tested KHR path | **open** | correctness, not speed | — |
+
+### 18, 19 and 23 are built, and they ship together as one kernel
+
+`attn_flash_cm2!` (`DNNKernels/src/kernels/extern/flash_cm2.jl`), 2026-08-11.
+Tensor-addressed loads including a transposing view, workgroup-scope matrices,
+in-fragment reductions and per-element ops — the whole of `flash_attn_cm2.comp`'s
+structure, and no shared memory anywhere. Measured against the shipped
+`attn_flash_cm!`, interleaved, correctness checked against the three-pass path
+first: **-27%** on SAM 2's global attention blocks, **-45%** on the windowed ones,
+-33% at `L = 1024` and `2048`. It declines the decoder's `Lq = 23`, where cm1's
+key-axis split beats it by 84%, so that row is unchanged.
+
+**In the model: attention 43.19 -> 28.85 ms (-33.2%) per encode, and the encode
+itself 103.45 -> 90.61 ms (-12.4%)** — 72.9% of PyTorch's 66.63 ms, from 64%.
+Mask IoU unchanged. Two earlier model measurements said "worth nothing" and both
+were pointed at a baked plan: see `flash_cm2.jl`'s note, because that trap
+applies to every future kernel change measured through `encode`.
+
+Three corrections to what this table assumed:
+
+- **Flexible dimensions did not retire the padding.** `E = 72` still pads, to 80,
+  because a workgroup-scope matrix's extents must be multiples of a granularity
+  the device reports *per workgroup size* — 32/16/16 at 128 invocations here. The
+  win was choosing the workgroup size that makes the granularity finest: at 256
+  invocations `N` must be a multiple of 32, `EP` becomes 96, and every tiling
+  measured slower for exactly that reason.
+- **Item 17's "estimate it at ~0" was right about the reduce and wrong about
+  where it would matter.** The reduction is not what pays; being able to hold
+  `O`, `L` and `M` as workgroup-scope matrices, with no staging and no barriers,
+  is. The instruction was necessary and not sufficient, and neither is visible in
+  a per-instruction estimate.
+- **Item 19 was estimated "unknown; a route past the GEMM's 35%". It is not a
+  GEMM result, and the GEMM has now been tried at workgroup scope and lost** —
+  22-30% behind the staged kernel on every one of SAM 2's `addmm` shapes, at
+  every tiling (`Lava/src/array/gemm_cm2.jl`, kept and unrouted). Three
+  hypotheses were ablated with the driver's register count beside each: one was
+  a real porting error (batching the unrolled loads held eight fragments live and
+  cost 255 registers), one was the reference's own optimisation and is **2.8x
+  slower here** (the unclamped layout), and the third is the answer — every route
+  to more work per lane makes the allocator want 2-4x the registers the matrices
+  need and it saturates at 255, where the staged kernel sits at exactly 128
+  because it places `16x16` subgroup tiles one at a time.
+
+  **That escape was then tried too, and is worse.** `gemm_cm2_sg!` keeps the
+  staged kernel's 4x4 register block of `16x16` subgroup tiles and changes only
+  where the fragments come from: 230 registers and 18.7 TFLOP/s, against 128 and
+  37.3 for the same sixteen accumulators fed from `@localmem`. Four structures,
+  one answer — **the tensor-addressed load is what costs the registers**, not the
+  scope and not the blocking. Shared-memory staging is not overhead this device
+  wants removed; it is how the addressing state stays out of the register file.
+
+  So `addmm` is closed for now, and the staged kernel is already **85% of
+  cuBLAS** — the whole bucket has ~15% left in it, about 6 ms of a 90 ms encode,
+  not the 20% this table assumed. Re-test on a newer driver:
+  `tools/gemm_cm2_why.jl` prints the register count beside every number, which is
+  what made this answerable.
 
 ### 17 is built, and K3 should not be
 
