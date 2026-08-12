@@ -176,7 +176,6 @@ function avg_pool2d!(out, x, kw::Integer, kh::Integer, sx::Integer, sy::Integer,
     backend = KernelAbstractions.get_backend(out)
     avg_pool2d_kernel!(backend)(out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
                                 Int32(px), Int32(py); ndrange = size(out), workgroupsize = launchgroup(size(out)))
-    KernelAbstractions.synchronize(backend)
     return out
 end
 
@@ -224,11 +223,25 @@ warp reveal black at the frame edge instead of smearing the border pixel.
     end
 end
 
+"""
+    grid_sample2d!(out, x, grid; align_corners, padding) -> out
+
+**Asynchronous, like every other op launcher here.** This file's five launchers
+and `embedding`'s each ended with `KernelAbstractions.synchronize(backend)` — a
+full pipeline drain per op, inside `runop!`, inside `execute!`. RIFE runs
+**eighteen** `grid_sampler_2d` per interpolation, so that was eighteen drains a
+frame; a graph is a queue of dependent kernels and the executor owns the
+synchronisation, not the individual op.
+
+Nothing needs the host to wait here: the device orders the writes against any
+later kernel that reads `out` through the batch's own buffer dependencies. A
+caller that genuinely wants the result on the host syncs there, which is the one
+place that can know it.
+"""
 function grid_sample2d!(out, x, grid; align_corners::Bool = true, padding::Symbol = :zeros)
     backend = KernelAbstractions.get_backend(out)
     grid_sample2d_kernel!(backend)(out, x, grid, Val(align_corners), Val(padding);
                                    ndrange = size(out), workgroupsize = launchgroup(size(out)))
-    KernelAbstractions.synchronize(backend)
     return out
 end
 
@@ -311,7 +324,6 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
                                    Int32(deform_groups), Int32(groups),
                                    Val(mask !== nothing); ndrange = size(out),
                                    workgroupsize = launchgroup(size(out)))
-    KernelAbstractions.synchronize(backend)
     return out
 end
 
@@ -336,7 +348,6 @@ end
 function flip!(out, x, dims::Tuple)
     backend = KernelAbstractions.get_backend(out)
     flip_kernel!(backend)(out, x, Val(dims); ndrange = size(x), workgroupsize = launchgroup(size(x)))
-    KernelAbstractions.synchronize(backend)
     return out
 end
 
@@ -404,6 +415,5 @@ function convolution3d!(out, x, w, bias, stride, pad, dil, groups::Integer;
                             Int32(dil[1]), Int32(dil[2]), Int32(dil[3]),
                             Int32(groups), Val(act); ndrange = size(out),
                             workgroupsize = launchgroup(size(out)))
-    KernelAbstractions.synchronize(backend)
     return out
 end

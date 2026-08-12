@@ -1827,6 +1827,5 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("embedding.default")})
     backend = KernelAbstractions.get_backend(out)
     n = length(out)
     embedding_kernel!(backend)(out, w, reshape(idx, length(idx)), Int32(n); ndrange = n)
-    KernelAbstractions.synchronize(backend)
     out
 end
