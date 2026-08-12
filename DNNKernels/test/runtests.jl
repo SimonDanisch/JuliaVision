@@ -59,6 +59,7 @@ include(joinpath(@__DIR__, "test_convtranspose_gemm.jl"))
 include(joinpath(@__DIR__, "test_activation_width.jl"))
 # Which advanced-index forms are an outer product and which are genuinely paired.
 include(joinpath(@__DIR__, "test_index_tensor.jl"))
+include(joinpath(@__DIR__, "test_index_recovery.jl"))
 # `bmm` reaches the same capability dispatch a 2-D matmul does. It did not, and
 # that one line was 79.6% of Depth Anything's forward pass.
 include(joinpath(@__DIR__, "test_batchedmatmul.jl"))

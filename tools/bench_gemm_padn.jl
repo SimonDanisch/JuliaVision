@@ -93,8 +93,12 @@ for (label, M, N, K, count) in SHAPES
         println(r)
         total[i] += r.median / 10 * count
     end
+    # `ratio`, not a hand-written division: it refuses arms from different
+    # processes, arms whose clocks disagree, and arms the gate emptied. Dividing
+    # `.median` by hand is how a cross-session pair got reported as 1.01x and
+    # working code was reverted on it — see measure.jl.
     @printf("  kernel alone %.2fx,  with the destination %.2fx\n",
-            rs[1].median / rs[2].median, rs[1].median / rs[3].median)
+            ratio(rs[1], rs[2]), ratio(rs[1], rs[3]))
 end
 
 @printf("\nweighted over the encoder's 192 matmuls: tile %.1f ms, block %.1f ms, now %.1f ms (%.2fx)\n",
