@@ -348,6 +348,28 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
     emit(ctx, Base.broadcasted(clamp, lhs(ctx, op), l, h))
 end
 """
+    operand(ctx, id, a) -> dense array
+
+One operand of a fused op, forced into the slot reserved for `id`.
+
+`d .= a` does both jobs at once: it evaluates a **lazy** producer (an elementwise
+op like the `mul.Tensor` that scales q stays unevaluated — `value` returns a
+broadcast the consumer must force) and collapses a **permuted view**.
+
+**The slot must be keyed by `id`.** Calling `materialize(ctx, ...)` once per
+operand instead returns the same shared scratch every time, so q, k and v all
+aliased one buffer and the last write won — the check inside `runop!` reported
+`maxabs_q == maxabs_k == maxabs_v` to the last digit while `sdpa` itself was
+computing them correctly to 5.4e-5. A fused op with N operands needs N distinct
+destinations, and `dest(ctx, id, ...)` is where the planner already reserved one.
+"""
+@inline function operand(ctx::Ctx, id::AbstractString, a)
+    d = dest(ctx, id, eltype(a), size(a)...)
+    d .= a
+    d
+end
+
+"""
 `fused.sdpa` — the attention [`fuseattention`](@ref) collapses a
 `bmm -> softmax -> [clone] -> bmm` into.
 
@@ -363,16 +385,10 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
     # `sdpa` reads these as dense operands; q/k/v here are usually views over the
     # QKV projection, and `contiguous` is what every other op does with those.
-    # `materialize`, not just `contiguous`. An elementwise producer stays LAZY —
-    # `mul.Tensor`, which scales q, is fusable, so `value` hands back an
-    # unevaluated broadcast that its consumer is expected to force. `contiguous`
-    # only collapses a `PermutedDimsArray`, so the operand arrived unevaluated
-    # and read as **all zeros**: `in mul [0.0000, 0.0000]`. That is why three
-    # different output destinations all produced the same wrong answer — the
-    # input was zero every time and the destination was never the problem.
-    qc = contiguous(ctx, op.ins[1], materialize(ctx, q))
-    kc = contiguous(ctx, op.ins[2], materialize(ctx, k))
-    vc = contiguous(ctx, op.ins[3], materialize(ctx, v))
+    # Each operand into ITS OWN slot — see `operand`.
+    qc = operand(ctx, op.ins[1], q)
+    kc = operand(ctx, op.ins[2], k)
+    vc = operand(ctx, op.ins[3], v)
     # Return `sdpa`'s own result and let `execute!`'s `coerce` put it in the
     # declared dtype — `sdpa` accumulates in `accum(eltype(q))` = Float32 while
     # this buffer is Float16.
@@ -385,7 +401,34 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     # bit-identical wrong answer, which is what said the fault was the slot and
     # not the dtype.
     o = sdpa(ctx, qc, kc, vc, nothing, 1.0)
+    FUSEATTENTIONCHECK[] && checksdpa(qc, kc, vc, o)
     reshape(o, size(o, 1), size(o, 2), size(o, 3))
+end
+
+"""
+    FUSEATTENTIONCHECK[] = true
+
+Recompute one head of the attention on the CPU **from inside `runop!`** and
+compare it with what `sdpa` returned.
+
+It has to happen here. Reading the operands after `execute!` returns tells you
+nothing — transients are slab-reused, so `mul` and `select` no longer hold what
+this op saw, and a ratio computed from them reports a missing scale that is not
+missing. Both wrong turns in debugging this pass came from reading operands too
+late; inside the op is the only place they are certainly the right bytes.
+"""
+const FUSEATTENTIONCHECK = Ref(false)
+
+function checksdpa(q, k, v, o)
+    Q = Float32.(Array(q)[:, :, 1, 1]); K = Float32.(Array(k)[:, :, 1, 1])
+    V = Float32.(Array(v)[:, :, 1, 1])
+    S = K' * Q
+    S .-= maximum(S; dims = 1)
+    P = exp.(S); P ./= sum(P; dims = 1)
+    R = V * P
+    G = Float32.(Array(o)[:, :, 1, 1])
+    @info "fused.sdpa check" maxabs_q=maximum(abs.(Q)) maxabs_k=maximum(abs.(K)) maxabs_v=maximum(abs.(V)) rel=maximum(abs.(G .- R)) / max(1f-6, maximum(abs.(R)))
+    nothing
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})

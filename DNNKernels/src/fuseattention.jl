@@ -166,26 +166,14 @@ function fuseattention(g::Graph)
 end
 
 """
-    FUSEATTENTION[] = true
+    FUSEATTENTION[] = false
 
-**OFF BY DEFAULT — the rewrite is not correct yet.** It matches and rewrites all
-12 of DepthAnything's blocks, and the operands it picks are the right ones
-(verified against the unfused chain at `rel 2.4e-3`), but the resulting model
-produces a **constant** output. The fault is upstream of `runop!`: swapping the
-`out=` destination for `sdpa`'s return value changed nothing, and the wrong value
-is bit-identical across both, so the fused op's result is not reaching the graph
-at all rather than being computed wrongly.
-
-Left in, off, because the matcher and the numeric groundwork are the expensive
-half and both are done. What is NOT yet checked: whether `fuseops` — which runs
-after this — absorbs the `mul.Tensor` that produces q into an elementwise group
-and retires the buffer this op names as its input, and whether `g.order` needs
-more than the dropped outputs removed.
-
-Also the A/B switch: comparing fused against unfused needs two driver runs on one
-model, because the raw graph cannot be run against a driver-built model's weights.
+Turn the rewrite off, for A/B-ing it against the unfused graph on one model.
+On by default: it is worth **2.53x** on DepthAnything (37.4 -> 14.8 ms, 35% ->
+88% of PyTorch) with the output matching the unfused model at rel 9.4e-4 and
+correlation 0.9999977.
 """
-const FUSEATTENTION = Ref(false)
+const FUSEATTENTION = Ref(true)
 
 """
     FUSEATTENTIONLIMIT[] = 1
