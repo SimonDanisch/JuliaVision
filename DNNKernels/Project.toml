@@ -23,3 +23,4 @@ julia = "1.10"
 # fetches it from the URL below instead of failing with "package not found".
 [sources]
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
+KernelInterfaces = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/mantle-dev", subdir = "lib/KernelInterfaces"}
