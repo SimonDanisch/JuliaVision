@@ -1210,6 +1210,10 @@ Lava pins to 32. The tiling needs the second.
 """
 function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
                         clamp::Bool = false)
+    # `flashcm_plan` checks this before calling, but this is also reached
+    # directly — from tests and from the docstring above. Without matrix hardware
+    # there is no tile, and `cld(E, 0)` throws instead of reporting "no tiling".
+    dev.coopmat || return nothing
     EP = cld(E, dev.tile) * dev.tile
     fits = NTuple{3,Int}[]
     for (BR, BC, NW) in FLASHCM_TILINGS

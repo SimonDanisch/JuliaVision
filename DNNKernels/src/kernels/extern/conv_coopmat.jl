@@ -91,6 +91,11 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     eltype(x) === Float16 && eltype(w) === Float16 || return Decline(:eltype)
     KW, KH, Cin, Cout = size(w)
     CRS = Cin * KH * KW
+    # Hoisted from further down, where it used to sit below three tests that
+    # divide by `dev.tile`. A device with no matrix hardware reports no tile, so
+    # those threw instead of declining; the order was only safe while `tile` was
+    # a module constant that read 16 on every device.
+    dev.coopmat || return Decline(:nocoopmat)
     Cout % dev.tile == 0 || return Decline(:cout)
     #
     # How much padding of the reduction axis a convolution may buy its way onto the
@@ -150,7 +155,6 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     # `CRSP`, not `padtile(CRS)` — the scratch is allocated at the extent the plan
     # chose, so budgeting the narrower one would under-count the allocation.
     padgemm(NPQ) * CRSP * sizeof(Float16) <= im2colcap || return Decline(:im2colsize)
-    dev.coopmat || return Decline(:nocoopmat)
     ConvCoopMatPlan(CRS, CRSP, Cout, NPQ)
 end
 

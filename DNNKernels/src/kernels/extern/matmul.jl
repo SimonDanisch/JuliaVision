@@ -172,8 +172,12 @@ the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
 function mm_coopmat_plan(dev::M.DeviceCaps, out, A, B)
     A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
         return Decline(:operands)
-    size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
+    # BEFORE the extent test, which divides by `dev.tile`. A device with no
+    # matrix hardware reports no tile, and the extent test would then throw a
+    # DivideError instead of declining. It only ever ran in the other order
+    # because `tile` used to be a module constant that was 16 everywhere.
     dev.coopmat || return Decline(:nocoopmat)
+    size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
     MMCoopMatPlan(Lava.gemm_padn(size(A, 1), size(B, 2), size(A, 2); tile = dev.tile),
                   dev.tile)
 end

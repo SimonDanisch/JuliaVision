@@ -639,6 +639,10 @@ function coopmat_sdpa_plan(dev::M.DeviceCaps, q, k, v, bias; chunk::Int = 2048,
     eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 ||
         return Decline(:eltype)
     min(Lq, Lk) >= minl || return Decline(:short)
+    # BEFORE the extent test below, which divides by `dev.tile`: a device with no
+    # matrix hardware reports no tile, and dividing by it throws rather than
+    # declining. The order only worked while `tile` was a module constant.
+    dev.coopmat || return Decline(:nocoopmat)
     Lq % dev.tile == 0 && Lk % dev.tile == 0 || return Decline(:extent)
     # `coopmat_gemm_available` asks the *device*, not the operands. On the CPU
     # backend of a machine that has a Vulkan device — which is every run of
@@ -647,7 +651,6 @@ function coopmat_sdpa_plan(dev::M.DeviceCaps, q, k, v, bias; chunk::Int = 2048,
     # "passing non-bitstype argument", and the CPU reference for SAM 2's encoder
     # could not be produced at all. The operands have to be on the device too.
     ondevice(q) && ondevice(k) && ondevice(v) || return Decline(:host)
-    dev.coopmat || return Decline(:nocoopmat)
 
     E = size(q, 1)
     CH = min(Lq, max(dev.tile, chunk))
