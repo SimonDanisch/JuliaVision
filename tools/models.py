@@ -337,6 +337,41 @@ MODELS = [
         newops=["group_norm", "VAE decoder"],
         note="fp32 upstream; convert to bf16 before judging VRAM",
     ),
+    Model(
+        name="hunyuan3d", package="Hunyuan3DRunner",
+        uuid="1362f9cf-064b-4ee3-980c-c7d802e94ecc",
+        title="Hunyuan3D-2.1 (shape)", feature="image to 3D mesh",
+        license="TENCENT HUNYUAN NON-COMMERCIAL",
+        upstream="https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1",
+        # `model.fp16.ckpt` is behind a gated HuggingFace repo, so there is no
+        # direct URL to put here — `huggingface-cli download tencent/Hunyuan3D-2.1`
+        # after accepting the licence, which is where `~/.cache/hy3dgen` comes from.
+        files=[],
+        summary=(
+            "A single image to a watertight mesh. One 7.37 GB fp16 checkpoint holds "
+            "three models: the shape DiT (3.051B), the VAE (0.328B) and a DINOv2-large "
+            "conditioner (0.304B).\n\n"
+            "The shape branch is a flow-matching diffusion transformer over a *set* of "
+            "4096 latents — `use_pos_emb` is false, so the latents carry no order — with "
+            "21 blocks, U-Net skip connections on the last ten and a top-2-of-8 mixture "
+            "of experts on the last six. 50 Euler steps at batch 2 for classifier-free "
+            "guidance, then a VAE transformer and a cross-attention geometry decoder "
+            "over a dense 385^3 grid, then marching cubes.\n\n"
+            "**The mixture does not export.** `MoEBlock.moe_infer` calls `.cpu().numpy()` "
+            "on the expert histogram, loops over experts in Python with data-dependent "
+            "bounds and gathers a dynamically-sized slice per expert. "
+            "`tools/export_hunyuan3d.py` replaces it with an all-experts sum weighted by "
+            "the scattered top-k mask, which is the same function with static shapes and "
+            "measured bit-identical on all six blocks. It costs 4x the routed FLOPs on "
+            "6 of 21 blocks; capacity-based routing is the follow-up.\n\n"
+            "Only the shape branch. `hunyuan3d-paintpbr-v2-1` — the multi-view PBR "
+            "texture painter — is a separate model and a separate port."
+        ),
+        inputs="latents (2, 4096, 64) + timestep (2,) + DINOv2 condition (2, 1370, 1024)",
+        newops=["_fused_rms_norm (done)", "topk (done)", "scatter.src (done)"],
+        note=("NON-COMMERCIAL, like MatAnyone. Weights are gated: accept the licence, "
+              "then `huggingface-cli download tencent/Hunyuan3D-2.1`."),
+    ),
 ]
 
 BY_NAME = {m.name: m for m in MODELS}

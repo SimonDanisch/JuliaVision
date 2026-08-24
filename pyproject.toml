@@ -37,6 +37,25 @@ dependencies = [
     "accelerate>=1.14.0",
     "sentencepiece>=0.2.2",
     "protobuf>=7.35.1",
+    # Hunyuan3D-2.1's import chain, declared here rather than installed by hand.
+    # `export_hunyuan3d.py` used to say `uv pip install --no-deps timm`; a later
+    # `uv sync` removed it again, because a package nothing declares is a package
+    # uv is entitled to delete. timm: `moe_layers.py` imports three names from it
+    # and uses none, but diffusers feature-detects it through `find_spec` so a
+    # stub does not work. scikit-image: `surface_extractors.py` marching cubes,
+    # which is also the reference the Julia side is measured against. trimesh:
+    # `pipelines.py` imports it at module scope.
+    "timm>=1.0.0",
+    "scikit-image>=0.25.0",
+    "trimesh>=4.0.0",
+    # `postprocessors.py`'s three mesh filters, and the reference the Julia port
+    # of them is measured against — including its Hausdorff filter, which judges
+    # both sides of that comparison so neither is scored by its own metric.
+    # Its filter semantics are not documented well enough to port by reading:
+    # `nbfaceratio` turned out to be a truncated integer threshold against the
+    # LARGEST component, over edge-connected components, and each of those was
+    # settled by running this package.
+    "pymeshlab>=2025.7",
 ]
 
 [[tool.uv.index]]
