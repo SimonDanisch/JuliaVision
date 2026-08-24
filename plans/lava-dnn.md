@@ -17,7 +17,7 @@ MatAnyone2 is the first, not the only one. The roadmap (2026-07-28):
 | matting | MatAnyone2 | running, 102.3 steps/s, wired into the editor's matte tool |
 | segmentation / tracking | **SAM3** | blocked: `facebook/sam3` is a gated HF repo, needs Simon's token + approval |
 | upscaling / restoration | **BasicVSR++** | running on CPU + GPU, 1.8e-5; wired into the editor's Restore effect and tool |
-| video generation / editing | **Wan 2.x** | all three graphs run (DiT 4.8e-5 with the real checkpoint, VAE 7.3e-6, umT5 4.5e-7); sampler + end-to-end generation on GPU; wired into the editor's **Generate** tool (`src/generate.jl` + `examples/wan.jl`, 23 assertions green incl. a real window) |
+| video generation / editing | **Wan 2.x** | all three graphs run (DiT 4.8e-6 with the real checkpoint, VAE 7.3e-6, umT5 4.5e-7); sampler + end-to-end generation on GPU; wired into the editor's **Generate** tool (`src/generate.jl` + `examples/wan.jl`, 23 assertions green incl. a real window) |
 
 All are to be integrated into the video editor the way MatAnyone2 drives the
 matte tool, and **each must ship as a fully precompiled Julia package that is
@@ -167,6 +167,16 @@ with real weights: **max|Δ| 1.35e-4 on a peak of 2.83, i.e. 4.8e-5 relative**.
 Random weights are still available (`trained=False`) and the exporter *prints
 which it used*, because that distinction is invisible in the graph and in the
 error figures.
+
+**Since 2026-08-23 it is 4.8e-6, and the missing factor of ten was a bug.** Wan's
+MLP is `nn.GELU(approximate="tanh")`; DNNKernels read that flag as `arg1` while
+the exporter files a keyword argument under its own name, so the DiT had been
+running torch's *exact* gelu — see `atenarg` in `graph.jl`. Measured back to back
+in one session on `wandit-full-fp32`: 1.3721e-4 with the old reading and
+1.3739e-5 with the new one, against the same reference and the same peak of
+2.8333. The old number is reproduced to three digits, so nothing else moved.
+`tools/verify_graph.jl` is the standing check; there had not been one, which is
+why this sat for a month.
 
 So the honest reading of `gen/wan_sample.mp4` is "the pipeline is plumbed and
 each stage matches PyTorch", not "Wan generates video here".

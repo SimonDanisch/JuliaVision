@@ -41,6 +41,7 @@ with a workload and no cold start).
 | FLUX.2-klein-4B | `FluxKleinRunner` | evaluating | — | group_norm, VAE decode, sampler loop | — | < 2 s per edit |
 | Qwen-Image-Edit-2511 | — | **blocked on int4** | — | + int4 dequant epilogue | — | — |
 | Z-Image-Turbo | — | evaluating | — | group_norm, VAE decode | — | — |
+| Hunyuan3D-2.1 (shape) | `Hunyuan3DRunner` | **image → mesh, end to end** | `gen/graphs/hunyuan3d*` | `_fused_rms_norm`, `topk`, `scatter.src` — all three done | 188.6 s / mesh | image → mesh |
 
 Two target columns on purpose. **vs PyTorch** is the engine goal and the one
 `perf-plan.md` argues about — SAM 2 sits at 64% on decode and the gap is
@@ -425,6 +426,142 @@ against Qwen at Q4_0 on the same edit. That is what `tools/demos.py` is for.
 **Engine cost, shared by all of them:** `group_norm` (missing), a VAE decoder,
 and the sampler loop on the host. Notably *not* the KV cache — text encoders are
 a single encoder-only forward, which the runtime already does.
+
+## Hunyuan3D-2.1 — image → 3D mesh
+
+Not in the original set, and it is here because it is the model CrawCity needs
+rather than an editor feature. One 7.37 GB fp16 checkpoint holds three models:
+the shape DiT (3.051B), a VAE (0.328B) and a DINOv2-large conditioner (0.304B).
+
+**All four graphs are exported and every one of them runs on Lava at the fp16
+noise floor.** Against the PyTorch reference the exporter writes beside each:
+
+| graph | ops | weights | mean abs err | % of range | corr |
+|---|---|---|---|---|---|
+| `hunyuan3d_cond` — DINOv2-large | 293 | 439 | 2.1e-3 | 0.0043% | 0.9999985 |
+| `hunyuan3d_dit` — the denoiser | 754 | 752 | 7.2e-4 | 0.0120% | 0.9999972 |
+| `hunyuan3d_vae` — post_kl + 16 layers | 177 | 242 | 1.6e-3 | 0.0004% | 1.0000000 |
+| `hunyuan3d_geo` — one occupancy chunk | 20 | 25 | 1.5e-4 | 0.0075% | 0.9999973 |
+
+(op counts after `Model`'s host-side preparation passes; the denoiser is 931 as
+exported.) The denoiser's median error is exactly one fp16 ULP, and the error
+grows with magnitude rather than with position — accumulated relative rounding
+through 21 residual blocks, not a wrong kernel. A 3-block slice sits at 2 ULP, so
+the growth to 19 ULP at the tail is depth, as expected.
+
+**Three new ops in the whole pipeline, all landed:** `_fused_rms_norm` (84 uses),
+`topk` (6) and `scatter.src` (6), every one of them in the denoiser — the
+conditioner, the VAE and the geometry decoder needed **nothing new at all**.
+Pinned by `DNNKernels/test/test_hunyuan3d_ops.jl`. The RMS
+norm case there found a real fault on its first run: `sum(abs2, a; init =
+zero(Float32))` squares at the *element's* precision before the accumulator sees
+it, so a Float16 above 256 overflows to `Inf`, `rsqrt(Inf)` is 0 and the whole
+normalisation group returns zeros silently. Hunyuan3D normalises 128-element
+attention heads in fp16 and does reach that range. Fixed with `sqaccum`, which
+widens first — a named function rather than a closure, because a closure over the
+accumulator type carries a non-`isbits` `Type` field and will not compile for the
+GPU.
+
+**The mixture of experts had to be rewritten to export at all.** Upstream's
+`moe_infer` calls `.cpu().numpy()` on the expert histogram, loops over the eight
+experts in Python with data-dependent bounds, `continue`s on empty ones, and
+gathers a dynamically-sized slice per expert. `tools/export_hunyuan3d.py`
+replaces it with an all-experts sum weighted by the scattered top-k mask —
+identical in exact arithmetic, and measured **bit-identical** (`absmax 0.0`) on
+all six blocks with real weights at fp16 before the export is allowed to
+proceed. It costs 4x the routed FLOPs on 6 of 21 blocks. Capacity-based routing
+(GShard/Switch, capacity ~1280 for top-2 of 8 over 4096 tokens) is the
+optimisation once the pipeline is numerically right, and specifically not before.
+
+**The glue between the four graphs is done, and image → mesh runs end to end.**
+`Hunyuan3DRunner.imagetomesh` takes an RGBA cut-out and returns a triangle mesh:
+`assets/demo.png` at the pipeline's defaults is **188.6 s** warm on an RTX 4000
+Ada to a 346 474-vertex watertight mesh — 100 s denoiser, 88 s in the 7134
+geometry-decoder calls, 0.5 s surface extraction; 229 s from a cold process, the
+difference being first-use kernel compilation.
+
+`tools/dump_hunyuan3d_pipeline.py` is what made that checkable: it drives
+upstream's own pipeline and dumps every intermediate, because the per-graph
+`reference.safetensors` cannot cover the glue by construction. Against it, the
+preprocessing mask is **bit-exact** (which pins the framing geometry), the image
+is 0.0052% of range off (OpenCV resizes 8-bit through fixed point; this is
+floating point), the conditioner 0.011%, `shapelatents` 0.0003%, the 65³
+occupancy field 0.0054%, and every vertex marching cubes produces is within
+2.4e-7 of one `skimage` produces.
+
+**The sampler is bit-exact** — replaying upstream's own per-step predictions
+walks upstream's trajectory with zero differing elements over all 50 steps. With
+the model in the loop it is 0.26% of range at step 50, and that is the denoiser's
+own fp16 error (2.7e-4 per step) amplified by a locally expanding ODE, not glue:
+the *sign* of the field, which is all marching cubes reads, still agrees on
+99.93% of grid points.
+
+Four rounding facts stood between "obviously correct" and bit-exact, none of them
+visible in upstream's source, all four now pinned in `test/runtests.jl` with the
+values that discriminate:
+
+  * **the Euler step size is fp16.** `sigma_next - sigma` is a 0-dim fp32 tensor
+    and `model_output` is a dimensioned fp16 one; PyTorch gives the dimensioned
+    operand priority, so the *scalar* narrows. The step is `Float16(1/49)` =
+    0.0204, not 0.020408163 — 0.04% short, fifty times.
+  * **the timestep narrows to fp16 before the divide by 1000**, not after; 9 of
+    the 50 steps land on a different fp16 value, and it is an input to a 754-op
+    forward.
+  * **guidance rounds after each of its three operations.** A single fused Lava
+    broadcast keeps the product in fp32 and rounds once at the store — the more
+    accurate of the two, and not the one being reproduced. 5110 of the denoiser's
+    262 144 outputs differ. Materialising the intermediates is the fix.
+  * **the sigma ramp is fp32 before the differences are taken**, not fp64
+    narrowed after.
+
+Marching cubes is implemented in the package rather than taken from `Meshing.jl`,
+from face contours rather than a 256-entry case table: the ambiguous faces are
+resolved with the asymptotic decider, which depends only on the four shared
+values and so keeps neighbouring cells agreeing. Verified on all 256 sign
+patterns, and on a sphere for watertightness (every edge in exactly two
+triangles), Euler characteristic, area and volume to 1%, and outward normals.
+
+**The mesh clean-up is ported too**, from `postprocessors.py`'s three `pymeshlab`
+filters. 692 956 faces → 40 000 in **2.2 s**, watertight, genus preserved (Euler
+characteristic −4 before and after). Judged by `pymeshlab`'s own Hausdorff filter
+against the original surface, with `pymeshlab` running upstream's exact flags on
+the same mesh as the control: mean distance **2.0e-5** against its 9.1e-5, the
+same worst case (6.35e-4 vs 6.06e-4), and 2.2 s against 5.99 s. Not bit-identical
+and cannot be — a collapse's cost depends on quadric weighting and on heap tie
+order, neither of which the algorithm defines.
+
+Worth recording how that was done, because it is the reusable part: **MeshLab's
+filter semantics were determined by running MeshLab, not by reading it.**
+`compute_selection_by_small_disconnected_components_per_face(nbfaceratio)` has
+three properties its name does not settle, and guessing gets at least two wrong —
+the ratio is against the **largest component** rather than the whole mesh; the
+threshold is **truncated to an integer** and compared strictly, so a 4-face speck
+against a 1024-face component flips at exactly 5/1024 and not 4/1024; and
+components join across **edges**, not shared vertices. Each was pinned by
+constructing the mesh that discriminates it and running the filter both sides of
+the boundary.
+
+Two findings from the real mesh. The floater filter removes **nothing** — it is
+one connected component — so it is a guard rather than a fix, which is worth
+knowing before reaching for it. And the degenerate filter must **weld before it
+drops**: the four degenerate faces are all around one point that marching cubes
+gave three separate indices, and dropping them on index-inequality alone tears
+six edges out of the manifold.
+
+**Still open:** artifacts for the four exports, of which the denoiser's 6.1 GB is
+the awkward one — until they are bound, `assetdir()` throws and `hunyuan3d(; root
+= ...)` takes an explicit path, and `@setup_workload` precompiles nothing;
+background removal, since `imagetomesh` needs a real alpha channel and upstream
+reaches for `rembg`; and capacity-based MoE routing, which is most of the
+denoiser's 2 s per step.
+
+**Licence: TENCENT HUNYUAN NON-COMMERCIAL**, like ProPainter and MatAnyone. The
+weights are gated — accept the licence, then
+`huggingface-cli download tencent/Hunyuan3D-2.1`. There is no direct URL for
+`tools/models.py fetch` to use, which is why its `files` list is empty.
+
+**Not the texture branch.** `hunyuan3d-paintpbr-v2-1` is a separate multi-view
+PBR painter with its own pipeline (`hy3dpaint`) and has not been looked at.
 
 ## Notes
 
