@@ -133,3 +133,83 @@ function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
         ndrange = groups * LN_WG)
     out
 end
+
+"""
+    rmsnorm_kernel!(out, rstd, a, γ, C, eps)
+
+Root-mean-square norm — `x * rsqrt(mean(x^2) + eps) * γ` — one workgroup per
+group, same layout contract as [`layernorm_kernel!`](@ref).
+
+Not layer norm with the mean forced to zero, and the difference is a whole pass:
+without a mean to centre about there is one reduction rather than two, so the
+catastrophic-cancellation argument that keeps layer norm on two passes does not
+apply here. `sum(x^2)` is the quantity, directly.
+
+The accumulator is `Float32` whatever `a` is. Hunyuan3D normalises 128-element
+attention heads in fp16, and squares of fp16 values above 256 already overflow
+`Float16`'s 65504 — the sum would saturate to `Inf` and the whole head would come
+back as zeros. That is the same failure the instance-norm path hit; here it is
+closed by construction rather than narrowed.
+"""
+@kernel cpu=false function rmsnorm_kernel!(out, rstd, @Const(a), @Const(γ),
+                                           C::Int32, eps::Float32,
+                                           ::Val{HASG}) where {HASG}
+    red = @localmem Float32 (LN_WG,)
+    g = @index(Group, Linear) - 1
+    t = @index(Local, Linear) - 1
+    base = g * Int(C)
+    n = Float32(C)
+
+    # ── pass 1: the mean square
+    s = 0.0f0
+    i = t
+    @inbounds while i < C
+        x = Float32(a[base + i + 1])
+        s += x * x
+        i += LN_WG
+    end
+    @inbounds red[t + 1] = s
+    @synchronize
+    # The barrier sits outside the `if`, so every lane reaches it — a barrier in
+    # divergent control flow is undefined, and on this compiler that is not a
+    # theoretical concern.
+    stride = LN_WG ÷ 2
+    while stride > 0
+        @inbounds if t < stride
+            red[t + 1] += red[t + 1 + stride]
+        end
+        @synchronize
+        stride ÷= 2
+    end
+    @inbounds r = 1.0f0 / sqrt(red[1] / n + eps)
+    @synchronize                      # nothing may overwrite `red` until all have read it
+
+    # ── pass 2: scale
+    i = t
+    @inbounds while i < C
+        x = Float32(a[base + i + 1]) * r
+        if HASG
+            x *= Float32(γ[i + 1])
+        end
+        out[base + i + 1] = x
+        i += LN_WG
+    end
+    @inbounds if t == 0
+        rstd[g + 1] = r
+    end
+end
+
+"""
+    rmsnorm!(ctx, out, rstd, a, γ, C, eps) -> out
+
+Launch [`rmsnorm_kernel!`](@ref) over `length(a) ÷ C` groups. Same contract as
+[`layernorm!`](@ref): `a` contiguous with the normalised axis fastest.
+"""
+function rmsnorm!(ctx, out, rstd, a, γ, C::Integer, eps::Real)
+    groups = length(a) ÷ C
+    rmsnorm_kernel!(ctx.backend, LN_WG)(
+        out, rstd, a, γ === nothing ? a : γ,
+        Int32(C), Float32(eps), Val(γ !== nothing);
+        ndrange = groups * LN_WG)
+    out
+end

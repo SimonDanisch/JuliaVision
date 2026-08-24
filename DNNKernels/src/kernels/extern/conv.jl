@@ -23,6 +23,24 @@ few thousand products in fp16 instead drifts by percent, not ulps.
 @inline accum(::Type{Float16}) = Float32
 @inline accum(::Type{T}) where {T} = T
 
+"""
+    sqaccum(x)
+
+`abs2(x)` evaluated in [`accum`](@ref)`(typeof(x))`, not in `x`'s own precision.
+
+`sum(abs2, a; init = zero(Float32))` does NOT do this: the `init` sets the
+accumulator, but `abs2` has already run at the element's precision by the time
+the accumulator sees the result. For `Float16` that overflows above 256 — `300^2`
+is 90000 against a 65504 ceiling — so the sum is `Inf`, and in an RMS norm
+`rsqrt(Inf)` is 0 and the whole group returns zeros with nothing raised.
+
+A named function rather than `x -> abs2(A(x))`, for the same reason
+[`rsqrt_`](@ref) is one and also a harder one: a closure over `A` carries a
+`Type` field, which is not `isbits`, and passing it to a GPU reduction fails to
+compile. Computing the width from `typeof(x)` captures nothing.
+"""
+@inline sqaccum(x) = (y = accum(typeof(x))(x); y * y)
+
 @inline function conv2d(I, x, w, bias,
                         ::Val{SX}, ::Val{SY}, ::Val{PX}, ::Val{PY},
                         ::Val{DX}, ::Val{DY}, ::Val{GROUPS}) where {SX,SY,PX,PY,DX,DY,GROUPS}

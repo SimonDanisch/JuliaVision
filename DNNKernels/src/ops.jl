@@ -511,12 +511,24 @@ runop!(ctx::Ctx, op::Op, ::Val{Symbol("scalar_tensor.default")}) =
 
 @inline arange_body(I, start, step) = start + (I[1] - 1) * step
 
+"""
+`aten::arange.start_step(start, end, step)`, whose three scalars may be
+**fractional** — DINOv3's rotary embedding asks for `arange(0.5, 32, 1)`, the
+patch centres, and `intattr` threw `InexactError: Int64(0.5)` on it.
+
+The length is aten's own `ceil((end - start) / step)` and not a Julia range's.
+Those disagree whenever the step is not 1: `arange(0, 5, 2)` is `[0, 2, 4]`, three
+elements, while `length(0:2:5-2)` is two. The old formula was
+`length(start:step:stop-step)`, which is right for a unit step and silently one
+short otherwise — so this fixes a latent miscount as well as the fractional case,
+and nothing in the tree had a non-unit integer step to expose it.
+"""
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("arange.start_step")})
-    start = intattr(ctx, something(get(op.attrs, "arg0", nothing), 0))
-    stop = length(op.ins) >= 1 ? value(ctx, op.ins[1]) : intattr(ctx, op.attrs["arg1"])
-    step = intattr(ctx, something(get(op.attrs, "arg2", nothing), 1))
+    start = numattr(ctx, something(get(op.attrs, "arg0", nothing), 0))
+    stop = length(op.ins) >= 1 ? value(ctx, op.ins[1]) : numattr(ctx, op.attrs["arg1"])
+    step = numattr(ctx, something(get(op.attrs, "arg2", nothing), 1))
     T = dtypeof(ctx, op.out)
-    n = length(T(start):T(step):T(stop - step))
+    n = max(0, ceil(Int, (Float64(stop) - Float64(start)) / Float64(step)))
     launch!(ctx, arange_body, alloc(ctx, op.out, n), T(start), T(step))
 end
 
@@ -526,7 +538,12 @@ dtypeof(ctx::Ctx, id) = ctx.graph.buffers[id].dtype
 # ------------------------------------------------------------------ reductions
 
 torchdims(op::Op, n) = [jdim(d, n) for d in ints(op.attrs["arg1"])]
-keepdim(op::Op) = get(op.attrs, "arg2", false) === true
+# Through `atenarg` because `keepdim=True` is a keyword in almost every PyTorch
+# source that writes it, and a reduction that silently keeps or drops the wrong
+# axis is the same trap `gelu`'s `approximate` was — see `atenarg`'s docstring.
+# Every graph in the tree happens to carry it positionally; that is a property of
+# what has been exported so far, not of the format.
+keepdim(op::Op) = atenarg(op, 2, "keepdim", false) === true
 
 function reduced(a, d, keep)
     keep && return a
@@ -590,6 +607,130 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("max.dim")})
     vals = launch!(ctx, maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(false))
     inds = launch!(ctx, maxdim_body, alloc(ctx, eltype(a), sz...), a, Val(d), Val(true))
     keepdim(op) ? (vals, inds) : (dropdims(vals; dims=d), dropdims(inds; dims=d))
+end
+
+"""Largest `n` `topk_body` will scan before it refuses. Chosen so the redundant
+work stays under a sort's constant factor, not from a measurement — the only
+caller today has `n = 8`."""
+const TOPK_MAX_N = 256
+
+# aten::topk returns (values, indices). One thread per OUTPUT element, which
+# means the thread producing rank `r` re-runs the selection `r+1` times — O(k*n)
+# per slice with no sort, no shared memory and no cross-thread agreement needed.
+#
+# That trade is chosen for the shape this exists for. Hunyuan3D's MoE gate takes
+# the top 2 of 8 experts, so `k*n` is 16 comparisons and a sorting network would
+# be slower than the redundancy it removes. It is the wrong kernel for a large
+# `n`, and the guard in `runop!` says so rather than degrading quietly.
+#
+# The ordering is `(value descending, index ascending)`: round `r` picks the
+# largest key strictly below the previous round's, so equal values resolve to the
+# lower index — which is what torch returns. Written as a bounded scan rather
+# than a rank count so every arm produces a real result; there is no
+# "unreachable" branch handing back a plausible number.
+@inline function topk_body(I, a, ::Val{D}, ::Val{WANTIDX}) where {D,WANTIDX}
+    @inbounds begin
+        N = size(a, D)
+        at(i) = a[CartesianIndex(ntuple(k -> k == D ? i : I[k], Val(length(I))))]
+        prev_v = at(1)
+        prev_i = 0                       # 0 = "no upper bound yet", round 1
+        for _ in 1:I[D]
+            best_v = at(1)
+            best_i = 0
+            for i in 1:N
+                v = at(i)
+                below = prev_i == 0 || v < prev_v || (v == prev_v && i > prev_i)
+                better = best_i == 0 || v > best_v || (v == best_v && i < best_i)
+                if below && better
+                    best_v = v
+                    best_i = i
+                end
+            end
+            prev_v = best_v
+            prev_i = best_i
+        end
+        WANTIDX ? oftype(prev_v, prev_i - 1) : prev_v
+    end
+end
+
+"""
+`aten::topk(self, k, dim, largest, sorted)` -> `(values, indices)`.
+
+`largest=false` is not implemented: nothing in the ported models asks for it and
+a smallest-k selection is the opposite comparison throughout `topk_body`, not a
+flag this can pass through. It errors rather than returning the largest ones
+under a different name.
+
+Indices come back in the VALUE dtype, as `max.dim` above already does. Torch
+declares them `int64`; carrying an Int64 index array onto the device to hold
+values in `0:7` would cost more than it states, and every consumer here
+(`scatter`, `gather`, `index`) converts with `Int(...)` on read. The exactness
+limit is real and worth naming: a Float16 index is only exact to 2048, so this
+would be wrong for a large `n` — the same guard that rejects a large `n` for
+being slow also keeps it inside that range.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("topk.default")})
+    a = lhs(ctx, op)
+    k = Int(op.attrs["arg1"])
+    d = jdim(Int(get(op.attrs, "arg2", -1)), ndims(a))
+    Bool(something(get(op.attrs, "arg3", nothing), true)) ||
+        error("topk: largest=false is not implemented (op $(op.id))")
+    n = size(a, d)
+    k <= n || error("topk: k=$k exceeds dim $d of size $n (op $(op.id))")
+    n <= TOPK_MAX_N || error(
+        "topk: dim $d has $n elements and this kernel is O(k*n) per output — " *
+        "above $TOPK_MAX_N it needs a sorting network, not this (op $(op.id))")
+    sz = ntuple(i -> i == d ? k : size(a, i), ndims(a))
+    vals = launch!(ctx, topk_body, tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), sz...),
+                   a, Val(d), Val(false))
+    inds = launch!(ctx, topk_body, tupledest(ctx, 1, eltype(a), sz...),
+                   a, Val(d), Val(true))
+    (vals, inds)
+end
+
+"""
+    scatter_kernel!(dst, idx, src, Val(D), Val(N))
+
+`dst[..., idx[I], ...] = src[I]` along Julia dim `D`, one thread per element of
+`src`.
+
+No atomic, unlike [`scatteradd_kernel!`](@ref), and the difference is the op
+rather than an oversight: `aten::scatter` without a `reduce` is *undefined* when
+two entries of `idx` collide in the same slice — torch documents the result as
+non-deterministic — so there is nothing to accumulate and nothing to order.
+"""
+@kernel function scatter_kernel!(dst, @Const(idx), @Const(src), ::Val{D}, ::Val{N}) where {D,N}
+    I = @index(Global, Cartesian)
+    @inbounds begin
+        j = Int(idx[I]) + 1                        # torch indices are 0-based
+        dst[CartesianIndex(ntuple(k -> k == D ? j : I[k], Val(N)))] = src[I]
+    end
+end
+
+"""
+`aten::scatter.src(self, dim, index, src)` — `self` with the entries `index`
+names along `dim` replaced by `src`.
+
+Out of place: the result is a copy of `self` with the writes applied, so `self`
+survives for whatever else reads it. The copy is a full pass over `self` and the
+scatter touches `length(index)` of it; for the MoE gate that is 8 columns
+written from 2, which is the cheap direction.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("scatter.src")})
+    a = lhs(ctx, op)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    idx = operand(ctx, op, 3)
+    src = operand(ctx, op, 4)
+    size(idx) == size(src) || error(
+        "scatter: index $(size(idx)) and src $(size(src)) must have the same " *
+        "shape (op $(op.id))")
+    ndims(idx) == ndims(a) || error(
+        "scatter: index is $(ndims(idx))-d and self is $(ndims(a))-d (op $(op.id))")
+    dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
+    dst .= a
+    scatter_kernel!(ctx.backend)(dst, idx, src, Val(d), Val(ndims(a));
+                                 ndrange = size(idx))
+    dst
 end
 
 """
@@ -765,6 +906,55 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
     out .= y
     (out, μ, r)
+end
+
+"""
+`aten::_fused_rms_norm` returns `(out, rstd)` — `x * rsqrt(mean(x^2) + eps) * γ`,
+over the trailing torch dims, i.e. the leading Julia ones.
+
+`nn.RMSNorm` survives `run_decompositions()` whole rather than breaking into
+`pow`/`mean`/`rsqrt`/`mul` the way it used to, so this is one op and not four.
+There is no `β`: RMS norm has a scale and no shift, and no mean to subtract.
+
+`eps` is optional in torch's schema, and when the module was built without one
+the reference falls back to `finfo(dtype).eps` — not to zero. Defaulting to zero
+would be a silently different function on a tensor whose mean square underflows.
+"""
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_fused_rms_norm.default")})
+    a = lhs(ctx, op)
+    nshape = ints(op.attrs["arg1"])
+    d = Tuple(1:length(nshape))
+    n = prod(size(a, i) for i in d)
+    γ = length(op.ins) >= 2 ? value(ctx, op.ins[2]) : nothing
+    epsattr = get(op.attrs, "arg3", nothing)
+    ε = epsattr === nothing ? Float32(eps(float(eltype(a)))) : Float32(epsattr)
+
+    # Same layout contract as `native_layer_norm` above: `LavaArray` rather than
+    # `AbstractArray`, because the kernel indexes linearly over a dense buffer
+    # and a permuted view's linear order is not that. Hunyuan3D's q/k norms feed
+    # exactly such a view — `q.reshape(B,N,h,d).transpose(1,2)` — so the fallback
+    # below is the path this model takes today, not a corner.
+    if a isa Lava.LavaArray && length(a) % n == 0
+        out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
+        r = tupledest(ctx, 1, Float32, length(a) ÷ n)
+        rmsnorm!(ctx, out, r, a, γ, n, ε)
+        return (out, r)
+    end
+    A = accum(eltype(a))
+    # `sqaccum`, not `abs2` — and the difference is the whole point of this line.
+    # `sum(abs2, a; init = zero(Float32))` squares each element at the ELEMENT's
+    # precision and only then widens, so a Float16 above 256 gives `Inf` before
+    # the accumulator is ever reached; `rsqrt(Inf)` is 0 and the group comes back
+    # all zeros with nothing raised. The layer norm above is not exposed to this
+    # because it reduces `a .- μ` and `μ` is Float32, so its subtraction has
+    # already widened. RMS norm has no mean to subtract. Pinned by
+    # `test_hunyuan3d_ops.jl`, which caught it here.
+    r = 1 ./ sqrt.(sum(sqaccum, a; dims=d, init=zero(A)) ./ n .+ ε)
+    y = Base.broadcasted(*, a, r)
+    γ === nothing || (y = Base.broadcasted(*, y, γ))
+    out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
+    out .= y
+    (out, r)
 end
 
 # ------------------------------------------------------------------- structural
@@ -1818,9 +2008,14 @@ end
                               name === :relu ? relu_epi : identity
 
 """
-`gelu` with torch's default (exact) formulation. `arg1 = "tanh"` selects the
-approximation, which differs by ~1e-3 and is a different function, not a faster
-one — so it is dispatched, not assumed.
+`gelu` with torch's default (exact) formulation. `approximate = "tanh"` selects
+the approximation, which differs by ~1e-3 and is a different function, not a
+faster one — so it is dispatched, not assumed.
+
+Read through [`atenarg`](@ref): the attribute arrives as `arg1` or as
+`approximate` depending on how the model's source wrote the call, and reading
+only `arg1` — which is what this did — meant no graph in the tree ever took the
+tanh branch.
 
 The two branches *call* [`geluexact`](@ref) / [`gelutanh`](@ref) rather than
 restating them. When they were written out here as well, the epilogue and the
@@ -1830,7 +2025,7 @@ keeping them in step.
 """
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("gelu.default")})
     x = lhs(ctx, op)
-    f = String(get(op.attrs, "arg1", "none")) == "tanh" ? gelutanh : geluexact
+    f = String(atenarg(op, 1, "approximate", "none")) == "tanh" ? gelutanh : geluexact
     emit(ctx, Base.broadcasted(f, x))
 end
 

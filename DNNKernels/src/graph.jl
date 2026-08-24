@@ -33,6 +33,45 @@ struct Op
     Op(id, aten, ins, out, attrs) = new(id, aten, ins, out, attrs, Val(Symbol(aten)))
 end
 
+"""
+    atenarg(op, pos, name, default)
+
+One aten argument, under *either* of the two names the exporter may have filed
+it under.
+
+`export_graphs.py` names an attribute by its position when the traced call passed
+it positionally (`arg1`) and by its own name when it passed it as a keyword
+(`approximate`), and nothing normalises the two — the same aten op reaches the
+graph JSON either way depending on how the model's source happened to write the
+call. Reading only one of them is a branch that silently never fires.
+
+That is not a hypothetical. `gelu.default` was read as `arg1 == "tanh"`, and
+every graph in `gen/graphs` that has a tanh gelu — Wan's DiT and TRELLIS.2's
+sparse-structure flow model — records it as `{"approximate": "tanh"}`, so the
+approximation had never once been selected and both models ran the exact
+formulation instead. It is a ~1e-3 per-call difference that accumulates: the
+TRELLIS.2 torso disagreed with PyTorch by 0.0125% of range at 3 blocks and
+0.114% at 30, in fp32 and fp16 alike, which is what dtype-independent growth with
+depth looks like.
+
+And that was the whole of it. `tools/measure_gelu_cost.py` makes the *same*
+substitution inside PyTorch — flip `nn.GELU.approximate` to `"none"` on the same
+weights and the same inputs, change nothing else — and the output moves by
+0.012521% at 3 blocks and 0.109699% at 30, against 0.0125% and 0.114% measured.
+So the disagreement was this, and not fp16 accumulation, a wrong RoPE or the qk
+RMS norm, which is where it was being looked for.
+
+`tools/audit_attr_keys.py` diffs the keys the runtime reads against the keys the
+graphs actually carry, and is how the other direction (a semantic being ignored)
+gets checked.
+"""
+function atenarg(op::Op, pos::Integer, name::AbstractString, default)
+    k = "arg$pos"
+    haskey(op.attrs, k) && return op.attrs[k]
+    haskey(op.attrs, name) && return op.attrs[name]
+    return default
+end
+
 struct Graph
     name::String
     symbols::Vector{String}

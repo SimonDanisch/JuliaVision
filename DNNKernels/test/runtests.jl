@@ -84,3 +84,15 @@ include(joinpath(@__DIR__, "test_flash_cm2.jl"))
 # An elementwise op that allocates its own output instead of taking the planned
 # one. Values stayed correct, so nothing here caught it for as long as it shipped.
 include(joinpath(@__DIR__, "test_clamp_planned.jl"))
+# `_fused_rms_norm`, `topk` and `scatter.src` — the entire new-op surface of
+# Hunyuan3D-2.1's 3.05B-parameter denoiser, against their definitions. Host-only.
+# The overflow case in there found a real fault in the RMS norm fallback on its
+# first run, so it is not a formality.
+include(joinpath(@__DIR__, "test_hunyuan3d_ops.jl"))
+# An op attribute the exporter files under either its position or its name, and
+# a runtime that read only one of them — so no graph in the tree had ever taken
+# gelu's tanh branch. Host-only.
+include(joinpath(@__DIR__, "test_atenarg.jl"))
+# `arange` with a fractional start (DINOv3's patch centres, which threw) and with
+# a non-unit step (which silently produced one element too few). Host-only.
+include(joinpath(@__DIR__, "test_arange.jl"))

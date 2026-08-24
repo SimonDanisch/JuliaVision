@@ -63,11 +63,8 @@ function foldrelu(g::Graph)
         # Of everything in `gen/graphs`: MatAnyone (all three precisions) and
         # BasicVSR++ contain no `gelu` at all and are untouched; SAM 2's decoder
         # has two and folds neither, they do not meet the conditions below; SAM
-        # 2's encoder is the target, 48 of 48. Wan's DiT folds 1 and 3, and has
-        # no test in the suite — benign because its graphs are fp32, so
-        # `mm_coopmat_plan` refuses them, `matmul!` takes the scalar path
-        # and the epilogue becomes `out .= epi.(out)`: the same computation the
-        # deleted op did, one dispatch earlier.
+        # 2's encoder is the target, 48 of 48. Wan's DiT and TRELLIS.2's
+        # sparse-structure model are all-tanh and now fold none.
         #
         # `gelu` folds into `addmm` for the same reason `relu` folds into a
         # convolution: the GEMM's store already reads every element of the
@@ -75,12 +72,20 @@ function foldrelu(g::Graph)
         # pass otherwise. SAM 2's encoder has 48 of them and every one has a
         # single reader — 1094.7 MB of output that no longer round-trips.
         #
-        # `gelu.default` with `arg1 = "tanh"` is a *different function*, not a
-        # faster one, so only the default (exact) form folds; the other keeps its
-        # own op.
+        # `gelu.default` with `approximate = "tanh"` is a *different function*,
+        # not a faster one, so only the default (exact) form folds; the other
+        # keeps its own op — `actfn` has no name for the approximation and
+        # folding one in as `geluexact` would change the model's output.
+        #
+        # Read through `atenarg`, because that is what this got wrong: it tested
+        # `arg1`, the exporter files a keyword argument under its own name, and
+        # so every tanh gelu in the tree looked like an exact one and folded.
+        # Wan's 1 and 3 folds were called benign on the grounds that the epilogue
+        # computes "the same computation the deleted op did" — true only if the
+        # activation is the same function, and it was not.
         act = relu.aten == "relu.default" ? "relu" :
               (relu.aten == "gelu.default" &&
-               String(get(relu.attrs, "arg1", "none")) != "tanh") ? "gelu" : ""
+               String(atenarg(relu, 1, "approximate", "none")) != "tanh") ? "gelu" : ""
         isempty(act) && continue
         length(relu.ins) == 1 || continue
         # A relu reads its convolution directly. A gelu does not: the graph
