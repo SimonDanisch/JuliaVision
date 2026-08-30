@@ -36,7 +36,8 @@ end
         Vv = Float32(uv[2cx + 2, crow])      # interleaved V
     end
     r, g, b = yuv_to_rgb(Yv, Uv, Vv, bt601)
-    @inbounds out[I] = topixel(eltype(out), r, g, b)
+    # A decoded video frame has no transparency: it is all there.
+    @inbounds out[I] = topixel(eltype(out), r, g, b, 1.0f0)
 end
 
 """
@@ -46,7 +47,7 @@ Convert NV12 planes (`y`: W×H UInt8 luma, `uv`: W×(H÷2) UInt8 interleaved chr
 to the RGB image `out` (W×H) on the GPU. Uses BT.709 limited-range by default;
 pass `bt601=true` for SD content.
 """
-function nv12torgb!(out::AbstractMatrix{<:AbstractRGB},
+function nv12torgb!(out::AbstractMatrix{<:AnyRGB},
                     y::AbstractMatrix{UInt8}, uv::AbstractMatrix{UInt8}; bt601::Bool = false)
     size(out) == size(y) || throw(DimensionMismatch("out $(size(out)) vs luma $(size(y))"))
     nv12torgb_kernel!(KA.get_backend(out))(out, y, uv, bt601; ndrange = size(out))

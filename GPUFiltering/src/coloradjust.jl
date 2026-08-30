@@ -24,7 +24,9 @@ isneutral(adj::ColorAdjustments) =
 
 @kernel function coloradjust_kernel!(img, adj::ColorAdjustments)
     I = @index(Global, Cartesian)
-    c = tofloat(img[I])
+    px = img[I]
+    av = alphaof(px)
+    c = straight(tofloat(px), av)   # contrast and brightness are not linear in coverage
     # temperature: opposing red/blue gains
     r = c.r * (1.0f0 + 0.25f0 * adj.temperature)
     g = c.g
@@ -38,7 +40,7 @@ isneutral(adj::ColorAdjustments) =
     r = (r - 0.5f0) * adj.contrast + 0.5f0 + adj.brightness
     g = (g - 0.5f0) * adj.contrast + 0.5f0 + adj.brightness
     b = (b - 0.5f0) * adj.contrast + 0.5f0 + adj.brightness
-    img[I] = topixel(eltype(img), r, g, b)
+    img[I] = premul(eltype(img), r, g, b, av)
 end
 
 """
@@ -47,10 +49,10 @@ end
 
 In-place fused brightness/contrast/saturation/temperature adjustment.
 """
-coloradjust!(img::AbstractMatrix{<:AbstractRGB}; kwargs...) =
+coloradjust!(img::AbstractMatrix{<:AnyRGB}; kwargs...) =
     coloradjust!(img, ColorAdjustments(; kwargs...))
 
-function coloradjust!(img::AbstractMatrix{<:AbstractRGB}, adj::ColorAdjustments)
+function coloradjust!(img::AbstractMatrix{<:AnyRGB}, adj::ColorAdjustments)
     isneutral(adj) && return img
     backend = KA.get_backend(img)
     coloradjust_kernel!(backend)(img, adj; ndrange = size(img))
@@ -59,11 +61,13 @@ end
 
 @kernel function channellinear_kernel!(img, gain::Vec3f, offset::Vec3f)
     I = @index(Global, Cartesian)
-    c = tofloat(img[I])
-    img[I] = topixel(eltype(img),
-                     c.r * gain[1] + offset[1],
-                     c.g * gain[2] + offset[2],
-                     c.b * gain[3] + offset[3])
+    px = img[I]
+    av = alphaof(px)
+    c = straight(tofloat(px), av)   # the OFFSET is what makes this non-linear
+    img[I] = premul(eltype(img),
+                    c.r * gain[1] + offset[1],
+                    c.g * gain[2] + offset[2],
+                    c.b * gain[3] + offset[3], av)
 end
 
 """
@@ -72,7 +76,7 @@ end
 In-place per-channel linear transform `c' = c * gain + offset` — the
 building block for frame-to-frame color/exposure stabilization.
 """
-function channellinear!(img::AbstractMatrix{<:AbstractRGB}, gain::Vec3f, offset::Vec3f)
+function channellinear!(img::AbstractMatrix{<:AnyRGB}, gain::Vec3f, offset::Vec3f)
     gain == Vec3f(1) && offset == Vec3f(0) && return img
     backend = KA.get_backend(img)
     channellinear_kernel!(backend)(img, gain, offset; ndrange = size(img))
@@ -86,7 +90,7 @@ Per-channel mean and standard deviation — one fused reduction that runs
 wherever `img` lives: a host loop for a CPU array, a device `mapreduce`
 for a GPU array (only 6 floats cross the bus).
 """
-function channelstats(img::AbstractMatrix{<:AbstractRGB})
+function channelstats(img::AbstractMatrix{<:AnyRGB})
     acc = mapreduce(+, img; init = zero(Vec{6, Float32})) do c
         r = Float32(red(c)); g = Float32(green(c)); b = Float32(blue(c))
         Vec{6, Float32}(r, g, b, r * r, g * g, b * b)

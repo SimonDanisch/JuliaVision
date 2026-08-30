@@ -37,7 +37,7 @@
 Apply a 3D colour LUT by trilinear interpolation.
 
 `lut` is a `(D, D, D, 3)` array of `Float32` indexed `[r, g, b, channel]`, on the
-same backend as the image. `img` is any `AbstractMatrix{<:AbstractRGB}`; the
+same backend as the image. `img` is any `AbstractMatrix{<:AnyRGB}`; the
 two-argument form works in place.
 
 `binsize` defaults to upstream's `1.000001 / (D - 1)` — see the comment above for
@@ -57,7 +57,9 @@ function lut3d! end
 @kernel function lut3d_kernel!(out, inp, @Const(lut), binsize::Float32,
                                dim::Int32)
     I = @index(Global, Cartesian)
-    c = tofloat(inp[I])
+    pxin = inp[I]
+    aval = alphaof(pxin)
+    c = straight(tofloat(pxin), aval)
 
     # 0-based bin index and the fraction within the bin, as upstream computes
     # them. `fmod(v, binsize) / binsize` for v >= 0 is `v/binsize - floor(v/binsize)`,
@@ -103,10 +105,10 @@ function lut3d! end
         w001 * lut[r0, g0, b1, ch] + w101 * lut[r1, g0, b1, ch] +
         w011 * lut[r0, g1, b1, ch] + w111 * lut[r1, g1, b1, ch]
 
-    out[I] = topixel(eltype(out), fetch(Int32(1)), fetch(Int32(2)), fetch(Int32(3)))
+    out[I] = premul(eltype(out), fetch(Int32(1)), fetch(Int32(2)), fetch(Int32(3)), aval)
 end
 
-function lut3d!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB},
+function lut3d!(out::AbstractMatrix{<:AnyRGB}, img::AbstractMatrix{<:AnyRGB},
                 lut::AbstractArray{Float32,4}; binsize::Union{Nothing,Real} = nothing)
     size(out) == size(img) ||
         throw(DimensionMismatch("out $(size(out)) does not match img $(size(img))"))
@@ -121,5 +123,5 @@ function lut3d!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:Abstra
     return out
 end
 
-lut3d!(img::AbstractMatrix{<:AbstractRGB}, lut::AbstractArray{Float32,4}; kwargs...) =
+lut3d!(img::AbstractMatrix{<:AnyRGB}, lut::AbstractArray{Float32,4}; kwargs...) =
     lut3d!(img, img, lut; kwargs...)

@@ -11,8 +11,44 @@
             0.5f0 * t3 - 0.5f0 * t2)
 end
 
+"""
+What a warp does with the pixel it resampled.
+
+A PARAMETER of the one kernel, not a second kernel. Placing a layer on a canvas
+and compositing it there are the same resample — the editor used to warp into a
+canvas-sized scratch image and run a second full-canvas pass to composite it,
+which is one resample and two copies of where the layer is.
+"""
+abstract type WarpWrite end
+
+"Store the resampled pixel, replacing whatever was there. The default."
+struct Replace <: WarpWrite end
+@inline (::Replace)(dst, r::Float32, g::Float32, b::Float32, a::Float32) =
+    topixel(typeof(dst), r, g, b, a)
+
+"""
+Composite the resampled pixel OVER what was there, at layer opacity `alpha`.
+
+The source is PREMULTIPLIED and carries its own coverage, so this is
+`α·src + dst·(1 − α·a)` — not a lerp. Outside the source `skipoutside` leaves
+`dst` alone, which is the same rule stated at the other end: a pixel the layer
+does not reach is a pixel it does not write.
+"""
+struct Over <: WarpWrite
+    alpha::Float32
+end
+@inline function (o::Over)(dst, r::Float32, g::Float32, b::Float32, a::Float32)
+    α = o.alpha
+    k = 1.0f0 - α * a
+    return topixel(typeof(dst),
+                   α * r + Float32(red(dst)) * k,
+                   α * g + Float32(green(dst)) * k,
+                   α * b + Float32(blue(dst)) * k,
+                   α * a + alphaof(dst) * k)
+end
+
 @kernel function warp_kernel!(out, @Const(img), M::Mat3f, skipoutside::Bool,
-                              x0::Int32, y0::Int32, x1::Int32, y1::Int32)
+                              x0::Int32, y0::Int32, x1::Int32, y1::Int32, write)
     I = @index(Global, Cartesian)
     p = M * Vec3f(Float32(I[1]), Float32(I[2]), 1.0f0)
     x = p[1] / p[3]
@@ -36,20 +72,24 @@ end
         yb = floor(Int32, y)
         wx = catmullrom(clamp(x - Float32(xb), 0.0f0, 1.0f0))
         wy = catmullrom(clamp(y - Float32(yb), 0.0f0, 1.0f0))
-        r = 0.0f0; g = 0.0f0; b = 0.0f0
+        r = 0.0f0; g = 0.0f0; b = 0.0f0; a = 0.0f0
         @inbounds for j in Int32(0):Int32(3)
             yj = clamp(yb - Int32(1) + j, y0, y1)   # replicate the RECT's borders
             wyj = wy[j + 1]
             for i in Int32(0):Int32(3)
                 xi = clamp(xb - Int32(1) + i, x0, x1)
-                c = tofloat(img[xi, yj])
+                px = img[xi, yj]
+                c = tofloat(px)
                 wgt = wx[i + 1] * wyj
                 r += c.r * wgt; g += c.g * wgt; b += c.b * wgt
+                a += alphaof(px) * wgt
             end
         end
-        # Catmull-Rom overshoots at hard edges — clamp back into gamut
-        out[I] = topixel(eltype(out), clamp(r, 0.0f0, 1.0f0), clamp(g, 0.0f0, 1.0f0),
-                         clamp(b, 0.0f0, 1.0f0))
+        # Catmull-Rom overshoots at hard edges — clamp back into gamut before
+        # anything downstream reads it, since `Over` multiplies by the alpha and
+        # an alpha above one would darken what is behind the layer.
+        @inbounds out[I] = write(out[I], clamp(r, 0.0f0, 1.0f0), clamp(g, 0.0f0, 1.0f0),
+                                 clamp(b, 0.0f0, 1.0f0), clamp(a, 0.0f0, 1.0f0))
     end
 end
 
@@ -69,6 +109,10 @@ those pixels are the letterbox bars.
 it, a crop actually removes picture instead of merely choosing where to sample,
 so nothing outside it can come back into view when the result is scaled down.
 
+`write` says what to do with the resampled pixel — [`Replace`](@ref) by default,
+[`Over`](@ref) to composite it straight into `out` instead of into a scratch
+image that something else then composites.
+
     warp!(out, img, crop::NTuple{4})
 
 Convenience: sample the normalized crop rect `(x, y, w, h)` of `img`
@@ -76,8 +120,8 @@ Convenience: sample the normalized crop rect `(x, y, w, h)` of `img`
 """
 function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
                skipoutside::Bool = false,
-               bounds::Union{Nothing, NTuple{4, <:Integer}} = nothing) where {T <: AbstractRGB,
-                                                                             S <: AbstractRGB}
+               bounds::Union{Nothing, NTuple{4, <:Integer}} = nothing,
+               write::WarpWrite = Replace()) where {T <: AnyRGB, S <: AnyRGB}
     backend = KA.get_backend(img)
     # The kernel runs on the SOURCE's backend, so a destination living somewhere
     # else is handed to it as a foreign array. On a GPU backend that surfaces as
@@ -92,7 +136,7 @@ function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
     w, h = size(img, 1), size(img, 2)
     b = bounds === nothing ? (1, 1, w, h) : bounds
     warp_kernel!(backend)(out, img, M, skipoutside, Int32(b[1]), Int32(b[2]),
-                          Int32(b[3]), Int32(b[4]); ndrange = size(out))
+                          Int32(b[3]), Int32(b[4]), write; ndrange = size(out))
     return out
 end
 

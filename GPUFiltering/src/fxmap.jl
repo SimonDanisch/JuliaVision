@@ -10,10 +10,15 @@
 
 @kernel function pointwise_kernel!(out, @Const(inp), f, invsz::Vec2f)
     I = @index(Global, Cartesian)
-    c = tofloat(inp[I])
+    px = inp[I]
+    a = alphaof(px)
+    c = straight(tofloat(px), a)
     uv = Vec2f((Float32(I[1]) - 0.5f0) * invsz[1], (Float32(I[2]) - 0.5f0) * invsz[2])
     r = f(Vec3f(c.r, c.g, c.b), uv)
-    out[I] = topixel(eltype(out), r[1], r[2], r[3])
+    # The callback works in STRAIGHT colour — an effect is written the way anyone
+    # would write it — and the coverage rides through untouched: a per-pixel
+    # effect changes what is there, not how much of it is.
+    out[I] = premul(eltype(out), r[1], r[2], r[3], a)
 end
 
 """
@@ -23,7 +28,7 @@ Apply a per-pixel callback `f(c::Vec3f, uv::Vec2f) -> Vec3f` to every pixel, whe
 `uv ∈ [0,1]²` is the pixel's normalized coordinate. `out` may alias `inp` (in place).
 Backend-generic: runs on a CPU `Array`, a `LavaArray`, a `CuArray`, …
 """
-function pointwise!(out::AbstractMatrix{<:AbstractRGB}, inp::AbstractMatrix{<:AbstractRGB}, f)
+function pointwise!(out::AbstractMatrix{<:AnyRGB}, inp::AbstractMatrix{<:AnyRGB}, f)
     backend = KA.get_backend(out)
     pointwise_kernel!(backend)(out, inp, f, Vec2f(1.0f0 / size(out, 1), 1.0f0 / size(out, 2));
                                ndrange = size(out))
@@ -34,12 +39,14 @@ end
     I = @index(Global, Cartesian)
     ix = Int32(I[1]); iy = Int32(I[2])
     sample = (di, dj) -> begin
-        c = tofloat(inp[clamp(ix + di, Int32(1), w), clamp(iy + dj, Int32(1), h)])
+        px = inp[clamp(ix + di, Int32(1), w), clamp(iy + dj, Int32(1), h)]
+        c = straight(tofloat(px), alphaof(px))
         Vec3f(c.r, c.g, c.b)
     end
     uv = Vec2f((Float32(ix) - 0.5f0) * invsz[1], (Float32(iy) - 0.5f0) * invsz[2])
     r = f(sample, radius, uv)
-    out[I] = topixel(eltype(out), r[1], r[2], r[3])
+    a = alphaof(inp[I])
+    out[I] = premul(eltype(out), r[1], r[2], r[3], a)
 end
 
 """
@@ -49,7 +56,7 @@ Apply a neighborhood callback `f(sample, radius, uv) -> Vec3f`, where
 `sample(di, dj) -> Vec3f` reads the neighbor at offset `(di, dj)` (clamped at the
 border) and `uv ∈ [0,1]²`. `out` must NOT alias `inp`.
 """
-function stencil!(out::AbstractMatrix{<:AbstractRGB}, inp::AbstractMatrix{<:AbstractRGB}, f, radius::Integer)
+function stencil!(out::AbstractMatrix{<:AnyRGB}, inp::AbstractMatrix{<:AnyRGB}, f, radius::Integer)
     backend = KA.get_backend(out)
     stencil_kernel!(backend)(out, inp, f, Int32(radius), Int32(size(inp, 1)), Int32(size(inp, 2)),
                              Vec2f(1.0f0 / size(out, 1), 1.0f0 / size(out, 2)); ndrange = size(out))
