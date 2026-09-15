@@ -225,7 +225,7 @@ with `E = 72`, which KA's 64-wide group splits into `64 + 8`, so every second
 workgroup runs at 12% occupancy and the axis is only 56% utilised overall.
 Taking the head dimension whole keeps a group on one contiguous run of `out`.
 """
-# `launchgroup`, NOT `Lava.staticgroup`: the latter avoids interior unit extents
+# `launchgroup`, NOT `Mantle.staticgroup`: the latter avoids interior unit extents
 # so the workgroup can go in the kernel's type (2x on index-bound kernels), but
 # for `attn_apply` it shapes `(64, 2, 2, 1)` and splits the 72-long head
 # dimension into 64 + 8 — the exact fragmentation `launchgroup` exists to avoid.
@@ -312,17 +312,23 @@ Root dense array of a wrapper stack and the linear offset of `a[1, 1, ...]` in
 it, or `nothing` when a layer is something this cannot account for.
 
 The `SubArray` is why this returns an offset rather than just the root: the stack
-attention's `q` arrives in is `PermutedDimsArray -> ReshapedArray -> SubArray ->
-LavaArray`, and refusing the view meant every shape that matters fell back to the
-gather while only the two that happened to wrap a bare array took the fast path.
-Reshapes and permutes leave the base element alone; a view does not, and its
-offset is `LinearIndices(parent)[first.(indices)...] - 1`.
+attention's `q` arrives in is `PermutedDimsArray -> ReshapedArray -> SubArray ->`
+the device array, and refusing the view meant every shape that matters fell back
+to the gather while only the two that happened to wrap a bare array took the fast
+path. Reshapes and permutes leave the base element alone; a view does not, and
+its offset is `LinearIndices(parent)[first.(indices)...] - 1`.
+
+The root test is `AbstractGPUArray` and not one backend's concrete array, which
+is what it said until 2026-09-14: "root DENSE array" is the question, a host
+`Array` is correctly still not one, and on AMDGPU every operand answered
+`nothing` so `transposeLE` took the gather for all of them — 0.250 ms against
+0.035 on SAM 2's windowed shape.
 """
 function stridedroot(a)
     off = 0
     p = a
     for _ in 1:8
-        p isa Lava.LavaArray && return (p, off)
+        p isa GPUArrays.AbstractGPUArray && return (p, off)
         if p isa SubArray
             P = parent(p)
             off += LinearIndices(P)[map(first, p.indices)...] - 1
@@ -388,7 +394,7 @@ function transposeLE(ctx, a)
     # `(32, 4, 1)` every time, so this costs exactly one extra SPIR-V module and
     # the index arithmetic folds to constants — 3.34 -> 2.01 ms in SAM 2's
     # encoder. Safe because `(32, 4, 1)`'s only unit extent is trailing; see
-    # `Lava.interior_unit_workgroup`.
+    # `Mantle.interior_unit_workgroup`.
     k(backend, (32, 4, 1))(d, reshape(root, length(root)), Int32(off + 1),
                            st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H);
                            ndrange = (32 * cld(E, 32), 4 * cld(L, 32), H * B))
@@ -400,7 +406,7 @@ end
 # The three-pass kernels above are scalar: measured at 2.3 TFLOP/s on SAM 2's
 # global attention, against the 13 the same device's cooperative-matrix GEMM
 # sustains on the same product. Both halves of attention ARE matrix products —
-# `S = qT k` and `O = P vT` — one per (head, batch), so `Lava.coopmat_gemm!`'s
+# `S = qT k` and `O = P vT` — one per (head, batch), so `Mantle.coopmat_gemm!`'s
 # `nbatch` runs all of them in a single dispatch.
 #
 # Measured against the three-pass path, whole op including the padding copies
@@ -502,7 +508,7 @@ end
 # row. That is coalesced — `lq` is the fast axis, so a warp reads 32 consecutive
 # scores — but there are only `CH * H * B` rows, and on SAM 2's global attention
 # that is 16 384 threads: **64 workgroups, ~22% of this card's thread slots**.
-# Measured with `Lava.with_dispatch_timing`, those six dispatches were
+# Measured with `Mantle.with_dispatch_timing`, those six dispatches were
 # **18.08 ms, 3.0 ms each — the second-largest kernel family in the whole
 # encode** — for a pass that only reads 268 MB and writes 134 MB.
 #
@@ -697,9 +703,9 @@ function sdpa_coopmat!(ctx, out, plan::CoopMatSDPAPlan, q, k, v, scale)
     for q0 in 0:CH:(Lq - 1)
         n = min(CH, Lq - q0)
         launch!(ctx, toLEpadchunk, qc, q, E, q0, Lq)
-        Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
+        Mantle.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
         attnsoftmax!(ctx, sums, P, S, scale)
-        Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
+        Mantle.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
         # `fromLEpad` unchanged: `launch!` indexes the VIEW, so its `l` already
         # starts at 1 for this chunk and no offset belongs in the kernel.
         launch!(ctx, fromLEpad, view(out, :, (q0 + 1):(q0 + n), :, :), O, sums)
@@ -821,6 +827,14 @@ function sdpa!(ctx, ::Decline, out, q, k, v, bias, scale)
     # kept the pool churning ~6 MB a step and driving the OOM-reclaim path, which
     # is a full device flush plus a GC each time it fires.
     # Stored as the operands' own type, accumulated in `T`. See `attn_softmax`.
+    #
+    # NEGATIVE RESULT, 2026-09-14: storing them in `T` instead was tried, on the
+    # theory that fp16 scores are what makes this path less accurate than the
+    # fused one. It is not. On SAM 2.1's encoder through the ROCm backend — where
+    # every attention takes this path, so the whole graph is exposed to it —
+    # `add_129` moved from 4.2437 to 4.1312 against the references, 3%, while the
+    # score matrix doubled to 1 GB for the global blocks. Whatever makes that node
+    # disagree is somewhere else.
     ST = eltype(q)
     scores = scratch!(ctx, ST, Lq, Lk, H, B)
     tk = blockfor(Lk, Lq)

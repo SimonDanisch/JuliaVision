@@ -22,7 +22,7 @@ distinction mattered: the gelu bug (see `atenarg`) showed up as 0.0125% mean and
 0.053% max at three blocks, and only the mean matched what the substitution
 predicts.
 
-`Lava.trim_gpu_pool!()` between models, which is what makes a sweep of several
+`Mantle.trim_gpu_pool!()` between models, which is what makes a sweep of several
 1B-parameter graphs fit in one session at all. A finished graph's pool blocks are
 held by the batch that recorded them until something flushes, so without it the
 second model allocated on top of the first's high-water mark and a 20 GB card ran
@@ -124,7 +124,7 @@ function main(args)
     println("reference range is the denominator for both percentages\n")
     for d in dirs
         verify(d, backend)
-        backend isa LavaBackend && Lava.trim_gpu_pool!()
+        backend isa LavaBackend && Mantle.trim_gpu_pool!()
     end
 end
 

@@ -54,8 +54,8 @@ bench(["shipped" => () -> nothing])
 println("\nWhat the heuristic picks, and what it is aiming at:\n")
 @printf("%-20s %8s %8s %8s %10s\n", "M x N x K", "blk", "splitk", "tiles", "span")
 for (M, N, K, _) in SHAPES
-    blk, splitk = Lava.coopmat_gemm_shape(M, N, K; cores = DNNKernels.caps(BACKEND).cores)
-    span = Lava.GEMM_TILE * blk
+    blk, splitk = Mantle.coopmat_gemm_shape(M, N, K; cores = DNNKernels.caps(BACKEND).cores)
+    span = Mantle.GEMM_TILE * blk
     @printf("%-20s %8d %8d %8d %10d\n",
             "$(M)x$(N)x$(K)", blk, splitk, (M ÷ span) * (N ÷ span), span)
 end

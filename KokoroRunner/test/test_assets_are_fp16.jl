@@ -1,4 +1,5 @@
 using Test, KokoroRunner, DNNKernels, Lava
+using Mantle: LavaBackend
 
 # The published artifact went stale and nothing noticed for however long.
 #

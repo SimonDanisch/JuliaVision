@@ -11,7 +11,7 @@ wrong numbers here before (`tools/measure.jl`):
   * `tile`  — `NP = cld(N, 16) * 16`, the old rounding, and with it the fp32
               scratch + `mm_epilogue_kernel!` that a padded destination used to
               require. This is what shipped.
-  * `block` — `NP = Lava.gemm_padn(...)`, same fp32 route, so the difference
+  * `block` — `NP = Mantle.gemm_padn(...)`, same fp32 route, so the difference
               against `tile` is the KERNEL alone: 1504 divides no tiling's block
               and lands on the register-blocked kernel, 1536 is 12 x 128 and
               reaches the staged one.
@@ -44,10 +44,10 @@ function oldroute!(ctx, out, A, B, bias, M, N, K, NP)
         Bp = scratch!(ctx, Float16, K, NP)
         padcols_kernel!(ctx.backend)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
-    blk_split = Lava.coopmat_gemm_shape(M, NP, K)
+    blk_split = Mantle.coopmat_gemm_shape(M, NP, K)
     splitk = blk_split[2]
     C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
-    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
+    Mantle.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false)
     mm_epilogue_kernel!(ctx.backend)(out, C, bias, identity, Val(M), Val(splitk),
                                      M * NP, M * N; ndrange = M * N)
     out
@@ -67,10 +67,10 @@ for (label, M, N, K, count) in SHAPES
     out = KA.allocate(backend, Float16, M, N)
 
     ntile = cld(N, 16) * 16
-    nblk  = Lava.gemm_padn(M, N, K)
+    nblk  = Mantle.gemm_padn(M, N, K)
     @printf("\n%s   tile -> %d, block -> %d\n", label, ntile, nblk)
-    println("  tiling at tile-padding : ", Lava.gemm_tiling(M, ntile, K))
-    println("  tiling at block-padding: ", Lava.gemm_tiling(M, nblk, K))
+    println("  tiling at tile-padding : ", Mantle.gemm_tiling(M, ntile, K))
+    println("  tiling at block-padding: ", Mantle.gemm_tiling(M, nblk, K))
 
     # Ten per sample: one of these is ~0.1-1 ms and `gpustate()` costs ~20 ms.
     f_tile() = for _ in 1:10; DNNKernels.reset!(ctx.ws)

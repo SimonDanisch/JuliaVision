@@ -75,27 +75,33 @@ struct Hunyuan3D{B}
 end
 
 """
-    hunyuan3d(; backend = LavaBackend(), root = assetdir()) -> Hunyuan3D
+    hunyuan3d(; backend = Mantle.LavaBackend(), root = assetdir()) -> Hunyuan3D
 
 Load all four graphs. `root` holds the four directories [`PARTS`](@ref) names.
 
 Separate from [`generate`](@ref) so a workload can build it in `@setup_workload`,
 where the loading is not what is being cached.
 """
-function hunyuan3d(; backend = LavaBackend(), root::AbstractString = assetdir())
-    load(part, name) = begin
-        dir = joinpath(root, part)
+function hunyuan3d(; backend = Mantle.LavaBackend())
+    # `weights` is explicit because the denoiser's do not sit beside its graph:
+    # they are four shard artifacts merged by `hunyuan3dweights`, while the other
+    # three parts each keep a `weights.safetensors` in their own artifact.
+    load(dir, name, weights = nothing) = begin
         isfile(joinpath(dir, "$name.json")) || throw(ArgumentError(
-            "Hunyuan3D-2.1: no $name.json in $dir. Generate it with " *
-            "`uv run tools/export_hunyuan3d.py --part $(splitpart(part))`."))
-        Model(dir, joinpath(dir, "weights.safetensors"); names = [name], backend)
+            "Hunyuan3D-2.1: no $name.json in $dir. Re-export with " *
+            "`uv run tools/export_hunyuan3d.py` and re-bind with " *
+            "`julia --project=. tools/make_artifacts.jl`."))
+        w = weights === nothing ?
+            readsafetensors(joinpath(dir, "weights.safetensors")) : weights
+        Model(Dict(name => loadgraph(joinpath(dir, "$name.json"))), w; backend)
     end
-    geo = load(PARTS.geo, "hunyuan3d_geo")
+    geo = load(geodir(), "hunyuan3d_geo")
     # The chunk is whatever the export was built at, not a constant here: passing
     # a different one is a silently truncated sweep, not an error.
     chunk = Int(geo.graphs["hunyuan3d_geo"].buffers["queries"].shape[2])
-    return Hunyuan3D(backend, load(PARTS.cond, "hunyuan3d_cond"),
-                     load(PARTS.dit, "hunyuan3d_dit"), load(PARTS.vae, "hunyuan3d_vae"),
+    return Hunyuan3D(backend, load(conddir(), "hunyuan3d_cond"),
+                     load(ditdir(), "hunyuan3d_dit", hunyuan3dweights()),
+                     load(vaedir(), "hunyuan3d_vae"),
                      geo, chunk)
 end
 

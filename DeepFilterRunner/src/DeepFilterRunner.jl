@@ -24,7 +24,8 @@ for the export that feeds it.
 module DeepFilterRunner
 
 using Lava, DNNKernels, KernelAbstractions
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors
 
@@ -62,12 +63,13 @@ When the export lands, pack `gen/graphs/deepfilternet` under the artifact name
 assetdir() = @artifact_str("deepfilternet-ckpt")
 
 """
-    deepfilternetgraph(; dir = assetdir()) -> Graph
+    deepfilternetgraph() -> Graph
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
 """
-function deepfilternetgraph(; dir::AbstractString = assetdir())
+function deepfilternetgraph()
+    dir = assetdir()
     p = joinpath(dir, "deepfilternet.json")
     isfile(p) || throw(ArgumentError(
         "DeepFilterNet3 graph not found at $p. Generate it with " *
@@ -77,18 +79,19 @@ function deepfilternetgraph(; dir::AbstractString = assetdir())
 end
 
 """
-    deepfilternetweights(; dir = assetdir()) -> Dict
+    deepfilternetweights() -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-function deepfilternetweights(; dir::AbstractString = assetdir())
+function deepfilternetweights()
+    dir = assetdir()
     p = joinpath(dir, "weights.safetensors")
     isfile(p) || throw(ArgumentError("DeepFilterNet3 weights not found at $p"))
     return readsafetensors(p)
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
@@ -96,23 +99,23 @@ because neither may fail on a machine that has not run the exporter.
 # `false`, and not a placeholder: `assetdir()` resolves — it carries the upstream
 # checkpoint — but a checkpoint is not a graph. `ready()` answers "can this package
 # run the model", which stays false until `deepfilternet.json` exists.
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "deepfilternet.json")) && isfile(joinpath(dir, "weights.safetensors"))
+ready() =
+    isfile(joinpath(assetdir(), "deepfilternet.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
 """
-    checkpoints(; dir = assetdir()) -> Vector{String}
+    checkpoints() -> Vector{String}
 
 The upstream checkpoint files the artifact carries, absolute. What
 `tools/export_deepfilternet.py` will read when the port starts.
 """
-checkpoints(; dir::AbstractString = assetdir()) =
-    [joinpath(dir, f) for f in sort(readdir(dir)) if isfile(joinpath(dir, f))]
+checkpoints() =
+    [joinpath(assetdir(), f) for f in sort(readdir(assetdir())) if isfile(joinpath(assetdir(), f))]
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -130,7 +133,7 @@ end
 @setup_workload begin
     if ready()
         try
-            backend = LavaBackend()
+            backend = Mantle.LavaBackend()
             graph = deepfilternetgraph()
             weights = deepfilternetweights()
             @compile_workload KERNELS_VERSION begin

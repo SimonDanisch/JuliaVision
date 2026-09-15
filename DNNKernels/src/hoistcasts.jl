@@ -99,8 +99,17 @@ function hoistpermutes(g::Graph, weights::Dict{String,Any})
             Tuple(pv)
         end
 
-        key = g.name * "|" * id * "|hoistperm"
-        weights[key] = permutedims(W, jperm)
+        # Keyed by the SOURCE weight and the permutation, not by graph and
+        # buffer id. Two graphs over one model — a prefill and a decode — name
+        # the same weight through the same transpose, and a per-graph key made
+        # a separate host copy for each: 2 x 64.78 GiB for K2 Horizon 32B.
+        key = src.key * "|hoistperm|" * join(jperm, ",")
+        # LAZY. `permutedims` here materialises every transposed weight on the
+        # host at once, and the upload loop that carefully drops one tensor at a
+        # time then has nothing left to save — the peak has already happened.
+        # `PermutedDimsArray` is free; `toback` materialises it per tensor on its
+        # way to the device, so peak host cost is the largest single weight.
+        haskey(weights, key) || (weights[key] = PermutedDimsArray(W, jperm))
         buffers[id] = Buffer(id, :weight, b.shape, b.dtype, key, (0, 0), "", "",
                              Dict{String,Any}())
         hoisted += 1

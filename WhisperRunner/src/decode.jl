@@ -23,7 +23,7 @@
 # token cannot cost less than **2.07 ms** and essentially all of it is weight
 # traffic. Every matmul has `M = 1`.
 #
-# That is why `Lava.gemv!` exists: `mul!` measured 8.7 ms/token on these shapes
+# That is why `Mantle.gemv!` exists: `mul!` measured 8.7 ms/token on these shapes
 # because `coopmat_gemm!` needs `M >= 16` and pads away fifteen sixteenths of
 # every tile.
 #
@@ -128,22 +128,23 @@ struct Whisper{B,ME,MD,C,I2,I1,F}
 end
 
 """
-    whisper(; backend = LavaBackend(), dir = assetdir(), decdir = decoderdir())
+    whisper(; backend = Mantle.LavaBackend(), dir = assetdir(), decdir = decoderdir())
         -> Whisper
 
 Load both halves. The decoder artifact is separate from the encoder's — it is a
 different export with different weights, and a caller who only wants embeddings
 should not pay for the autoregressive half.
 """
-function whisper(; backend = LavaBackend(),
+function whisper(; backend = Mantle.LavaBackend(),
                    precision::Symbol = :fp16,
-                   dir::AbstractString = assetdir(precision),
-                   decdir::AbstractString = decoderdir(),
-                   maxtarget::Int = 448, srclen::Int = 1500)
-    enc = Model(dir, joinpath(dir, "weights.safetensors");
-                names = ["whisper"], backend)
-    dec = Model(decdir, joinpath(decdir, "weights.safetensors");
-                names = ["whisperdec", "whispercross"], backend)
+                   maxtarget::Int = 448, srclen::Int = 1500,
+                   record::Bool = false)
+    dir, decdir = assetdir(precision), decoderdir()
+    enc = Model(Dict("whisper" => loadgraph(joinpath(dir, "whisper.json"))),
+                readsafetensors(joinpath(dir, "weights.safetensors")); backend, record)
+    dec = Model(Dict(n => loadgraph(joinpath(decdir, "$n.json"))
+                     for n in ("whisperdec", "whispercross")),
+                readsafetensors(joinpath(decdir, "weights.safetensors")); backend, record)
     layers, heads, hd = 4, 20, 64            # large-v3-turbo
     cache = kvcache(backend, layers, heads, hd; max_target = maxtarget, src_len = srclen)
     # Int64, because the graph declares `input_ids` and `cache_position` int64 —

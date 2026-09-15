@@ -51,7 +51,11 @@ fallback path, and `clone` is an `alloc` plus a broadcast. An op that allocated
 its own result and returned it would ignore the declaration and hand back the
 wide array, so this list is deliberately short and grows only by checking.
 """
-const OUTCAST_PRODUCERS = Set(["native_layer_norm.default", "clone.default"])
+# `_softmax` stores through `eltype(out)` taken from its declared output buffer
+# and computes in `Float32` regardless, so narrowing that declaration moves the
+# rounding into its store instead of a second pass over the scores.
+const OUTCAST_PRODUCERS = Set(["native_layer_norm.default", "clone.default",
+                               "_softmax.default"])
 
 """Buffer ids from `id` down to the first non-view buffer, `id` included."""
 function viewchain(g::Graph, id::AbstractString)

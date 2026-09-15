@@ -14,7 +14,7 @@
 # Nsight, and it must be enabled BEFORE the device exists.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava
-Lava.enable_pipeline_executable_properties!()
+Mantle.enable_pipeline_executable_properties!()
 include(joinpath(@__DIR__, "attn_lab.jl"))
 using Printf
 
@@ -23,11 +23,11 @@ const CTX = DK.Ctx(BACKEND; ws = WS)
 
 "Driver statistics for whichever pipelines `setup` newly compiles."
 function newpipestats(setup)
-    pipes() = Lava.vk_context().caches.pipelines
+    pipes() = Mantle.vk_context().caches.pipelines
     before = Set(keys(pipes()))
     DK.reset!(WS); setup(); KA.synchronize(BACKEND)
     fresh = [k for k in keys(pipes()) if !(k in before)]
-    [Lava.pipeline_exec_stats(pipes()[k]) for k in fresh]
+    [Mantle.pipeline_exec_stats(pipes()[k]) for k in fresh]
 end
 
 function statline(name, setup)

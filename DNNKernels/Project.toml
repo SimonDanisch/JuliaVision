@@ -3,6 +3,7 @@ uuid = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 version = "0.1.0"
 
 [deps]
+Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -10,7 +11,7 @@ Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
 GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
-KernelInterfaces = "ce25d451-9bb5-4870-a156-ce22182641de"
+KernelInterface = "4ee993da-d684-4d17-a7dd-4e58e78d92bf"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -23,4 +24,3 @@ julia = "1.10"
 # fetches it from the URL below instead of failing with "package not found".
 [sources]
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
-KernelInterfaces = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/mantle-dev", subdir = "lib/KernelInterfaces"}

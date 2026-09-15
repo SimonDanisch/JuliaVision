@@ -11,7 +11,7 @@
 # BOUNDS-CHECKED path. `flashcm_tiling` also takes `clamp`, so the clamped call
 # may not even be choosing the same tiling.
 #
-# The alternative is the trick `Lava.gemm_padn` already applies to the GEMM's
+# The alternative is the trick `Mantle.gemm_padn` already applies to the GEMM's
 # N = 1500: pad the sequence to 1536 (= 24 * 64) and run UNCLAMPED. That is 2.4%
 # more arithmetic, which the comparison below charges to the padded arm honestly
 # by reporting achieved TF/s over each arm's OWN flop count.

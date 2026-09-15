@@ -16,6 +16,7 @@ slab first, so a partial write reads as NaN rather than as a plausible number.
 """
 
 using Test, BasicVSRRunner, KernelAbstractions, Lava
+using Mantle: LavaBackend
 const KA = KernelAbstractions
 
 @testset "BasicVSRRunner" begin

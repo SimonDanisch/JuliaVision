@@ -50,7 +50,7 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     be = LavaBackend()
-    println("device: ", Lava.vk_context().device_name)
+    println("device: ", Mantle.vk_context().device_name)
     r2 = exact(be, (5, 5))
     r3 = exact(be, (5, 5, 3))
     println("  rank 2 (control, must be exact) : ", r2 ? "exact" : "WRONG")

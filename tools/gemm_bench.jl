@@ -108,7 +108,7 @@ function main()
         # `DNNKernels.matmul!`, which is the path the encoder takes, and neither
         # of the two obvious alternatives:
         #
-        #   * `Lava.coopmat_gemm!` bare computes something else entirely — its
+        #   * `Mantle.coopmat_gemm!` bare computes something else entirely — its
         #     `C` must be **fp32 with `splitk` planes** and it is called with
         #     `partials = C, reduce = false`. Handed an fp16 `M x N` it returned
         #     18946 NaNs and values to 6.55e4 against a reference whose largest

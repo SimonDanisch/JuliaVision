@@ -4,8 +4,14 @@ using DNNKernels, KernelAbstractions, Lava, Statistics, LinearAlgebra, Logging
 const KA = KernelAbstractions
 const GENDIR = joinpath(@__DIR__, "..", "gen")
 
+const MATANYONE_GRAPHS = ("encode_image", "transform_key", "encode_mask_deep",
+                          "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
+                          "segment", "readout_query")
+
 buildmodel(dir; backend=LavaBackend()) =
-    Model(joinpath(GENDIR, "graphs", dir), joinpath(GENDIR, "weights.safetensors"); backend)
+    Model(Dict(n => loadgraph(joinpath(GENDIR, "graphs", dir, "$n.json"))
+               for n in MATANYONE_GRAPHS),
+          readsafetensors(joinpath(GENDIR, "weights.safetensors")); backend)
 
 """
     e2einputs(backend) -> (image, mask, refalpha)

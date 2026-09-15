@@ -30,6 +30,11 @@ using Test, NeuralLUTRunner
     end
 end
 
+# The declared graph, end to end, against a host reference. Guarded on the
+# export the same way the testset above is: with no assets there is no graph to
+# declare.
+NeuralLUTRunner.ready() && include(joinpath(@__DIR__, "test_declared.jl"))
+
 # ---------------------------------------------------------------- latency
 #
 # The test the scaffold's docstring promised, in a **subprocess**: Julia's
@@ -48,6 +53,7 @@ end
 # the zero above means nothing and the test fails on that instead.
 const LATENCY_SUBPROCESS = raw"""
 using NeuralLUTRunner, KernelAbstractions, Lava, ColorTypes
+import Mantle
 const KA = KernelAbstractions
 
 backend = LavaBackend()
@@ -58,12 +64,12 @@ out = similar(img)
 KA.synchronize(backend)
 
 c0 = Base.cumulative_compile_time_ns()
-wall = @elapsed Lava.no_pipeline_compilation() do
+wall = @elapsed Mantle.no_pipeline_compilation() do
     grade!(out, img, predictlut(model, img))
     KA.synchronize(backend)
 end
 c1 = Base.cumulative_compile_time_ns()
-refused = Lava.PIPELINE_COMPILES_REFUSED[]
+refused = Mantle.PIPELINE_COMPILES_REFUSED[]
 
 @kernel function _novel!(o, ::Val{K}) where {K}
     i = @index(Global)
@@ -71,7 +77,7 @@ refused = Lava.PIPELINE_COMPILES_REFUSED[]
 end
 probe = KA.allocate(backend, Float32, 1024)
 fill!(probe, 1.0f0); KA.synchronize(backend)
-Lava.no_pipeline_compilation() do
+Mantle.no_pipeline_compilation() do
     try
         # `time_ns()` rather than `Random`: novel per RUN either way, and the
         # test environment has no Random.
@@ -80,7 +86,7 @@ Lava.no_pipeline_compilation() do
     catch
     end
 end
-control = Lava.PIPELINE_COMPILES_REFUSED[]
+control = Mantle.PIPELINE_COMPILES_REFUSED[]
 
 h = Array(out)
 println("RESULT ", (; refused, control, compile = (c1[1] - c0[1]) / 1e9, wall,

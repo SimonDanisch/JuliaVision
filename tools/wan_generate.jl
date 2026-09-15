@@ -19,7 +19,7 @@ reference. `--layers` at export time is the only thing that changes.
 """
 
 using DNNKernels
-using Lava: LavaBackend
+using Mantle: LavaBackend
 using KernelAbstractions
 using Printf
 using Random: MersenneTwister

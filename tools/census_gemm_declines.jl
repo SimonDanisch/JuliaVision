@@ -1,7 +1,7 @@
 # Which matmuls in the shipping models fall off the tensor-core path, and why.
 #
 # WHY THIS MATTERS. `mm_coopmat_plan` (DNNKernels/src/kernels/extern/matmul.jl)
-# pads N internally via `Lava.gemm_padn`, but M and K are taken as-is:
+# pads N internally via `Mantle.gemm_padn`, but M and K are taken as-is:
 #
 #     size(A,1) % dev.tile == 0 && size(A,2) % dev.tile == 0 || return Decline(:extent)
 #
@@ -28,7 +28,7 @@
 #
 # HOW IT COUNTS, and why it needs no instrumentation. Rather than patch
 # `mm_coopmat_plan`, run a step and look at which GEMM kernels the device
-# actually compiled. A scalar GEMM pipeline in `Lava.kernel_stats` after a step
+# actually compiled. A scalar GEMM pipeline in `Mantle.kernel_stats` after a step
 # means something declined — the kernel cannot exist otherwise.
 #
 # THE NEGATIVE CONTROL, which this tool would be worthless without: a shape known
@@ -46,7 +46,7 @@ const SCALAR_GEMM_KERNELS = ("strided_gemm_kernel", "scalar_gemm_staged_kernel")
     gemm_kernel_census(ctx) -> (scalar, coopmat)
 
 Compiled pipeline names split into the ones that mean "declined" and the rest.
-Read after a step; `Lava.clear_kernel_cache!()` before it if you want the census
+Read after a step; `Mantle.clear_kernel_cache!()` before it if you want the census
 to describe that step alone.
 """
 function gemm_kernel_census(ctx)
@@ -59,8 +59,8 @@ function gemm_kernel_census(ctx)
     # point, which is `"main"` for every kernel Lava emits. Reading `name` made
     # this census report zero declines for a matmul that had visibly declined —
     # caught only by the planted control below, which is why it exists.
-    for (_, linked) in Lava.linked_kernel_cache(ctx)
-        s = Lava.kernel_stats(linked)
+    for (_, linked) in Mantle.linked_kernel_cache(ctx)
+        s = Mantle.kernel_stats(linked)
         nm = isempty(s.source) ? s.name : s.source
         low = lowercase(nm)
         (occursin("gemm", low) || occursin("matmul", low)) || continue
@@ -76,7 +76,7 @@ Push a deliberately ragged fp16 matmul through `mul!` so the census has
 something it MUST detect. Returns whether a scalar GEMM kernel appeared.
 """
 function control_declines(back)
-    ctx = Lava.vk_context()
+    ctx = Mantle.vk_context()
     A = KA.allocate(back, Float16, 200, 184); fill!(A, Float16(0.01))
     B = KA.allocate(back, Float16, 184, 216); fill!(B, Float16(0.01))
     C = KA.allocate(back, Float32, 200, 216); fill!(C, 0f0)
@@ -138,7 +138,7 @@ end
 # `matmul!` and so hit the gate; general convolutions use the conv planner, which
 # already pads K. A static census sizes the SURFACE, not the time. That is what
 # the runtime half of this file is for: run it per model with the GPU otherwise
-# idle, `control_declines` first, and `Lava.clear_kernel_cache!()` between models
+# idle, `control_declines` first, and `Mantle.clear_kernel_cache!()` between models
 # so each census describes its own step.
 
 # ── The STATIC half: which matmul weights land on the tile, read straight out of

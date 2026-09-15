@@ -48,6 +48,7 @@ end
 # the zero above means nothing and the test fails on that instead.
 const LATENCY_SUBPROCESS = raw"""
 using RIFERunner, KernelAbstractions, Lava, ColorTypes
+import Mantle
 const KA = KernelAbstractions
 
 backend = LavaBackend()
@@ -60,12 +61,12 @@ fill!(b, RGB{Float32}(0.4f0, 0.5f0, 0.6f0))
 KA.synchronize(backend)
 
 c0 = Base.cumulative_compile_time_ns()
-wall = @elapsed Lava.no_pipeline_compilation() do
+wall = @elapsed Mantle.no_pipeline_compilation() do
     interpolate!(out, model, a, b)
     KA.synchronize(backend)
 end
 c1 = Base.cumulative_compile_time_ns()
-refused = Lava.PIPELINE_COMPILES_REFUSED[]
+refused = Mantle.PIPELINE_COMPILES_REFUSED[]
 
 @kernel function _novel!(o, ::Val{K}) where {K}
     i = @index(Global)
@@ -73,7 +74,7 @@ refused = Lava.PIPELINE_COMPILES_REFUSED[]
 end
 probe = KA.allocate(backend, Float32, 1024)
 fill!(probe, 1.0f0); KA.synchronize(backend)
-Lava.no_pipeline_compilation() do
+Mantle.no_pipeline_compilation() do
     try
         # `time_ns()` rather than `Random`: novel per RUN either way, and the
         # test environment has no Random.
@@ -82,7 +83,7 @@ Lava.no_pipeline_compilation() do
     catch
     end
 end
-control = Lava.PIPELINE_COMPILES_REFUSED[]
+control = Mantle.PIPELINE_COMPILES_REFUSED[]
 
 println("RESULT ", (; refused, control, compile = (c1[1] - c0[1]) / 1e9, wall,
                       finite = all(c -> isfinite(red(c)) && isfinite(green(c)), Array(out))))

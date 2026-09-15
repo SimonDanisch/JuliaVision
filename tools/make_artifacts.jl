@@ -39,7 +39,17 @@ hand, because a hand-computed tree hash that happens to be wrong fails at
 using Pkg.Artifacts, Printf, SHA
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
-const JV = joinpath(ROOT, "dev", "JuliaVision")
+# Where the packages live, which depends on how `tools/` was reached. Symlinked
+# into a parent repo (the VideoEdit layout) `ROOT` is that parent and the
+# monorepo sits under `dev/JuliaVision`; run from inside a plain JuliaVision
+# checkout, `ROOT` *is* the monorepo. Asking which one has the packages beats
+# hardcoding either — the wrong guess fails inside `bind_artifact!` with a
+# tempname error naming a path nobody wrote.
+const JV = let nested = joinpath(ROOT, "dev", "JuliaVision")
+    isdir(joinpath(nested, "DNNKernels")) ? nested :
+    isdir(joinpath(ROOT, "DNNKernels"))   ? ROOT   :
+    error("cannot find the JuliaVision packages from $ROOT")
+end
 
 # artifact name => (package that binds it, the export directory under gen/graphs)
 const MODELS = Dict(
@@ -105,6 +115,16 @@ const MODELS = Dict(
     # fresh clone unable to fetch it.
     "kokoro"        => ("KokoroRunner", "kokoro-fp16"),
     "propainter"    => ("ProPainterRunner", "propainter"),
+    # Hunyuan3D-2.1 shape pipeline. Four artifacts rather than one tree: the
+    # conditioner runs once per generation, the denoiser fifty times, the VAE
+    # once and the geometry decoder some seven thousand times, so a caller has
+    # no reason to fetch all four to use one. The denoiser is also 5.7 GiB on
+    # its own — past what a GitHub release asset can hold, so publishing it
+    # needs somewhere without that cap regardless of how it is bound here.
+    "hunyuan3d"      => ("Hunyuan3DRunner", "hunyuan3d"),
+    "hunyuan3d-cond" => ("Hunyuan3DRunner", "hunyuan3d-cond"),
+    "hunyuan3d-vae"  => ("Hunyuan3DRunner", "hunyuan3d-vae"),
+    "hunyuan3d-geo"  => ("Hunyuan3DRunner", "hunyuan3d-geo"),
 )
 
 # Files a caller needs to run the model. Anything else in the export directory —
@@ -127,11 +147,47 @@ const SHIPPED = ["op_histogram.json", "weights.safetensors"]   # + "<name>.json"
 #     must contain `whisper.json`, not `whisper-fp32.json`. Without this entry
 #     `pack` looks for a file that does not exist, and had it not, it would have
 #     shipped a graph under a name the runner never opens.
+# Models whose weights ship as shards, so the graph artifact carries no weights.
+const NOWEIGHTS = Set(["hunyuan3d"])
+
+# Weight shards. A Julia artifact is one tree and a GitHub release asset caps at
+# 2 GiB, so a 5.7 GiB tensor file cannot be published at all in one piece.
+# `tools/shard_safetensors.jl` splits it byte-for-byte into pieces that fit, each
+# bound separately; `Hunyuan3DRunner.hunyuan3dweights` merges them on load, which
+# is why nothing downstream knows shards exist.
+#
+# artifact name => (package that binds it, dir under gen/shards, file)
+const SHARDS = Dict(
+    "hunyuan3d-dit-w1" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-1of4.safetensors"),
+    "hunyuan3d-dit-w2" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-2of4.safetensors"),
+    "hunyuan3d-dit-w3" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-3of4.safetensors"),
+    "hunyuan3d-dit-w4" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-4of4.safetensors"),
+)
+
+function packshard(name::AbstractString, tag::AbstractString)
+    pkg, dir, file = SHARDS[name]
+    src = joinpath(ROOT, "gen", "shards", dir, file)
+    isfile(src) || error("no shard at $src — make them with " *
+                         "`julia --project=. tools/shard_safetensors.jl <weights> <outdir> <n>`")
+    hash = create_artifact() do d
+        cp(src, joinpath(d, file))
+    end
+    return finishartifact(name, pkg, hash, tag, String[])
+end
+
 const GRAPHFILES = Dict(
     "whisper-decoder" => ["whisperdec.json", "whispercross.json"],
     "whisper-fp32" => ["whisper.json"],
     "kokoro" => ["kokorotext.json", "kokorovoc.json",
                  "vocab.json", "voices.safetensors", "lexicon.json"],
+    # `export_hunyuan3d.py` names the graph after the PART, so none of the four
+    # match their artifact name. The VAE also ships `scale_factor.json` (the
+    # sampler works in a scaled latent space and cannot reconstruct without it)
+    # and the conditioner ships `preprocess.json`.
+    "hunyuan3d"      => ["hunyuan3d_dit.json"],
+    "hunyuan3d-cond" => ["hunyuan3d_cond.json", "preprocess.json"],
+    "hunyuan3d-vae"  => ["hunyuan3d_vae.json", "scale_factor.json"],
+    "hunyuan3d-geo"  => ["hunyuan3d_geo.json"],
 )
 
 # ── Upstream checkpoints, for models that are FETCHED but not yet TRACED.
@@ -312,7 +368,11 @@ function pack(name::AbstractString, tag::AbstractString)
     isdir(src) || error("no export at $src — run `uv run tools/export_$(name).py`")
 
     # `<name>.json` by default; see `GRAPHFILES` for the two that need more.
-    want = vcat(get(GRAPHFILES, name, ["$name.json"]), SHIPPED)
+    # `NOWEIGHTS` drops `weights.safetensors`: a model whose weights are sharded
+    # ships them as their own artifacts, and leaving them here too would both
+    # double the download and push this tarball back over the release cap.
+    shipped = name in NOWEIGHTS ? filter(!=("weights.safetensors"), SHIPPED) : SHIPPED
+    want = vcat(get(GRAPHFILES, name, ["$name.json"]), shipped)
     for f in want
         isfile(joinpath(src, f)) || error("$src is missing $f")
     end
@@ -357,7 +417,7 @@ end
 names = isempty(args) ? ["depthanything", "neurallut", "rife"] : args   # the ported ones
 for n in names
     haskey(MODELS, n) || haskey(REFS, n) || haskey(CHECKPOINTS, n) ||
-        haskey(FIXTURES, n) || error(
+        haskey(FIXTURES, n) || haskey(SHARDS, n) || error(
         "unknown target $n; known: " *
         join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)),
                        collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)))), ", "))
@@ -366,6 +426,7 @@ end
 println("binding artifacts against release tag `$tag`\n")
 made = [haskey(REFS, n) ? packrefs(n, tag) :
         haskey(FIXTURES, n) ? packfixtures(n, tag) :
+        haskey(SHARDS, n) ? packshard(n, tag) :
         haskey(CHECKPOINTS, n) ? packcheckpoints(n, tag) : pack(n, tag) for n in names]
 
 total = sum(m -> m.bytes, made)

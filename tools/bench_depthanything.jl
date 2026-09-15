@@ -63,7 +63,8 @@ isdir(DIR) || error("no export at $DIR — run `uv run tools/export_depthanythin
 # (fold, hoist, dropdead) that the editor's own path gets. Not a detail on this
 # model — 311 ops become 290 and the frame goes from 763.56 ms to 413.46 ms, so a
 # benchmark that skips them overstates the engine's cost by 1.8x.
-model = Model(DIR, joinpath(DIR, "weights.safetensors");
+model = Model(Dict("depthanything" => loadgraph(joinpath(DIR, "depthanything.json"))),
+              readsafetensors(joinpath(DIR, "weights.safetensors"));
               names = ["depthanything"], backend)
 graph = model.graphs["depthanything"]
 weights = model.weights

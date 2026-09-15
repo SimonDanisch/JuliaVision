@@ -1,4 +1,5 @@
 using Test, DNNKernels, Lava, KernelAbstractions
+using Mantle: LavaBackend
 const KA = KernelAbstractions
 
 # `clamp.default` shipped as a bare dotted broadcast:

@@ -16,6 +16,7 @@ using Test, MatAnyoneRunner, DNNKernels
 
 const SUBPROCESS = """
 using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
+using Mantle: LavaBackend
 using DNNKernels: toback
 const KA = KernelAbstractions
 backend = LavaBackend()

@@ -22,8 +22,11 @@ function main(precision = "fp32")
     ref = collect(view(alpha, 1, :, :))
 
     m = with_logger(ConsoleLogger(stderr, Logging.Debug)) do
-        Model(joinpath(GEN, "graphs", "aten-$precision"),
-              joinpath(GEN, "weights.safetensors"))
+        Model(Dict(n => loadgraph(joinpath(GEN, "graphs", "aten-$precision", "$n.json"))
+                   for n in ("encode_image", "transform_key", "encode_mask_deep",
+                             "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
+                             "segment", "readout_query")),
+              readsafetensors(joinpath(GEN, "weights.safetensors")))
     end
     s = DNNKernels.initstate(m, size(img, 1), size(img, 2))
     DNNKernels.step!(m, s, img; mask = collect(mask))

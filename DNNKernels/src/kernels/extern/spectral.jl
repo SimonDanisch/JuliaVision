@@ -2,7 +2,7 @@
 Spectral front ends: the STFT and the mel spectrogram every audio model here
 starts with.
 
-The transform itself lives in Lava (`Lava.fft!`, `Lava.rfft`, `Lava.stft`,
+The transform itself lives in Lava (`Lava.fft!`, `Mantle.rfft`, `Mantle.stft`,
 ported from VkFFT) for the same reason `mul!` does — it is an array primitive,
 not a neural-network one, and the graphics side wants it too. What is here is the
 model-facing layer: the entry points take a `Ctx`, so they compose with the rest
@@ -17,7 +17,7 @@ Worth stating because it drove the whole design of the Lava side:
     DeepFilterNet3   n_fft = 960  = 2^6 * 3 * 5
     Demucs htdemucs  n_fft = 4096 = 2^12
 
-Only the last is a power of two. `Lava.fftany!` dispatches to a mixed-radix plan
+Only the last is a power of two. `Mantle.fftany!` dispatches to a mixed-radix plan
 for the other two — `400 -> (8,5,5,2)`, `960 -> (8,8,5,3)`.
 """
 
@@ -31,7 +31,7 @@ this library's convention — every kernel entry point takes one — and carries
 backend the transform runs on.
 """
 function stft(ctx::Ctx, x, nfft::Int, hop::Int, window; center::Bool = true)
-    return Lava.stft(x, nfft, hop, window; center)
+    return Mantle.stft(x, nfft, hop, window; center)
 end
 
 """
@@ -110,8 +110,8 @@ function logmelspectrogram(ctx::Ctx, audio, filters;
                            nfft::Int = 400, hop::Int = 160, window = nothing,
                            droplast::Bool = true)
     backend = ctx.backend
-    w = window === nothing ? Lava.hannwindow(backend, nfft) : window
-    S = Lava.stft(audio, nfft, hop, w; center = true)
+    w = window === nothing ? Mantle.hannwindow(backend, nfft) : window
+    S = Mantle.stft(audio, nfft, hop, w; center = true)
     nb, nt = size(S)
     keep = droplast ? nt - 1 : nt
     mag = abs2.(view(S, :, 1:keep))                 # (nfreq, frames), real

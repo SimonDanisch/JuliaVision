@@ -8,6 +8,7 @@ kernel that is wrong and unused is worse than no kernel: it looks available.
 """
 
 using Test, DNNKernels, Lava, KernelAbstractions
+import Mantle
 const KA = KernelAbstractions
 
 function attnref(qh, kh, vh, scale)
@@ -103,7 +104,9 @@ end
     end
 
     # ── the cooperative-matrix form, which IS on the `sdpa` path ─────────────
-    if !Lava.coopmat_gemm_available()
+    # The context, not a global: `coopmat_gemm_available` asks a DEVICE, and
+    # the no-argument convenience that reached for the default one is gone.
+    if !Mantle.coopmat_gemm_available(Mantle.vk_context())
         @info "no cooperative-matrix support on this device; skipping the fused path"
     else
         @testset "cooperative-matrix flash: exact at every shipped tiling" begin

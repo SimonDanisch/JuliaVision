@@ -1,0 +1,63 @@
+[hunyuan3d]
+git-tree-sha1 = "56c0c2768ed5ca24d1b0e6b826d6fb615c4c9f04"
+lazy = true
+
+    [[hunyuan3d.download]]
+    sha256 = "9aaf87bde2fe5fe33617aebc5167b41646e26e9e01d2985ee0f2049166262842"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d.tar.gz"
+
+[hunyuan3d-cond]
+git-tree-sha1 = "2fefab210ffe1f40556b5666297a0083c0ae12e4"
+lazy = true
+
+    [[hunyuan3d-cond.download]]
+    sha256 = "d499993c3cfc22f849d8c03a19b450589cfdc164391f48736c88cb5dc45b421b"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-cond.tar.gz"
+
+[hunyuan3d-dit-w1]
+git-tree-sha1 = "5d8d607a6c90cc73a52e3968feaec413219c0f68"
+lazy = true
+
+    [[hunyuan3d-dit-w1.download]]
+    sha256 = "2452fa297ad8ee84ff5b90c6a703dd908938369c92633aab8e9da8b770780a6f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-dit-w1.tar.gz"
+
+[hunyuan3d-dit-w2]
+git-tree-sha1 = "c66d97122e9745f1eacded6047c55bc4e17252ee"
+lazy = true
+
+    [[hunyuan3d-dit-w2.download]]
+    sha256 = "42679078961ff69cd1668cd775340cf4c7938d0a4e77c616581abd93cebbbd67"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-dit-w2.tar.gz"
+
+[hunyuan3d-dit-w3]
+git-tree-sha1 = "a5407f82bba3e0a1a2d733379daf3ba3134175bd"
+lazy = true
+
+    [[hunyuan3d-dit-w3.download]]
+    sha256 = "f03916f9ef3cbb515b1c71adc64dffc3cce3b271557352e5d38dc318d78a6d93"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-dit-w3.tar.gz"
+
+[hunyuan3d-dit-w4]
+git-tree-sha1 = "0068dec05e6fdba3528a2c6dcae589178808a029"
+lazy = true
+
+    [[hunyuan3d-dit-w4.download]]
+    sha256 = "de0f10ad3c4486c4b0a87df10e462aa5e7ef215b44acb2dc69c17595224c97a9"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-dit-w4.tar.gz"
+
+[hunyuan3d-geo]
+git-tree-sha1 = "c357c3226fb3455b3c5d6fa196d9fdd581b8723d"
+lazy = true
+
+    [[hunyuan3d-geo.download]]
+    sha256 = "7f16db9e96e05417b667a9537280129c2199d48d431ba9600acfaa948a54ec2f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-geo.tar.gz"
+
+[hunyuan3d-vae]
+git-tree-sha1 = "6410342b3ff030033f1b3cfaccb82e9a5430eb06"
+lazy = true
+
+    [[hunyuan3d-vae.download]]
+    sha256 = "faef65a7e9e81ac8240914291e30140fa4792cff177202d60e5cdcf83b3d01d9"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/hunyuan3d-vae.tar.gz"

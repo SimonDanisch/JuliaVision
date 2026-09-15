@@ -72,7 +72,8 @@ isdir(DIR) || error("no export at $DIR — run `uv run tools/export_rife.py`")
 # skips them measures a graph nothing ships. Worth 366 -> 345 ops here, and
 # ~1.8x on Depth Anything; on this graph it is within noise, which is itself
 # worth knowing — the passes have nothing to fold in an fp32 leaky-ReLU network.
-model = Model(DIR, joinpath(DIR, "weights.safetensors"); names = ["rife"], backend)
+model = Model(Dict("rife" => loadgraph(joinpath(DIR, "rife.json"))),
+              readsafetensors(joinpath(DIR, "weights.safetensors")); backend)
 graph = model.graphs["rife"]
 weights = model.weights
 hw = readsafetensors(joinpath(DIR, "weights.safetensors"))

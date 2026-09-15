@@ -29,6 +29,7 @@ internals they poke are not.
 """
 
 using Test, DNNKernels, KernelAbstractions, Lava, SAM2Runner
+using Mantle: LavaBackend
 using DNNKernels: readsafetensors, toback
 using SAM2Runner: SAM2, encode, decode, segment, prompt
 const KA = KernelAbstractions
@@ -41,12 +42,21 @@ const DK = DNNKernels
 # a model tarball) and that split is the runner's business, not this file's.
 const HAVE_SAM2 = SAM2Runner.ready()
 
-# The reference for "is the plan stale": the same graphs run eagerly, on the
-# same inputs. `p.feat` holds the encoder outputs already converted to the
-# decoder's dtypes — exactly what `decode` itself stages.
-function eager_decode(sam, pt, lb)
-    p = SAM2Runner.plansfor(sam)
-    DK.call(sam.model, "sam2_decoder", p.feat[1], p.feat[2], p.feat[3], pt, lb;
+# The reference for "is the plan stale": the same graphs run EAGERLY, on the same
+# inputs. `p.feat` holds the encoder outputs already converted to the decoder's
+# dtypes — exactly what `decode` itself stages.
+#
+# A second `Model` over the same graphs and weights, `record = false`, and that
+# is the whole point of it. `sam.model` records and replays now, so calling
+# through it here would compare a replay against itself and pass whatever the
+# plan held. Sharing the weights makes the second model nearly free.
+eagermodel(sam) = DK.Model(sam.model.graphs, sam.model.weights, sam.model.backend,
+                           sam.model.memevery, sam.model.memframes, sam.model.topk;
+                           record = false)
+
+function eager_decode(eager, sam, pt, lb)
+    p = SAM2Runner.handover(sam)
+    DK.call(eager, "sam2_decoder", p.feat[1], p.feat[2], p.feat[3], pt, lb;
             dims = sam.dims, clampattn = true)
 end
 
@@ -54,6 +64,7 @@ end
     back = LavaBackend()
     refs = SAM2Runner.sam2refs()
     sam = SAM2Runner.sam2model(; backend = back, res = 1024)
+    eager = eagermodel(sam)
     feats = encode(sam, toback(back, refs["sam2_encoder/in0"]))
     KA.synchronize(back)
 
@@ -90,7 +101,7 @@ end
         @test pt2 === pt && lb2 === lb
         replayed, _ = decode(sam, feats, pt2, lb2); KA.synchronize(back)
         replayed = copy(Array(replayed))
-        recorded = copy(Array(eager_decode(sam, pt2, lb2)[1]))
+        recorded = copy(Array(eager_decode(eager, sam, pt2, lb2)[1]))
 
         @test replayed == recorded
         # ...and it did move, so the equality above is not two copies of one mask.
@@ -143,7 +154,7 @@ end
         @test sam.plans[] === plans            # reused, not rebuilt
 
         @test replayed != maskA                # the new frame did reach the mask
-        @test replayed == copy(Array(eager_decode(sam, pt, lb)[1]))
+        @test replayed == copy(Array(eager_decode(eager, sam, pt, lb)[1]))
     end
 
     @testset "encode refreshes the decoder's feature buffers in place" begin

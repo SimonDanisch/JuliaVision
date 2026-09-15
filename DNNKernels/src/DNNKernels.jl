@@ -16,10 +16,17 @@ using Lava
 # The API this package builds GPU execution with — placement, lifetimes,
 # barriers, recording and replay. Not `using`: `Mantle.run!`, `Mantle.Buffer` and
 # `Mantle.storage` all collide with names here or in Base, and `M.` at the use
-# site says which one is meant. See `mantle.jl` for why this is a dependency and
-# not an extension.
+# site says which one is meant. A dependency and not an extension because there
+# is no path through this package that does not go through Mantle: every buffer
+# is a `Mantle.Buffer` or a `Mantle.Transient.Buffer`, and every dispatch is
+# declared into a `Mantle.Graph`.
 import Mantle
 const M = Mantle
+# The intrinsics the kernels here are written against. Macro-free: a kernel is a
+# plain function using `KI.get_global_id()` rather than a `@kernel` with
+# `@index`, so `dispatch!` takes the function itself and Mantle compiles it for
+# whichever backend the graph is on.
+import KernelInterface as KI
 using LinearAlgebra: mul!, transpose
 using Random
 import AcceleratedKernels as AK
@@ -75,7 +82,7 @@ that is deliberate.
 # *argument types* name `typeof(geluexact)`, and a type name does not change when
 # its method body does. That is the gap the build-id key still leaves, and this
 # constant is what closes it.
-const KERNELS_VERSION = "6"
+const KERNELS_VERSION = "7"
 
 include("assets.jl")
 include("safetensors.jl")
@@ -83,15 +90,17 @@ include("graph.jl")
 include("fusedop.jl")
 include("context.jl")
 include("kernelplans.jl")
-include("workspace.jl")
 include("launch.jl")
 include("kernels/extern/conv.jl")
 include("kernels/extern/conv_implicit.jl")
 include("kernels/extern/conv_coopmat.jl")
+include("quant.jl")
+include("q8gemm.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")
 include("kernels/extern/flash.jl")
 include("kernels/extern/flash_cm2.jl")
+include("maskedprefill.jl")
 include("kernels/extern/lstm.jl")       # aten::lstm kept whole, loop in-kernel
 include("kernels/extern/spectral.jl")   # STFT + mel, on Lava's FFT
 include("kernels/layernorm.jl")
@@ -109,8 +118,18 @@ include("dce.jl")
 include("fuse.jl")
 include("fusepass.jl")
 include("fuseattention.jl")
+include("fusemaskedattention.jl")
+include("foldcache.jl")
+include("fusegroupedrms.jl")
+include("fuseqkv.jl")
+include("fuserope.jl")
+include("fuseswiglu.jl")
+include("kernels/elementwise.jl")
+include("kernels/shapeops.jl")
+include("kernels/batchnorm.jl")
+include("kernels/conv_igemm.jl")
+include("emit.jl")
 include("driver.jl")
-include("mantle.jl")
 include("wan.jl")
 # `sam2.jl` moved to SAM2Runner. It arrived here in `7273481` "Import LavaDNN as
 # DNNKernels" — the rename described half the package and moved nothing — and it

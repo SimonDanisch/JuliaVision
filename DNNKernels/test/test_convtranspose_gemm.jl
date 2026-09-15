@@ -17,6 +17,7 @@ been exercised by the encoder.
 """
 
 using Test, DNNKernels, Lava, KernelAbstractions
+using Mantle: LavaBackend
 const KA = KernelAbstractions
 const DK = DNNKernels
 

@@ -127,7 +127,7 @@ function convolution!(ctx, out, x, w, bias, stride, padding, dilation, groups;
     # means nothing.
     #
     # This entry point is NOT that kernel. The branches below reach
-    # `conv_coopmat_plan` and from there `Lava.coopmat_gemm!`, which exists
+    # `conv_coopmat_plan` and from there `Mantle.coopmat_gemm!`, which exists
     # only on Lava. Only the fallthrough is backend-independent.
     s = (stride[1], stride[2])
     p = (padding[1], padding[2])
@@ -296,8 +296,8 @@ are zero — they are the ones the padding removed.
                           QX::Int32, QY::Int32) where {SX,SY,PX,PY}
     ox, oy, co, n = I
     @inbounds begin
-        dx, qx = Lava.splitidx(ox - 1 + PX, Val(SX))
-        dy, qy = Lava.splitidx(oy - 1 + PY, Val(SY))
+        dx, qx = Mantle.splitidx(ox - 1 + PX, Val(SX))
+        dy, qy = Mantle.splitidx(oy - 1 + PY, Val(SY))
         inside = qx >= 0 && qx < Int(QX) && qy >= 0 && qy < Int(QY)
         # `dx + SX*(dy + SY*(co-1))` is the phase stacking the weight build uses.
         v = inside ? Y[1 + qx, 1 + qy, 1 + dx + SX * (dy + SY * (co - 1)), 1] :
@@ -317,8 +317,8 @@ write consecutive addresses; the gather side is strided but it is a read.
     @inbounds begin
         # `splitidx` returns (remainder, quotient) in that order — the sub-pixel
         # offset first, the input coordinate second.
-        dx, i = Lava.splitidx(ox - 1, Val(SX))
-        dy, j = Lava.splitidx(oy - 1, Val(SY))
+        dx, i = Mantle.splitidx(ox - 1, Val(SX))
+        dy, j = Mantle.splitidx(oy - 1, Val(SY))
         v = P[1 + i + j * Int(W), 1 + dx + SX * (dy + SY * (co - 1))]
         # `launch!` is a map: return the element, it does the store.
         bias === nothing ? v : v + bias[co]

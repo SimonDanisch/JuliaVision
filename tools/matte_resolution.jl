@@ -61,7 +61,7 @@ seed = open(seedpath) do io
     w = read(io, Int32); h = read(io, Int32); read!(io, Matrix{UInt8}(undef, w, h))
 end
 VE.registermatte!(MatAnyoneRunner.matanyonepropagator())
-engine = VE.FxEngine(Lava.LavaBackend())
+engine = VE.FxEngine(Mantle.LavaBackend())
 mkclip() = (c = VE.Clip(src; src_in = 1500, src_out = 1500 + nframes - 1);
             c.crop = (0.15000000596046448, 0.25, 0.7000000178813934, 0.5); c)
 LW, LH = VE.mattelayersize(mkclip())

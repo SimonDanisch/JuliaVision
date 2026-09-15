@@ -73,9 +73,9 @@ function oldroute!(ctx, out, A, B, bias, M, N, K, NP)
         Bp = scratch!(ctx, Float16, K, NP)
         padcols_kernel!(ctx.backend)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
-    bs = Lava.coopmat_gemm_shape(M, NP, K)
+    bs = Mantle.coopmat_gemm_shape(M, NP, K)
     C = scratch!(ctx, Float32, M, NP, max(bs[2], 1))
-    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split = bs, partials = C, reduce = false)
+    Mantle.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split = bs, partials = C, reduce = false)
     mm_epilogue_kernel!(ctx.backend)(out, C, bias, identity, Val(M), Val(bs[2]),
                                      M * NP, M * N; ndrange = M * N)
     out

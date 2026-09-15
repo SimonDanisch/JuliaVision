@@ -1,4 +1,5 @@
 using Test, DNNKernels, Lava, KernelAbstractions
+using Mantle: LavaBackend
 using Adapt: adapt
 using KernelAbstractions: @kernel, @index
 const KA = KernelAbstractions

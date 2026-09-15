@@ -3,6 +3,7 @@ uuid = "31480c1c-f298-4848-9ae9-978a73fb95d8"
 version = "0.1.0"
 
 [deps]
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"

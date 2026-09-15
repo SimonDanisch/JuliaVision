@@ -23,7 +23,7 @@ reference, with the worst logit difference alongside it to catch a near-miss
 that happens to threshold the same way.
 """
 
-using DNNKernels, KernelAbstractions, Statistics, Printf
+using DNNKernels, KernelAbstractions, Lava, Mantle, Statistics, Printf
 # `SAM2`, `encode`, `decode` and `prompt` moved from DNNKernels to SAM2Runner
 # (JuliaVision `5b59cd7`, "the model drivers leave the kernel library"). They are
 # model code, not kernels. This tool followed them here rather than through the
@@ -72,8 +72,15 @@ const VRAM_CEILING = 1951        # 1756 MB PyTorch / 0.9
 
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
 backend = if mode == "gpu"
-    using Lava
-    LavaBackend()
+    # `Mantle.LavaBackend`, not `Lava.LavaBackend`: the backend object moved to
+    # Mantle with the rest of the placement/recording API, and the `using Lava`
+    # that used to sit here left `LavaBackend` undefined. Same move that left
+    # SAM 2's `plansfor` calling `Mantle.Device(Lava)`; this file is the Julia
+    # half of the PyTorch comparison and had not been re-run on a machine since.
+    # `Lava` itself is still imported at the top — the coopmat2 A/B below reads
+    # `Lava.caps()`, and scoping that import inside this branch is what made it
+    # fail there instead of here.
+    Mantle.LavaBackend()
 else
     KA.CPU()
 end
@@ -159,8 +166,8 @@ this whole block died with an `UndefVarError` after the benchmark had already ru
 function settledlive(tries = 8)
     live = typemax(Int)
     for _ in 1:tries
-        Lava.trim_gpu_pool!()
-        l = Lava.gpu_memory_usage().live_bytes ÷ 2^20
+        Mantle.trim_gpu_pool!()
+        l = Mantle.gpu_memory_usage().live_bytes ÷ 2^20
         l == live && return l
         live = l
     end
@@ -198,11 +205,13 @@ d = timed(() -> decode(sam, feats, point, label), 3, mode == "gpu" ? 50 : 1)
 #
 # Alternating, same session: this card's run-to-run spread on one kernel is ~13%
 # and a cross-session comparison could not see a change smaller than that.
-if mode == "gpu" && !isempty(Lava.caps().wggran)
-    full = Lava.caps()
+# `Mantle.caps(backend)`, not `Lava.caps()`: caps became a property of a
+# device/backend rather than a global, so the no-argument form is gone.
+if mode == "gpu" && !isempty(Mantle.caps(backend).wggran)
+    full = Mantle.caps(backend)
     function arm(withcm2)
-        Lava.vk_context().caches.caps =
-            withcm2 ? full : Lava.DeviceCaps(full; wggran = NTuple{4,Int}[])
+        Mantle.vk_context().caches.caps =
+            withcm2 ? full : Mantle.DeviceCaps(full; wggran = NTuple{4,Int}[])
         sam.plans[] = nothing                 # re-plan and re-bake under this arm
         encode(sam, image); KA.synchronize(backend)
         timed(() -> encode(sam, image), 3, 20)
@@ -211,7 +220,7 @@ if mode == "gpu" && !isempty(Lava.caps().wggran)
     cm1, cm2 = min(a1.min, a2.min), min(b1.min, b2.min)
     @printf("  encode  cm1 %7.2f ms   cm2 %7.2f ms   %+.1f%%  (attention kernel A/B)\n",
             cm1, cm2, 100 * (cm2 - cm1) / cm1)
-    Lava.vk_context().caches.caps = full
+    Mantle.vk_context().caches.caps = full
 end
 
 

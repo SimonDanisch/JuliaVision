@@ -25,7 +25,7 @@ session rather than evaluated into a running one.
 
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
 const KA = KernelAbstractions
-Lava.enable_pipeline_executable_properties!()
+Mantle.enable_pipeline_executable_properties!()
 
 # (M, N, K, share of the encoder's GEMM arithmetic). Four of the six are 72.7%
 # of it; all are tile-aligned so none falls off the cooperative-matrix path.
@@ -220,14 +220,14 @@ function kernelstats(setup; M = 2304, N = 4096, K = 576)
     # one of the twelve globals that moved onto the context, and this function
     # had been throwing `UndefVarError` ever since. Found 2026-08-11 by calling
     # it. A lab tool nobody calls rots exactly like a test nobody runs.
-    pipes() = Lava.vk_context().caches.pipelines
+    pipes() = Mantle.vk_context().caches.pipelines
     before = Set(keys(pipes()))
     setup(); DNNKernels.reset!(WS)
     DNNKernels.matmul!(CTX, C, A, B, nothing)
     KA.synchronize(BACKEND)
     fresh = [k for k in keys(pipes()) if !(k in before)]
     isempty(fresh) && return nothing
-    [Lava.pipeline_exec_stats(pipes()[k]) for k in fresh]
+    [Mantle.pipeline_exec_stats(pipes()[k]) for k in fresh]
 end
 
 "Print the driver's statistics for every pipeline `setup` newly compiles."

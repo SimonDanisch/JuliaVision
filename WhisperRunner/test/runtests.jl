@@ -20,7 +20,8 @@ latency claim the package exists for. It has to run in a subprocess because
 Julia's compile-time counter is per-process; see SAM2Runner/test for the shape.
 """
 
-using Test, WhisperRunner, KernelAbstractions, Lava
+using Test, WhisperRunner, KernelAbstractions, Lava, Random
+using Mantle: LavaBackend
 const KA = KernelAbstractions
 
 @testset "WhisperRunner" begin
@@ -123,6 +124,30 @@ const KA = KernelAbstractions
             @test strip(text) == "The quick brown fox jumps over the lazy dog. " *
                                  "Pack my box with five dozen liquor jugs. " *
                                  "How vexingly quick daft zebras jump."
+
+            @testset "recorded multi-window transcription" begin
+                recorded = whisper(; backend, record=true)
+                # Three different windows, with the latter two containing
+                # different excerpts. Replaying the first encoder result must
+                # not pass merely because every window repeats the same audio.
+                longpcm = zeros(Float32, 64 * 16000)
+                longpcm[1:length(pcm)] .= pcm
+                longpcm[480001:525000] .= pcm[1:45000]
+                longpcm[960001:1001416] .= pcm[90001:end]
+                # Silence can trigger temperature fallback. Use the same RNG
+                # stream so this compares execution paths, not random samples.
+                expected, expectedsegs = transcribe(w, longpcm; rng=Random.Xoshiro(42))
+                signature(segs) = [(s.start, s.stop, s.text, s.tokens) for s in segs]
+                @test !isempty(expectedsegs)
+                for _ in 1:2
+                    actual, actualsegs = transcribe(recorded, longpcm; rng=Random.Xoshiro(42))
+                    @test actual == expected
+                    @test signature(actualsegs) == signature(expectedsegs)
+                end
+                # Return to a shorter, different input after both long runs.
+                actual, _ = transcribe(recorded, pcm)
+                @test actual == text
+            end
         end
     else
         @info "Whisper large-v3-turbo: no export; run tools/export_whisper.py"

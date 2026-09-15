@@ -40,15 +40,17 @@ function ourtimes(sam, img; iters = 3)
     Dict(k => (v[1] ÷ iters, v[2] / iters) for (k, v) in t)
 end
 
-sam = SAM2(joinpath(DIR, "sam2_encoder.json") |> dirname,
-           joinpath(DIR, "weights.safetensors"); backend = LavaBackend(), res = 1024)
+sam = SAM2(Dict(n => DNNKernels.loadgraph(joinpath(DIR, "$n.json"))
+                for n in ("sam2_encoder", "sam2_decoder")),
+           readsafetensors(joinpath(DIR, "weights.safetensors"));
+           backend = LavaBackend(), res = 1024)
 img = toback(sam.model.backend,
              readsafetensors(joinpath(DIR, "refs.safetensors"))["sam2_encoder/in0"])
 
 # Same switch the bench uses: empty `wggran` and the planner decides as if this
 # card had no workgroup-scope matrices.
 full = Lava.caps()
-setcm2(on) = (Lava.vk_context().caches.caps =
+setcm2(on) = (Mantle.vk_context().caches.caps =
                   on ? full : Lava.DeviceCaps(full; wggran = NTuple{4,Int}[]))
 
 rows = Dict{String,Vector{Tuple{Int,Float64}}}()

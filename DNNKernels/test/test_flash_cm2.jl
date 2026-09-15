@@ -13,6 +13,7 @@ with either GPU path, and slow enough that the shapes here stay small.
 """
 
 using Test, DNNKernels, Lava, KernelAbstractions
+using Mantle: LavaBackend
 
 const KA = KernelAbstractions
 const DK = DNNKernels

@@ -57,8 +57,8 @@ Takes the cooperative-matrix path when `mm_coopmat_plan` returns one, and
 `LinearAlgebra.mul!` otherwise.
 
 This function *does* know tensor cores exist: the predicate below checks
-`Lava.coopmat_gemm_available()` and `Lava.GEMM_TILE`, and gates on
-`Lava.LavaArray{Float16,2}`, so the fast path is reachable only on Lava. An
+`Mantle.coopmat_gemm_available(ctx)` and `Mantle.GEMM_TILE`, and gates on
+`Mantle.LavaArray{Float16,2}`, so the fast path is reachable only on Lava. An
 earlier docstring here claimed the opposite; it described a design that was
 replaced.
 
@@ -67,7 +67,7 @@ availability are queried per device, so the same source picks cooperative
 matrices on Ada (subgroup 32) and on RDNA 3.5 (subgroup 64, `16x16x16` Float16)
 with no vendor branch anywhere.
 
-`gemm` is forwarded to `Lava.coopmat_gemm!` as keywords — `staged`, `vec2`,
+`gemm` is forwarded to `Mantle.coopmat_gemm!` as keywords — `staged`, `vec2`,
 `narrow_ok`, `tiling`. It exists so a benchmark can pick a kernel **for one
 call** instead of mutating a process-wide `Ref`; the defaults are the measured
 winners and no shipping path passes it. Ignored by the paths that have no
@@ -85,10 +85,15 @@ Which path this shape takes. Tensor cores first, then the batch-1 GEMV, then the
 scalar kernel — most specific to least, and each predicate says why it declined.
 
 The order is not a preference between the first two: they are disjoint.
-`mm_coopmat_plan` requires fp16 operands and `M` on the tile;
-`mm_gemv_plan` requires fp32 and exactly one column of `B`.
+`mm_coopmat_plan` requires fp16 operands and `M` on the tile, and declines a
+single column outright; `mm_gemv_plan` requires fp32 and exactly one column of
+`B`. A one-column fp16 product therefore reaches `Decline` and `mul!`, whose
+split-K GEMV is the bandwidth-bound kernel that shape wants.
 """
 function mmplan(dev, out, A, B, bias)
+    # First, and not a preference either: an int8 weight is not an operand any
+    # of the float paths can read at all.
+    A isa QInt8Matrix && return MMInt8Plan()
     p = mm_coopmat_plan(dev, out, A, B)
     p isa Decline || return p
     mm_gemv_plan(dev, out, A, B, bias)
@@ -109,7 +114,7 @@ operands, and a bias this kernel's store can apply.
 the token count, is `B`'s trailing extent here. Every matmul in an autoregressive
 decoder step has it, and none in an encoder does.
 
-Dense, because `Lava.gemv!`'s addressing is `W[m + M * (k - 1)]`: a strided view
+Dense, because `Mantle.gemv!`'s addressing is `W[m + M * (k - 1)]`: a strided view
 would read the wrong elements rather than fail, so the layout is required, not
 adapted to. `A` is `(M, K)` contiguous along `m` — what `hoistpermutes` produces
 — and reaches `gemv!` as `transpose(A)`, which is the dispatch that picks the
@@ -121,18 +126,35 @@ throwing. Whisper's decoder biases are all `(M,)`; the check is for the next
 model.
 """
 function mm_gemv_plan(dev, out, A, B, bias)
-    A isa Lava.LavaArray{Float32,2} || return Decline(:operands)
-    B isa Lava.LavaArray{Float32,2} || return Decline(:operands)
-    out isa Lava.LavaArray{Float32,2} || return Decline(:operands)
+    A isa Mantle.LavaArray{Float32,2} || return Decline(:operands)
+    B isa Mantle.LavaArray{Float32,2} || return Decline(:operands)
+    out isa Mantle.LavaArray{Float32,2} || return Decline(:operands)
     size(B, 2) == 1 || return Decline(:notvector)
     bias === nothing || (bias isa AbstractVector && length(bias) == size(A, 1)) ||
         return Decline(:bias)
     MMGemvPlan()
 end
 
-"""`Lava.gemv!`: the M = 1 path, with the bias and activation in its store."""
+"""Int8 weight: the GEMV dequantises in its inner loop, wider products
+dequantise once into the workspace and reuse the fp16 GEMM."""
+function matmul!(ctx, ::MMInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
+    if size(B, 2) == 1
+        q8gemv!(ctx, out, A, B, bias)
+        epi === identity || (out .= epi.(out))
+        return out
+    end
+    tiling = q8gemm_tiling(ctx.dev, A, B, out)
+    tiling === nothing || return q8gemm!(out, A, B; tiling, bias, epilogue=epi)
+    # Wider than one column: hand the fp16 GEMM a dense operand and let it plan
+    # for that operand like any other. Re-planning rather than assuming a path,
+    # because which one applies depends on the dequantised extents.
+    W = q8dequant(ctx, A)
+    matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
+end
+
+"""`Mantle.gemv!`: the M = 1 path, with the bias and activation in its store."""
 function matmul!(ctx, ::MMGemvPlan, out, A, B, bias, epi; gemm=NamedTuple())
-    Lava.gemv!(out, B, transpose(A); bias, epilogue = epi)
+    Mantle.gemv!(out, B, transpose(A); bias, epilogue = epi)
     return out
 end
 
@@ -163,22 +185,33 @@ belongs in the same epilogue and `mul!` has no bias.
 required to land on the tile.
 
 **The padding target is the staged kernel's block, not the tile** — see
-`Lava.gemm_padn`. Rounding to `dev.tile` is enough to make the cooperative-matrix
+`Mantle.gemm_padn`. Rounding to `dev.tile` is enough to make the cooperative-matrix
 *instruction* legal and not enough to make the fast kernel applicable, and the
 difference is a factor of several: Whisper's 1500 tokens round to 1504, which no
 tiling's 64- or 128-wide block divides, so every one of its 160 matmuls ran on
 the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
 """
 function mm_coopmat_plan(dev::M.DeviceCaps, out, A, B)
-    A isa Lava.LavaArray{Float16,2} && B isa Lava.LavaArray{Float16,2} ||
+    A isa Mantle.LavaArray{Float16,2} && B isa Mantle.LavaArray{Float16,2} ||
         return Decline(:operands)
+    # A MATRIX-VECTOR PRODUCT IS NOT A TENSOR-CORE SHAPE. One column of `B` has
+    # no reuse to amortise a 16-wide tile over, and `gemm_padn` rounds `N = 1` up
+    # to the staged kernel's block, so the cooperative-matrix path does the whole
+    # product at the block's width and throws away all but one column.
+    #
+    # This is the entire autoregressive decode path, and it was silently taking
+    # the tile: under fp16 the operands satisfy every test above, while
+    # `mm_gemv_plan` below asks for fp32 and so never caught them. On K2 Horizon
+    # 32B's 449 decode GEMVs it cost **733 ms per token against 380** for
+    # `mul!`'s split-K GEMV, which is bandwidth-bound and the right kernel here.
+    size(B, 2) == 1 && return Decline(:notmatrix)
     # BEFORE the extent test, which divides by `dev.tile`. A device with no
     # matrix hardware reports no tile, and the extent test would then throw a
     # DivideError instead of declining. It only ever ran in the other order
     # because `tile` used to be a module constant that was 16 everywhere.
     dev.coopmat || return Decline(:nocoopmat)
     size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
-    MMCoopMatPlan(Lava.gemm_padn(size(A, 1), size(B, 2), size(A, 2); tile = dev.tile),
+    MMCoopMatPlan(Mantle.gemm_padn(size(A, 1), size(B, 2), size(A, 2); tile = dev.tile),
                   dev.tile)
 end
 
@@ -248,7 +281,7 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
         Bp = scratch!(ctx, Float16, K, NP)
         padcols_kernel!(backend)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
-    blk_split = Lava.coopmat_gemm_shape(M, NP, K)
+    blk_split = Mantle.coopmat_gemm_shape(M, NP, K)
     splitk = blk_split[2]
     # Nothing to reduce: the GEMM can start its accumulators from the bias and
     # convert to `out`'s type as it stores, so there is no fp32 scratch and no
@@ -265,12 +298,12 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
     # activation stay fused in the GEMM's store where the unpadded path has them.
     if splitk == 1
         dst = NP == N ? out : scratch!(ctx, eltype(out), M, NP)
-        Lava.coopmat_gemm!(dst, A, Bp, M, NP, K; blk_split, bias, epilogue = epi, gemm...)
+        Mantle.coopmat_gemm!(dst, A, Bp, M, NP, K; blk_split, bias, epilogue = epi, gemm...)
         NP == N || copyto!(out, 1, dst, 1, M * N)
         return out
     end
     C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
-    Lava.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false, gemm...)
+    Mantle.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false, gemm...)
     mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out
@@ -368,13 +401,13 @@ wrong by a factor of thirty.
 @inline function planewise_worth(ctx, out, A, B)
     size(out, 3) == 1 && return true
     M, N = size(out, 1), size(out, 2)
-    (M >= Lava.SGEMM_BM && N >= Lava.SGEMM_BN) || return false
+    (M >= Mantle.SGEMM_BM && N >= Mantle.SGEMM_BN) || return false
     t = ctx.dev.tile
     # A plane of a DENSE fp16 operand is a `LavaArray{T,2}`, so the parent type
     # settles this without building the view — the views are not free at this
     # call rate.
     if ctx.dev.coopmat && eltype(A) === Float16 && eltype(B) === Float16 &&
-       A isa Lava.LavaArray && B isa Lava.LavaArray &&
+       A isa Mantle.LavaArray && B isa Mantle.LavaArray &&
        size(A, 1) % t == 0 && size(A, 2) % t == 0
         return true
     end
@@ -401,9 +434,9 @@ wrong by a factor of thirty.
     # fp16 planes lose 14.5% when routed per plane — is unaffected: those planes
     # are already rejected by the `M >= SGEMM_BM && N >= SGEMM_BN` test above,
     # which is dtype-independent and fires first.
-    tm, tn = cld(M, Lava.SGEMM_BM), cld(N, Lava.SGEMM_BN)
-    return tm * tn >= Lava.SGEMM_MINTILES &&
-           (tm * Lava.SGEMM_BM) * (tn * Lava.SGEMM_BN) <= Lava.SGEMM_MAXWASTE * M * N
+    tm, tn = cld(M, Mantle.SGEMM_BM), cld(N, Mantle.SGEMM_BN)
+    return tm * tn >= Mantle.SGEMM_MINTILES &&
+           (tm * Mantle.SGEMM_BM) * (tn * Mantle.SGEMM_BN) <= Mantle.SGEMM_MAXWASTE * M * N
 end
 
 """
@@ -412,7 +445,7 @@ end
 
 Round a batched-GEMM plane extent up to something a tiling block divides.
 
-`Lava.gemm_tiling` takes the first tiling whose block **divides the shape
+`Mantle.gemm_tiling` takes the first tiling whose block **divides the shape
 exactly**, so an extent that divides nothing gets the register-blocked kernel
 however healthy it looks. Depth Anything's every extent is 1370 (37x37 patches
 plus a cls token); 1370 is `2 * 5 * 137` and divides none of 16/32/64/96/128.
@@ -437,7 +470,7 @@ bmmpad(n::Int) = cld(n, BMM_PADSTEP) * BMM_PADSTEP
 @inline function bmmpad_worth(ctx, out, A, B)
     ctx.ws === nothing && return false
     eltype(out) === Float16 && eltype(A) === Float16 && eltype(B) === Float16 || return false
-    A isa Lava.LavaArray && B isa Lava.LavaArray && out isa Lava.LavaArray || return false
+    A isa Mantle.LavaArray && B isa Mantle.LavaArray && out isa Mantle.LavaArray || return false
     M, N = size(out, 1), size(out, 2)
     Mp, Np = bmmpad(M), bmmpad(N)
     # **`M` is the gate, not `M` or `N`.** The pad is not free — the operands have
@@ -493,7 +526,110 @@ function batchedmatmul_padded!(ctx, out, A, B)
     out
 end
 
+# ── N-blocked batched matmul ──────────────────────────────────────────────────
+#
+# `mm3` is one invocation per output element, so `A[m, :, b]` is re-read once for
+# every column `n`. Attention is exactly the shape that punishes: grouped-query
+# decode gives `N = n_rep = 8`, so both `bmm`s read their large operand EIGHT
+# times. On K2 Horizon 32B that is 2.1 GB per token against 268 MB of actual
+# data, and 17.5 ms of a 211 ms step.
+#
+# Here each thread keeps `N` accumulators and reads `A[m, k, b]` ONCE, reusing it
+# across all of them — the same trick the int8 GEMV uses along rows, applied
+# along columns. Split over K as well, because `M * nbatch` alone is 8192 threads
+# for the first `bmm` and 1024 for the second, nowhere near enough to fill the
+# device.
+#
+# One kernel per N, generated with N as a literal: `@nexprs` needs that, and a
+# `Val`-gated loop would put a tuple in the inner loop and not compile.
+for NB in (2, 4, 8, 16)
+    kname = Symbol("bmm_n", NB, "!")
+    @eval @kernel cpu=false function $kname(P, @Const(A), @Const(Bm), M::Int32, K::Int32,
+                                            KC::Int32, NBATCH::Int32, ntot::Int32)
+        lin = @index(Global, Linear)
+        if lin <= ntot
+            @inbounds begin
+                l = Int32(lin) - Int32(1)
+                m = l % M + Int32(1)        # consecutive lanes -> consecutive rows
+                r = l ÷ M
+                b = r % NBATCH + Int32(1)
+                sp = r ÷ NBATCH             # 0-based K split
+                k1 = min(sp * KC + KC, K)
+                Base.Cartesian.@nexprs $NB n -> acc_n = 0f0
+                k = sp * KC
+                while k < k1
+                    kk = k + Int32(1)
+                    av = Float32(A[m, kk, b])
+                    Base.Cartesian.@nexprs $NB n -> begin
+                        acc_n = muladd(av, Float32(Bm[kk, n, b]), acc_n)
+                    end
+                    k += Int32(1)
+                end
+                Base.Cartesian.@nexprs $NB n -> (P[m, n, b, sp + Int32(1)] = acc_n)
+            end
+        end
+    end
+end
+
+const BMM_N_KERNELS = Dict(2 => bmm_n2!, 4 => bmm_n4!, 8 => bmm_n8!, 16 => bmm_n16!)
+
+# Flat launch for the same reason `indexput_kernel!` has one: a 3-D `ndrange` is
+# partitioned into 3-D workgroups and costs several times what a flat one does.
+@kernel cpu=false function bmm_nsplit_reduce!(C, @Const(P), S::Int32,
+                                              ::Val{SZ}, n::Int64) where {SZ}
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            I = CartesianIndices(SZ)[i]
+            acc = 0f0
+            for s in Int32(1):S
+                acc += P[I[1], I[2], I[3], s]
+            end
+            C[I] = eltype(C)(acc)
+        end
+    end
+end
+
+# Threads to aim for, as in `Mantle.gemv_split`. A `Ref` because the split's cost is
+# not only the launch width: each extra split writes another `M x N x batch` plane
+# of fp32 partials, and on the decode attention those planes are as large as the
+# operand being read, so the best value has to be measured rather than reasoned.
+const BMM_TARGET_THREADS = Ref(1 << 16)
+
+"""
+    bmm_nblocked!(ctx, out, A, B) -> out | nothing
+
+`nothing` when the shape is not one this path covers, so the caller falls
+through to `mm3` rather than this having to know about every case.
+"""
+function bmm_nblocked!(ctx, out, A, B)
+    ndims(out) == 3 && ndims(A) == 3 && ndims(B) == 3 || return nothing
+    M, N, NBATCH = size(out)
+    haskey(BMM_N_KERNELS, N) || return nothing
+    size(A, 1) == M && size(A, 3) == NBATCH || return nothing
+    size(B, 2) == N && size(B, 3) == NBATCH || return nothing
+    K = size(A, 2)
+    K == size(B, 1) || return nothing
+    ctx.ws === nothing && return nothing
+    S = 1
+    while S * M * NBATCH < BMM_TARGET_THREADS[] && cld(K, 2S) >= 16
+        S *= 2
+    end
+    KC = cld(K, S)
+    P = scratch!(ctx.ws, ctx.backend, Float32, M, N, NBATCH, S)
+    BMM_N_KERNELS[N](ctx.backend, 256)(P, A, B, Int32(M), Int32(K), Int32(KC),
+                                       Int32(NBATCH), Int32(M * NBATCH * S);
+                                       ndrange = M * NBATCH * S)
+    bmm_nsplit_reduce!(ctx.backend, 256)(out, P, Int32(S), Val((M, N, NBATCH)),
+                                         Int64(M * N * NBATCH); ndrange = M * N * NBATCH)
+    out
+end
+
 function batchedmatmul!(ctx, out, A, B)
+    # Before the planewise test: a narrow `N` wants its own kernel, and the
+    # planewise path would hand each plane to a GEMM that pads `N` up to a tile.
+    r = bmm_nblocked!(ctx, out, A, B)
+    r === nothing || return r
     if ndims(out) == 3 && ndims(A) == 3 && ndims(B) == 3 &&
        size(A, 3) == size(B, 3) == size(out, 3) && planewise_worth(ctx, out, A, B)
         bmmpad_worth(ctx, out, A, B) && return batchedmatmul_padded!(ctx, out, A, B)

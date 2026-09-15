@@ -111,7 +111,7 @@ function sweep(; Es = (16, 32, 48, 64, 72), epads = (0, 2, 4, 8, 16),
                  rpads = (0, 2, 4, 8), L = 4096, H = 8, B = 1,
                  BR = 64, BC = 32, NW = 8)
     back = LavaBackend(); ctx = DNNKernels.Ctx(back); dev = ctx.dev
-    @info "device" name = Lava.vk_context().device_name subgroup = dev.subgroup coopmat = dev.coopmatsubgroup tile = dev.tile
+    @info "device" name = Mantle.vk_context().device_name subgroup = dev.subgroup coopmat = dev.coopmatsubgroup tile = dev.tile
     rows = NamedTuple[]
     for E in Es
         EP = cld(E, dev.tile) * dev.tile

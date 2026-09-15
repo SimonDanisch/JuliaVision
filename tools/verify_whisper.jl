@@ -143,11 +143,12 @@ for (name, gg) in (("prefix (blocks 0-1)", prefix(g, "add_4")), ("all 617 ops", 
             push!(bad, name)
         end
     end
-    mode == "gpu" && (GC.gc(true); Lava.trim_gpu_pool!())
+    mode == "gpu" && (GC.gc(true); Mantle.trim_gpu_pool!())
 end
 
 println("\n=== end to end, through Model (rewritten graph, planned slab) ===")
-m = Model(DIR, joinpath(DIR, "weights.safetensors"); names = ["whisper"], backend)
+m = Model(Dict("whisper" => loadgraph(joinpath(DIR, "whisper.json"))),
+          readsafetensors(joinpath(DIR, "weights.safetensors")); backend)
 @printf("  %d ops after rewrite, %.3f GiB resident\n",
         length(m.graphs["whisper"].ops), sum(sizeof, values(m.weights)) / 2^30)
 mel = toback(backend, refs["whisper/in0"])

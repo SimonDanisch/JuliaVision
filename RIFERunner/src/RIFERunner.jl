@@ -33,7 +33,8 @@ for the export that feeds it.
 module RIFERunner
 
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors, toback,
                   Model, planslab, fusableset, Workspace
@@ -67,12 +68,13 @@ immediately. Uploading is only needed to publish it to anyone else.
 assetdir() = @artifact_str("rife")
 
 """
-    rifegraph(; dir = assetdir()) -> Graph
+    rifegraph() -> Graph
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
 """
-function rifegraph(; dir::AbstractString = assetdir())
+function rifegraph()
+    dir = assetdir()
     p = joinpath(dir, "rife.json")
     isfile(p) || throw(ArgumentError(
         "RIFE 4.x (Practical-RIFE) graph not found at $p. Generate it with " *
@@ -82,30 +84,31 @@ function rifegraph(; dir::AbstractString = assetdir())
 end
 
 """
-    rifeweights(; dir = assetdir()) -> Dict
+    rifeweights() -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-function rifeweights(; dir::AbstractString = assetdir())
+function rifeweights()
+    dir = assetdir()
     p = joinpath(dir, "weights.safetensors")
     isfile(p) || throw(ArgumentError("RIFE 4.x (Practical-RIFE) weights not found at $p"))
     return readsafetensors(p)
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "rife.json")) && isfile(joinpath(dir, "weights.safetensors"))
+ready() =
+    isfile(joinpath(assetdir(), "rife.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -195,15 +198,16 @@ because the graph's shape is baked.
 framesize(model::RIFE) = model.padded
 
 """
-    rife(; backend = LavaBackend(), dir = assetdir()) -> RIFE
+    rife(; backend = Mantle.LavaBackend(), dir = assetdir()) -> RIFE
 
 Load the model. Separate from [`interpolate!`](@ref) so the workload can build it
 in `@setup_workload`, where the loading is not what is being cached.
 """
-function rife(; backend = LavaBackend(), dir::AbstractString = assetdir())
-    ready(; dir) || throw(ArgumentError(
+function rife(; backend = Mantle.LavaBackend())
+    dir = assetdir()
+    ready() || throw(ArgumentError(
         "no export at $dir — generate it with `uv run tools/export_rife.py`"))
-    model = Model(dir, joinpath(dir, "weights.safetensors"); names = ["rife"], backend)
+    model = Model(Dict("rife" => rifegraph()), rifeweights(); backend)
     graph = model.graphs["rife"]
     # The export baked one resolution; read it back rather than assume 1080p, so
     # a `--height/--width` export is picked up without editing this file.
@@ -297,7 +301,7 @@ end
 # cannot distinguish the frozen cache working from the driver's own shader cache
 # having served everything, and its miss report identifies modules by the
 # *sampling* hash, so two differing in one byte count as one (`STATUS.md`,
-# cross-project). The claim this package makes is `Lava.no_pipeline_compilation`
+# cross-project). The claim this package makes is `Mantle.no_pipeline_compilation`
 # reporting **0 refusals** — it empties `PIPELINE_CACHE` first, so a Julia-side
 # hit cannot mask a cold `VkPipelineCache`. Pair it with a control whose kernel
 # body is novel per RUN (a `Val{K}` from `RandomDevice`) or a green means
@@ -309,7 +313,7 @@ end
 @setup_workload begin
     if ready()
         try
-            backend = LavaBackend()
+            backend = Mantle.LavaBackend()
             # `rife` is inside the workload, not in front of it, and that is not
             # tidiness. `Model`'s last pass is `hoistconstants(graphs, weights,
             # backend)`, which folds constant *subgraphs* by running them on the

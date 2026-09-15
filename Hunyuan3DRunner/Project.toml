@@ -3,6 +3,9 @@ uuid = "1362f9cf-064b-4ee3-980c-c7d802e94ecc"
 version = "0.1.0"
 
 [deps]
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"

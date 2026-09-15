@@ -137,7 +137,7 @@ end
 tokrefpath = joinpath(DIR, "tokenizer_refs.json")
 if isfile(tokrefpath)
     tr = JSON3.read(read(tokrefpath, String))
-    tk = tokenizer(; dir = DIR)
+    tk = tokenizer()
     nenc = nbad = 0
     for (text, want) in pairs(tr[:encode])
         got = WhisperRunner.encode(tk, String(text))

@@ -23,7 +23,7 @@
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 # Before the first pipeline is created, or the properties are not collected.
 using Lava
-Lava.enable_pipeline_executable_properties!()
+Mantle.enable_pipeline_executable_properties!()
 include(joinpath(@__DIR__, "gemm_lab.jl"))
 using Printf
 
@@ -68,7 +68,7 @@ const VARIANTS = [
 # `Lava.PIPELINE_CACHE` — that was one of the twelve globals that moved onto the
 # context. `gemm_lab.jl`'s own `kernelstats` still reaches for the old name and
 # would throw the same `UndefVarError` the first time anyone called it.
-pipecache() = Lava.vk_context().caches.pipelines
+pipecache() = Mantle.vk_context().caches.pipelines
 
 function stats_for(f)
     before = Set(keys(pipecache()))
@@ -76,7 +76,7 @@ function stats_for(f)
     fresh = [k for k in keys(pipecache()) if !(k in before)]
     isempty(fresh) && return nothing
     # `(; registers, scratch_bytes, raw_stats)`; scratch is the spill.
-    Lava.pipeline_exec_stats(pipecache()[fresh[1]])
+    Mantle.pipeline_exec_stats(pipecache()[fresh[1]])
 end
 
 function main()
@@ -90,10 +90,10 @@ function main()
         rows = 1:min(M, 64)
         ref = Float32.(hA[rows, :]) * Float32.(hB)
 
-        fs = Function[() -> Lava.coopmat_gemm!(C, A, B, M, N, K)]
+        fs = Function[() -> Mantle.coopmat_gemm!(C, A, B, M, N, K)]
         names = ["staged"]
         for (nm, t, un, cl) in VARIANTS
-            push!(fs, () -> Lava.coopmat_gemm_cm2!(C, A, B, M, N, K;
+            push!(fs, () -> Mantle.coopmat_gemm_cm2!(C, A, B, M, N, K;
                                                    tiling = t, unroll = un, clamp = cl))
             push!(names, nm)
         end
@@ -103,7 +103,7 @@ function main()
         # asks whether the loads are worth anything when the tiles are the ones
         # it handles well.
         for nw in (2, 4)
-            push!(fs, () -> Lava.coopmat_gemm_cm2_sg!(C, A, B, M, N, K; nw = nw))
+            push!(fs, () -> Mantle.coopmat_gemm_cm2_sg!(C, A, B, M, N, K; nw = nw))
             push!(names, "sg 4x4 block @$(nw)sg")
         end
 

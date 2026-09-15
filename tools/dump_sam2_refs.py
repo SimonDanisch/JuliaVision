@@ -83,7 +83,7 @@ def frame(res):
     return a[None], "synthetic gradient"
 
 
-def run(out_path, size, which, nodes, precision, decprec):
+def run(out_path, size, which, nodes, precision, decprec, extra=""):
     # TF32's 10-bit mantissa reads as ~2e-4 relative error, the same order as a
     # real bug in a fused kernel — same reasoning as dump_refs.py.
     torch.backends.cudnn.allow_tf32 = False
@@ -134,6 +134,22 @@ def run(out_path, size, which, nodes, precision, decprec):
             # they do not, `--nodes all` at a smaller size is the next step.
             allnodes = nodes == "all" or (nodes == "auto" and name == "sam2_decoder")
             keep = None if allnodes else set(g["outputs"])
+            # `--keep` names extra nodes on top of the outputs, which is what
+            # bisecting the encoder actually wants. `--nodes all` is 21.6 GiB
+            # here and the docstring's alternative — a smaller `--size` — changes
+            # the computation, so neither localises a node in THIS graph. A
+            # comma-separated list, or `add_*` to take a family, keeps the tens
+            # of tensors a bisection needs and nothing else.
+            if keep is not None and extra:
+                names = {n.name for n in ep.graph.nodes}
+                for pat in extra.split(","):
+                    pat = pat.strip()
+                    if pat.endswith("*"):
+                        keep |= {n for n in names if n.startswith(pat[:-1])}
+                    elif pat in names:
+                        keep.add(pat)
+                    else:
+                        raise SystemExit(f"--keep: {name} has no node {pat!r}")
             rec = Recorder(ep.module(), keep)
             t0 = time.perf_counter()
             with EG.precision_ctx(prec):
@@ -171,9 +187,13 @@ if __name__ == "__main__":
     ap.add_argument("--graphs", default="both", choices=["both", "encoder", "decoder"])
     ap.add_argument("--nodes", default="auto", choices=["auto", "all", "outputs"],
                     help="auto = every node for the decoder, outputs only for the encoder")
+    ap.add_argument("--keep", default="",
+                    help="extra node names to record besides the graph's outputs, "
+                         "comma separated; a trailing `*` takes a family "
+                         "(`--keep 'add_*'`). See `run`")
     ap.add_argument("--precision", default="autocast", choices=["autocast", "fp32"])
     ap.add_argument("--decoder-precision", default="fp32", choices=["autocast", "fp32"])
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
     out = Path(a.out) if a.out else ROOT / "gen" / "graphs" / f"sam2-{a.size}" / "refs.safetensors"
-    run(out, a.size, a.graphs, a.nodes, a.precision, a.decoder_precision)
+    run(out, a.size, a.graphs, a.nodes, a.precision, a.decoder_precision, a.keep)

@@ -91,7 +91,7 @@ function bytemap()
 end
 
 """
-    tokenizer(; dir = decoderdir()) -> Tokenizer
+    tokenizer() -> Tokenizer
 
 Read `tokenizer.json`.
 
@@ -101,7 +101,8 @@ extra Cantonese language token), and whisper.cpp carries exactly that patch as
 `vocab.token_sot++`. Reading them by name means the next such shift is not a
 silent off-by-one in every prompt.
 """
-function tokenizer(; dir::AbstractString = decoderdir())
+function tokenizer()
+    dir = decoderdir()
     path = joinpath(dir, "tokenizer.json")
     isfile(path) || throw(ArgumentError(
         "no tokenizer.json at $path — it ships in the whisper-decoder artifact; " *

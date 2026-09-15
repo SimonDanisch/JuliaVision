@@ -1,3 +1,5 @@
+using Mmap
+
 """
     readsafetensors(path) -> Dict{String,Array}
 
@@ -11,7 +13,7 @@ with no transpose and no copy. Every kernel here indexes `(x, y, c, n)` as a
 result, which is also the natural order for the graphics passes this shares a
 graph with.
 """
-function readsafetensors(path::AbstractString)
+function readsafetensors(path::AbstractString; mmap::Bool = filesize(path) > 2^32)
     open(path, "r") do io
         hlen = read(io, UInt64)
         header = JSON3.read(read(io, hlen))
@@ -22,10 +24,40 @@ function readsafetensors(path::AbstractString)
             T = DTYPES[String(spec.dtype)]
             lo, hi = spec.data_offsets
             n = (hi - lo) ÷ sizeof(T)
-            seek(io, base + lo)
-            data = Vector{T}(undef, n)
-            read!(io, data)
             dims = reverse(Tuple(Int.(spec.shape)))
+            data = if mmap
+                # File-backed, so the pages are page cache the kernel can drop
+                # under pressure rather than anonymous memory it must kill for.
+                # `read!` into a fresh Vector makes the whole checkpoint anon:
+                # fine for SAM 2's 943 MB, fatal for K2 Horizon 32B's 64.78 GiB,
+                # which together with the uploaded copy exceeded this worker's
+                # 103.9 GiB cgroup cap and was OOM-killed with no Julia frame
+                # naming the cause.
+                #
+                # Default on above 4 GiB only: below that the read is cheap and
+                # an mmap'd array that outlives the `open` block is a subtler
+                # object to hand a caller than a plain `Vector`.
+                # What this costs is real and it is NOT recoverable with an
+                # madvise hint. Faulting K2 Horizon 32B's 64.78 GiB in through
+                # this mapping runs at ~1.5 GB/s against the 6.0 GB/s the same
+                # file reads at with direct I/O: 46 s of a cold model build.
+                # Both advisory routes were measured against a matched baseline
+                # and neither moved it — `MADV_SEQUENTIAL` here 47.4 s,
+                # `MADV_WILLNEED` one tensor ahead of `Model`'s upload loop
+                # 46.5 s, nothing at all 46.2 s. (A 42.0 s reading of the
+                # baseline sent me looking for a regression that was not there;
+                # re-measure the baseline before believing a hint helped or
+                # hurt.) Recovering it needs explicit buffered reads into a
+                # reusable staging buffer, which costs this function its
+                # whole-checkpoint-of-arrays contract, or a checkpoint that is
+                # already quantized so there is half as much of it to read.
+                Mmap.mmap(io, Vector{T}, n, base + lo)
+            else
+                seek(io, base + lo)
+                d = Vector{T}(undef, n)
+                read!(io, d)
+                d
+            end
             out[String(name)] = isempty(dims) ? fill(data[1]) : reshape(data, dims)
         end
         out

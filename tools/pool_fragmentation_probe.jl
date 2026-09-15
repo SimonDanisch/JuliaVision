@@ -84,9 +84,9 @@ function sizes_from(path)
 end
 
 backend = LavaBackend()
-ctx = Lava.vk_context()
+ctx = Mantle.vk_context()
 bq = ctx.default_bq
-blocks() = length(Lava.pool(ctx).blocks)
+blocks() = length(Mantle.pool(ctx).blocks)
 
 sizes = sizes_from(get(ENV, "POOL_PROBE_SIZES", "/tmp/sam2_sizes.txt"))
 total = sum(sizes)
@@ -100,20 +100,20 @@ Run one pattern with the pool quiesced before and after, so the numbers describe
 the pattern rather than whatever ran before it.
 """
 function trial(label, f)
-    Lava.reclaim_empty_pool_blocks!(bq)
+    Mantle.reclaim_empty_pool_blocks!(bq)
     before = blocks()
     keep = f()
     KA.synchronize(backend)
     GC.gc(true)
     Lava.drain_deferred_frees!(bq)
     grew = blocks() - before
-    n, bytes = Lava.reclaim_empty_pool_blocks!(bq)
+    n, bytes = Mantle.reclaim_empty_pool_blocks!(bq)
     @printf("%-38s grew %3d blocks (%5d MiB), %3d empty (%5.0f MiB), %3d PINNED\n",
             label, grew, grew * BLOCK_MIB, n, bytes / MIB, grew - n)
     keep === nothing || empty!(keep)
     GC.gc(true)
     Lava.drain_deferred_frees!(bq)
-    Lava.reclaim_empty_pool_blocks!(bq)
+    Mantle.reclaim_empty_pool_blocks!(bq)
     return grew - n
 end
 

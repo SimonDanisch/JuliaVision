@@ -45,8 +45,14 @@ adaptive_avg_pool2d!(ctx, out, x) = launch!(ctx, adaptive_avg_pool, out, x,
         # (out-1)/(in-1) for true, so the kernel needs no output extents.
         fx = ALIGN ? Float32(ox - 1) / sx : max((ox - 0.5f0) / sx - 0.5f0, 0.0f0)
         fy = ALIGN ? Float32(oy - 1) / sy : max((oy - 0.5f0) / sy - 0.5f0, 0.0f0)
-        x0 = min(floor(Int, fx), IX - 1)
-        y0 = min(floor(Int, fy), IY - 1)
+        # `fastfloor` for the same reason as `upsample_nearest` below: `fx` is
+        # bounded below by the `max` above and above by this `min`, so the
+        # `InexactError` branch is unreachable and its allocation is not wanted
+        # in a kernel. The two `floor(Int32, …)` further down are NOT this case —
+        # they floor a coordinate that comes from user data (a sampling grid, a
+        # deformable offset), where out of range is reachable.
+        x0 = min(fastfloor(fx), IX - 1)
+        y0 = min(fastfloor(fy), IY - 1)
         tx = T(fx - x0)
         ty = T(fy - y0)
         x1 = min(x0 + 1, IX - 1)
@@ -81,8 +87,11 @@ is where the FPN's upsampled features carry their signal.
 @inline function upsample_nearest(I, x, sx::Float32, sy::Float32)
     ox, oy, c, n = I
     @inbounds begin
-        ix = min(floor(Int, (ox - 1) * sx), size(x, 1) - 1)
-        iy = min(floor(Int, (oy - 1) * sy), size(x, 2) - 1)
+        # `fastfloor`, not `floor(Int, …)`: the `min` below is the bound, so the
+        # `InexactError` branch `floor(Int, …)` carries is unreachable — and a
+        # throw in a kernel allocates its exception. See `fastfloor`.
+        ix = min(fastfloor((ox - 1) * sx), size(x, 1) - 1)
+        iy = min(fastfloor((oy - 1) * sy), size(x, 2) - 1)
         x[ix + 1, iy + 1, c, n]
     end
 end

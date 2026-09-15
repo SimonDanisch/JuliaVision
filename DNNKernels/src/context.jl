@@ -55,7 +55,7 @@ can be alive at once.
 # Through Mantle, not `Lava.caps` directly: the backend's extension converts its
 # own record into the portable one, so this stays right when a second backend
 # exists and wrong-by-construction if it did the conversion here.
-caps(b::Lava.LavaBackend) = M.caps(b)
+caps(b::Mantle.LavaBackend) = M.caps(b)
 
 """
 Device facts for a backend that is not Lava's — the CPU verification path.
@@ -134,7 +134,7 @@ The `VkContext` a backend runs on. Kept for the paths that need the context
 itself rather than what it can do; prefer [`caps`](@ref) for the latter.
 """
 vkcontext(::Any) = nothing
-vkcontext(b::Lava.LavaBackend) = Lava.vk_context(b)
+vkcontext(b::Mantle.LavaBackend) = Mantle.vk_context(b)
 
 """
     Diagnostics(; optimes, opdouble, opdoublefilter, planmisses, launches)
@@ -206,7 +206,7 @@ Base.@kwdef mutable struct Diagnostics
     # as resident. This answers the question that one cannot: *which op* is still
     # allocating outside the plan, and how much. Getting SAM 2's encoder from
     # 1 649 MB of unplanned allocation per call to 106 MB was four rounds of
-    # reading this and `Lava.dump_alloc_trace()` together.
+    # reading this and `Mantle.dump_alloc_trace()` together.
     #
     # A miss is not automatically a bug: a tuple output the planner skips, or a
     # handler asking for a dtype the reservation was not sized for, both land
@@ -218,7 +218,7 @@ Base.@kwdef mutable struct Diagnostics
     # For finding launches that do not fill the device. A grid of 64 workgroups
     # on a 48-SM card leaves most of it idle however good the kernel is, and that
     # is invisible in a per-op timing table — it shows up only as one op being
-    # inexplicably slow. `Lava.with_dispatch_timing` says *which dispatch*; this
+    # inexplicably slow. `Mantle.with_dispatch_timing` says *which dispatch*; this
     # says *which launch site and what shape*.
     launches::Union{Nothing,Dict{Tuple{Dims,Dims},Tuple{Int,Dims}}} = nothing
 end

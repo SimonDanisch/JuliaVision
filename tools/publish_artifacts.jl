@@ -27,7 +27,14 @@ using Pkg.Artifacts
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 const GEN = joinpath(ROOT, "gen")
-const PKGS = joinpath(ROOT, "dev", "JuliaVision")
+# Same layout question as `make_artifacts.jl`: `tools/` may be symlinked into a
+# parent repo (ROOT is that parent) or live inside a plain checkout (ROOT is the
+# monorepo). Guessing wrong fails deep inside `bind_artifact!`.
+const PKGS = let nested = joinpath(ROOT, "dev", "JuliaVision")
+    isdir(joinpath(nested, "DNNKernels")) ? nested :
+    isdir(joinpath(ROOT, "DNNKernels"))   ? ROOT   :
+    error("cannot find the JuliaVision packages from $ROOT")
+end
 
 """GitHub release the tarballs are attached to. One tag for all of them, since
 they are versioned together by the exporter that produced them."""

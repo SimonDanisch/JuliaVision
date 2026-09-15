@@ -27,6 +27,7 @@ qualifying fp16 batch really does reach the tensor-core plan.
 """
 
 using Test, Lava, DNNKernels, KernelAbstractions
+import Mantle
 using DNNKernels: batchedmatmul!, mm3, mm_coopmat_plan, MMCoopMatPlan, Decline,
                   Ctx, Workspace, caps, launch!
 const KA = KernelAbstractions
@@ -93,7 +94,7 @@ end
         A = KA.allocate(back, Float32, 64, 1370, 6)
         for b in (1, 3, 6)
             v = view(A, :, :, b)
-            @test v isa Lava.LavaArray{Float32,2}     # not a SubArray: no copy,
+            @test v isa Mantle.LavaArray{Float32,2}     # not a SubArray: no copy,
             @test stride(v, 1) == 1                   # and `mm_coopmat_plan`
             @test stride(v, 2) == size(A, 1)          # still sees the operand type
             @test size(v) == (64, 1370)
@@ -136,7 +137,7 @@ end
         Araw = KA.allocate(back, Float32, k, n, nb); copyto!(Araw, Ah)
         B = KA.allocate(back, Float32, k, m, nb); copyto!(B, Bh)
         A = PermutedDimsArray(Araw, (2, 1, 3))       # (n, k, nb), not dense
-        @test !(view(A, :, :, 1) isa Lava.LavaArray{Float32,2})
+        @test !(view(A, :, :, 1) isa Mantle.LavaArray{Float32,2})
         out = KA.allocate(back, Float32, n, m, nb)
         batchedmatmul!(ctx, out, A, B)
         KA.synchronize(back)
@@ -181,7 +182,7 @@ end
     # copied back. It is only safe because `K` is never padded, so no garbage in
     # the uninitialised scratch can reach the kept result — assert that directly
     # by running it against scratch deliberately poisoned with NaN.
-    if back isa Lava.LavaBackend
+    if back isa Mantle.LavaBackend
         @testset "padded fp16 planes agree, and K is never padded" begin
             M, K, N, nb = 1370, 64, 1370, 2            # Depth Anything's QK^T
             @test DNNKernels.bmmpad(M) == 1408          # 64, not GEMM_BLOCK's 192

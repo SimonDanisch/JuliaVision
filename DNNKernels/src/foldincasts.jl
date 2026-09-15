@@ -73,7 +73,12 @@ dtype, and it takes its result's dtype from the graph rather than from its
 input. An op that does neither is not a candidate: the first makes the fold
 change the arithmetic, the second makes it change the result's type.
 """
-const WIDECAST_READERS = Set(["native_layer_norm.default"])
+# `_softmax` belongs here for the same reason `native_layer_norm` does:
+# `softmax_kernel!` keeps its max, its sum and its shared storage in `Float32`
+# whatever it is handed, so widening the input first tells it nothing. On a
+# grouped-query decode the scores are `(1, 8, 8, 1024)` and the cast reads 128 KB
+# to write 256 KB, twice a layer.
+const WIDECAST_READERS = Set(["native_layer_norm.default", "_softmax.default"])
 
 """Whether every value of `from` is exactly representable in `to`."""
 exactwidening(from::Type, to::Type) =

@@ -23,37 +23,44 @@ fast-but-wrong kernel came to run on a single machine. The measured parity is
 recorded in the module docstring; it belongs in this file the moment the export
 travels with the repository.
 
-The latency gate — `Lava.no_pipeline_compilation` reporting 0 refusals in a fresh
+The latency gate — `Mantle.no_pipeline_compilation` reporting 0 refusals in a fresh
 subprocess — belongs here once the workload drives a real call. See SAM2Runner's
 suite for the shape.
 """
 
 using Test, Hunyuan3DRunner, DNNKernels
+import Mantle
 const H = Hunyuan3DRunner
 
 @testset "Hunyuan3DRunner" begin
-    @testset "loads with no assets" begin
-        # The whole point of the guard: precompiling and loading on a machine
-        # that has never seen the 7.37 GB checkpoint must not fail.
-        @test Hunyuan3DRunner.ready() === false
+    @testset "loads, and says whether the four parts are here" begin
+        # `ready` must answer WITHOUT resolving an artifact: it is what
+        # `@setup_workload` branches on, and `@artifact_str` downloads. A guard
+        # that fetched 6.8 GB to answer "do we have it" would be worse than none.
+        @test Hunyuan3DRunner.ready() isa Bool
         @test Hunyuan3DRunner.KERNELS_VERSION == DNNKernels.KERNELS_VERSION
     end
 
-    @testset "asking for the graph says what to do" begin
-        # `ErrorException`, not `ArgumentError`: the default argument is
-        # `assetdir()`, which throws before `hunyuan3dgraph` runs a line of its
-        # own. The scaffolder's template asserts `ArgumentError` here and is
-        # wrong about its own generated code.
-        err = try
-            Hunyuan3DRunner.hunyuan3dgraph()
-            nothing
-        catch e
-            e
+    @testset "each part resolves to its own artifact" begin
+        # Four artifacts, not one tree: the parts run at wildly different rates,
+        # so asking for the geometry decoder must not fetch the 5.7 GiB
+        # denoiser. Skipped rather than failed where they are not bound — the
+        # bindings live in this package's `Artifacts.toml` and a fresh clone
+        # downloads them on first use.
+        if Hunyuan3DRunner.ready()
+            for (d, f) in ((H.conddir(), "hunyuan3d_cond.json"),
+                           (H.ditdir(),  "hunyuan3d_dit.json"),
+                           (H.vaedir(),  "hunyuan3d_vae.json"),
+                           (H.geodir(),  "hunyuan3d_geo.json"))
+                @test isdir(d)
+                @test isfile(joinpath(d, f))
+                @test isfile(joinpath(d, "weights.safetensors"))
+            end
+            # The four are distinct trees, which is the whole claim.
+            @test length(unique([H.conddir(), H.ditdir(), H.vaedir(), H.geodir()])) == 4
+        else
+            @info "Hunyuan3D parts not in the artifact store; skipping"
         end
-        @test err isa ErrorException
-        # Naming the two commands is the entire value of the message.
-        @test occursin("export_hunyuan3d.py", err.msg)
-        @test occursin("make_artifacts.jl", err.msg)
     end
 
     @testset "an explicit dir that has nothing names the path" begin

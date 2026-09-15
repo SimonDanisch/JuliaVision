@@ -2,7 +2,7 @@
 Attention through two batched cooperative-matrix GEMMs.
 
 Both halves of attention are matrix products — `S = qT k` and `O = P vT`, one per
-(head, batch) — so `Lava.coopmat_gemm!`'s `nbatch` runs all of them in one
+(head, batch) — so `Mantle.coopmat_gemm!`'s `nbatch` runs all of them in one
 dispatch each. The three-pass scalar kernels run at 2.3 TFLOP/s on SAM 2's
 global attention against the 13 the same device's GEMM sustains.
 
@@ -19,6 +19,7 @@ in the padding copies.
 """
 
 using Test, Lava, DNNKernels, KernelAbstractions
+import Mantle
 using DNNKernels: sdpa, sdpa_coopmat!, coopmat_sdpa_plan, CoopMatSDPAPlan, Decline,
                   Workspace, Ctx
 const KA = KernelAbstractions
@@ -76,7 +77,8 @@ end
 bothpaths(E, L, H, B) = coopmatpath(E, L, H, B)[1]
 
 @testset "cooperative-matrix attention" begin
-    if !Lava.coopmat_gemm_available()
+    # The context, not a global — see `test_flash.jl`.
+    if !Mantle.coopmat_gemm_available(Mantle.vk_context())
         @info "no cooperative-matrix support on this device; skipping"
     else
         @testset "agrees with the three-pass reference" begin

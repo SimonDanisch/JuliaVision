@@ -29,8 +29,8 @@ const SHAPES = [(2304, 4096,  576, 24.4),
                 ( 288, 16384, 1152, 4.1),
                 (1152, 16384,  288, 4.1)]
 
-label(c) = @sprintf("%dx%d/%dw%s/p%d", Lava.gemm_bm(c), Lava.gemm_bn(c),
-                    Lava.gemm_wg(c) ÷ 32, c[5] == 32 ? "" : "/k$(c[5])", c[6])
+label(c) = @sprintf("%dx%d/%dw%s/p%d", Mantle.gemm_bm(c), Mantle.gemm_bn(c),
+                    Mantle.gemm_wg(c) ÷ 32, c[5] == 32 ? "" : "/k$(c[5])", c[6])
 
 function sweep(M, N, K, share)
     g = 2.0 * M * N * K / 1e9
@@ -44,15 +44,15 @@ function sweep(M, N, K, share)
     # Only the tilings whose block divides this shape AND that the aliasing rule
     # does not decline — the same two gates the chooser applies, so a row here is
     # a tiling the shipped path could actually select.
-    cands = [c for c in Lava.GEMM_TILINGS
-             if Lava.gemm_divides(c, M, N, K) && !Lava.gemm_aliasing(c, K) &&
-                haskey(Lava.GEMM_STAGED_KERNELS, c)]
+    cands = [c for c in Mantle.GEMM_TILINGS
+             if Mantle.gemm_divides(c, M, N, K) && !Mantle.gemm_aliasing(c, K) &&
+                haskey(Mantle.GEMM_STAGED_KERNELS, c)]
 
     @printf("\n%d x %d x %d   (%.1f GFLOP, %.1f%% of the encoder's GEMM)\n", M, N, K, g, share)
     isempty(cands) && (println("   no staged tiling divides this shape"); return)
 
     run(c) = () -> (DK.reset!(WS);
-                    Lava.coopmat_gemm!(C, A, B, M, N, K; tiling = c))
+                    Mantle.coopmat_gemm!(C, A, B, M, N, K; tiling = c))
     # Annotated: a comprehension fixes the element type to the first closure's,
     # and the cuBLAS arm is a different closure type.
     arms = Tuple{String,Function}[(label(c), run(c)) for c in cands]
@@ -67,7 +67,7 @@ function sweep(M, N, K, share)
     errs = Float64[]
     for c in cands
         fill!(C, Float16(NaN)); DK.reset!(WS)
-        Lava.coopmat_gemm!(C, A, B, M, N, K; tiling = c)
+        Mantle.coopmat_gemm!(C, A, B, M, N, K; tiling = c)
         KA.synchronize(BACKEND)
         push!(errs, maximum(abs.(Float32.(Array(C)) .- Float32.(ref))) / scale)
     end

@@ -35,7 +35,8 @@ Upstream: https://github.com/hexgrad/kokoro — Apache-2.0.
 module KokoroRunner
 
 using Lava, DNNKernels, KernelAbstractions
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using JSON3
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
@@ -71,13 +72,13 @@ Downloaded on first use and cached across every environment on this machine.
 assetdir() = @artifact_str("kokoro")
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether a usable export is installed. The workload and the tests both branch on
 this, because neither may fail on a machine that has not run the exporter.
 """
-ready(; dir::AbstractString = assetdir()) =
-    all(isfile(joinpath(dir, f)) for f in
+ready() =
+    all(isfile(joinpath(assetdir(), f)) for f in
         ("kokorotext.json", "kokorovoc.json", "weights.safetensors",
          "vocab.json", "voices.safetensors"))
 
@@ -102,7 +103,7 @@ refsdir() = @artifact_str("kokoro-refs")
 include("g2p.jl")
 
 """
-    Kokoro(; backend = LavaBackend(), dir = assetdir()) -> Kokoro
+    Kokoro(; backend = Mantle.LavaBackend(), dir = assetdir()) -> Kokoro
 
 Load the model. Holds device weights and a scratch slab, so build it once and
 keep it — the constructor is the expensive call, [`speak`](@ref) is not.
@@ -120,13 +121,15 @@ struct Kokoro{B,M,V}
     lexicon::Lexicon
 end
 
-function Kokoro(; backend = LavaBackend(), dir::AbstractString = assetdir())
-    ready(; dir) || throw(ArgumentError(
+function Kokoro(; backend = Mantle.LavaBackend())
+    dir = assetdir()
+    ready() || throw(ArgumentError(
         "Kokoro assets incomplete in $dir. Generate them with " *
         "`uv run tools/export_kokoro.py` and `uv run tools/export_kokoro_assets.py`, " *
         "then bind with `julia --project=. tools/make_artifacts.jl`."))
-    model = Model(dir, joinpath(dir, "weights.safetensors");
-                  backend, names = ["kokorotext", "kokorovoc"])
+    model = Model(Dict(n => loadgraph(joinpath(dir, "$n.json"))
+                       for n in ("kokorotext", "kokorovoc")),
+                  readsafetensors(joinpath(dir, "weights.safetensors")); backend)
     raw = JSON3.read(read(joinpath(dir, "vocab.json"), String))
     # The keys are single characters; the values are the ids the embedding
     # indexes with directly (0-based — `embedding.default` adds the 1).
@@ -350,7 +353,7 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 

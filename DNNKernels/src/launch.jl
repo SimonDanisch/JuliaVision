@@ -2,7 +2,7 @@
 One generic kernel, so op bodies are plain functions.
 
 Everything elementwise or reducing is already provided for any
-`AbstractGPUArray` - and `Lava.LavaArray <: GPUArraysCore.AbstractGPUArray` -
+`AbstractGPUArray` - and `Mantle.LavaArray <: GPUArraysCore.AbstractGPUArray` -
 by broadcasting, `fill!`, and `AcceleratedKernels`' backend-agnostic
 `sum`/`prod`/`maximum`/`any`/`all`/`sort`. None of that is reimplemented here.
 
@@ -99,7 +99,7 @@ flattening buys nothing and costs a `CartesianIndices` lookup.
 # Flat variant of `ndmap!`, and what `launch!` takes for any multi-dimensional
 # linearly-indexable destination.
 #
-# The decomposition is `Lava.cart32` over `Lava.FastDiv32` extents, not
+# The decomposition is `Mantle.cart32` over `Mantle.FastDiv32` extents, not
 # `CartesianIndices`, and that is the whole reason this variant is worth
 # re-measuring: it used to cost N-1 real integer divisions, which is exactly what
 # the flat launch was switched off for. A magic-number multiply is ~5 cycles where
@@ -107,7 +107,7 @@ flattening buys nothing and costs a `CartesianIndices` lookup.
 @kernel function ndmap_flat!(f::F, out, sz, n, args::Vararg{Any,N}) where {F,N}
     lin = @index(Global, Linear)
     if lin <= n
-        @inbounds out[lin] = f(Lava.cart32(UInt32(lin) - UInt32(1), sz), args...)
+        @inbounds out[lin] = f(Mantle.cart32(UInt32(lin) - UInt32(1), sz), args...)
     end
 end
 
@@ -123,7 +123,7 @@ end
 # `ndmap!` hands `f` a full Cartesian index, so it has to rebuild one — N-1
 # divisions where the N-D launch needed none.
 #
-# Measured that way it lost, 31.69 ms against 28.83. Then `Lava.FastDiv32` made a
+# Measured that way it lost, 31.69 ms against 28.83. Then `Mantle.FastDiv32` made a
 # decomposition a magic-number multiply instead of a division (~5 cycles against
 # ~25) and the same A/B, interleaved in one session on SAM 2's encoder, reverses:
 #
@@ -141,7 +141,7 @@ end
 """
     launchgroup(sz) -> Dims
 
-`Lava.launchgroup`, re-exported so the launch sites here read the same as the
+`Mantle.launchgroup`, re-exported so the launch sites here read the same as the
 ones in Lava. One definition: the rule about which axis a workgroup fills first
 is a property of the backend, and two copies of it would drift.
 
@@ -152,8 +152,8 @@ Note in particular the warning it carries about `kernel(backend, wg)` versus the
 # because it was read in exactly one place — here — and a caller holding a
 # context goes through `launchgroup(ctx.dev)` instead, which is the same number
 # clamped to what the device will actually launch.
-@inline launchgroup(sz::Dims, target::Int = 256) = Lava.launchgroup(sz, target)
-@inline launchgroup(ctx::Ctx, sz::Dims) = Lava.launchgroup(sz, launchgroup(ctx.dev))
+@inline launchgroup(sz::Dims, target::Int = 256) = Mantle.launchgroup(sz, target)
+@inline launchgroup(ctx::Ctx, sz::Dims) = Mantle.launchgroup(sz, launchgroup(ctx.dev))
 
 """
     flat4(a) -> (ndrange, W, H, C)
@@ -215,21 +215,21 @@ function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)
                  probe=nothing) where {F}
     p = probe
     if p !== nothing && ndims(out) <= 1
-        sz = size(out); wg = Lava.staticgroup(sz)
+        sz = size(out); wg = Mantle.staticgroup(sz)
         grp = ntuple(i -> cld(sz[i], wg[i]), length(sz))
         c, _ = get(p, (sz, wg), (0, grp))
         p[(sz, wg)] = (c + 1, grp)
     end
     if ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
-        ndmap_flat!(backend)(f, out, map(Lava.FastDiv32, size(out)), n, args...; ndrange=n)
+        ndmap_flat!(backend)(f, out, map(Mantle.FastDiv32, size(out)), n, args...; ndrange=n)
     else
         sz = size(out)
         # Workgroup in the kernel's TYPE, via `staticgroup` so it never trips
-        # `Lava.WORKGROUP_FALLBACK`. That keeps the index arithmetic
+        # `Mantle.WORKGROUP_FALLBACK`. That keeps the index arithmetic
         # compile-time constant, which is worth ~2x on these kernels. The cost is
         # a separate SPIR-V module per (body, workgroup shape); measured below.
-        ndmap!(backend, Lava.staticgroup(sz))(f, out, args...; ndrange=sz)
+        ndmap!(backend, Mantle.staticgroup(sz))(f, out, args...; ndrange=sz)
     end
     out
 end

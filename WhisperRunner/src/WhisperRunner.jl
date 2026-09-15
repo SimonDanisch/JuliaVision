@@ -55,7 +55,7 @@ cancels — 360x on one `gelu`, from the width alone. See `models-to-port.md`.
 Upstream: https://github.com/openai/whisper
 License: **MIT**
 
-The log-mel front end runs on the GPU through `Lava.stft` (0.712 ms), with
+The log-mel front end runs on the GPU through `Mantle.stft` (0.712 ms), with
 `melfilters` building the Slaney filterbank.
 
 `greedy` remains beside the policy-driven path on purpose: it is a bare argmax
@@ -69,7 +69,8 @@ See `models-to-port.md` for the state of this one, `tools/export_whisper.py` and
 module WhisperRunner
 
 using Lava, DNNKernels, KernelAbstractions
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts, JSON3, Random, FFMPEG_jll
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call,
                   Ctx, logmelspectrogram, melfilters
@@ -154,13 +155,13 @@ function assetdir(::Val{P}) where {P}
 end
 
 """
-    whispergraph(; dir = assetdir()) -> Graph
+    whispergraph() -> Graph
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
 """
-function whispergraph(; dir::AbstractString = assetdir())
-    p = joinpath(dir, "whisper.json")
+function whispergraph(precision::Symbol = :fp16)
+    p = joinpath(assetdir(precision), "whisper.json")
     isfile(p) || throw(ArgumentError(
         "Whisper large-v3-turbo graph not found at $p. Generate it with " *
         "`uv run tools/export_whisper.py` and bind it with " *
@@ -169,12 +170,12 @@ function whispergraph(; dir::AbstractString = assetdir())
 end
 
 """
-    whisperweights(; dir = assetdir()) -> Dict
+    whisperweights(precision = :fp16) -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-function whisperweights(; dir::AbstractString = assetdir())
-    p = joinpath(dir, "weights.safetensors")
+function whisperweights(precision::Symbol = :fp16)
+    p = joinpath(assetdir(precision), "weights.safetensors")
     isfile(p) || throw(ArgumentError("Whisper large-v3-turbo weights not found at $p"))
     return readsafetensors(p)
 end
@@ -198,30 +199,30 @@ Throws until the artifact is bound. Produce it with
 decoderdir() = @artifact_str("whisper-decoder")
 
 """
-    decoderready(; dir = decoderdir()) -> Bool
+    decoderready() -> Bool
 
 Whether the decoder half is installed. Separate from [`ready`](@ref) because the
 encoder alone is useful and the decoder alone is not.
 """
-decoderready(; dir::AbstractString = decoderdir()) =
-    all(isfile(joinpath(dir, f)) for f in
+decoderready() =
+    all(isfile(joinpath(decoderdir(), f)) for f in
         ("whisperdec.json", "whispercross.json", "weights.safetensors",
          "tokenizer.json", "generation_config.json"))
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "whisper.json")) && isfile(joinpath(dir, "weights.safetensors"))
+ready() =
+    isfile(joinpath(assetdir(), "whisper.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -249,7 +250,7 @@ struct WhisperEncoder{B,M}
 end
 
 """
-    whispermodel(; backend = LavaBackend(), dir = assetdir()) -> WhisperEncoder
+    whispermodel(; backend = Mantle.LavaBackend(), dir = assetdir()) -> WhisperEncoder
 
 Load the encoder. Downloads the artifact on first use.
 
@@ -257,12 +258,12 @@ Not called at module scope and not cached in a global: a `Model` holds device
 buffers, and a module global holding one is baked into the package image with a
 `VkContext` that is dead by the time anyone loads it.
 """
-function whispermodel(; backend = LavaBackend(), precision::Symbol = :fp16,
-                        dir::AbstractString = assetdir(precision))
-    ready(; dir) || throw(ArgumentError(
-        "no export at $dir — generate it with `uv run tools/export_whisper.py`"))
-    WhisperEncoder(backend, Model(dir, joinpath(dir, "weights.safetensors");
-                                  names = ["whisper"], backend))
+function whispermodel(; backend = Mantle.LavaBackend(), precision::Symbol = :fp16)
+    ready() || throw(ArgumentError(
+        "no export in the whisper artifact — generate it with " *
+        "`uv run tools/export_whisper.py`"))
+    WhisperEncoder(backend, Model(Dict("whisper" => whispergraph(precision)),
+                                  whisperweights(precision); backend))
 end
 
 """
@@ -289,7 +290,7 @@ three-pass fallback — which `opdouble` prices at ~277 ms of a ~360 ms encode,
 about 75% of the model, against a PyTorch baseline of 71.9 ms for the whole
 thing.
 
-This is the same alignment cliff `Lava.gemm_padn` already fixed for the GEMM's
+This is the same alignment cliff `Mantle.gemm_padn` already fixed for the GEMM's
 N=1500, on a different kernel. The clamp is the flash kernel's own answer to it
 and costs nothing here: measured against the PyTorch reference in Float64, the
 clamped path is *slightly more* accurate than the three-pass one it replaces
@@ -328,7 +329,7 @@ const decode_tokens = decode
 @setup_workload begin
     if ready()
         try
-            backend = LavaBackend()
+            backend = Mantle.LavaBackend()
             # `whispermodel` INSIDE `@compile_workload`, not in front of it —
             # `Model`'s last pass folds constant subgraphs by running them on the
             # device, and building it outside leaves those dispatches unfrozen.

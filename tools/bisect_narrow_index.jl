@@ -23,7 +23,7 @@ kernel cache would otherwise serve a module built under a different setting.
 """
 
 using Lava, KernelAbstractions
-using Lava: cart32
+using Mantle: cart32
 const KA = KernelAbstractions
 
 const PASSES = ["SimplifyCFG", "fixup_structured_cfg", "LowerSwitch",

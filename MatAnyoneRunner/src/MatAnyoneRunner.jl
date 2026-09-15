@@ -21,9 +21,10 @@ at ~33 s per uncached kernel is the whole problem back again.
 module MatAnyoneRunner
 
 using Lava, DNNKernels, KernelAbstractions
+import Mantle
 # The propagator reads the editor's frames, which are `Matrix{RGB{N0f8}}`.
 using ColorTypes: red, green, blue
-using Lava: @setup_workload, @compile_workload
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using DNNKernels: Model, initstate, step!, toback, loadgraph, readsafetensors
 
@@ -154,7 +155,7 @@ end
 # already use.
 
 """
-    matanyoneprecisions(; dir = refsdir()) -> Vector{String}
+    matanyoneprecisions() -> Vector{String}
 
 Which precisions have reference activations installed — a subset of
 `("autocast", "fp32")`, and **empty** when the `matanyone-refs` artifact is not
@@ -199,7 +200,8 @@ end
 
 The PyTorch reference activations for one precision.
 """
-function matanyonerefs(precision::AbstractString; dir::AbstractString = refsdir())
+function matanyonerefs(precision::AbstractString)
+    dir = refsdir()
     p = joinpath(dir, "refs-$precision.safetensors")
     isfile(p) || throw(ArgumentError("MatAnyone references not found at $p"))
     return readsafetensors(p)
@@ -210,7 +212,8 @@ end
 
 The manifest beside the references — resolution and per-tensor metadata.
 """
-function matanyonemanifest(precision::AbstractString; dir::AbstractString = refsdir())
+function matanyonemanifest(precision::AbstractString)
+    dir = refsdir()
     p = joinpath(dir, "refs_manifest-$precision.json")
     isfile(p) || throw(ArgumentError("MatAnyone reference manifest not found at $p"))
     return JSON3.read(read(p, String))
@@ -223,40 +226,57 @@ One exported ATen graph at one precision. These travel with the references
 rather than with the model, because the autocast/fp32 split exists to *localise a
 fault* and only the tests read it.
 """
-function matanyonegraph(name::AbstractString, precision::AbstractString;
-                        dir::AbstractString = refsdir())
-    p = joinpath(dir, "graphs", "aten-$precision", "$name.json")
+function matanyonegraph(name::AbstractString, precision::AbstractString)
+    p = joinpath(refsdir(), "graphs", "aten-$precision", "$name.json")
     isfile(p) || throw(ArgumentError(
         "MatAnyone graph `$name` at precision `$precision` not found at $p"))
     return loadgraph(p)
 end
 
 """
-    matanyoneweights(; dir = artifactdir()) -> Dict
+    matanyoneweights() -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-matanyoneweights(; dir::AbstractString = artifactdir()) =
-    readsafetensors(joinpath(dir, "weights.safetensors"))
+matanyoneweights() =
+    readsafetensors(joinpath(artifactdir(), "weights.safetensors"))
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether the model assets are installed. Says nothing about the references, which
 are a separate artifact — ask [`matanyoneprecisions`](@ref) for those.
 """
-ready(; dir::AbstractString = assetdir()) = isfile(joinpath(dir, "encode_image.json"))
+ready() = isfile(joinpath(assetdir(), "encode_image.json"))
 
 """
-    matanyonemodel(; backend, dir, weights) -> Model
+    GRAPHS
+
+The eight graphs `step!` drives. This list used to live in `DNNKernels` as the
+default of `Model`'s `names` kwarg — MatAnyone's graph names sitting in the
+generic runtime, only because `Model` did the loading. It belongs here.
+"""
+const GRAPHS = ("encode_image", "transform_key", "encode_mask_deep",
+                "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
+                "segment", "readout_query")
+
+"""
+    matanyonegraphs() -> Dict{String,Graph}
+
+The eight graphs, keyed the way `Model` and `step!` name them. `Model` takes
+loaded objects, so reading them is this package's job; the weights are
+[`matanyoneweights`](@ref).
+"""
+matanyonegraphs() = Dict(n => loadgraph(joinpath(assetdir(), "$n.json")) for n in GRAPHS)
+
+"""
+    matanyonemodel(; backend) -> Model
 
 Load the propagator. Separate from the workload body so the loading is not what
 gets cached.
 """
-function matanyonemodel(; backend = LavaBackend(),
-                        dir::AbstractString = assetdir(),
-                        weights::AbstractString = weightpath())
-    return Model(dir, weights; backend)
+function matanyonemodel(; backend = Mantle.LavaBackend())
+    return Model(matanyonegraphs(), matanyoneweights(); backend)
 end
 
 """
@@ -309,16 +329,14 @@ loaded, or loading the editor invalidates it again — and since the editor
 depends on this package directly, the editor is that far side.
 """
 function matanyonepropagator(;
-        graphdir::AbstractString = assetdir(),
-        weights::AbstractString = weightpath(),
-        backend = LavaBackend(),
+        backend = Mantle.LavaBackend(),
         # Re-runs of a seeded frame, settling the memory bank before its own matte
         # is read. `inference_matanyone2.py` uses 10 and `DNNKernels.matte` matches
         # it; it is also what makes a single-frame call (the live preview while
         # marking) return a matte rather than the seed.
         warmup::Int = 10)
-    isdir(graphdir) || error("no exported graphs at $graphdir — run tools/ first")
-    isfile(weights) || error("no weights at $weights")
+    ready() || error("no exported graphs in the `matanyone` artifact — " *
+                     "re-bind it with `julia --project=. tools/make_artifacts.jl matanyone`")
     # Built on FIRST USE, not here. A Vulkan `BatchQueue` is single-writer and
     # belongs to whichever thread first touches the context, while the editor
     # calls a propagator from `runanalysis` — its pinned GPU worker for a GPU
@@ -330,7 +348,8 @@ function matanyonepropagator(;
     modelref = Ref{Any}(nothing)
 
     return function (frames, seeds; progress = nothing)
-        modelref[] === nothing && (modelref[] = Model(graphdir, weights; backend))
+        modelref[] === nothing &&
+            (modelref[] = Model(matanyonegraphs(), matanyoneweights(); backend))
         model = modelref[]
         n = length(frames)
         w, h = size(frames[1])
@@ -425,7 +444,7 @@ end
 
 
 function __init__()
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -434,8 +453,8 @@ end
     ready = isdir(dir) && isfile(w) && isfile(joinpath(dir, "encode_image.json"))
     if ready
         try
-            backend = LavaBackend()
-            model = matanyonemodel(; backend, dir, weights = w)
+            backend = Mantle.LavaBackend()
+            model = matanyonemodel(; backend)
             # Small, but a real shape: 16-multiples, and big enough that the
             # memory bank's reductions take their normal paths.
             W, H = 128, 96

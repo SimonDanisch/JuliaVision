@@ -35,8 +35,8 @@ function ab(M, N, K, share)
     C = KA.allocate(BACKEND, Float16, M, N)
     cA = CuArray(a); cB = CuArray(b); cC = CUDA.zeros(Float16, M, N)
 
-    single() = (DK.reset!(WS); Lava.coopmat_gemm!(C, A, B, M, N, K; doublebuf = false))
-    double() = (DK.reset!(WS); Lava.coopmat_gemm!(C, A, B, M, N, K; doublebuf = true))
+    single() = (DK.reset!(WS); Mantle.coopmat_gemm!(C, A, B, M, N, K; doublebuf = false))
+    double() = (DK.reset!(WS); Mantle.coopmat_gemm!(C, A, B, M, N, K; doublebuf = true))
     cublas() = mul!(cC, cA, cB)
 
     for _ in 1:3; single(); double(); cublas(); end

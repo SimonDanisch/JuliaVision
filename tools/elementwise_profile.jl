@@ -11,7 +11,7 @@ bucket has to come down, so the first job is to know what is in it.
 
 Two signals, one run, because they answer different halves:
 
-  * `Lava.with_dispatch_timing` — which *kernel* costs what. It is the arbiter:
+  * `Mantle.with_dispatch_timing` — which *kernel* costs what. It is the arbiter:
     isolated microbenchmarks in this project have three times shown a win the
     encode did not move at all.
   * `Diagnostics.launches` — which *launch site and shape* produced it. A grid
@@ -60,7 +60,7 @@ function main()
     # was `DNNKernels.LAUNCH_PROBE[]`, a module-level Ref; now a `Diagnostics` field
     model.model.diag.launches = probe
     Lava.BROADCAST_PROBE[] = bprobe
-    report = Lava.with_dispatch_timing() do
+    report = Mantle.with_dispatch_timing() do
         encode(model, img)
         KA.synchronize(backend)
     end

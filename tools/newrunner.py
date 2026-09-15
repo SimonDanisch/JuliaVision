@@ -21,7 +21,16 @@ import argparse
 
 from models import MODELS, ROOT
 
-JV = ROOT / "dev" / "JuliaVision"
+# Where the packages live depends on how `tools/` was reached. Symlinked into a
+# parent repo, ROOT is that parent and the monorepo sits under dev/JuliaVision;
+# run from inside a plain JuliaVision checkout, ROOT *is* the monorepo. Ask which
+# one holds the packages — the wrong guess silently writes a new tree at
+# JuliaVision/dev/JuliaVision instead of failing.
+JV = (ROOT / "dev" / "JuliaVision" if (ROOT / "dev" / "JuliaVision" / "DNNKernels").is_dir()
+      else ROOT if (ROOT / "DNNKernels").is_dir()
+      else None)
+if JV is None:
+    raise SystemExit(f"cannot find the JuliaVision packages from {ROOT}")
 
 PROJECT = """\
 name = "{package}"
@@ -217,9 +226,16 @@ using Test, {package}
         @test !isempty(w)
     else
         @info "{title}: no export; run tools/export_{name}.py"
-        # The error has to name the path — a caller who has not run the exporter
-        # should be told where to put it, not handed a MethodError later.
-        @test_throws ArgumentError {package}.{lower}graph()
+        # `ErrorException`, not `ArgumentError`. The default argument is
+        # `assetdir()`, which throws before `{lower}graph` runs a line of its own,
+        # and the generated `assetdir` uses `error(...)`. This template used to
+        # assert `ArgumentError` and was wrong about the code it generates —
+        # every fresh scaffold failed its own suite on the first run.
+        # `Hunyuan3DRunner/test` fixed it by hand and left a note saying so.
+        #
+        # The message still has to name what to do: a caller who has not run the
+        # exporter should be told, not handed a MethodError later.
+        @test_throws ErrorException {package}.{lower}graph()
     end
 end
 '''

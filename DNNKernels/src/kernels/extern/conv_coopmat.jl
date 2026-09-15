@@ -27,7 +27,7 @@ both ends.
 """
 
 """Round up to the cooperative-matrix tile."""
-padtile(n::Int) = cld(n, Lava.GEMM_TILE) * Lava.GEMM_TILE
+padtile(n::Int) = cld(n, Mantle.GEMM_TILE) * Mantle.GEMM_TILE
 
 """
 `K` rounded to the staged kernel's `bk`, which is what a TILING needs — the
@@ -40,7 +40,7 @@ register-blocked kernel although M and N are both fine. Same mistake `GEMM_BLOCK
 exists to fix one axis over — "padtile pads to the cooperative-matrix tile, 16,
 and that is not enough" was true of K as well.
 """
-const GEMM_BK = lcm(Lava.gemm_bk.(Lava.GEMM_TILINGS)...)
+const GEMM_BK = lcm(Mantle.gemm_bk.(Mantle.GEMM_TILINGS)...)
 padbk(n::Int) = cld(n, GEMM_BK) * GEMM_BK
 
 """
@@ -87,7 +87,7 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     # context, which answers yes whenever Lava is loaded, so without this the CPU
     # verification run took this path and handed host `Array`s to the SPIR-V
     # compiler.
-    x isa Lava.LavaArray && w isa Lava.LavaArray || return Decline(:host)
+    x isa Mantle.LavaArray && w isa Mantle.LavaArray || return Decline(:host)
     eltype(x) === Float16 && eltype(w) === Float16 || return Decline(:eltype)
     KW, KH, Cin, Cout = size(w)
     CRS = Cin * KH * KW
@@ -215,10 +215,10 @@ function im2colbudget(x)
     # the same reason `coopmat_gemm!` uses `get_backend(C)`: an unpinned backend
     # resolves through the global context, so on a second device the budget read
     # would describe the wrong GPU.
-    ctx = x isa Lava.LavaArray ? Lava.vk_context(x) : nothing
+    ctx = x isa Mantle.LavaArray ? Mantle.vk_context(x) : nothing
     ctx === nothing && return IM2COL_CAP[]
     free = 0
-    for h in Lava.probe_device_memory_budget(ctx)
+    for h in Mantle.probe_device_memory_budget(ctx)
         h.device_local || continue
         h.budget == 0 && return IM2COL_CAP[]      # extension absent
         free = max(free, h.budget - h.usage)
@@ -233,7 +233,7 @@ The row count the im2col matrix is padded to: `lcm` of every `GEMM_TILINGS` bloc
 height, so **some** tiling always divides it.
 
 `padtile` pads to the cooperative-matrix tile, 16, and that is not enough.
-`Lava.gemm_tiling` takes the first tiling whose block DIVIDES the shape exactly
+`Mantle.gemm_tiling` takes the first tiling whose block DIVIDES the shape exactly
 (`gemm.jl:185`) and the blocks are 96/64/32 — so a `padtile`d 3400 becomes 3408,
 which none of them divide, and the GEMM inside the convolution silently drops to
 the register-blocked kernel.
@@ -250,7 +250,7 @@ not shape.
 At most 191 extra rows against thousands, and the im2col kernel already zero-fills
 past `NPQ`, so the padding costs a fraction of a percent and needs no new code.
 """
-const GEMM_BLOCK = lcm(Lava.gemm_bm.(Lava.GEMM_TILINGS)...)
+const GEMM_BLOCK = lcm(Mantle.gemm_bm.(Mantle.GEMM_TILINGS)...)
 
 "Round `n` up to a multiple of [`GEMM_BLOCK`](@ref)."
 @inline padgemm(n::Integer) = cld(n, GEMM_BLOCK) * GEMM_BLOCK
@@ -403,11 +403,11 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
         wp
     end
 
-    _, splitk = Lava.coopmat_gemm_shape(MP, Cout, CRSP)
+    _, splitk = Mantle.coopmat_gemm_shape(MP, Cout, CRSP)
     # With a split there is no separate destination: the epilogue reads the
     # partial planes directly and sums them.
     C = scratch!(ctx, Float32, MP, Cout, max(splitk, 1))
-    Lava.coopmat_gemm!(C, col, B, MP, Cout, CRSP; partials = C, reduce = false)
+    Mantle.coopmat_gemm!(C, col, B, MP, Cout, CRSP; partials = C, reduce = false)
 
     conv_epilogue_kernel!(backend)(out, C, bias, Val(MP), Val(act), Val(splitk),
                                    OW * OH, Cout, length(out), MP * Cout;

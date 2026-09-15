@@ -20,7 +20,7 @@ between a live preview and a progress bar.
 """
 
 """
-    SAM2(graphdir, weights; backend, res = 1024, maxpoints = 16)
+    SAM2(graphs, weights; backend, res = 1024, maxpoints = 16)
 
 `res` and `maxpoints` describe the graphs as exported: the encoder takes a
 `res`-square image, the decoder has `maxpoints` point slots. They are checked
@@ -32,38 +32,25 @@ struct SAM2
     res::Int
     maxpoints::Int
     dims::NamedTuple
-    # The `feats` tuple the plan's feature buffers were last filled from.
-    # `encode` sets it in the same call that fills them, so the key and the
-    # contents cannot disagree, and `===` is a complete test: the encoder plan
-    # returns its own output buffers, whose identity is stable across frames.
-    # `decode` re-stages by copy on a miss.
+    # The `feats` tuple the handover buffers were last filled from. `encode`
+    # sets it in the same call that fills them, so the key and the contents
+    # cannot disagree, and `===` is a complete test: a replayed plan returns its
+    # own output buffers, whose identity is stable across frames. `decode`
+    # re-stages by copy on a miss.
     cachekey::Base.RefValue{Any}
-    # The one `(point, label)` pair every click writes into, because the baked
-    # decoder plan was built against these exact arrays and reads whatever they
-    # hold *now* — a fresh pair per click would leave the plan reading the old
-    # one, which is not an error, it is a plausible mask for the previous click.
+    # The one `(point, label)` pair every click writes into. A drag is a prompt
+    # per frame, so a fresh pair each time is the allocation; `decode` copies
+    # from here into the recorded plan's own inputs.
     prompts::Base.RefValue{Any}
 
-    # ── The two Mantle plans, built on first `encode` and then baked.
+    # ── The buffers between the two graphs: `(; feat, prompt)`, created on first
+    # use by [`handover`](@ref). Not plans — `Model` owns those now, one per
+    # graph, and replays them. The name is kept because it is what the editor's
+    # code reaches for.
     #
-    # **Two, not one.** `buildchain` can put both graphs in a single plan and make
-    # a whole step one queue submission, and that is the right shape for "here is
-    # a picture and a click". It is the wrong shape for the editor, whose whole
-    # pattern is encode once and decode many: a chain re-encodes per click, which
-    # is 300 ms where a decode is 4.
-    #
-    # So the encoder is one baked plan and the decoder another, with the dtype
-    # conversion between them done in `encode` — per frame, which is where it
-    # belongs, and which is the whole of what `cacheinputs` used to arrange.
-    #
-    # **This is what replaced `replay`.** That field held a raw
-    # `Lava.CapturedSequence` plus the four objects it needed kept alive, because
-    # a capture holds no references to the buffers its push constants point at.
-    # Under GC pressure they went anyway, and the replay dispatched against
-    # address 0 — which is what made `@setup_workload` lose the device on every
-    # fresh precompile and silently freeze nothing. A Mantle plan holds
-    # references to everything it names, so the failure is not guarded against
-    # here; it cannot be expressed.
+    # **Two graphs, not one.** A chain would put both in a single submission,
+    # which is the right shape for "here is a picture and a click" and the wrong
+    # one for an editor: it re-encodes per click, 300 ms where a decode is 4.
     plans::Base.RefValue{Any}
 
     # ── Policy. Fields rather than module-level `Ref`s (review finding 3): they
@@ -74,9 +61,9 @@ struct SAM2
     #
     # **Inert: the conversion moved into `encode`.** This used to gate a cache in
     # `decode` of the three encoder outputs converted to the decoder's dtypes.
-    # The baked plans made that moot — `plansfor` owns persistent `feat` buffers
-    # and `encode` fills them per frame, which is where the conversion belongs —
-    # so nothing reads this flag any more. It stays in the signature for one
+    # `handover` owns persistent `feat` buffers and `encode` fills them per
+    # frame, which is where the conversion belongs, so nothing reads this flag
+    # any more. It stays in the signature for one
     # release, like `replaydecode`, so existing calls keep working. The
     # measurements that justified the cache still stand: 12.6 MB of device copies
     # per click if it were done in `decode`, +0.008 ms of actual time, and a
@@ -89,7 +76,7 @@ struct SAM2
     segmenttie::Float32
 end
 
-function SAM2(graphdir::AbstractString, weightpath::AbstractString;
+function SAM2(graphs::AbstractDict, weights::AbstractDict;
               backend=KernelAbstractions.CPU(), res::Int=1024, maxpoints::Int=16,
               cacheinputs::Bool=true, replaydecode::Bool=true,
               segmenttie::Real=0.1f0)
@@ -98,14 +85,20 @@ function SAM2(graphdir::AbstractString, weightpath::AbstractString;
     # passing `replaydecode = false` — which was the documented way around the
     # capture fault — keep working instead of erroring.
     replaydecode || @warn "SAM2: `replaydecode = false` no longer does anything. " *
-        "The decoder is a baked Mantle plan, which holds references to everything " *
-        "it names, so the capture/replay fault it worked around cannot occur." maxlog = 1
+        "The decoder is a recorded Mantle plan, which holds references to " *
+        "everything it names, so the capture/replay fault it worked around " *
+        "cannot occur." maxlog = 1
     # Same story: the conversion this gated now happens in `encode`, per frame,
     # into the plan's own feature buffers.
     cacheinputs || @warn "SAM2: `cacheinputs = false` no longer does anything. " *
         "The dtype conversion it gated moved into `encode`, which writes the " *
-        "plan's feature buffers per frame." maxlog = 1
-    m = Model(graphdir, weightpath; backend, names=["sam2_encoder", "sam2_decoder"])
+        "handover buffers per frame." maxlog = 1
+    # `record = true`: one plan per graph, replayed. See `record` in
+    # DNNKernels for what a model has to satisfy — the one that applies here
+    # is that no op may read device memory on the host mid-graph, and the
+    # encoder's 16 `index.Tensor`s keep their index on the device for exactly
+    # that reason.
+    m = Model(graphs, weights; backend, record = true)
     enc, dec = m.graphs["sam2_encoder"], m.graphs["sam2_decoder"]
     # torch order, so the image is (n, c, y, x) and the point list (n, k, 2).
     img = enc.buffers[enc.inputs[1]].shape
@@ -130,12 +123,11 @@ the positional encodings the graph produced alongside them. Keep the whole tuple
 between clicks: that *is* the cached embedding.
 """
 function encode(s::SAM2, image)
-    p = plansfor(s)
-    # In place. The baked plan names this address, and a fresh buffer per frame
-    # would leave the recording reading the old one — which is not an error, it
-    # is a plausible mask computed from the previous picture.
-    copyto!(p.image, image)
-    out = DNNKernels.runplan(p.enc)
+    p = handover(s)
+    # `call` copies the argument into the buffer its plan was recorded against,
+    # so the caller's array is free to be a fresh one per frame — which is what
+    # the baked plan could not allow, and what the copy here used to arrange.
+    out = DNNKernels.call(s.model, "sam2_encoder", image; dims = s.dims)
     # The dtype handover, here rather than in `decode`: it is per *embedding*,
     # and the editor's shape is encode once and decode many. This is what the
     # `cacheinputs` machinery used to arrange by caching a conversion; doing it
@@ -148,76 +140,55 @@ function encode(s::SAM2, image)
 end
 
 """
-    plansfor(s) -> (; dev, image, feat, enc, dec)
+    handover(s) -> (; feat, prompt)
 
-The two baked plans and the buffers they read, built on first use and kept.
+The buffers between the two graphs, created on first use and kept.
 
-**Two plans, not one.** `DNNKernels.buildchain` can put both graphs into a single
-plan and make a whole step one queue submission, and that is right for "a picture
-and a click". It is wrong here: a chain re-encodes on every click, and this
-package exists for an editor that encodes once and decodes many.
+**Two graphs, not one.** `DNNKernels.Model` records a plan per graph and replays
+it, which is the shape this package needs: a chain would re-encode on every
+click, and an editor encodes once and decodes many.
 
-Both are built before either is baked, and that order is load-bearing — plans
-share the device's arena, so a second plan can need it grown, and growing it
-under a baked plan is refused rather than silently invalidating its recording.
+`feat` exists because the two graphs disagree about dtype — the decoder declares
+its three feature inputs in its own, and `encode` converts into these on the way
+past. `prompt` is one pair rather than one per click because a click writes into
+it in place; `DNNKernels.call` copies from here into the plan's own inputs, so
+nothing downstream depends on these addresses.
+
+This used to build two Mantle plans directly, through `DNNKernels.build` ->
+`addpasses!` -> `Mantle.custom!`. Mantle deleted `custom!` on purpose (see the
+`Trace` docstring in `Mantle/src/graph/types.jl`: a `custom!` body packed its
+arguments out of per-run scratch, so a recorded plan aimed at memory the queue
+had since handed to somebody else), which left every `encode` here throwing
+`UndefVarError` and this package's own suite red. `Model`'s `record_into` path
+is the supported one and the one Horizon 32B is validated on.
 """
-function plansfor(s::SAM2)
-    p = s.plans[]
-    p === nothing || return p
-    s.model.backend isa Lava.LavaBackend || error(
-        "SAM2 runs its graphs as Mantle plans, which need a GPU backend; got " *
-        "$(typeof(s.model.backend)). Build the model with `backend = LavaBackend()`.")
-    m = s.model
-    enc_g, dec_g = m.graphs["sam2_encoder"], m.graphs["sam2_decoder"]
-    dev = M.Device(Lava)
-
-    image = KA.allocate(m.backend, Float32, s.res, s.res, 3, 1)
-    fill!(image, 0f0)
-    encp = DNNKernels.build(dev, enc_g, Dict{String,Any}(enc_g.inputs[1] => image),
-                            m.weights; dims = s.dims)
-
-    # The prompt pair is created here, not in `prompt`, because the decoder plan
-    # is built against these exact arrays and every click writes into them.
-    pb = s.prompts[]
-    if pb === nothing
-        pb = (KA.allocate(m.backend, Float32, 2, s.maxpoints, 1),
-              KA.allocate(m.backend, Int32, s.maxpoints, 1))
-        fill!(pb[1], 0f0)
-        fill!(pb[2], Int32(-1))
-        s.prompts[] = pb
-    end
-
-    # The decoder's three feature inputs in ITS dtypes — the handover buffers.
+function handover(s::SAM2)
+    h = s.plans[]
+    h === nothing || return h
+    # The question is whether this backend's device RECORDS, and Mantle has a
+    # verb for it. Spelled `isa Mantle.LavaBackend` until 2026-09-14, which named
+    # the one backend that did at the time: the decoder verifies bit-exact
+    # against PyTorch on ROCm (`ok=true`, 0 mismatches) and its device answers
+    # `recordsplans` with `true`, but `handover` refused it and the whole
+    # `runsam2` path was unreachable there.
+    Mantle.recordsplans(Mantle.Device(s.model.backend)) || error(
+        "SAM2 replays its graphs as recorded Mantle plans, and " *
+        "$(typeof(s.model.backend))'s device answers `Mantle.recordsplans` " *
+        "with false, so there is nothing to replay. Use a backend that records.")
+    dec_g = s.model.graphs["sam2_decoder"]
     feat = ntuple(3) do i
         b = dec_g.buffers[dec_g.inputs[i]]
-        a = KA.allocate(m.backend, b.dtype, DNNKernels.evalshape(b.shape, s.dims)...)
+        a = KA.allocate(s.model.backend, b.dtype,
+                        DNNKernels.evalshape(b.shape, s.dims)...)
         fill!(a, zero(b.dtype))
         a
     end
-    decp = DNNKernels.build(dev, dec_g,
-                            Dict{String,Any}(dec_g.inputs[1] => feat[1],
-                                             dec_g.inputs[2] => feat[2],
-                                             dec_g.inputs[3] => feat[3],
-                                             dec_g.inputs[4] => pb[1],
-                                             dec_g.inputs[5] => pb[2]),
-                            m.weights; dims = s.dims, clampattn = true)
-
-    # Run each once before baking it, and this is a precondition rather than a
-    # warm-up. `capture` records command buffers and keeps them; compiling a
-    # kernel *during* a capture shells out to `spirv-opt` and does device work of
-    # its own inside the recording, and the result is a lost device — reliably,
-    # on a cold kernel cache, which is exactly what a fresh precompile is.
-    #
-    # It cost a day to see because every interactive test ran the plan before
-    # baking it without meaning to, so the capture was always warm; the workload
-    # is the one caller that bakes cold.
-    DNNKernels.runplan(encp)
-    KA.synchronize(m.backend)
-    DNNKernels.bakeplan!(encp)
-    DNNKernels.runplan(decp)
-    KA.synchronize(m.backend)
-    DNNKernels.bakeplan!(decp)
-    s.plans[] = (; dev, image, feat, enc = encp, dec = decp)
+    pb = (KA.allocate(s.model.backend, Float32, 2, s.maxpoints, 1),
+          KA.allocate(s.model.backend, Int32, s.maxpoints, 1))
+    fill!(pb[1], 0f0)
+    fill!(pb[2], Int32(-1))
+    s.prompts[] = pb
+    s.plans[] = (; feat, prompt = pb)
 end
 
 
@@ -234,12 +205,13 @@ the result is about to be resampled. `iou` is `(3, 1)`, the model's own estimate
 of how good each of the three is.
 """
 function decode(s::SAM2, feats, point, label; replay::Bool = true)
-    p = plansfor(s)
-    # The plan reads fixed buffers, so anything that is not already in them has
-    # to be staged. `encode` leaves the current embedding there and records it as
-    # the key, so the editor's path — click again on the frame just encoded —
-    # stages nothing. A decode against some *other* feats tuple copies, which is
-    # what the old per-click conversion did unconditionally.
+    p = handover(s)
+    # The handover buffers hold the embedding in the decoder's dtypes, so
+    # anything that is not already in them has to be staged. `encode` leaves the
+    # current embedding there and records it as the key, so the editor's path —
+    # click again on the frame just encoded — stages nothing. A decode against
+    # some *other* feats tuple copies, which is what the old per-click
+    # conversion did unconditionally.
     #
     # `===` is enough here and was not before: it used to be compared against a
     # tuple the encoder had since overwritten in place, so identity held while
@@ -251,21 +223,23 @@ function decode(s::SAM2, feats, point, label; replay::Bool = true)
         end
         s.cachekey[] = feats
     end
-    # Likewise the prompt. `prompt` writes into the pair the plan was built
-    # against, so this copies only when a caller passed something else.
+    # Likewise the prompt: `prompt` writes into this pair in place, so this
+    # copies only when a caller passed something else.
     pb = s.prompts[]
     point === pb[1] || copyto!(pb[1], point)
     label === pb[2] || copyto!(pb[2], label)
 
-    # `clampattn` is the decoder's business and was decided when the plan was
-    # built: its attentions are 23 tokens and want the padded cooperative-matrix
-    # path, while the encoder has six `Lq = 16` calls that would go along at 50%
-    # waste and cost +2.12 ms of encode for nothing. Measured interleaved on the
-    # autocast export: decode 8.24 -> 4.22 ms with the clamp, encode 118.63 ->
-    # 120.75. (Those milliseconds are an RTX 4000 Ada's; the Radeon 8060S APU
-    # runs the same encode in ~270 ms — the gap is the card, not a regression.)
-    # Two plans is what lets the two graphs disagree about it.
-    DNNKernels.runplan(p.dec)
+    # `clampattn` is the decoder's business and no one else's: its attentions are
+    # 23 tokens and want the padded cooperative-matrix path, while the encoder
+    # has six `Lq = 16` calls that would go along at 50% waste and cost +2.12 ms
+    # of encode for nothing. Measured interleaved on the autocast export: decode
+    # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75. (Those
+    # milliseconds are an RTX 4000 Ada's; the Radeon 8060S APU runs the same
+    # encode in ~270 ms — the gap is the card, not a regression.) A plan per
+    # graph is what lets the two disagree about it: `call` keys its recording on
+    # `clampattn`, so the encoder's and the decoder's are separate plans.
+    DNNKernels.call(s.model, "sam2_decoder", p.feat[1], p.feat[2], p.feat[3],
+                    pb[1], pb[2]; dims = s.dims, clampattn = true)
 end
 
 """
@@ -293,11 +267,10 @@ function prompt(s::SAM2, points, labels)
         xy[2, i, 1] = Float32(p[2] * s.res)
         lb[i, 1] = labels[i] ? Int32(1) : Int32(0)
     end
-    # Written into ONE persistent pair, not a fresh one per click, because the
-    # baked decoder plan was built against these exact arrays and reads whatever
-    # they hold now. `plansfor` creates them for that reason, so asking it here
-    # is also what guarantees they exist.
-    plansfor(s)                 # creates the pair if this is the first prompt
+    # Written into ONE persistent pair, not a fresh one per click: a drag is a
+    # prompt a frame, and this is the allocation that would be. `handover`
+    # creates it, so asking it here is also what guarantees it exists.
+    handover(s)                 # creates the pair if this is the first prompt
     pb = s.prompts[]
     copyto!(pb[1], xy)
     copyto!(pb[2], lb)

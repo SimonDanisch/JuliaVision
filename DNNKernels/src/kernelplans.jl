@@ -192,7 +192,7 @@ struct FlashCMPlan
     #     one store for a chain of accesses instead of one per access. **The number did
     #     not move either**: 4.955 before, 4.950 after.
     #
-    # What it actually is, from `Lava.pipeline_exec_stats`: the rescale costs **+69
+    # What it actually is, from `Mantle.pipeline_exec_stats`: the rescale costs **+69
     # registers**, 123 to 192. At 256 threads that is 49 152 of the SM's 65 536, so
     # **one workgroup per SM instead of two**. Stack size is 0 and local memory 16
     # bytes in both, so nothing spills — the component access simply materialises a
@@ -387,14 +387,23 @@ end
 """
     MMGemvPlan
 
-The batch-1 matrix-vector path: `Lava.gemv!` instead of a cooperative-matrix GEMM
+The batch-1 matrix-vector path: `Mantle.gemv!` instead of a cooperative-matrix GEMM
 with fifteen sixteenths of every tile empty.
 
 Carries nothing but the marker. Unlike `MMCoopMatPlan` there is no padded extent
 to record — a GEMV has no tile to land on — and the block/unroll choice is
-`Lava.gemv_ncontig_config`'s, made per device from the operands it is given.
+`Mantle.gemv_ncontig_config`'s, made per device from the operands it is given.
 """
 struct MMGemvPlan end
+
+"""
+    MMInt8Plan
+
+The weight is a [`QInt8Matrix`](@ref). Carries nothing: `N == 1` goes to the
+int8 GEMV and anything wider dequantises into the workspace and reuses the
+fp16 GEMM, and both of those are decided from the operands.
+"""
+struct MMInt8Plan end
 
 """
     ConvCoopMatPlan

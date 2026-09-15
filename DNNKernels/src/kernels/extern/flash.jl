@@ -69,7 +69,7 @@ Kept because the analysis points somewhere specific, and so does what blocks it:
   * ~~**`BQ = 32` is wrong and unexplained.**~~ **Explained and fixed.** It was
     `OpUDiv` in the staging index — `E = 72` is not a power of two, so
     `idx % E` emitted a real division into a shared-store address, which drops
-    stores on this driver. `Lava.splitidx` removes it and every configuration is
+    stores on this driver. `Mantle.splitidx` removes it and every configuration is
     exact; `flashfits` no longer refuses odd slot counts. See the note there.
     **This was the gate, and it is open**, so the `BQ = 32` route to two
     workgroups is available to try.
@@ -145,7 +145,7 @@ rather than used: the three-pass path is always available and always right.
     # **It was `OpUDiv`.** The staging loops decomposed a flat index with
     # `idx % E` / `idx ÷ E`, and `E = 72` is not a power of two, so a real
     # division landed in a shared-memory store address — which drops stores on
-    # this driver (`Lava.splitidx`, and `test_shared_index_division.jl` for the
+    # this driver (`Mantle.splitidx`, and `test_shared_index_division.jl` for the
     # isolated case). The tell was in the old note without being recognised: it
     # was "exact for *constant* inputs", and that is precisely the condition
     # under which the division bug does not bite, because a constant store needs
@@ -197,7 +197,7 @@ end
         # the global read coalesces along the contiguous axis.
         for r in 0:(div(BQ * E, NT) - 1)
             idx = tid + r * NT - 1
-            e, lq = Lava.splitidx(idx, Val(E)); e += 1; lq += 1
+            e, lq = Mantle.splitidx(idx, Val(E)); e += 1; lq += 1
             qs[e, lq] = T(q[e, q0 + lq, h, b])
             acc[r + 1] = zero(T)
         end
@@ -212,7 +212,7 @@ end
             k0 = kb * BK
             for r in 0:(div(BK * E, NT) - 1)
                 idx = tid + r * NT - 1
-                e, lk = Lava.splitidx(idx, Val(E)); e += 1; lk += 1
+                e, lk = Mantle.splitidx(idx, Val(E)); e += 1; lk += 1
                 ks[e, lk] = T(k[e, k0 + lk, h, b])
                 vs[e, lk] = T(v[e, k0 + lk, h, b])
             end
@@ -221,7 +221,7 @@ end
             # scores for the tile
             for r in 0:(div(BQ * BK, NT) - 1)
                 idx = tid + r * NT - 1
-                qi, ki = Lava.splitidx(idx, Val(BQ)); qi += 1; ki += 1
+                qi, ki = Mantle.splitidx(idx, Val(BQ)); qi += 1; ki += 1
                 s = zero(T)
                 for e in 1:E
                     s = muladd(qs[e, qi], ks[e, ki], s)
@@ -256,7 +256,7 @@ end
             # rescale what is already accumulated, then add this block's share
             for r in 0:(div(BQ * E, NT) - 1)
                 idx = tid + r * NT - 1
-                e, lq = Lava.splitidx(idx, Val(E)); e += 1; lq += 1
+                e, lq = Mantle.splitidx(idx, Val(E)); e += 1; lq += 1
                 s = zero(T)
                 for ki in 1:BK
                     s = muladd(ss[lq, ki], vs[e, ki], s)
@@ -269,7 +269,7 @@ end
         # normalise and write out
         for r in 0:(div(BQ * E, NT) - 1)
             idx = tid + r * NT - 1
-            e, lq = Lava.splitidx(idx, Val(E)); e += 1; lq += 1
+            e, lq = Mantle.splitidx(idx, Val(E)); e += 1; lq += 1
             l = ls[lq]
             out[e, q0 + lq, h, b] = acc[r + 1] / (l == zero(T) ? one(T) : l)
         end
@@ -457,22 +457,29 @@ zero past `E`. That padding is free in the arithmetic (`0 * 0` contributes
 nothing to `S`, and `O`'s columns past `E` are never read out) and it is what
 lets every cooperative-matrix load be full-width.
 
-`Lava.splitidx` for every staging index, not `%`/`÷`: `EP = 80` and `E = 72` are
+`Mantle.splitidx` for every staging index, not `%`/`÷`: `EP = 80` and `E = 72` are
 not powers of two, and a real `OpUDiv` in a shared-memory store address drops
 stores on this driver whenever a `muladd` is in scope. That is the bug this
 kernel would otherwise walk straight into — see `test_shared_index_division.jl`.
 """
+@inline flashscore(s, scale, ::Nothing, qi, ki, h, b) = s * scale
+@inline function flashscore(s, scale, mask, qi, ki, h, b)
+    qi > size(mask,2) && return -65504.0f0
+    @inbounds z = mask[ki,qi,size(mask,3)==1 ? 1 : h,size(mask,4)==1 ? 1 : b]
+    Float32(Float16(Float16(Float16(s)*scale)+z))
+end
+
 @kernel cpu=false unsafe_indices=true function attn_flash_cm!(
-        out, @Const(q), @Const(k), @Const(v), scale,
+        out, @Const(q), @Const(k), @Const(v), scale, @Const(mask),
         qbase::Int32, qsE::Int32, qsL::Int32, qsH::Int32, qsB::Int32,
         kbase::Int32, ksE::Int32, ksL::Int32, ksH::Int32, ksB::Int32,
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
         ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
-        ::Val{CLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
+        ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
         ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
-        onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,RSC,
+        onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
                                             BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT,
                                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup`, not the literal 32 this used to be. The
@@ -531,9 +538,9 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
     # come from the type parameters, and both of these are.
     acco = @private Float32 (div(BR * EP, NW * SG),)
 
-    RT = BR ÷ Lava.GEMM_TILE
-    CT = BC ÷ Lava.GEMM_TILE
-    ET = EP ÷ Lava.GEMM_TILE
+    RT = BR ÷ Mantle.GEMM_TILE
+    CT = BC ÷ Mantle.GEMM_TILE
+    ET = EP ÷ Mantle.GEMM_TILE
 
     tid = @index(Local, Linear) - 1
     grp = @index(Group, NTuple)
@@ -563,7 +570,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         # Q for this block, once, and it stays in shared for every key block.
         for r in 0:(div(BR * EP, NT) - 1)
             idx = tid + r * NT
-            e, lq = Lava.splitidx(idx, Val(EP))
+            e, lq = Mantle.splitidx(idx, Val(EP))
             # `CLAMP` is what lets a sequence that does not divide the tile run at
             # all: the rows past its end are staged as zero and masked out of the
             # softmax, and never written back. SAM 2's *decoder* is the case —
@@ -586,7 +593,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             # index, which is the open miscompile in `test_shared_index_division.jl`.
             # The pad columns are written by nothing and read by nothing.
             for r in 0:(div(BR * EP, NT) - 1)
-                lq, e = Lava.splitidx(tid + r * NT, Val(BR))
+                lq, e = Mantle.splitidx(tid + r * NT, Val(BR))
                 pvs[1 + lq + e * BRS] = 0.0f0
             end
         end
@@ -601,7 +608,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         # per block did — 122 against 128, measured — because what goes away with
         # the load and the store is also their address arithmetic.
         Base.Cartesian.@nexprs 3 j ->
-            acc_j = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
+            acc_j = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
 
         # Which row of its tile does each of this lane's accumulator components
         # belong to? The answer is what lets `O` be rescaled where it lives, and
@@ -620,13 +627,13 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         # component access cannot see which row it is touching. `:perelem` is
         # handed the row, and `:fmul` never names a component at all.
         if HELD && RSC === :comp
-            for idx in tid:NT:(Lava.GEMM_TILE * Lava.GEMM_TILE - 1)
-                r, _ = Lava.splitidx(idx, Val(Lava.GEMM_TILE))
+            for idx in tid:NT:(Mantle.GEMM_TILE * Mantle.GEMM_TILE - 1)
+                r, _ = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
                 ss[1 + idx] = Float32(r)
             end
             @synchronize
-            rowmat = Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
-                        ss, 1, Lava.GEMM_TILE, Val(false))
+            rowmat = Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}(
+                        ss, 1, Mantle.GEMM_TILE, Val(false))
             Base.Cartesian.@nexprs 8 i ->
                 orow_i = unsafe_trunc(Int32, Lava.coopmat_getcomp(rowmat, Int32(i - 1)))
         end
@@ -650,8 +657,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             end
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Lava.splitidx(idx, Val(EP))
-                ink = !CLAMP || k0 + lk < Lk
+                e, lk = Mantle.splitidx(idx, Val(EP))
+                ink = !KCLAMP || k0 + lk < Lk
                 kvs[1 + e + lk * EPS] = (e < E && ink) ?
                     k[kbase + Int32(e) * ksE + Int32(k0 + lk) * ksL +
                       Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16)
@@ -663,15 +670,15 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
             for t in w:NW:(RT * CT - 1)
                 rt = t % RT
                 ct = t ÷ RT
-                acc = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
+                acc = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
                 for et in 0:(ET - 1)
-                    a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                            qs, 1 + rt * Lava.GEMM_TILE * EPS + et * Lava.GEMM_TILE, EPS, Val(true))
-                    bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                            kvs, 1 + ct * Lava.GEMM_TILE * EPS + et * Lava.GEMM_TILE, EPS, Val(false))
+                    a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                            qs, 1 + rt * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
+                    bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                            kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(false))
                     acc = muladd(a, bm, acc)
                 end
-                copyto!(ss, 1 + rt * Lava.GEMM_TILE + ct * Lava.GEMM_TILE * BRS, BRS, acc)
+                copyto!(ss, 1 + rt * Mantle.GEMM_TILE + ct * Mantle.GEMM_TILE * BRS, BRS, acc)
             end
             @synchronize
 
@@ -724,8 +731,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                     # and its weight is zero, so `P·V` adds zero for it. Staging
                     # already zeroed its `k`, which would otherwise have given it
                     # a score of 0 and a weight of `exp(-mo)` — not nothing.
-                    if !CLAMP || k0 + ci < Lk
-                        s = ss[1 + tid + ci * BRS] * scale
+                    if !KCLAMP || k0 + ci < Lk
+                        s = flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, k0+ci+1, h, b)
                         mb = max(mb, s)
                         p = exp(s - mo)
                         ps[1 + ci + tid * BC] = Float16(p)
@@ -757,8 +764,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 mo = ms[1 + tid]
                 mb = -Inf32
                 for ci in 0:(BC - 1)
-                    (!CLAMP || k0 + ci < Lk) &&
-                        (mb = max(mb, ss[1 + tid + ci * BRS] * scale))
+                    (!KCLAMP || k0 + ci < Lk) &&
+                        (mb = max(mb, flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, k0+ci+1, h, b)))
                 end
                 mn = max(mo, mb)
                 # A row that has seen nothing finite must not make NaN out of
@@ -766,8 +773,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
                 sm = 0.0f0
                 for ci in 0:(BC - 1)
-                    if !CLAMP || k0 + ci < Lk
-                        p = exp(ss[1 + tid + ci * BRS] * scale - mn)
+                    if !KCLAMP || k0 + ci < Lk
+                        p = exp(flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, k0+ci+1, h, b) - mn)
                         ps[1 + ci + tid * BC] = Float16(p)
                         sm += p
                     else
@@ -796,8 +803,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Lava.splitidx(idx, Val(EP))
-                ink = !CLAMP || k0 + lk < Lk
+                e, lk = Mantle.splitidx(idx, Val(EP))
+                ink = !KCLAMP || k0 + lk < Lk
                 kvs[1 + e + lk * EPS] = (e < E && ink) ?
                     v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
                       Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
@@ -822,15 +829,15 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                         # tiles. Wrong below 3 — it is a diagnostic, and the one
                         # that priced the rescale and found the 128-register step.
                         if j <= NRSC && t_j < RT * ET
-                            base_j = Int32((t_j % RT) * Lava.GEMM_TILE)
+                            base_j = Int32((t_j % RT) * Mantle.GEMM_TILE)
                             if RSC === :fmul
                                 # The factor as a matrix: a **stride-0** load, so
                                 # all 16 columns read the same 16 factors. No
                                 # component is ever named, so nothing is
                                 # materialised — one load and one `OpFMul`.
                                 acc_j = Lava.coopmat_mul(acc_j,
-                                    Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,
-                                                           Lava.GEMM_TILE,Lava.Accumulator}(
+                                    Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,
+                                                           Mantle.GEMM_TILE,Lava.Accumulator}(
                                         cs, 1 + base_j, 0, Val(false)))
                             elseif RSC === :perelem
                                 acc_j = Lava.coopmat_perelement(flashrescale, acc_j,
@@ -853,7 +860,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                     RSCBAR && @synchronize
                 else
                     for r in 0:(div(BR * EP, NT) - 1)
-                        lq, e = Lava.splitidx(tid + r * NT, Val(BR))
+                        lq, e = Mantle.splitidx(tid + r * NT, Val(BR))
                         pvs[1 + lq + e * BRS] *= cs[1 + lq]
                     end
                     @synchronize
@@ -871,10 +878,10 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                         rt_j = t_j % RT
                         et_j = t_j ÷ RT
                         for ct in 0:(CT - 1)
-                            a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                                    ps, 1 + rt_j * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
-                            bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                                    kvs, 1 + ct * Lava.GEMM_TILE * EPS + et_j * Lava.GEMM_TILE, EPS, Val(true))
+                            a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                                    ps, 1 + rt_j * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
+                            bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                                    kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et_j * Mantle.GEMM_TILE, EPS, Val(true))
                             acc_j = muladd(a, bm, acc_j)
                         end
                     end
@@ -883,18 +890,18 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 for t in w:NW:(RT * ET - 1)
                     rt = t % RT
                     et = t ÷ RT
-                    off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BRS
+                    off = 1 + rt * Mantle.GEMM_TILE + et * Mantle.GEMM_TILE * BRS
                     # Starting from `O` itself means the accumulate is the tensor
                     # core's own; starting from zero means the registers below do it.
                     acc = REGO ?
-                        zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}) :
-                        Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
+                        zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}) :
+                        Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}(
                             pvs, off, BRS, Val(false))
                     for ct in 0:(CT - 1)
-                        a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                                ps, 1 + rt * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
-                        bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                                kvs, 1 + ct * Lava.GEMM_TILE * EPS + et * Lava.GEMM_TILE, EPS, Val(true))
+                        a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                                ps, 1 + rt * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
+                        bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                                kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
                         acc = muladd(a, bm, acc)
                     end
                     copyto!(pvs, off, BRS, acc)
@@ -923,15 +930,15 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                         # tiles. Wrong below 3 — it is a diagnostic, and the one
                         # that priced the rescale and found the 128-register step.
                         if j <= NRSC && t_j < RT * ET
-                            base_j = Int32((t_j % RT) * Lava.GEMM_TILE)
+                            base_j = Int32((t_j % RT) * Mantle.GEMM_TILE)
                             if RSC === :fmul
                                 # The factor as a matrix: a **stride-0** load, so
                                 # all 16 columns read the same 16 factors. No
                                 # component is ever named, so nothing is
                                 # materialised — one load and one `OpFMul`.
                                 acc_j = Lava.coopmat_mul(acc_j,
-                                    Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,
-                                                           Lava.GEMM_TILE,Lava.Accumulator}(
+                                    Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,
+                                                           Mantle.GEMM_TILE,Lava.Accumulator}(
                                         cs, 1 + base_j, 0, Val(false)))
                             elseif RSC === :perelem
                                 acc_j = Lava.coopmat_perelement(flashrescale, acc_j,
@@ -954,7 +961,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                     RSCBAR && @synchronize
                 else
                     for r in 0:(div(BR * EP, NT) - 1)
-                        lq, e = Lava.splitidx(tid + r * NT, Val(BR))
+                        lq, e = Mantle.splitidx(tid + r * NT, Val(BR))
                         pvs[1 + lq + e * BRS] *= cs[1 + lq]
                     end
                     @synchronize
@@ -979,7 +986,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
                 for s in 1:div(BR * EP, NT)
                     idx = tid + (s - 1) * NT
                     lq, e = NT % BR == 0 ? (lqfixed, efixed + (s - 1) * estep) :
-                                           Lava.splitidx(idx, Val(BR))
+                                           Mantle.splitidx(idx, Val(BR))
                     acco[s] = acco[s] * cs[1 + lq] + pvs[1 + lq + e * BRS]
                 end
                 @synchronize
@@ -1002,8 +1009,8 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         if HELD && !REGO
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
-                t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Lava.GEMM_TILE +
-                                         (t_j ÷ RT) * Lava.GEMM_TILE * BRS, BRS, acc_j)
+                t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Mantle.GEMM_TILE +
+                                         (t_j ÷ RT) * Mantle.GEMM_TILE * BRS, BRS, acc_j)
             end
             @synchronize
         end
@@ -1013,7 +1020,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
         # padded columns are all in the slots past that and never written out.
         for s in 1:div(BR * E, NT)
             idx = tid + (s - 1) * NT
-            lq, e = Lava.splitidx(idx, Val(BR))
+            lq, e = Mantle.splitidx(idx, Val(BR))
             if !CLAMP || q0 + lq < Lq
                 l = ls[1 + lq]
                 o = REGO ? acco[s] : pvs[1 + lq + e * BRS]
@@ -1130,7 +1137,7 @@ still needs no barrier.
 NVIDIA-only. Gated on `vk_context().coopmat2.per_element_operations`; with it
 false the `getcomp`/`setcomp` path is what runs, and `held` stays off there.
 """
-flashcm_perelem_available() = Lava.vk_context().coopmat2.per_element_operations
+flashcm_perelem_available() = Mantle.vk_context().coopmat2.per_element_operations
 
 
 """
@@ -1447,6 +1454,7 @@ rather than plan fields because they describe an experiment, not a routing
 decision, and nothing in the library sets them.
 """
 function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
+                      mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       preonly::Bool = false, rscbar::Bool = false,
                       epad::Int = flashepad(plan.EP), rpad::Int = flashrpad(plan.BR))
@@ -1466,12 +1474,15 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
     partial = ns == 1 ? out : scratch!(ctx, Float32, size(v, 1), Lq, H, B, ns)
     ml      = ns == 1 ? out : scratch!(ctx, Float32, Lq, H, B, ns, 2)
 
-    attn_flash_cm!(backend, NT)(out, flat(rq), flat(rk), flat(rv), Float32(scale),
+    attn_flash_cm!(backend, NT)(out, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
                                 Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
                                 Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
                                 Val(BR), Val(BC), Val(plan.E), Val(plan.EP), Val(NW),
                                 Val(rego), Val(held && !rego), Val(plan.clamp),
+                                # Padded queries do not require key checks when
+                                # the occupied-cache bucket divides BC exactly.
+                                Val(plan.clamp && Lk % BC != 0),
                                 # Normalised, so a `rescale` setting cannot key a
                                 # second identical pipeline when nothing rescales.
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),

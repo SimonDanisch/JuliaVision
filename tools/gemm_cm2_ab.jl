@@ -1,7 +1,7 @@
 # Is the coopmat2 GEMM faster than the staged one that ships?
 #
-# `Lava.coopmat_gemm!` (staged through `@localmem`, per-subgroup 16x16 tiles)
-# against `Lava.coopmat_gemm_cm2!` (workgroup-scope matrices, tensor-addressed
+# `Mantle.coopmat_gemm!` (staged through `@localmem`, per-subgroup 16x16 tiles)
+# against `Mantle.coopmat_gemm_cm2!` (workgroup-scope matrices, tensor-addressed
 # loads, no shared memory), on SAM 2's own `addmm` shapes weighted by their share
 # of the encoder's arithmetic.
 #
@@ -50,13 +50,13 @@ function ab(M, N, K; n = 9, reps = 6)
     C2 = KA.allocate(BACKEND, Float16, M, N)
 
     vs = Pair{String,Function}[]
-    push!(vs, "staged" => (() -> Lava.coopmat_gemm!(C1, A, B, M, N, K)))
+    push!(vs, "staged" => (() -> Mantle.coopmat_gemm!(C1, A, B, M, N, K)))
     # Sweep the tile: a `64x64` accumulator is 16 components a lane at 256
     # invocations, against the staged kernel's 32, so the first question is
     # whether this kernel is simply too small to reuse anything.
     for t in TILINGS
         push!(vs, @sprintf("%dx%d/%d", t[1], t[2], t[3]) =>
-                  (() -> Lava.coopmat_gemm_cm2!(C2, A, B, M, N, K; tiling = t)))
+                  (() -> Mantle.coopmat_gemm_cm2!(C2, A, B, M, N, K; tiling = t)))
     end
 
     # A Float32 CPU reference over the first rows, as `gemm_lab` does: the whole

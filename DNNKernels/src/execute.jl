@@ -75,7 +75,7 @@ SAM 2's image for a model that never runs on the CPU.
 The fallback stays abstract, so a backend without a method still works.
 """
 arraytype(backend, ::Type{T}, ::Val{N}) where {T,N} = AbstractArray{T,N}
-arraytype(::Lava.LavaBackend, ::Type{T}, ::Val{N}) where {T,N} = Lava.LavaArray{T,N}
+arraytype(::Mantle.LavaBackend, ::Type{T}, ::Val{N}) where {T,N} = Mantle.LavaArray{T,N}
 
 function recycle!(r::Recycler, backend, ::Type{T}, dims::Dims{N}) where {T,N}
     A = arraytype(backend, T, Val(N))
@@ -349,7 +349,7 @@ function makeview(ctx::Ctx, b::Buffer)
         # silently returns the whole (possibly padded) axis.
         n = ndims(parent)
         d = jdim(Int(get(a, "arg1", 0)), n)
-        lo = Int(get(a, "arg2", 0))
+        lo = Int(something(get(a, "arg2", 0), 0))
         # torch clamps a negative start into range rather than wrapping past the
         # front: `x[-2:]` on a length-1 axis is the whole axis, not index -1.
         # Without the clamp this indexes `0:0` and throws a BoundsError several
@@ -495,7 +495,7 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
                   overrides::AbstractDict=Dict{String,Any}(),
                   slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing,
                   diag::Diagnostics=Diagnostics(), clampattn::Bool=false,
-                  noise::NoiseSource=RandomNoise())
+                  noise::NoiseSource=RandomNoise(), mgraph=nothing)
     ctx = Ctx(Dict{String,Any}(), graph, dims, backend;
               slab, plan, ws, lazy, rec, diag, clampattn, noise)
     for id in graph.order
@@ -519,7 +519,26 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
         try
             ctx.outid[] = op.out          # tells `dest` which slab slot to hand out
             reset!(ctx.ws)                # kernel scratch does not outlive its op
-            ctx.values[op.out] = coerce(timeop!(ctx, op), graph.buffers[op.out])
+            # RECORDING. With a Mantle graph open, each LAUNCH this op makes
+            # becomes a pass of the graph and is captured rather than submitted,
+            # so the whole step is one command buffer with the barriers the graph
+            # derives instead of a queue submit per dispatch. Same `runop!` and
+            # the same host work — it just happens once, at record time.
+            #
+            # A pass per launch, not a pass per op: an op is several dependent
+            # launches (a split-K matmul is partials then a reduce over them) and
+            # a pass is the unit the barrier phase works in, so one pass per op
+            # leaves the launches inside it unordered. See `Mantle.LaunchPasses`.
+            r = if mgraph === nothing
+                coerce(timeop!(ctx, op), graph.buffers[op.out])
+            else
+                Mantle.record_into(mgraph, op.id) do
+                    # Dtype conversion can launch a kernel too. It belongs to
+                    # this operation's recording, just like its main kernel.
+                    coerce(doubleop!(ctx, op), graph.buffers[op.out])
+                end
+            end
+            ctx.values[op.out] = r
         catch e
             e isa MethodError && e.f === runop! &&
                 error("op $(i)/$(length(graph.ops)) `$(op.aten)` (id $(op.id)) has no method")
@@ -560,6 +579,20 @@ end
         t[op.aten] = (n + 1, ms + (time_ns() - t0) / 1e6)
         return r
     end
+    doubleop!(ctx, op)
+end
+
+"""
+Run `op`, twice if `opdouble` asks for it.
+
+Also the op path of a *recording*, which is why this is not folded into
+[`timeop!`](@ref): `optimes` cannot work there — there is no device time to
+synchronise on while dispatches are only being captured — but `opdouble` can,
+and has to. A recorded model that dropped it reported every aten in a 974-op
+Horizon prefill as costing between -2.1% and +3.7%, which is the replay's own
+run-to-run spread and not a measurement of anything.
+"""
+@inline function doubleop!(ctx::Ctx, op::Op)
     # `isempty` first: the string compare is not free 640 times a step.
     d = ctx.diag.opdouble
     if !isempty(d) && (d == "*" || op.aten == d) && opdoublewanted(ctx, op)

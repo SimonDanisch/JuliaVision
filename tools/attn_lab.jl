@@ -100,14 +100,14 @@ function breakdown()
             "shape", "padK", "padV", "padQ", "gemm1", "softmax", "gemm2", "unpad")
     for (E, Lq, Lk, H, B, calls) in SHAPES
         q, k, v, out = operands(E, Lq, Lk, H, B)
-        EP = cld(E, Lava.GEMM_TILE) * Lava.GEMM_TILE
+        EP = cld(E, Mantle.GEMM_TILE) * Mantle.GEMM_TILE
         NB = H * B
         scale = 1 / sqrt(E)
         DK.reset!(WS)
         kp = DK.scratch!(WS, BACKEND, Float16, EP, Lk, H, B)
         vT = DK.scratch!(WS, BACKEND, Float16, Lk, EP, H, B)
-        CH = min(Lq, max(Lava.GEMM_TILE, DK.COOPMAT_QCHUNK[]))
-        CH = cld(CH, Lava.GEMM_TILE) * Lava.GEMM_TILE
+        CH = min(Lq, max(Mantle.GEMM_TILE, DK.COOPMAT_QCHUNK[]))
+        CH = cld(CH, Mantle.GEMM_TILE) * Mantle.GEMM_TILE
         qc   = DK.scratch!(WS, BACKEND, Float16, CH, EP, H, B)
         S    = DK.scratch!(WS, BACKEND, Float32, CH, Lk, H, B)
         P    = DK.scratch!(WS, BACKEND, Float16, CH, Lk, H, B)
@@ -121,13 +121,13 @@ function breakdown()
                         DK.launch!(DK.toLEpadchunk, qc, q, E, q0, Lq; backend = BACKEND)
                     end,
               () -> for _ in 1:nch
-                        Lava.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
+                        Mantle.coopmat_gemm!(S, qc, kp, CH, Lk, EP; nbatch = NB)
                     end,
               () -> for _ in 1:nch
                         DK.attnsoftmax!(sums, P, S, scale; backend = BACKEND)
                     end,
               () -> for _ in 1:nch
-                        Lava.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
+                        Mantle.coopmat_gemm!(O, P, vT, CH, EP, Lk; nbatch = NB)
                     end,
               () -> for q0 in 0:CH:(Lq - 1)
                         n = min(CH, Lq - q0)
@@ -227,9 +227,9 @@ end
     ls  = @localmem Float32 (BR,)
     cs  = @localmem Float32 (BR,)
 
-    RT = BR ÷ Lava.GEMM_TILE
-    CT = BC ÷ Lava.GEMM_TILE
-    ET = EP ÷ Lava.GEMM_TILE
+    RT = BR ÷ Mantle.GEMM_TILE
+    CT = BC ÷ Mantle.GEMM_TILE
+    ET = EP ÷ Mantle.GEMM_TILE
     tid = @index(Local, Linear) - 1
     grp = @index(Group, NTuple)
     qb, h, b = grp[1], grp[2], grp[3]
@@ -239,7 +239,7 @@ end
         q0 = (qb - 1) * BR
         for r in 0:(div(BR * EP, NT) - 1)
             idx = tid + r * NT
-            e, lq = Lava.splitidx(idx, Val(EP))
+            e, lq = Mantle.splitidx(idx, Val(EP))
             qs[1 + idx] = e < E ? q[1 + e, 1 + q0 + lq, h, b] : zero(Float16)
             pvs[1 + idx] = 0.0f0
         end
@@ -252,22 +252,22 @@ end
             k0 = kb * BC
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Lava.splitidx(idx, Val(EP))
+                e, lk = Mantle.splitidx(idx, Val(EP))
                 kvs[1 + idx] = e < E ? k[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
             end
             @synchronize
 
             for t in w:NW:(RT * CT - 1)
                 rt = t % RT; ct = t ÷ RT
-                acc = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
+                acc = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
                 for et in 0:(ET - 1)
-                    a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                            qs, 1 + rt * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
-                    bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                            kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(false))
+                    a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                            qs, 1 + rt * Mantle.GEMM_TILE * EP + et * Mantle.GEMM_TILE, EP, Val(true))
+                    bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                            kvs, 1 + ct * Mantle.GEMM_TILE * EP + et * Mantle.GEMM_TILE, EP, Val(false))
                     acc = muladd(a, bm, acc)
                 end
-                copyto!(ss, 1 + rt * Lava.GEMM_TILE + ct * Lava.GEMM_TILE * BR, BR, acc)
+                copyto!(ss, 1 + rt * Mantle.GEMM_TILE + ct * Mantle.GEMM_TILE * BR, BR, acc)
             end
             @synchronize
 
@@ -299,21 +299,21 @@ end
                 if ABL === :all || ABL === :nosoftmax
                     for r in 0:(div(BC * EP, NT) - 1)
                         idx = tid + r * NT
-                        e, lk = Lava.splitidx(idx, Val(EP))
+                        e, lk = Mantle.splitidx(idx, Val(EP))
                         kvs[1 + idx] = e < E ? v[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
                     end
                 end
                 @synchronize
                 for t in w:NW:(RT * ET - 1)
                     rt = t % RT; et = t ÷ RT
-                    off = 1 + rt * Lava.GEMM_TILE + et * Lava.GEMM_TILE * BR
-                    acc = Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator}(
+                    off = 1 + rt * Mantle.GEMM_TILE + et * Mantle.GEMM_TILE * BR
+                    acc = Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}(
                               pvs, off, BR, Val(false))
                     for ct in 0:(CT - 1)
-                        a = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                                ps, 1 + rt * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
-                        bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                                kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
+                        a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                                ps, 1 + rt * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
+                        bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                                kvs, 1 + ct * Mantle.GEMM_TILE * EP + et * Mantle.GEMM_TILE, EP, Val(true))
                         acc = muladd(a, bm, acc)
                     end
                     copyto!(pvs, off, BR, acc)
@@ -324,7 +324,7 @@ end
 
         for s in 1:div(BR * E, NT)
             idx = tid + (s - 1) * NT
-            lq, e = Lava.splitidx(idx, Val(BR))
+            lq, e = Mantle.splitidx(idx, Val(BR))
             l = ls[1 + lq]
             out[1 + e, 1 + q0 + lq, h, b] = pvs[1 + idx] / (l == 0.0f0 ? 1.0f0 : l)
         end
@@ -340,7 +340,7 @@ control — if it does not match `sdpaflashcm!`'s own timing, the probe has drif
 from the kernel it is supposed to explain and nothing below means anything.
 """
 function ablate(BR = 64, BC = 32, NW = 8)
-    E0 = 72; EP = cld(E0, Lava.GEMM_TILE) * Lava.GEMM_TILE; NT = NW * 32
+    E0 = 72; EP = cld(E0, Mantle.GEMM_TILE) * Mantle.GEMM_TILE; NT = NW * 32
     stages = (:all, :nosoftmax, :products, :qk)
     for (E, Lq, Lk, H, B, calls) in SHAPES
         q, k, v, out = operands(E, Lq, Lk, H, B)
@@ -397,9 +397,9 @@ end
     ms  = @localmem Float32 (BR,)
     ls  = @localmem Float32 (BR,)
 
-    RT = BR ÷ Lava.GEMM_TILE
-    CT = BC ÷ Lava.GEMM_TILE
-    ET = EP ÷ Lava.GEMM_TILE
+    RT = BR ÷ Mantle.GEMM_TILE
+    CT = BC ÷ Mantle.GEMM_TILE
+    ET = EP ÷ Mantle.GEMM_TILE
     tid = @index(Local, Linear) - 1
     grp = @index(Group, NTuple)
     qb, h, b = grp[1], grp[2], grp[3]
@@ -409,7 +409,7 @@ end
         q0 = (qb - 1) * BR
         for r in 0:(div(BR * EP, NT) - 1)
             idx = tid + r * NT
-            e, lq = Lava.splitidx(idx, Val(EP))
+            e, lq = Mantle.splitidx(idx, Val(EP))
             qs[1 + idx] = e < E ? q[1 + e, 1 + q0 + lq, h, b] : zero(Float16)
         end
         if tid < BR
@@ -418,28 +418,28 @@ end
         # Three, held for the whole loop. `t_j` is uniform within a subgroup, so
         # the guard around each is uniform control flow and legal for a coopmat.
         Base.Cartesian.@nexprs 3 j ->
-            acc_j = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
+            acc_j = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
         @synchronize
 
         for kb in 0:(div(Lk, BC) - 1)
             k0 = kb * BC
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Lava.splitidx(idx, Val(EP))
+                e, lk = Mantle.splitidx(idx, Val(EP))
                 kvs[1 + idx] = e < E ? k[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
             end
             @synchronize
             for t in w:NW:(RT * CT - 1)
                 rt = t % RT; ct = t ÷ RT
-                a = zero(Lava.AcceleratedMatrix{Float32,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.Accumulator})
+                a = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
                 for et in 0:(ET - 1)
-                    am = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                            qs, 1 + rt * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(true))
-                    bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                            kvs, 1 + ct * Lava.GEMM_TILE * EP + et * Lava.GEMM_TILE, EP, Val(false))
+                    am = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                            qs, 1 + rt * Mantle.GEMM_TILE * EP + et * Mantle.GEMM_TILE, EP, Val(true))
+                    bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                            kvs, 1 + ct * Mantle.GEMM_TILE * EP + et * Mantle.GEMM_TILE, EP, Val(false))
                     a = muladd(am, bm, a)
                 end
-                copyto!(ss, 1 + rt * Lava.GEMM_TILE + ct * Lava.GEMM_TILE * BR, BR, a)
+                copyto!(ss, 1 + rt * Mantle.GEMM_TILE + ct * Mantle.GEMM_TILE * BR, BR, a)
             end
             @synchronize
             if tid < BR
@@ -454,7 +454,7 @@ end
             @synchronize
             for r in 0:(div(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Lava.splitidx(idx, Val(EP))
+                e, lk = Mantle.splitidx(idx, Val(EP))
                 kvs[1 + idx] = e < E ? v[1 + e, 1 + k0 + lk, h, b] : zero(Float16)
             end
             @synchronize
@@ -463,10 +463,10 @@ end
                 if t_j < RT * ET
                     rt_j = t_j % RT; et_j = t_j ÷ RT
                     for ct in 0:(CT - 1)
-                        am = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixA}(
-                                ps, 1 + rt_j * Lava.GEMM_TILE * BC + ct * Lava.GEMM_TILE, BC, Val(true))
-                        bm = Lava.AcceleratedMatrix{Float16,Lava.GEMM_TILE,Lava.GEMM_TILE,Lava.MatrixB}(
-                                kvs, 1 + ct * Lava.GEMM_TILE * EP + et_j * Lava.GEMM_TILE, EP, Val(true))
+                        am = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                                ps, 1 + rt_j * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
+                        bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                                kvs, 1 + ct * Mantle.GEMM_TILE * EP + et_j * Mantle.GEMM_TILE, EP, Val(true))
                         acc_j = muladd(am, bm, acc_j)
                     end
                 end
@@ -478,13 +478,13 @@ end
             t_j = w + (j - 1) * NW
             if t_j < RT * ET
                 rt_j = t_j % RT; et_j = t_j ÷ RT
-                copyto!(pvs, 1 + rt_j * Lava.GEMM_TILE + et_j * Lava.GEMM_TILE * BR, BR, acc_j)
+                copyto!(pvs, 1 + rt_j * Mantle.GEMM_TILE + et_j * Mantle.GEMM_TILE * BR, BR, acc_j)
             end
         end
         @synchronize
         for s in 1:div(BR * E, NT)
             idx = tid + (s - 1) * NT
-            lq, e = Lava.splitidx(idx, Val(BR))
+            lq, e = Mantle.splitidx(idx, Val(BR))
             l = ls[1 + lq]
             out[1 + e, 1 + q0 + lq, h, b] = pvs[1 + idx] / (l == 0.0f0 ? 1.0f0 : l)
         end

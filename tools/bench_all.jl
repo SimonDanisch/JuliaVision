@@ -142,7 +142,7 @@ for name in want
     catch e
         println("FAILED: ", first(split(sprint(showerror, e), '\n'))[1:min(end, 90)])
     end
-    GC.gc(true); Lava.trim_gpu_pool!()
+    GC.gc(true); Mantle.trim_gpu_pool!()
 end
 
 println("\n── summary (median, warm) ──")

@@ -11,7 +11,7 @@
 # exists, so this file must not be `include`d after anything has made a device.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava
-Lava.enable_pipeline_executable_properties!()
+Mantle.enable_pipeline_executable_properties!()
 using DNNKernels, KernelAbstractions, Printf
 const KA = KernelAbstractions
 const DK = DNNKernels
@@ -32,7 +32,7 @@ const SHAPES = [(2304, 4096,  576, 24.4),
 const REGS_PER_SM = 65536
 const SHARED_PER_SM = 100 * 1024
 
-pipes() = Lava.vk_context().caches.pipelines
+pipes() = Mantle.vk_context().caches.pipelines
 
 """Driver statistics for the pipelines this shape newly compiles."""
 function facts(M, N, K)
@@ -46,7 +46,7 @@ function facts(M, N, K)
     fresh = [k for k in keys(pipes()) if !(k in before)]
     out = NamedTuple[]
     for k in fresh
-        s = Lava.pipeline_exec_stats(pipes()[k])
+        s = Mantle.pipeline_exec_stats(pipes()[k])
         s === nothing && continue
         d = Dict(String(r.name) => r.value for r in s.raw_stats if !(r.value isa Bool))
         push!(out, (regs = get(d, "Register Count", -1),

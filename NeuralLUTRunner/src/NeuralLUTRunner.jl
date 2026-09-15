@@ -38,10 +38,10 @@ for the export that feeds it.
 module NeuralLUTRunner
 
 using Lava, DNNKernels, KernelAbstractions, GPUFiltering
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors, toback,
-                  Model, planslab, fusableset, Workspace
+using DNNKernels: loadgraph, readsafetensors, toback, Model, emitgraph
 using GPUFiltering: lut3d!, resizeplanar!
 using ColorTypes: AbstractRGB, RGB
 
@@ -72,12 +72,13 @@ immediately. Uploading is only needed to publish it to anyone else.
 assetdir() = @artifact_str("neurallut")
 
 """
-    neurallutgraph(; dir = assetdir()) -> Graph
+    neurallutgraph() -> Graph
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
 """
-function neurallutgraph(; dir::AbstractString = assetdir())
+function neurallutgraph()
+    dir = assetdir()
     p = joinpath(dir, "neurallut.json")
     isfile(p) || throw(ArgumentError(
         "Image-Adaptive 3D LUT graph not found at $p. Generate it with " *
@@ -87,30 +88,31 @@ function neurallutgraph(; dir::AbstractString = assetdir())
 end
 
 """
-    neurallutweights(; dir = assetdir()) -> Dict
+    neurallutweights() -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-function neurallutweights(; dir::AbstractString = assetdir())
+function neurallutweights()
+    dir = assetdir()
     p = joinpath(dir, "weights.safetensors")
     isfile(p) || throw(ArgumentError("Image-Adaptive 3D LUT weights not found at $p"))
     return readsafetensors(p)
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "neurallut.json")) && isfile(joinpath(dir, "weights.safetensors"))
+ready() =
+    isfile(joinpath(assetdir(), "neurallut.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -140,38 +142,49 @@ stored, so the caller decides whether this frame's look replaces the last one or
 is smoothed against it (`models-to-port.md` wants temporal stability to come from
 smoothing the prediction, not from the network).
 """
-struct NeuralLUT{B,W,S,P,T}
+struct NeuralLUT{B,D,G,P,T,O}
     backend::B
+    device::D
     graph::DNNKernels.Graph
-    weights::W
-    slab::S
+    # The declared Mantle graph and the plan compiled from it. `predictlut`
+    # writes the input, replays the plan and reads the output; nothing between
+    # those three is allocated per call, because the plan holds every
+    # intermediate at the offset the placer chose.
+    mgraph::G
     plan::P
-    ws::Workspace
-    lazy::Set{String}
     input::T
+    out::O
 end
 
 """
-    neurallut(; backend = LavaBackend(), dir = assetdir()) -> NeuralLUT
+    neurallut(; backend = Mantle.LavaBackend(), dir = assetdir()) -> NeuralLUT
 
 Load the model. Separate from [`predictlut`](@ref) so the workload can build it
 in `@setup_workload`, where the loading is not what is being cached.
 """
-function neurallut(; backend = LavaBackend(), dir::AbstractString = assetdir())
-    ready(; dir) || throw(ArgumentError(
+function neurallut(; backend = Mantle.LavaBackend())
+    dir = assetdir()
+    ready() || throw(ArgumentError(
         "no export at $dir — generate it with `uv run tools/export_neurallut.py`"))
     # `Model`, not `loadgraph`: it runs the host-side preparation passes, and the
     # planned slab is what keeps every intermediate from being a fresh
     # allocation. Together they are worth 14.08 ms -> ~1.8 ms on this classifier,
     # and a runner that skipped them would be slower than its own benchmark.
-    model = Model(dir, joinpath(dir, "weights.safetensors");
-                  names = ["neurallut"], backend)
+    model = Model(Dict("neurallut" => neurallutgraph()),
+                  neurallutweights(); backend)
     graph = model.graphs["neurallut"]
-    plan = planslab(graph, (;))
-    slab = KA.allocate(backend, UInt8, max(plan.bytes, 1))
-    input = KA.allocate(backend, Float32, CLASSIFIER_RES, CLASSIFIER_RES, 3, 1)
-    return NeuralLUT(backend, graph, model.weights, slab, plan,
-                     Workspace(backend), fusableset(graph), input)
+    # `emitgraph` DECLARES the ops into a Mantle graph and runs nothing; `Plan`
+    # then runs all seven phases over the whole of it, so placement, aliasing
+    # and barriers are decided before a byte is touched. What this replaces was
+    # `planslab` plus a `KA.allocate`d slab plus a `Workspace` arena plus the
+    # lazy-broadcast set — four mechanisms for recovering what the graph had
+    # already stated.
+    dev = Mantle.Device(backend)
+    mgraph, ec = emitgraph(dev, graph, model.weights, (;))
+    plan = Mantle.Plan(mgraph)
+    Mantle.record!(plan)
+    return NeuralLUT(backend, dev, graph, mgraph, plan,
+                     ec.res[only(graph.inputs)], ec.res[only(graph.outputs)])
 end
 
 """
@@ -188,15 +201,12 @@ classifier's six convolutions; the resize into 256x256 is 0.03 ms of it. That is
 cost, not a per-frame one — see [`grade!`](@ref).
 """
 function predictlut(model::NeuralLUT, img::AbstractMatrix{<:AbstractRGB})
-    resizeplanar!(model.input, img)
-    vals = execute!(model.graph, Dict{String,Any}("img" => model.input), model.weights;
-                    dims = (;), backend = model.backend,
-                    slab = model.slab, plan = model.plan,
-                    ws = model.ws, lazy = model.lazy)
-    # The exporter names the blend's output; reading it from the graph rather
-    # than hardcoding "sum_1" means a re-export that renumbers cannot silently
-    # return the wrong buffer.
-    return vals[only(model.graph.outputs)]
+    resizeplanar!(Mantle.storage(model.input), img)
+    # A replay: the plan was recorded at load, so this submits a recording and
+    # allocates nothing. The output buffer is the one the graph declared, which
+    # is why it is a field rather than something looked up per call.
+    Mantle.run!(model.plan)
+    return Mantle.storage(model.out)
 end
 
 """
@@ -235,7 +245,7 @@ grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
 # cannot distinguish the frozen cache working from the driver's own shader cache
 # having served everything, and its miss report identifies modules by the
 # *sampling* hash, so two differing in one byte count as one (`STATUS.md`,
-# cross-project). The claim this package makes is `Lava.no_pipeline_compilation`
+# cross-project). The claim this package makes is `Mantle.no_pipeline_compilation`
 # reporting **0 refusals** — it empties `PIPELINE_CACHE` first, so a Julia-side
 # hit cannot mask a cold `VkPipelineCache`. Pair it with a control whose kernel
 # body is novel per RUN (a `Val{K}` from `RandomDevice`) or a green means
@@ -247,7 +257,7 @@ grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
 @setup_workload begin
     if ready()
         try
-            backend = LavaBackend()
+            backend = Mantle.LavaBackend()
             # Model construction inside the workload, not in front of it:
             # `Model`'s last pass folds constant subgraphs by *running* them on
             # the device, so building it outside leaves those dispatches

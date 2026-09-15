@@ -16,7 +16,8 @@ matters fall back silently — correct, and none of the win — while accepting 
 without accounting for its offset would read the wrong elements just as silently.
 """
 
-using Test, Lava, DNNKernels, KernelAbstractions
+using Test, Lava, DNNKernels, KernelAbstractions, Random
+using Mantle: LavaBackend
 using DNNKernels: transposeLE, stridedroot, Workspace, Ctx
 const KA = KernelAbstractions
 
@@ -77,4 +78,29 @@ end
         @test stridedroot(Base.Broadcast.broadcasted(identity, a)) === nothing
         a = nothing; GC.gc()
     end
+end
+
+# `hoistpermutes` hands `toback` a lazy transpose for most of a decoder's
+# weights, and transposing them on the host ran at 0.33 GiB/s — 224 s of a 227 s
+# Horizon 32B build. The same tiled kernel does it on the device. Bit-exactness
+# is the whole requirement: the model this feeds is compared token-for-token
+# against a reference, so "close" is a silently different model.
+@testset "toback transposes a weight on the device, exactly" begin
+    back = LavaBackend()
+    for T in (Float16, Float32),
+        (m, n) in ((64, 96), (70, 100), (33, 65), (1, 1), (5, 4096), (4096, 5))
+        h = rand(MersenneTwister(m + n), T, m, n)
+        @test Array(DNNKernels.toback(back, PermutedDimsArray(h, (2, 1)))) ==
+              permutedims(h, (2, 1))
+    end
+    # An eltype the kernel has no instantiation for takes the host path, and
+    # must still be right — this is the branch that keeps correctness from
+    # depending on which weights a model happens to carry.
+    h = rand(MersenneTwister(7), Int32, 48, 80)
+    @test Array(DNNKernels.toback(back, PermutedDimsArray(h, (2, 1)))) ==
+          permutedims(h, (2, 1))
+    # And the stacked case `fuseqkv` builds, whose parts are those transposes.
+    parts = [rand(MersenneTwister(i), Float16, 16i, 96) for i in 1:3]
+    A = DNNKernels.RowCat([PermutedDimsArray(permutedims(p, (2, 1)), (2, 1)) for p in parts])
+    @test Array(DNNKernels.toback(back, A)) == vcat(parts...)
 end

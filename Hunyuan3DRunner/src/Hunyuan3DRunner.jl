@@ -152,10 +152,17 @@ See `models-to-port.md` for the state of this one, and
 module Hunyuan3DRunner
 
 using Lava, DNNKernels, KernelAbstractions
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
+using LazyArtifacts
+using Artifacts: artifact_hash, artifact_exists
 
-export hunyuan3dgraph, hunyuan3dweights, assetdir
+# `@artifact_str` finds this itself; `ready` needs the path explicitly because it
+# asks whether an artifact is present WITHOUT resolving it.
+const ARTIFACTS_TOML = normpath(joinpath(@__DIR__, "..", "Artifacts.toml"))
+
+export hunyuan3dgraph, hunyuan3dweights, conddir, ditdir, vaedir, geodir
 export hunyuan3d, Hunyuan3D, imagetomesh
 export prepareimage, normalizeimage, encodeimage, denoise, shapelatents, occupancy
 export latents2mesh, marchingcubes
@@ -190,30 +197,32 @@ const COND_TOKENS = 1370
 const COND_DIM = 1024
 
 """
-    assetdir() -> String
+    conddir(), ditdir(), vaedir(), geodir() -> String
 
-Throws. The export exists and runs, but it is 6.1 GB and no artifact is bound to
-it yet, and there is deliberately no path that reads a local `gen/` tree instead
-— see `DNNKernels/src/assets.jl` for why that fallback was removed rather than
-kept.
+Where each part's export lives — one artifact each.
 
-Binding it: `uv run tools/export_hunyuan3d.py`, then
-`julia --project=. tools/make_artifacts.jl hunyuan3d`, then replace this
-definition with `@artifact_str("hunyuan3d")`.
+Four artifacts rather than one tree, because the parts carry different weights
+and run at wildly different rates: the conditioner once per generation, the
+denoiser fifty times, the VAE once and the geometry decoder some seven thousand
+times over the grid chunks. A caller that only wants the geometry decoder
+fetches 24 MB rather than 6.8 GB. The denoiser is also 5.7 GiB by itself, past
+what a single GitHub release asset can hold, so it has to be published
+somewhere without that cap whatever the layout here.
+
+This replaced a single `assetdir()` that threw: there was no artifact bound at
+all, and the whole export lived only on the machine that produced it."""
+conddir() = @artifact_str("hunyuan3d-cond")
+ditdir()  = @artifact_str("hunyuan3d")
+vaedir()  = @artifact_str("hunyuan3d-vae")
+geodir()  = @artifact_str("hunyuan3d-geo")
+
 """
-assetdir() = error(
-    "Hunyuan3DRunner: the graph runs, but no artifact is bound to the 6.1 GB " *
-    "export. Produce it with `uv run tools/export_hunyuan3d.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl hunyuan3d`, then set " *
-    "`assetdir() = @artifact_str(\"hunyuan3d\")`.")
-
-"""
-    hunyuan3dgraph(; dir = assetdir()) -> Graph
+    hunyuan3dgraph(; dir = ditdir()) -> Graph
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
 """
-function hunyuan3dgraph(; dir::AbstractString = assetdir())
+function hunyuan3dgraph(; dir::AbstractString = ditdir())
     p = joinpath(dir, "hunyuan3d_dit.json")
     isfile(p) || throw(ArgumentError(
         "Hunyuan3D-2.1 shape graph not found at $p. Generate it with " *
@@ -222,24 +231,53 @@ function hunyuan3dgraph(; dir::AbstractString = assetdir())
 end
 
 """
-    hunyuan3dweights(; dir = assetdir()) -> Dict
+    DIT_SHARDS
 
-The exported state dict, keyed the way the graph's `:weight` buffers name it.
+The denoiser's weights, as four artifacts. 5.7 GiB of fp16 does not fit in one:
+a GitHub release asset caps at 2 GiB, so the tensor file is split byte-for-byte
+by `tools/shard_safetensors.jl` into pieces that do, and each piece is bound
+separately. The split is by size and follows file order; which tensor lands in
+which shard carries no meaning and may change on a re-export.
 """
-function hunyuan3dweights(; dir::AbstractString = assetdir())
-    p = joinpath(dir, "weights.safetensors")
-    isfile(p) || throw(ArgumentError("Hunyuan3D-2.1 shape weights not found at $p"))
-    return readsafetensors(p)
+const DIT_SHARDS = (("hunyuan3d-dit-w1", "weights-1of4.safetensors"),
+                    ("hunyuan3d-dit-w2", "weights-2of4.safetensors"),
+                    ("hunyuan3d-dit-w3", "weights-3of4.safetensors"),
+                    ("hunyuan3d-dit-w4", "weights-4of4.safetensors"))
+
+"""
+    hunyuan3dweights() -> Dict
+
+The exported state dict, keyed the way the graph's `:weight` buffers name it,
+merged from the four shard artifacts.
+
+Merging here is the whole reason `Model` takes loaded weights rather than a
+path: sharding is this package's business, and `DNNKernels` never learns that a
+model's weights arrived in more than one file. The merge is a plain `merge` of
+four `Dict`s — the shards partition the tensors, so no key appears twice — and
+peak memory is what one file would have cost, because `readsafetensors`
+materialises every tensor either way.
+"""
+function hunyuan3dweights()
+    dirs = (@artifact_str("hunyuan3d-dit-w1"), @artifact_str("hunyuan3d-dit-w2"),
+            @artifact_str("hunyuan3d-dit-w3"), @artifact_str("hunyuan3d-dit-w4"))
+    return merge((readsafetensors(joinpath(d, f))
+                  for (d, (_, f)) in zip(dirs, DIT_SHARDS))...)
 end
 
 """
     ready() -> Bool
 
-Whether an installed export is reachable. `false` until an artifact is bound —
-`assetdir` throws, so there is nothing to probe, and the workload and the tests
-both branch on this because neither may fail on a machine without one.
+Whether all four parts are already in the artifact store.
+
+Deliberately does NOT go through `@artifact_str`: that downloads, and this is
+what `@setup_workload` and the tests branch on — a guard that fetches 6.8 GB to
+answer "do we have it" would be worse than no guard.
 """
-ready() = false
+ready() = all(("hunyuan3d", "hunyuan3d-cond", "hunyuan3d-vae", "hunyuan3d-geo",
+               first.(DIT_SHARDS)...)) do n
+    h = artifact_hash(n, ARTIFACTS_TOML)
+    h !== nothing && artifact_exists(h)
+end
 
 include("preprocess.jl")
 include("pipeline.jl")
@@ -306,7 +344,7 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -318,7 +356,7 @@ end
 # mistake SAM2Runner made and paid 45 s of first-click latency for.
 #
 # When it is written, the measurement that matters is
-# `Lava.no_pipeline_compilation` reporting 0 refusals in a *fresh* process, NOT
+# `Mantle.no_pipeline_compilation` reporting 0 refusals in a *fresh* process, NOT
 # `frozen_stats().misses == 0` — that cannot distinguish the frozen cache working
 # from the driver's own shader cache having served everything. Pair it with a
 # negative control whose kernel body is novel per run.

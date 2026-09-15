@@ -26,7 +26,8 @@ for the export that feeds it.
 module BasicVSRRunner
 
 using Lava, DNNKernels, KernelAbstractions
-using Lava: @setup_workload, @compile_workload
+import Mantle
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
 
@@ -58,12 +59,13 @@ it immediately. Uploading is only needed to publish it to anyone else.
 assetdir() = @artifact_str("basicvsrpp")
 
 """
-    basicvsrppgraph(; dir = assetdir()) -> Graph
+    basicvsrppgraph() -> Graph
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
 """
-function basicvsrppgraph(; dir::AbstractString = assetdir())
+function basicvsrppgraph()
+    dir = assetdir()
     p = joinpath(dir, "basicvsrpp.json")
     isfile(p) || throw(ArgumentError(
         "BasicVSR++ graph not found at $p. Generate it with " *
@@ -73,18 +75,19 @@ function basicvsrppgraph(; dir::AbstractString = assetdir())
 end
 
 """
-    basicvsrppweights(; dir = assetdir()) -> Dict
+    basicvsrppweights() -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-function basicvsrppweights(; dir::AbstractString = assetdir())
+function basicvsrppweights()
+    dir = assetdir()
     p = joinpath(dir, "weights.safetensors")
     isfile(p) || throw(ArgumentError("BasicVSR++ weights not found at $p"))
     return readsafetensors(p)
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
@@ -93,14 +96,14 @@ because neither may fail on a machine that has not run the exporter.
 # reports none missing). What has NOT been done is a numerical parity run — there
 # is no `tools/verify_basicvsrpp.jl`, so "it loads and dispatches" is the whole of
 # the claim here.
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "basicvsrpp.json")) && isfile(joinpath(dir, "weights.safetensors"))
+ready() =
+    isfile(joinpath(assetdir(), "basicvsrpp.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
 function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -130,7 +133,7 @@ struct BasicVSRPP{B,M}
 end
 
 """
-    basicvsrppmodel(; backend = LavaBackend(), dir = assetdir()) -> BasicVSRPP
+    basicvsrppmodel(; backend = Mantle.LavaBackend(), dir = assetdir()) -> BasicVSRPP
 
 Load the upscaler. Downloads the 26 MiB artifact on first use.
 
@@ -138,11 +141,12 @@ Not cached in a module global: a `Model` holds device buffers, and a global
 holding one is baked into the package image with a `VkContext` that is dead by
 the time anyone loads it.
 """
-function basicvsrppmodel(; backend = LavaBackend(), dir::AbstractString = assetdir())
-    ready(; dir) || throw(ArgumentError(
+function basicvsrppmodel(; backend = Mantle.LavaBackend())
+    dir = assetdir()
+    ready() || throw(ArgumentError(
         "no export at $dir — generate it with `uv run tools/export_basicvsrpp.py`"))
-    BasicVSRPP(backend, Model(dir, joinpath(dir, "weights.safetensors");
-                              names = ["basicvsrpp"], backend))
+    BasicVSRPP(backend, Model(Dict("basicvsrpp" => basicvsrppgraph()),
+                              basicvsrppweights(); backend))
 end
 
 """
@@ -169,7 +173,7 @@ end
 @setup_workload begin
     if ready()
         try
-            backend = LavaBackend()
+            backend = Mantle.LavaBackend()
             # Inside `@compile_workload`, not in front of it: `Model`'s last pass
             # folds constant subgraphs by running them on the device, and building
             # it outside leaves those dispatches unfrozen (RIFERunner measured

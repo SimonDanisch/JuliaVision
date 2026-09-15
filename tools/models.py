@@ -69,6 +69,50 @@ class Model:
 # the FFT/STFT models come first because one kernel unlocks four of them.
 MODELS = [
     Model(
+        name="horizon32b", package="HorizonRunner",
+        uuid="c0eeb82c-1b8f-4a93-afa6-9a61c12e097d",
+        title="K2 Horizon 32B", feature="local language model", license="Apache-2.0",
+        upstream="https://huggingface.co/IFM/K2-Horizon-32B",
+        files=(
+            [(f"https://huggingface.co/IFM/K2-Horizon-32B/resolve/main/model-{i:05d}-of-00064.safetensors",
+              f"model-{i:05d}-of-00064.safetensors") for i in range(1, 65)]
+            + [(f"https://huggingface.co/IFM/K2-Horizon-32B/resolve/main/{f}", f) for f in (
+                "config.json", "model.safetensors.index.json", "tokenizer.json",
+                "tokenizer_config.json", "generation_config.json", "chat_template.jinja",
+                "modeling_k2_horizon.py", "configuration_k2_horizon.py")]
+        ),
+        summary=(
+            "A 32B dense decoder from the K2 Horizon fleet (IFM / MBZUAI, 3 Sep 2026), "
+            "Apache-2.0, with a 524288-token context.\n\n"
+            "Ported FIRST of the family on purpose. The 36B-A4B sibling is the interesting "
+            "one, but it carries two independent routers per layer — 100 FFN experts at "
+            "top-8 plus a shared one, and MoVA's 64 value-experts at top-4 inside "
+            "attention — and neither has an equivalent in DNNKernels. This model has "
+            "`num_experts: 0`, `mova_num_experts: 0` and `attention_gate_func: None`: "
+            "64 layers of plain GQA (64 heads over 8 KV heads, head_dim 128), RMSNorm, "
+            "SiLU and RoPE at theta 1e7. That is the bring-up vehicle — it exercises the "
+            "autoregressive path, the KV cache and the 250624-entry vocabulary without "
+            "also needing routing."
+        ),
+        inputs="input_ids (1, T) + cache_position, with a KV cache per layer",
+        newops=[],
+        pip="transformers",
+        note=(
+            "Not yet exported. `auto_map` points at the repo's own "
+            "`modeling_k2_horizon.py`, so `torch.export` has to trace THEIR code rather "
+            "than a stock `transformers` class — the same shape as Hunyuan3D reaching "
+            "into an upstream checkout.\n\n"
+            "Two things to size before tracing. The weights are 64.8 GiB of bf16 across "
+            "64 shards, which is inside this machine's ~113 GiB of device-local memory "
+            "but leaves no room for a second copy, so the export wants a quantised path "
+            "(int4/fp8 lands it at 20-36 GB). And `tie_word_embeddings: false` with a "
+            "250624 vocabulary means the embedding and the LM head are ~1.3 GiB EACH at "
+            "bf16, separately.\n\n"
+            "The decoder shape to copy is WhisperRunner's: two graphs, split because the "
+            "per-token step and the per-window cross-attention run at different rates."
+        ),
+    ),
+    Model(
         name="whisper", package="WhisperRunner",
         uuid="6f1a5d52-5102-48dc-988e-ecb6f8c89f5e",
         title="Whisper large-v3-turbo", feature="speech -> text", license="MIT",

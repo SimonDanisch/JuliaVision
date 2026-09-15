@@ -199,6 +199,55 @@ closed by construction rather than narrowed.
     end
 end
 
+# GROUPED RMS norm, as one op.
+#
+# `layernorm_num_groups = 4` means the mean square is taken over a QUARTER of the
+# hidden dim at a time while the gain `γ` still spans the whole of it. `nn.RMSNorm`
+# does not survive `run_decompositions()` in that form, so the export spells it
+# out: cast, `pow`, `mean`, `add`, `rsqrt`, `mul`, `mul`, cast — eight ops, twice
+# a layer, 129 times in a K2 Horizon 32B decode step. Each one touches 20 KB and
+# costs a dispatch, and a dispatch on this device is ~13 us whatever it does, so
+# the norms alone were ~10 ms of a 182 ms token.
+#
+# Identical to `rmsnorm_kernel!` except that `γ` is indexed by position within the
+# ROW rather than within the group, which is the only thing "grouped" changes.
+@kernel cpu=false function groupedrms_kernel!(out, @Const(a), @Const(γ), C::Int32,
+                                              NG::Int32, eps::Float32)
+    red = @localmem Float32 (LN_WG,)
+    g = @index(Group, Linear) - 1
+    t = @index(Local, Linear) - 1
+    base = g * Int(C)
+    gof = (g % Int(NG)) * Int(C)      # where this group starts inside the row
+    n = Float32(C)
+
+    s = 0.0f0
+    i = t
+    @inbounds while i < C
+        x = Float32(a[base + i + 1])
+        s += x * x
+        i += LN_WG
+    end
+    @inbounds red[t + 1] = s
+    @synchronize
+    # The barrier sits outside the `if`, as in `rmsnorm_kernel!` above.
+    stride = LN_WG ÷ 2
+    while stride > 0
+        @inbounds if t < stride
+            red[t + 1] += red[t + 1 + stride]
+        end
+        @synchronize
+        stride ÷= 2
+    end
+    @inbounds r = 1.0f0 / sqrt(red[1] / n + eps)
+    @synchronize
+
+    i = t
+    @inbounds while i < C
+        out[base + i + 1] = eltype(out)(Float32(a[base + i + 1]) * r * Float32(γ[gof + i + 1]))
+        i += LN_WG
+    end
+end
+
 """
     rmsnorm!(ctx, out, rstd, a, γ, C, eps) -> out
 

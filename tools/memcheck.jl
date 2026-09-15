@@ -7,7 +7,7 @@ The memory goal is "within 90% of PyTorch's 1 756 MB", i.e. **≤ 1 951 MB**, an
 two separate claims about reaching it were retracted in one afternoon because the
 number moved under them:
 
-  * `nvidia-smi` and `Lava.gpu_memory_usage().live_bytes` are different
+  * `nvidia-smi` and `Mantle.gpu_memory_usage().live_bytes` are different
     quantities. The first includes the allocator's pool, whose high-water mark
     depends on allocation *order*: two runs whose `live` agreed within 10%
     reported 1 940 and 4 849 MB reserved, and one reported a **negative** delta
@@ -50,7 +50,7 @@ function settled(; tries = 8)
     prev = typemax(Int)
     for _ in 1:tries
         trim_gpu_pool!()
-        l = Lava.gpu_memory_usage().live_bytes ÷ 2^20
+        l = Mantle.gpu_memory_usage().live_bytes ÷ 2^20
         l == prev && return l
         prev = l
     end
@@ -60,7 +60,9 @@ end
 function main(repeats = 3)
     backend = LavaBackend()
     Lava.FLUSH_TIMEOUT_NS[] = 25_000_000_000
-    sam = SAM2(DIR, joinpath(DIR, "weights.safetensors"); backend, res = 1024)
+    sam = SAM2(Dict(n => loadgraph(joinpath(DIR, "$n.json"))
+                    for n in ("sam2_encoder", "sam2_decoder")),
+               readsafetensors(joinpath(DIR, "weights.safetensors")); backend, res = 1024)
     refs = readsafetensors(joinpath(DIR, "refs.safetensors"))
     image = toback(backend, refs["sam2_encoder/in0"])
     point = toback(backend, refs["sam2_decoder/in3"])

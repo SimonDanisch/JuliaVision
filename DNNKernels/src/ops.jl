@@ -2,7 +2,7 @@
 ATen op methods.
 
 Each is one `runop!` method keyed on the op name. Elementwise work is
-broadcasting - `Lava.LavaArray <: AbstractGPUArray`, so that is already a fused
+broadcasting - `Mantle.LavaArray <: AbstractGPUArray`, so that is already a fused
 device kernel - and reductions come from `AcceleratedKernels`. Only convolution,
 pooling and resampling reach a `launch!`.
 
@@ -40,13 +40,57 @@ lhs(ctx::Ctx, op::Op) = operand(ctx, op, 1)
 rhs(ctx::Ctx, op::Op, i::Int=2) = operand(ctx, op, i)
 alpha(op::Op) = get(op.attrs, "alpha", 1)
 
-"""Float -> integer the way torch does it: saturate on infinities, NaN to zero."""
+"""
+Float -> integer the way torch does it: saturate on infinities, NaN to zero.
+
+`unsafe_trunc` and not `trunc` for the last step, and the three guards above are
+what make it safe: NaN, over and under are all handled, so what reaches it is in
+range by construction. `trunc(T, v)` carries an `InexactError` branch for the
+cases that cannot happen here, and a throw inside a GPU kernel is not free — the
+exception has to be ALLOCATED, which on a device means a hostcall. AMDGPU.jl
+reports "Global hostcalls detected" and leaves a host thread servicing `malloc`
+for the rest of the session; Lava emits the path as dead code and its
+`replace_unreachable!` pass warns about lowering it. Neither is wanted for a
+branch the guards have already ruled out.
+"""
 @inline function safetrunc(::Type{T}, v) where {T<:Integer}
     isnan(v) && return zero(T)
     v >= typemax(T) && return typemax(T)
     v <= typemin(T) && return typemin(T)
-    return trunc(T, v)
+    return unsafe_trunc(T, v)
 end
+
+"""
+    fastfloor(v) -> Int
+
+`floor(Int, v)` for a value whose range the caller has already bounded.
+
+Same reason as [`safetrunc`](@ref)'s last line: `floor(Int, v)` is a `trunc` with
+an `InexactError` branch, and that branch allocates its exception inside the
+kernel. A caller that clamps its own index — which is what a resampling kernel
+does, because the edge case is a pixel and not an error — pays for a throw it
+has made unreachable.
+"""
+@inline fastfloor(v::AbstractFloat) = unsafe_trunc(Int, floor(v))
+
+"""
+[`safetrunc`](@ref) with its target type as a TYPE PARAMETER rather than a
+broadcast argument.
+
+`safetrunc.(eltype(d), a)` puts a `Type` in the broadcast, and a `Type` is not a
+value every backend can carry: `Base.broadcastable` wraps it in a `Ref`, and on
+AMDGPU that arrives in the kernel as a `ROCRefType{Int64}` — the `Type{}` gone —
+so `safetrunc` is called with an `Int64` where it wants a type, finds no method,
+and dispatches DYNAMICALLY inside the kernel. That allocates, which on a GPU is
+a hostcall: AMDGPU.jl reports "Global hostcalls detected" and keeps a host
+thread servicing `malloc` for the rest of the session.
+
+A zero-size singleton carries the type with nothing to marshal, so the kernel is
+fully typed on every backend. Lava happens to keep the `Type{}` and get the
+static call, which is why this only showed up on the second backend.
+"""
+struct SafeTrunc{T} end
+@inline (::SafeTrunc{T})(v) where {T<:Integer} = safetrunc(T, v)
 
 """
     pycomplex(s) -> ComplexF32 | nothing
@@ -343,10 +387,31 @@ worth grepping for, not just fixing where it was noticed.
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
     lo = get(op.attrs, "arg1", nothing)
     hi = get(op.attrs, "arg2", nothing)
+    x = lhs(ctx, op)
+    # Bounds in the operand's OWN type when that type is an integer. Float32
+    # bounds promote the result to `Float32`, and storing that into an integer
+    # destination is a `convert` with an `InexactError` path — which is a THROW
+    # inside the kernel, and a throw allocates its exception. On a GPU that
+    # allocation is a hostcall (AMDGPU.jl: "Global hostcalls detected", plus a
+    # host thread servicing `malloc` afterwards); on the other backends it is
+    # dead code the compiler still has to emit. torch's `clamp` on an integer
+    # tensor stays integral too, so this is also the closer answer.
+    #
+    # Only when the bounds ARE integral: `clamp(::Int, 0.25, …)` is a legitimate
+    # call the Wan VAE makes, and rounding the bound there would change it.
+    T = eltype(x)
+    l, h = clampbounds(T, ctx, lo, hi)
+    emit(ctx, Base.broadcasted(clamp, x, l, h))
+end
+"""The pair of bounds `clamp` should be broadcast with: see `clamp.default`."""
+function clampbounds(::Type{T}, ctx, lo, hi) where {T}
     l = lo === nothing ? -Inf32 : Float32(numattr(ctx, lo))
     h = hi === nothing ? Inf32 : Float32(numattr(ctx, hi))
-    emit(ctx, Base.broadcasted(clamp, lhs(ctx, op), l, h))
+    T <: Integer || return (l, h)
+    (isinteger(l) || isinf(l)) && (isinteger(h) || isinf(h)) || return (l, h)
+    return (l == -Inf32 ? typemin(T) : T(l), h == Inf32 ? typemax(T) : T(h))
 end
+
 """
     operand(ctx, id, a) -> dense array
 
@@ -381,6 +446,58 @@ The declared output keeps the second `bmm`'s shape, `(H, S, D)` in torch order
 and `(D, S, H)` in Julia's — the same elements as `sdpa`'s `(D, S, H, B)` with
 `B == 1`, so the result is reshaped rather than copied.
 """
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.maskedattention")})
+    q,k,v,mask = map(id -> value(ctx,id),op.ins)
+    scale = op.attrs["scale"]
+    if get(op.attrs,"staged",true) && maskedprefill_applicable(ctx,q,k,v,mask)
+        out = dest(ctx,eltype(q),size(q)...)
+        maskedprefill!(ctx,out,q,k,v,mask,scale)
+        return reshape(out,size(out,1),size(out,2),size(out,3))
+    end
+    plan = flashcm_plan(ctx.dev,q,k,v,nothing;clamp=true)
+    epad = plan isa FlashCMPlan ? flashepad(plan.EP) : 0
+    rpad = plan isa FlashCMPlan ? flashrpad(plan.BR) : 0
+    if ctx.dev.coopmatsubgroup == 32 && size(q,1) == 128
+        short = size(q,2) <= 16
+        nk = size(k,2)
+        # A long query wants `(8, 8)` padding, not `(16, 0)`, and a key extent
+        # this kernel has to sweep in full wants a bigger tile with it. Measured
+        # per shape at lq = 4096 (`tools/bench_masked_flash.jl`, recorded), ms:
+        #
+        #     lk     (16,32,8,16,0)   this pick
+        #     512         3.17        2.86  (16,32,8,8,8)
+        #     1024        6.21        5.43  (16,32,8,8,8)
+        #     2048       12.46       10.54  (16,32,8,8,8)
+        #     4096       47.51       38.01  (32,64,8,8,8)
+        #
+        # `(16, 0)` was tuned at lk = 512 and then applied to every long query,
+        # which is how the 4096-slot chunks of a long prompt ended up paying 25%.
+        big = !short && nk >= 4096
+        tuned = flashcm_plan(ctx.dev,q,k,v,nothing;clamp=true,
+                            BR=big ? 32 : 16,BC=big ? 64 : 32,
+                            NW=short && nk<512 ? 4 : 8,
+                            rego=short && nk<512)
+        tepad, trpad = short ? (8,0) : (8,8)
+        if tuned isa FlashCMPlan &&
+           flashcmshared(tuned.EP,tuned.BR,tuned.BC,tepad,trpad) <= ctx.dev.sharedbudget
+            plan = tuned
+            epad, rpad = tepad, trpad
+            if short && nk >= 512
+                p = plan
+                plan = FlashCMPlan(p.BR,p.BC,p.NW,p.NT,p.E,p.EP,p.clamp,
+                    p.rego,p.held,p.rescale,p.onepass,p.lazyrescale,8)
+            end
+        end
+    end
+    if plan isa FlashCMPlan
+        out = dest(ctx,eltype(q),size(q)...)
+        sdpaflashcm!(ctx,out,plan,q,k,v,scale;mask,epad,rpad)
+    else
+        out = sdpa(ctx,q,k,v,mask,scale)
+    end
+    reshape(out,size(out,1),size(out,2),size(out,3))
+end
+
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     q, k, v = value(ctx, op.ins[1]), value(ctx, op.ins[2]), value(ctx, op.ins[3])
     # `sdpa` reads these as dense operands; q/k/v here are usually views over the
@@ -431,6 +548,178 @@ function checksdpa(q, k, v, o)
     nothing
 end
 
+# The identity, as an op. `foldcacheupdate` turns a `cat` that reassembled a
+# tensor its own inputs were already views of into this, and `aten::alias` means
+# exactly that too — the output shares storage with the input.
+# Rotary position embedding, as one op, written by `fuserope`.
+#
+# `rotate_half` is a slice, a negate and a concatenate, and the embedding is then
+# two multiplies and an add: six dispatches per projection, twice a layer, for an
+# elementwise function of one tensor. The concatenated half is never needed as a
+# tensor — it is `-x[j + H/2]` for the low half and `x[j - H/2]` for the high one,
+# which is an index, not a buffer.
+@kernel cpu=false function rope_kernel!(out, @Const(x), @Const(cs), @Const(sn),
+                                        H::Int32, half::Int32, HT::Int32, n::Int64)
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            l = Int32(i) - Int32(1)
+            j = l % H                       # 0-based position within the head dim
+            # `cos`/`sin` are per TOKEN as well as per component: they are
+            # `(H, T)` in Julia order against `x`'s `(H, T, heads, batch)`, so the
+            # index is the position within the first two axes, not within one
+            # head. Indexing by `j` alone is right at decode, where `T == 1`, and
+            # silently wrong for every prompt longer than one token.
+            c = l % HT
+            o = j < half ? (l + half) : (l - half)
+            r = Float32(x[o + Int32(1)])
+            j < half && (r = -r)
+            out[i] = eltype(out)(muladd(Float32(x[i]), Float32(cs[c + Int32(1)]),
+                                        r * Float32(sn[c + Int32(1)])))
+        end
+    end
+end
+
+# SwiGLU as one op.
+#
+# The export spells `silu(gate) * up` as a widening cast, a `sigmoid`, a
+# multiply, a narrowing cast and a second multiply — five dispatches over a
+# 26624-wide tensor, per layer, and two of them exist only to move it between
+# fp16 and fp32. `sigmoid` is evaluated in fp32 here exactly as the traced graph
+# does, so this changes the dispatch count and not the arithmetic.
+@kernel cpu=false function swiglu_kernel!(out, @Const(gate), @Const(up), n::Int64)
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            x = Float32(gate[i])
+            out[i] = eltype(out)(Float32(eltype(out)(x / (1f0 + exp(-x)))) * Float32(up[i]))
+        end
+    end
+end
+
+@kernel cpu=false function swiglu_strided_kernel!(out, @Const(gate), @Const(up), gb, ub, gs, us)
+    i = @index(Global, Cartesian)
+    @inbounds begin
+        gi = gb; ui = ub
+        for d in 1:length(gs)
+            gi += Int32(i[d]-1)*gs[d]
+            ui += Int32(i[d]-1)*us[d]
+        end
+        x = Float32(gate[gi])
+        out[i] = eltype(out)(Float32(eltype(out)(x / (1f0 + exp(-x)))) * Float32(up[ui]))
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.swiglu")})
+    g = lhs(ctx, op); u = value(ctx, op.ins[2])
+    ob = ctx.graph.buffers[ctx.outid[]]
+    out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
+    gr, ur = stridedroot(g), stridedroot(u)
+    if size(g) == size(u) == size(out) &&
+       gr !== nothing && ur !== nothing &&
+       max(length(gr[1]),length(ur[1])) <= typemax(Int32)
+        swiglu_strided_kernel!(ctx.backend, 256)(out,
+            reshape(gr[1],length(gr[1])),reshape(ur[1],length(ur[1])),
+            Int32(gr[2]+1),Int32(ur[2]+1),Int32.(strides(g)),Int32.(strides(u));
+            ndrange=size(out))
+        return out
+    end
+    # `AbstractGPUArray`, the question being asked: is this already a dense device
+    # array, or does `materialize` have to make one? It named `Mantle.LavaArray`
+    # until 2026-09-14, so on every other backend a dense operand still paid for a
+    # full copy of itself. Nine sites across the four `fused.*` ops below have the
+    # same line for the same reason.
+    gd = g isa GPUArrays.AbstractGPUArray ? g : materialize(ctx.rec, ctx.backend, g)
+    ud = u isa GPUArrays.AbstractGPUArray ? u : materialize(ctx.rec, ctx.backend, u)
+    swiglu_kernel!(ctx.backend, 256)(out, gd, ud, Int64(length(gd)); ndrange = length(gd))
+    out
+end
+
+# RoPE that stores straight into the KV cache.
+#
+# The rotated key is written to a temporary and then copied into the cache slot
+# by an `index_put` whose only job is that copy: 128 extra dispatches and 3.1 ms
+# of a 166 ms decode step, for a store the rope kernel could have done itself.
+# Cartesian for the same reason `indexput_kernel!` is — the destination is a
+# strided view into the cache, and indexing one linearly costs more than the
+# launch shape saves.
+@kernel cpu=false function rope_store_kernel!(dst, @Const(x), @Const(cs), @Const(sn),
+                                              @Const(iv), H::Int32, half::Int32,
+                                              HT::Int32, ::Val{N}, ::Val{SZ},
+                                              n::Int64) where {N,SZ}
+    lin = @index(Global, Linear)
+    if lin <= n
+    @inbounds begin
+        I = CartesianIndices(SZ)[lin]
+        # `x` is `(H, T, heads, batch)`; the cache slice is `(H, maxlen, heads, batch)`
+        # and `iv[t]` is where token `t` belongs in it.
+        j = Int32(I[1]) - Int32(1)
+        l = j + H * (Int32(I[2]) - Int32(1))         # position within (H, T)
+        o = j < half ? (l + half) : (l - half)
+        xo = CartesianIndex(ntuple(k -> k == 1 ? (Int(o % H) + 1) :
+                                        (k == 2 ? (Int(o ÷ H) + 1) : I[k]), Val(N)))
+        r = Float32(x[xo])
+        j < half && (r = -r)
+        v = muladd(Float32(x[I]), Float32(cs[l + Int32(1)]), r * Float32(sn[l + Int32(1)]))
+        t = Int(iv[I[2]]) + 1
+        dst[CartesianIndex(ntuple(k -> k == 2 ? t : I[k], Val(N)))] = eltype(dst)(v)
+    end
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.ropecache")})
+    x = lhs(ctx, op)
+    cs = value(ctx, op.ins[2]); sn = value(ctx, op.ins[3])
+    dst = value(ctx, op.ins[4]); iv = value(ctx, op.ins[5])
+    xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
+    cv = cs isa GPUArrays.AbstractGPUArray ? cs : materialize(ctx.rec, ctx.backend, cs)
+    sv = sn isa GPUArrays.AbstractGPUArray ? sn : materialize(ctx.rec, ctx.backend, sn)
+    H = size(xd, 1)
+    rope_store_kernel!(ctx.backend, 256)(dst, xd, vec(cv), vec(sv), vec(iv),
+                                         Int32(H), Int32(H ÷ 2), Int32(H * size(xd, 2)),
+                                         Val(ndims(xd)), Val(size(xd)), Int64(length(xd));
+                                         ndrange = length(xd))
+    dst
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.rope")})
+    x = lhs(ctx, op)
+    cs = value(ctx, op.ins[2]); sn = value(ctx, op.ins[3])
+    # Through the RECYCLER, not `contiguous`. The rotated operand is a permuted
+    # view, so it has to be laid out densely first — and doing that with a fresh
+    # allocation is a pool allocation per layer per projection, which costs more
+    # than the five dispatches this op replaces.
+    xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
+    cv = cs isa GPUArrays.AbstractGPUArray ? cs : materialize(ctx.rec, ctx.backend, cs)
+    sv = sn isa GPUArrays.AbstractGPUArray ? sn : materialize(ctx.rec, ctx.backend, sn)
+    H = size(xd, 1)
+    ob = ctx.graph.buffers[ctx.outid[]]
+    out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
+    HT = H * size(xd, 2)
+    rope_kernel!(ctx.backend, 256)(out, xd, vec(cv), vec(sv),
+                                   Int32(H), Int32(H ÷ 2), Int32(HT), Int64(length(xd));
+                                   ndrange = length(xd))
+    out
+end
+
+# The whole grouped RMS norm, written by `fusegroupedrms`.
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.groupedrms")})
+    x = lhs(ctx, op)
+    γ = value(ctx, op.ins[2])
+    C = Int(op.attrs["C"]); NG = Int(op.attrs["ng"]); ε = Float32(op.attrs["eps"])
+    ob = ctx.graph.buffers[ctx.outid[]]
+    out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
+    xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
+    n = length(xd) ÷ C
+    groupedrms_kernel!(ctx.backend, LN_WG)(out, xd, γ, Int32(C), Int32(NG), ε;
+                                           ndrange = n * LN_WG)
+    out
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("alias.default")})
+    value(ctx, op.ins[1])
+end
+
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clone.default")})
     a = lhs(ctx, op)
     d = alloc(ctx, op.out, size(a)...)
@@ -454,7 +743,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_to_copy.default")})
         # Saturating, not just truncating: torch turns +/-Inf into the integer
         # extremes and NaN into 0, while Julia's `trunc` throws `InexactError`.
         # T5's attention mask carries -Inf into exactly this cast.
-        d .= safetrunc.(eltype(d), a)
+        d .= SafeTrunc{eltype(d)}().(a)
     else
         d .= a
     end
@@ -699,6 +988,42 @@ rather than an oversight: `aten::scatter` without a `reduce` is *undefined* when
 two entries of `idx` collide in the same slice — torch documents the result as
 non-deterministic — so there is nothing to accumulate and nothing to order.
 """
+# `dst[.., iv[l], ..] = src[.., l, ..]` along dim `D`, with the index staying ON
+# THE DEVICE.
+#
+# Distinct from `scatter_kernel!` only in how `iv` is addressed: `scatter` carries
+# an index the same shape as `src`, `index_put` carries one vector over the
+# indexed axis. The point of it is what it does NOT do — see `index_put.default`.
+# `dst[.., iv[l], ..] = src[.., l, ..]` along dim `D`, with the index staying ON
+# THE DEVICE.
+#
+# FLAT launch, CARTESIAN indexing, and both halves of that were measured.
+#
+# A multidimensional `ndrange` is partitioned into multidimensional workgroups,
+# and for a `(128, 1, 8, 1)` write that is **15.44 us per launch against 2.74**
+# for a flat one — 64 of those a step is 1.5 ms of pure launch shape.
+#
+# But indexing `dst` linearly to go with the flat launch is worse still: 4.88
+# tok/s against 6.05. `dst` is a `view` into the KV cache, and a strided view
+# recomputes its Cartesian position on every linear store. So: flat range,
+# converted back to a `CartesianIndex` in the kernel, where it costs three
+# divisions instead of a store's worth of index arithmetic.
+#
+# Distinct from `scatter_kernel!` only in how `iv` is addressed: `scatter` carries
+# an index the same shape as `src`, `index_put` carries one vector over the
+# indexed axis. The point of it is what it does NOT do — see `index_put.default`.
+@kernel cpu=false function indexput_kernel!(dst, @Const(src), @Const(iv), ::Val{D},
+                                            ::Val{N}, ::Val{SZ}, n::Int64) where {D,N,SZ}
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            I = CartesianIndices(SZ)[i]
+            j = Int(iv[I[D]]) + 1
+            dst[CartesianIndex(ntuple(k -> k == D ? j : I[k], Val(N)))] = src[I]
+        end
+    end
+end
+
 @kernel function scatter_kernel!(dst, @Const(idx), @Const(src), ::Val{D}, ::Val{N}) where {D,N}
     I = @index(Global, Cartesian)
     @inbounds begin
@@ -847,9 +1172,18 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # (torch normalises over trailing dims, we see them leading). 0.341 -> see
     # `kernels/layernorm.jl` for the measurement and why two reduction passes
     # rather than one.
-    # `LavaArray` rather than `AbstractArray`: dense and contiguous by
+    # `AbstractGPUArray` rather than `AbstractArray`: dense and contiguous by
     # construction, which is what the kernel indexes on, and it keeps a lazy
-    # `Broadcasted` or a permuted view out of a path that cannot take them.
+    # `Broadcasted` or a permuted view out of a path that cannot take them. Every
+    # wrapper the fallback exists for — `SubArray`, `PermutedDimsArray`,
+    # `ReshapedArray` — is outside it, and so is a host `Array`, which matters
+    # because the kernel is `cpu=false`.
+    #
+    # It named `Mantle.LavaArray` until 2026-09-14, which is the same predicate
+    # with one backend's spelling, and it is what the fallback cost: on AMDGPU a
+    # `ROCArray` failed the test, so SAM 2.1's 96 layer norms replayed as 854
+    # graph passes against Lava's 96 — 8.9 launches apiece for a form whose whole
+    # point is to be one.
     #
     # The two forms do not produce identical bits — so "does the mask still
     # match" is a question about the whole model, not about the kernel. They do
@@ -861,7 +1195,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # one.
     # This was a switch (`LN_FUSED`) so the two could be compared end to end in
     # one session; the fused form won and the switch is gone (review finding 3).
-    if a isa Lava.LavaArray && d == Tuple(1:length(d)) && length(a) % n == 0
+    if a isa GPUArrays.AbstractGPUArray && d == Tuple(1:length(d)) && length(a) % n == 0
         out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
         groups = length(a) ÷ n
         μ = tupledest(ctx, 1, Float32, groups)
@@ -929,12 +1263,12 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_fused_rms_norm.default")})
     epsattr = get(op.attrs, "arg3", nothing)
     ε = epsattr === nothing ? Float32(eps(float(eltype(a)))) : Float32(epsattr)
 
-    # Same layout contract as `native_layer_norm` above: `LavaArray` rather than
-    # `AbstractArray`, because the kernel indexes linearly over a dense buffer
-    # and a permuted view's linear order is not that. Hunyuan3D's q/k norms feed
-    # exactly such a view — `q.reshape(B,N,h,d).transpose(1,2)` — so the fallback
-    # below is the path this model takes today, not a corner.
-    if a isa Lava.LavaArray && length(a) % n == 0
+    # Same layout contract as `native_layer_norm` above: `AbstractGPUArray` rather
+    # than `AbstractArray`, because the kernel indexes linearly over a dense
+    # buffer and a permuted view's linear order is not that. Hunyuan3D's q/k norms
+    # feed exactly such a view — `q.reshape(B,N,h,d).transpose(1,2)` — so the
+    # fallback below is the path this model takes today, not a corner.
+    if a isa GPUArrays.AbstractGPUArray && length(a) % n == 0
         out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
         r = tupledest(ctx, 1, Float32, length(a) ÷ n)
         rmsnorm!(ctx, out, r, a, γ, n, ε)
@@ -1063,7 +1397,7 @@ end
 #
 # `_fft_r2c` / `_fft_c2r` are Kokoro's inverse STFT, one of each per utterance,
 # at length 20 batched over ~11.7k windows. They map onto the FFT ported from
-# VkFFT (`Lava.rfft`, `Lava.fft`) — 20 is 4x5, which the mixed-radix plan covers.
+# VkFFT (`Mantle.rfft`, `Mantle.fft`) — 20 is 4x5, which the mixed-radix plan covers.
 #
 # torch's `normalization` enum on both: 0 none, 1 by sqrt(n), 2 by n. It is read
 # rather than assumed, because getting it wrong scales the audio by 20 and still
@@ -1076,7 +1410,7 @@ fftnorm(x, mode::Integer, n::Integer) =
 """
 `_fft_r2c(self, dim, normalization, onesided)` — the forward real FFT.
 
-Only a single transform axis, and it must be the contiguous one: `Lava.rfft`
+Only a single transform axis, and it must be the contiguous one: `Mantle.rfft`
 transforms along dimension 1 and batches over the rest, and a graph asking for
 any other axis would need a transpose that nothing has yet required.
 """
@@ -1088,7 +1422,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_fft_r2c.default")})
     d == 1 || error("_fft_r2c: transform axis must be contiguous, got Julia dim $d")
     Bool(get(op.attrs, "arg3", true)) ||
         error("_fft_r2c: two-sided output is not implemented (op $(op.id))")
-    fftnorm(Lava.rfft(a), Int(get(op.attrs, "arg2", 0)), size(a, 1))
+    fftnorm(Mantle.rfft(a), Int(get(op.attrs, "arg2", 0)), size(a, 1))
 end
 
 """
@@ -1127,7 +1461,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_fft_c2r.default")})
     # `fftany!`, not `fft!`: the iSTFT length is 20 = 4x5 and `fft!` is
     # power-of-two only. `rfft` reaches for the same dispatcher and says why —
     # Whisper's 400-point mel is 200 complex, DeepFilterNet3's 960 is 480.
-    y = real.(Lava.fftany!(similar(full), full; inverse = true))
+    y = real.(Mantle.fftany!(similar(full), full; inverse = true))
     fftnorm(y, Int(get(op.attrs, "arg2", 0)), n)
 end
 
@@ -1194,6 +1528,13 @@ run can substitute [`ZeroNoise`](@ref) and compare the deterministic path agains
 a reference that has had the same thing done to it.
 """
 function hostnoise(ctx::Ctx, op::Op, f, dims)
+    if Mantle.recordingpass() !== nothing
+        ctx.noise isa ZeroNoise || throw(ArgumentError(
+            "recording a host noise draw would freeze randomness; use record=false or ZeroNoise()"))
+        out = alloc(ctx, op.out, dims...)
+        fill!(out, zero(eltype(out)))
+        return out
+    end
     T = dtypeof(ctx, op.out)
     out = alloc(ctx, op.out, dims...)
     copyto!(out, draw(ctx.noise, f, T, dims))
@@ -1336,8 +1677,14 @@ needs the graph to express output-aliases-input, which it does not today.
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
     a = lhs(ctx, op)
     src = value(ctx, op.ins[end])
-    dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
-    dst .= a
+    # `inplace` is set by `foldcacheupdate`, which has checked that `a` is a view
+    # of a graph input whose pre-write contents nothing else reads. Writing
+    # through it skips a full copy of the tensor per call — 1 GiB per token on a
+    # 64-layer KV cache — and makes the value the caller handed in the value it
+    # gets back.
+    inplace = Bool(something(get(op.attrs, "inplace", nothing), false))
+    dst = inplace ? a : dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
+    inplace || (dst .= a)
     n = ndims(a)
     accum = Bool(something(get(op.attrs, "arg3", nothing), false))
     # Hold the index operands as they came — ON THE DEVICE. They used to be
@@ -1390,7 +1737,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         d = nz[1]
         all(k -> k == d || size(a, k) == 1, 1:n) ||
             error("index_put: accumulate needs singleton batch axes (op $(op.id))")
-        if eltype(dst) === Float32 && dst isa Lava.LavaArray
+        if eltype(dst) === Float32 && dst isa Mantle.LavaArray
             # The `+1` and the Int32 narrowing are a broadcast on the DEVICE.
             # `toback(ctx.backend, Int32.(collect(...)))` did the same arithmetic
             # by downloading, converting on one core, and uploading again.
@@ -1412,6 +1759,28 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         copyto!(dst, reshape(hv, size(dst)))
         return dst
     end
+    # ── ONE index tensor: scatter on the device, and never look at the values.
+    #
+    # `hostidx` below downloads the index to build a Julia `view`, and a download
+    # is a `flush!` plus `vkWaitSemaphores` — it drains the queue. A KV cache
+    # write does this twice a layer, so K2 Horizon 32B's 64 layers stalled the
+    # pipeline **128 times per token**: 1232 of the 1458 profile samples inside
+    # `execute!`, i.e. 85% of a decode step, spent waiting for a GPU that had
+    # nothing left to run. The index is `cache_position`, a graph input, and
+    # nothing about this op needs its value on the host.
+    #
+    # Strictly better than the range path it replaces, which was cheap on the
+    # device (a strided assign) and only ever ran because the download had
+    # already happened.
+    if length(nz) == 1 && ndims(src) == n
+        d = nz[1]
+        indexput_kernel!(ctx.backend, 256)(dst, src, vec(raw[d]), Val(d), Val(n),
+                                           Val(size(src)), Int64(length(src));
+                                           ndrange = length(src))
+        return dst
+    end
+    # More than one index tensor is advanced indexing; still host-side, and rare
+    # enough that it has never shown up in a profile.
     for jd in nz
         idx[jd] = hostidx(jd)
     end
@@ -1876,7 +2245,15 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index.Tensor")})
         for (i, d) in enumerate(dims)
             idx[d] = vec(devs[i]) .+ 1
         end
-        return materialize(ctx, view(x, idx...))
+        # `unsafe_view`, not `view`. `checkbounds` against a DEVICE index array
+        # has to read its values on the host: a full sync per call on the plain
+        # path, and simply WRONG on a recorded one, where the `.+ 1` above is a
+        # launch that has not run yet — the check then reads an unwritten buffer
+        # and throws `BoundsError: ... at index [1:1280, [1]]` for an index that
+        # is plainly in range. The dims are checked above and the values are the
+        # traced model's own.
+        J = Base.to_indices(x, Tuple(idx))
+        return materialize(ctx, Base.unsafe_view(x, J...))
     end
     indexpaired(ctx, x, dims, [Int.(collect(d)) .+ 1 for d in devs])
 end

@@ -26,7 +26,7 @@ lands, and the dispatch timing that the one recurrence carried.
 **How a hang is reported.** The main thread blocks inside `vkWaitSemaphores`, so
 it cannot report on itself. A watchdog on the interactive thread pool holds the
 trial's start time; if a trial outlives `TRIAL_TIMEOUT` it prints
-`Lava.flush_stall_report` — which is the diagnostic that names a wait on a value
+`Mantle.flush_stall_report` — which is the diagnostic that names a wait on a value
 nothing will signal — plus the deferred-free and batch state, and exits non-zero.
 A clean run just prints a heartbeat per trial, so a stalled log is itself signal.
 """
@@ -50,7 +50,7 @@ end
 end
 
 backend = LavaBackend()
-ctx = Lava.vk_context()
+ctx = Mantle.vk_context()
 bq = ctx.default_bq
 
 # Watchdog state. `trial_started` is the wall clock at the top of the current
@@ -67,7 +67,7 @@ function dump_hang(n)
         # The target is what the flush is waiting for; `next_timeline - 1` is the
         # last value handed out, which is what a stalled flush is blocked on.
         target = UInt64(max(bq.next_timeline - 1, 0))
-        print(Lava.flush_stall_report(bq, target))
+        print(Mantle.flush_stall_report(bq, target))
     catch e
         println("  flush_stall_report threw: ", e)
     end
@@ -114,7 +114,7 @@ function trial!(backend, bq, timed::Bool)
     body = function ()
         Lava.ensure_active_batch!(bq)
 
-        live = Lava.LavaArray{Float32,1}[]
+        live = Mantle.LavaArray{Float32,1}[]
         for k in 1:BUFS_PER_TRIAL
             a = KA.allocate(backend, Float32, N)
             fill!(a, Float32(k))
@@ -151,7 +151,7 @@ function trial!(backend, bq, timed::Bool)
         KA.synchronize(backend)
         Lava.drain_deferred_frees!(bq)
     end
-    timed ? Lava.with_dispatch_timing(body) : body()
+    timed ? Mantle.with_dispatch_timing(body) : body()
     return nothing
 end
 

@@ -141,7 +141,8 @@ println(ok ? "APPLY PARITY OK" : "APPLY PARITY FAILED")
 # (Figures between those two, 7-11 ms, appear in this report's history and are
 # all wrong: they were measured with a three-call warm-up, inside the 24-call
 # ramp `timed` now skips.)
-model = Model(DIR, joinpath(DIR, "weights.safetensors");
+model = Model(Dict("neurallut" => loadgraph(joinpath(DIR, "neurallut.json"))),
+              readsafetensors(joinpath(DIR, "weights.safetensors"));
               names = ["neurallut"], backend)
 graph = model.graphs["neurallut"]
 weights = model.weights

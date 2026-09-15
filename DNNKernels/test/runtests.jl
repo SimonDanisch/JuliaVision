@@ -84,6 +84,7 @@ include(joinpath(@__DIR__, "test_flash_cm2.jl"))
 # An elementwise op that allocates its own output instead of taking the planned
 # one. Values stayed correct, so nothing here caught it for as long as it shipped.
 include(joinpath(@__DIR__, "test_clamp_planned.jl"))
+include(joinpath(@__DIR__, "test_no_kernel_alloc.jl"))
 # `_fused_rms_norm`, `topk` and `scatter.src` — the entire new-op surface of
 # Hunyuan3D-2.1's 3.05B-parameter denoiser, against their definitions. Host-only.
 # The overflow case in there found a real fault in the RMS norm fallback on its
@@ -96,3 +97,15 @@ include(joinpath(@__DIR__, "test_atenarg.jl"))
 # `arange` with a fractional start (DINOv3's patch centres, which threw) and with
 # a non-unit step (which silently produced one element too few). Host-only.
 include(joinpath(@__DIR__, "test_arange.jl"))
+include(joinpath(@__DIR__, "test_recorded_call.jl"))
+# The gate between the one-kernel norms and their six-pass fallback. It named one
+# backend's array type, so it was a no-op to test on that backend and wrong on
+# every other.
+include(joinpath(@__DIR__, "test_norm_gate.jl"))
+include(joinpath(@__DIR__, "test_q8gemm.jl"))
+include(joinpath(@__DIR__, "test_masked_flash.jl"))
+include(joinpath(@__DIR__, "test_masked_prefill.jl"))
+# This file existed and was never listed here, so its assertions had never run —
+# including the one its own docstring calls "the whole test". It covers the tiled
+# transpose, which is now also how every transposed weight reaches the device.
+include(joinpath(@__DIR__, "test_transposeLE.jl"))

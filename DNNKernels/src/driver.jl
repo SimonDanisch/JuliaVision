@@ -39,13 +39,23 @@ struct Model{B}
     # different things — `m.diag.optimes = Dict{String,Tuple{Int,Float64}}()` and
     # every graph this model runs starts accumulating. See `Diagnostics`.
     diag::Diagnostics
+    # Whether this model's graphs are recorded into a Mantle plan and replayed —
+    # see [`record`](@ref) for what a model has to satisfy to say yes. On the
+    # model and not a module `Ref` for the same reason `diag` is: it is a
+    # property of a model, two of them in one process disagree, and a global
+    # would make one of them silently wrong.
+    record::Bool
+    record_maxpasses::Dict{String,Int}
 end
 
-Model(graphs, weights, backend, memevery, memframes, topk) =
+Model(graphs, weights, backend, memevery, memframes, topk;
+      record::Bool = false, record_maxpasses = Dict{String,Int}()) =
     Model(graphs, weights, backend, memevery, memframes, topk, Dict{Any,Any}(),
-          Diagnostics())
-Model(graphs, weights, backend, memevery, memframes, topk, scratch) =
-    Model(graphs, weights, backend, memevery, memframes, topk, scratch, Diagnostics())
+          Diagnostics(), record, Dict{String,Int}(record_maxpasses))
+Model(graphs, weights, backend, memevery, memframes, topk, scratch;
+      record::Bool = false, record_maxpasses = Dict{String,Int}()) =
+    Model(graphs, weights, backend, memevery, memframes, topk, scratch,
+          Diagnostics(), record, Dict{String,Int}(record_maxpasses))
 
 """
     scratchfor(m, dims) -> (slab, plans, workspace, lazies, recyclers)
@@ -110,26 +120,115 @@ function toback(backend, a::AbstractArray)
     isempty(a) && return a
     KernelAbstractions.get_backend(a) isa typeof(backend) && return a
     d = KernelAbstractions.allocate(backend, eltype(a), size(a)...)
-    copyto!(d, collect(a))
+    # `copyto!(d, a)`, NOT `copyto!(d, collect(a))`. `collect` on an `Array`
+    # returns a COPY, so the old form allocated a full anonymous duplicate of
+    # every tensor on its way to the device. Invisible at SAM 2's 943 MB;
+    # at K2 Horizon 32B's 64.78 GiB it is a second 64.78 GiB of host memory on
+    # a unified-memory APU where host and device share one 122 GiB pool, and
+    # the process is OOM-killed with no frame naming the cause.
+    #
+    # It also silently defeated mmap-backed weights: the mapping costs nothing
+    # to read, and `collect` faulted every page into anonymous memory anyway.
+    # A strided or lazy source still needs materialising, so only those collect.
+    copyto!(d, a isa DenseArray ? a : collect(a))
     d
 end
 
 """
-    Model(graphdir, weightpath; names, backend, ...)
+    RowCat(parts)
 
-Load a graph set and its weights, and run every host-side preparation pass over
-them.
+Several weights stacked along their FIRST Julia axis, lazily.
 
-`names` selects which graphs in `graphdir` to load; it defaults to MatAnyone's
-eight because that is what `step!` drives. Everything from here down is
-model-agnostic — the passes, the slab planner, `call` — so another model is a
-different `names` and its own driver, not another `Model`.
+`fuseqkv` replaces a group of matmuls that share an activation with one matmul
+over the stacked weight. Stacking on the host would materialise it — 272 MB for a
+gate/up pair, 17 GB over 64 layers — so this carries the parts and `toback`
+assembles them straight into the device buffer, one at a time.
 """
-function Model(graphdir::AbstractString, weightpath::AbstractString;
+struct RowCat{T,P} <: AbstractMatrix{T}
+    parts::P
+    m::Int
+    k::Int
+end
+function RowCat(parts::Vector)
+    k = size(first(parts), 2)
+    all(p -> size(p, 2) == k, parts) ||
+        throw(DimensionMismatch("RowCat: parts disagree on their second axis"))
+    RowCat{eltype(first(parts)),typeof(parts)}(parts, sum(p -> size(p, 1), parts), k)
+end
+Base.size(A::RowCat) = (A.m, A.k)
+
+# Assembled on the DEVICE, part by part, so the stacked weight never exists on
+# the host. Each part is uploaded (or materialised, if it is one of
+# `hoistpermutes`' lazy transposes) into its own row range and then dropped.
+function toback(backend, A::RowCat)
+    d = KernelAbstractions.allocate(backend, eltype(A), size(A)...)
+    off = 0
+    for p in A.parts
+        rows = size(p, 1)
+        copyto!(view(d, (off + 1):(off + rows), :), toback(backend, p))
+        off += rows
+    end
+    d
+end
+
+# `hoistpermutes` leaves its transposed weights lazy so they are not all
+# materialised at once. This is where one of them becomes real, and WHERE it
+# happens is the whole cost of a cold load.
+#
+# `permutedims` on the host walks the mmap'd checkpoint by strides and measured
+# 0.33 GiB/s, against 21.8 for the contiguous upload of the same tensor. Every
+# large weight in a decoder arrives transposed, so the whole 64.78 GiB of K2
+# Horizon 32B went through it: 224.7 s of a 227 s model build, disk and cache
+# misses, with the device idle throughout.
+#
+# Uploading the parent as it lies and transposing on the DEVICE, through the
+# same tiled kernel attention uses for its operands, moves that to 0.6 s of
+# upload plus a dispatch. `permutedims!` from GPUArrays would also work and is
+# one line, but it is an elementwise gather, and a 1.28 G-element one hard-hung
+# the device here.
+toback(backend, a::PermutedDimsArray{T,N,perm}) where {T,N,perm} =
+    toback(backend, permutedims(parent(a), perm))
+
+# The one that carries a decoder's weights. `Int32` indexing and an
+# `(E, L, H, B)` operand are the kernel's contract, so a parent it cannot
+# address falls back to the host transpose above: slow, and always right.
+function toback(backend, a::PermutedDimsArray{T,2,(2,1)}) where {T}
+    p = parent(a)
+    T in (Float16, Float32) && length(p) <= typemax(Int32) ||
+        return toback(backend, permutedims(p, (2, 1)))
+    src = toback(backend, p)
+    E, L = size(p)
+    d = KernelAbstractions.allocate(backend, T, L, E)
+    st = map(Int32, strides(src))
+    k = T === Float16 ? toLE_tiled_Float16! : toLE_tiled_Float32!
+    k(backend, (32, 4, 1))(reshape(d, L, E, 1, 1), reshape(src, length(src)),
+        Int32(1), st[1], st[2], Int32(0), Int32(0), Int32(E), Int32(L), Int32(1);
+        ndrange = (32 * cld(E, 32), 4 * cld(L, 32), 1))
+    d
+end
+
+"""
+    Model(graphs, weights; backend, ...)
+
+Run every host-side preparation pass over an already-loaded graph set and its
+weights, then upload what survives.
+
+**Takes loaded objects, not paths.** Reading the JSONs and the safetensors is the
+owning package's job — `SAM2Runner.sam2graphs()` / `sam2weights()` and the
+equivalents beside them — because that package is the only thing that knows
+which artifact holds them and which graphs it wants. This used to take
+`(graphdir, weightpath)` plus a `names` list that selected the JSONs to open,
+and that list defaulted to MatAnyone's eight: model-specific knowledge sitting
+in the generic runtime, purely because the constructor did the loading.
+
+Two things follow, and both were the point. A model whose weights arrive as
+several files — Hunyuan3D's denoiser is 6.1 GB, past what one GitHub release
+asset can hold — merges them in its own `*weights()` and nothing here changes.
+And there is exactly one way to hand a model its weights, rather than a path
+form and a dict form that drift.
+"""
+function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                backend=KernelAbstractions.CPU(), memevery=5, memframes=5, topk=30,
-               names = ["encode_image", "transform_key", "encode_mask_deep",
-                        "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
-                        "segment", "readout_query"],
                # Off is how the fusion passes get checked: build the model twice
                # and compare the numbers. Every other pass here is verified
                # against an invariant or a PyTorch reference, but a fusion is
@@ -137,15 +236,30 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
                # way to ask for that. It is also the switch to reach for first if
                # a model ever comes out wrong — see `2026-08-08-elementwise-fusion.md`
                # for why a bad fusion looks like a precision bug.
-               fuse::Bool = true)
-    graphs = Dict(n => loadgraph(joinpath(graphdir, "$n.json")) for n in names)
+               fuse::Bool = true,
+               # Store the matmul weights as int8 with a per-output-channel
+               # scale. Decode reads every weight once per token and is
+               # bandwidth-bound outright, so this is a straight halving of the
+               # floor; see `quant.jl` for the scheme and what it costs.
+               quantize::Bool = false,
+               # Record each graph into a Mantle plan and replay it. See
+               # [`record`](@ref) — it is off by default because it is not free
+               # of preconditions, and a model that does not meet them comes out
+               # WRONG rather than slow.
+               record::Bool = false, record_maxpasses = Dict{String,Int}())
     # Host-side graph preparation, in order. Folding runs *before* the casts are
     # hoisted so it sees the fp32 master weights through `weightsource` and
     # rounds to the declared dtype exactly once; hoisting then turns every
     # remaining constant cast into a plain weight; the sweep removes whatever
     # both of them orphaned. All of it before upload, so only the final weights
     # ever reach the device.
-    graphs, host, nfold = foldbatchnorm(graphs, readsafetensors(weightpath))
+    # Three phases, timed, because a cold load of a 32B checkpoint is minutes
+    # long and reported nothing about where they went. Host passes read the
+    # checkpoint through its mmap and can COPY it — `fuseqkv` stacking 1152
+    # groups materialises tens of GiB — so the first number is disk as much as
+    # it is CPU.
+    t0 = time_ns()
+    graphs, host, nfold = foldbatchnorm(graphs, Dict{String,Any}(weights))
     graphs, nact = foldrelu(graphs)
     graphs, host, nhoist = hoistcasts(graphs, host)
     # After the casts: under autocast a weight's transposed view sits on top of
@@ -153,6 +267,11 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     # this pass can then permute.
     graphs, host, nperm = hoistpermutes(graphs, host)
     graphs, host, nconst = hoistconstants(graphs, host)
+    # After the permutes are materialised, because the stack is over the weights
+    # in the layout the GEMM reads, and before the live-key sweep so the parts
+    # that are now only reachable through the stack get dropped.
+    graphs, host, nqkv = fuseqkv(graphs, host)
+    nqkv > 0 && @info "fuseqkv: $nqkv matmul group(s) stacked"
     # The other side of `hoistcasts`: a cast that narrows something the graph
     # just computed, rather than a constant. After the weight passes, because
     # this one only ever looks at computed values and there is no point offering
@@ -163,6 +282,22 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     # `foldoutcasts`, because narrowing a producer's result can turn a cast that
     # was a no-op into a widening one this pass can then remove.
     graphs, nincast = foldincasts(graphs)
+    # Before `fuseops`, which would collapse the norm's `add`+`rsqrt` into a
+    # `FusedOp` and hide the epsilon this needs to read.
+    graphs, nswi = fuseswiglu(graphs)
+    nswi > 0 && @info "fuseswiglu: $nswi SwiGLU(s) -> one op each"
+    graphs, nrms = fusegroupedrms(graphs)
+    nrms > 0 && @info "fusegroupedrms: $nrms grouped RMS norm(s) -> one op each"
+    # Before `dropdead`, which would otherwise see the `cat` as live and keep the
+    # copies it feeds. After the weight passes, because it only looks at inputs
+    # and outputs and nothing above changes those.
+    graphs, ncache = foldcacheupdate(graphs)
+    ncache > 0 && @info "foldcacheupdate: $ncache KV cache(s) updated in place"
+    # After `foldcacheupdate`: a rotary embedding whose only consumer is an
+    # in-place cache write can store into the cache itself, and that is only
+    # visible once the write has been marked in place.
+    graphs, nrope = fuserope(graphs)
+    nrope > 0 && @info "fuserope: $nrope rotary embedding(s) -> one op each"
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes
@@ -173,7 +308,41 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
     live = livekeys(graphs)
     dropped = length(host) - count(k -> k in live, keys(host))
     host = Dict{String,Any}(k => v for (k, v) in host if k in live)
-    weights = Dict{String,Any}(k => toback(backend, v) for (k, v) in host)
+    # Upload one tensor at a time, dropping each host copy as it lands. The
+    # comprehension this replaces held BOTH dicts alive at once, so peak was
+    # twice the weights: fine at SAM 2's 943 MB, fatal at K2 Horizon 32B's
+    # 64.78 GiB, which needs 129.6 GiB against a 103.9 GiB cgroup cap and is
+    # killed by the OOM reaper with no Julia frame naming the cause.
+    #
+    # `host` is dead after this line, so emptying it as we go is safe. The
+    # periodic `GC.gc()` is what actually returns the pages — dropping the
+    # reference alone leaves them to the collector's own schedule, which for
+    # 580 tensors of ~100 MB is far too slow to keep under the cap.
+    weights = Dict{String,Any}()
+    thost = (time_ns() - t0) / 1e9
+    qk = quantize ? quantkeys(graphs) : Set{String}()
+    let ks = collect(keys(host)), n = 0, nq = 0
+        for k in ks
+            d = toback(backend, host[k])
+            # Quantise ON THE DEVICE, from the copy that just landed, and drop
+            # the float immediately: the host never sees 33.5 G elements and the
+            # peak is one weight above the int8 total rather than both sets.
+            if k in qk && ndims(d) == 2 && eltype(d) <: AbstractFloat
+                weights[k] = quantizeint8(backend, d)
+                nq += 1
+            else
+                weights[k] = d
+            end
+            d = nothing
+            delete!(host, k)
+            n += 1
+            n % 32 == 0 && GC.gc(false)
+        end
+        empty!(host)
+        GC.gc()
+        quantize && @info "Model: $nq of $(length(ks)) weights stored as int8"
+    end
+    tupload = (time_ns() - t0) / 1e9 - thost
     # The one pass that has to *run* the ops it folds, so it comes after the
     # upload and works on the device weights: constant subgraphs, not just the
     # nullary constants `hoistconstants` took above. Then the same sweep again,
@@ -200,6 +369,8 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
         graphs, nattn = fuseattention(graphs)
         nattn > 0 && @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
         graphs, nfused = fuseops(graphs)
+        graphs, nmasked = fusemaskedattention(graphs)
+        nmasked > 0 && @info "fusemaskedattention: $nmasked masked attention blocks"
         # After `fuseops`, so a chain it collapsed can be folded into the GEMM
         # whole rather than only its last link.
         graphs, nepi = foldepilogue(graphs)
@@ -211,7 +382,10 @@ function Model(graphdir::AbstractString, weightpath::AbstractString;
         graphs, npre = foldpremap(graphs)
     end
     @debug "DNNKernels: folded $nfold batch-norms, $nact relus, $noutcast output casts and $nincast input casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, fused $nfused elementwise ops, folded $nepi epilogues and $npre premaps, dropped $ndead dead ops and $dropped orphaned weights"
-    Model(graphs, weights, backend, memevery, memframes, topk)
+    tfuse = (time_ns() - t0) / 1e9 - thost - tupload
+    @info "Model: built in $(round(thost + tupload + tfuse, digits=1)) s" host_passes_s =
+        round(thost, digits=1) upload_s = round(tupload, digits=1) fusion_s = round(tfuse, digits=1)
+    Model(graphs, weights, backend, memevery, memframes, topk; record, record_maxpasses)
 end
 
 """
@@ -230,6 +404,111 @@ function livekeys(graphs)
     live
 end
 
+"""
+    quantkeys(graphs) -> Set{String}
+
+Weight keys that may be stored as int8: the MATRIX operand of an `mm`/`addmm`
+and nothing else.
+
+"Nothing else" is the load-bearing half. A weight that is also read by an
+`embedding`, an elementwise op or a second matmul in the other position would
+need a float view of itself, and there is no such thing once it is packed — so a
+key used anywhere outside these two positions is left alone rather than
+quantised and then silently mis-read.
+"""
+function quantkeys(graphs)
+    cand = Set{String}()
+    other = Set{String}()
+    for g in values(graphs)
+        matrixin = Dict{String,Int}("mm.default" => 2, "addmm.default" => 3)
+        for op in g.ops
+            mi = get(matrixin, op.aten, 0)
+            for (i, id) in enumerate(op.ins)
+                b = get(g.buffers, id, nothing)
+                b === nothing && continue
+                b.kind === :weight && !isempty(b.key) || continue
+                if i == mi && length(b.shape) == 2
+                    push!(cand, b.key)
+                else
+                    push!(other, b.key)
+                end
+            end
+        end
+        # A declared output that is a weight escapes the graph as a float.
+        for id in g.outputs
+            b = get(g.buffers, id, nothing)
+            b !== nothing && b.kind === :weight && !isempty(b.key) && push!(other, b.key)
+        end
+    end
+    setdiff(cand, other)
+end
+
+
+"""
+    record
+
+`Model(...; record = true)`: record each graph call into a Mantle plan once and
+replay the compiled plan on every later call at the same `dims`.
+
+The backend's immediate launch is one command buffer and one queue submit per
+dispatch, which is right for an ad hoc kernel and wrong for a step that issues a
+thousand. Recorded into a graph, the whole step is one command buffer whose
+barriers Mantle derives from what each pass declares it touches, and the host
+does nothing per step but write the inputs and submit. On K2 Horizon 32B decode,
+1804 dispatches a step, on a Radeon 8060S:
+
+    immediate, one-shot per dispatch   190.9 ms   host 197, GPU 151, overlapped
+    one batched submit, barriers       211.6 ms   host serialised ahead of the GPU
+    recorded plan                      153.1 ms   host ~0, GPU-bound
+
+against llama.cpp's Vulkan coopmat backend at 154.8 ms for the same model on the
+same device. The step moves 33.5 GB, so 153.1 ms is 219 GB/s of the 229 GB/s this
+device reads at, and the logits are bit-identical to the immediate path.
+
+`Mantle.record_into(graph, name)` captures every KA launch as a pass of its own,
+with the usage keyed to the STORAGE so views of one slab order against each
+other, and a device-to-device `copyto!` as a copy kernel so that it is part of
+the recording rather than something that happened once while it was made.
+
+# What a model has to satisfy
+
+**Off by default, because a model that does not meet these comes out WRONG
+rather than slow.** Turn it on per model, having checked the outputs against the
+immediate path.
+
+  * Nothing between the graph's first op and its last may read device memory on
+    the HOST. A recording defers every launch, so a host read during it sees a
+    buffer that has not been written — `index.Tensor` did this through
+    `checkbounds` on a device index array and threw a `BoundsError` for an index
+    that was plainly in range.
+  * Everything the plan closed over has to be the same object at every call: the
+    slab, the weights and the input buffers. `call` enforces the last of those by
+    copying into the arrays it recorded against; the first two are fixed for the
+    life of a `Model`.
+  * Host noise draws cannot be replayed and are rejected during recording.
+    `ZeroNoise` is captured as a device fill and can be replayed.
+
+Whisper exposed two recording defects: dtype conversions outside the capture
+scope, and missing submission tracking for captured dispatch buffers. Operation
+results and output materialisation are now captured; Mantle registers the
+buffers so host writes and work on other queues wait for pending replay reads.
+
+`record_maxpasses = Dict(graph_name => N)` selects explicit submission
+partitions on Vulkan. The full graph is still compiled once, with the same
+dependency analysis. Horizon prefill uses 64 passes per submission because its
+single submission timed out; decode keeps the default single submission.
+"""
+
+# NOT `MantlePlan` — `mantle.jl` already has one, and it is a slab placement.
+# Recorded plan plus the arrays it closed over: the inputs the caller's arguments
+# must be copied into, and the outputs it returns.
+struct RecordedPlan{P,I,O}
+    plan::P
+    inputs::I
+    outputs::O
+    RecordedPlan(plan::P, inputs::I, outputs::O) where {P,I,O} =
+        new{P,I,O}(plan, inputs, outputs)
+end
 
 """Run one graph and return its outputs in declaration order."""
 function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = false,
@@ -241,18 +520,91 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
     isempty(missing_) || error(
         "$name is symbolic in $(join(g.symbols, ", ")) but dims = $dims " *
         "does not give $(join(missing_, ", "))")
+    # Against the DECLARED shape, and this is the only place that can be.
+    # Without it a wrong-shaped input ran: the graph is built around its own
+    # declaration, so it produced a result shaped like the declaration and threw
+    # nothing away loudly. Worse, the first call RECORDS, so the plan closed over
+    # the mistake, and the replay check below — which compares against whatever
+    # that first call passed — then rejected the *correct* shape. Measured on
+    # `horizon32b_decode_bucket` handed a batch-2 `input_ids`: it returned one
+    # batch element's logits twice, and the batch-1 call after it failed with
+    # "replay input shape or dtype changed".
+    for (id, a) in zip(g.inputs, args)
+        b = get(g.buffers, id, nothing)
+        (b === nothing || isempty(b.shape)) && continue
+        want = evalshape(b.shape, dims)
+        size(a) == want || throw(ArgumentError(
+            "$name input `$id` is declared $want but got $(size(a))"))
+    end
     slab, plans, ws, lazies, recs, _ = scratchfor(m, dims)
+    # An alternating recycler bank has different output/scratch addresses.
+    # Likewise ZeroNoise and RandomNoise are different computations.
+    key = (:mantleplan, name, dims, clampattn, recs[name].bank, typeof(noise))
+    if m.record
+        mp = get(m.scratch, key, nothing)
+        if mp !== nothing
+            # The plan reads the buffers it was recorded against, so the call's
+            # arguments have to land in those. Identical objects are the common
+            # case and cost nothing.
+            for (dst, src) in zip(mp.inputs, args)
+                size(dst) == size(src) && eltype(dst) === eltype(src) ||
+                    throw(ArgumentError("$name replay input shape or dtype changed"))
+            end
+            for (dst, src) in zip(mp.inputs, args)
+                dst === src || copyto!(dst, src)
+            end
+            Mantle.run!(mp.plan)
+            return mp.outputs
+        end
+    end
     rec = startcall!(recs[name])
     vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
-                    dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
-                    lazy=lazies[name], rec=rec, diag=m.diag, clampattn, noise)
+                 dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
+                 lazy=lazies[name], rec=rec, diag=m.diag, clampattn, noise)
     # The same recycler resolves the outputs: an output that is a view gets
     # materialised right here, and that copy needs a stable address as much as
     # anything inside the graph did. Ordinals carry on from where `execute!` left
     # them, which is deterministic because the op sequence is.
     ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
               lazy = lazies[name], rec, diag = m.diag, clampattn, noise)
-    Tuple(value(ctx, o) for o in g.outputs)
+    outs = Tuple(value(ctx, o) for o in g.outputs)
+    # RECORD, after a full immediate run has settled everything a replay closes
+    # over: the workspace has reached its high-water mark, the split-K scratch
+    # has stopped growing, and every kernel is compiled. Recording before that
+    # captures dispatches pointing at buffers the next call would replace.
+    # Keyed on `clampattn` too: it changes which kernels the graph dispatches, so
+    # a plan recorded with it on is not the plan a call without it asked for.
+    if m.record && !haskey(m.scratch, key)
+        m.scratch[key] =
+            recordplan(m, g, name, args, dims, clampattn, noise)
+    end
+    outs
+end
+
+"""Record one graph call into a Mantle plan, and the arrays it closed over."""
+function recordplan(m::Model, g::Graph, name, args, dims, clampattn, noise)
+    dev = Mantle.Device(m.backend)
+    Mantle.recordsplans(dev) || throw(ArgumentError(
+        "record=true requires a backend with recorded graph support"))
+    slab, plans, ws, lazies, recs, _ = scratchfor(m, dims)
+    mg = Mantle.Graph(dev)
+    rec = startcall!(recs[name])
+    vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
+                    dims, backend = m.backend, slab = slab, plan = plans[name], ws = ws,
+                    lazy = lazies[name], rec = rec, diag = m.diag, clampattn, noise,
+                    mgraph = mg)
+    ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
+              lazy = lazies[name], rec, diag = m.diag, clampattn, noise)
+    # INSIDE the recording. An output that is a view is materialised here, by a
+    # copy, and a copy outside the recording happens once — at record time — so
+    # every replay afterwards hands back the bytes that call produced. Whisper is
+    # where that shows: its encoder output is a slab slot, and with the copy left
+    # out of the plan every window transcribed as the first one had.
+    outs = Mantle.record_into(mg, string(name, "_out")) do
+        Tuple(value(ctx, o) for o in g.outputs)
+    end
+    RecordedPlan(Mantle.record!(Mantle.Plan(mg);
+        maxpasses = get(m.record_maxpasses, name, 0)), args, outs)
 end
 
 mutable struct State

@@ -310,7 +310,7 @@ be at a workgroup of `nt` invocations, from the device's own table
 (`M.DeviceCaps.wggran`). `nothing` means this device will not run a
 workgroup-scope matrix at that workgroup size at all.
 
-The lookup itself is `Lava.wggranularity` — the table is the device's, so the
+The lookup itself is `Mantle.wggranularity` — the table is the device's, so the
 walk into it belongs beside the query that fills it rather than copied here.
 This name stays because the kernels below read better for it.
 
@@ -320,7 +320,7 @@ RTX 4000 Ada, 16/16/16 at 32 and 64 invocations, 32/16/16 at 128, 32/32/16 at
 then 80 rather than 96, and the padding is 10% of both products instead of 33%.
 Measured, every tiling was faster at 128 for exactly that reason.
 """
-@inline cm2granularity(dev::M.DeviceCaps, nt::Int) = Lava.wggranularity(dev, nt)
+@inline cm2granularity(dev::M.DeviceCaps, nt::Int) = Mantle.wggranularity(dev, nt)
 
 """
     cm2pad(dev, E, nt) -> EP | nothing

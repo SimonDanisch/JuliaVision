@@ -26,9 +26,16 @@ is one interpolated string per dispatch on a 0.6 s run.
 using Test, SAM2Runner, Random
 using DNNKernels: verifygraph
 import Lava
+# This file's OWN scope, which is not the subprocess's: the `import Mantle` below
+# is inside `SUBPROCESS`, and the `Lava.` -> `Mantle.` rename left the
+# layer-by-layer testset naming `Mantle.LavaBackend()` with nothing bound here.
+import Mantle
+import KernelAbstractions
 
 const SUBPROCESS = """
 using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
+import Mantle
+using Mantle: LavaBackend
 using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions
 
@@ -36,7 +43,7 @@ backend = LavaBackend()
 # See the module docstring: this exists so a rare hang names its kernel. These
 # are `ctx.diag` fields now, not module-level `Ref`s, so they are set AFTER the
 # backend exists — there is no context to carry them before that.
-let d = Lava.vk_context().diag
+let d = Mantle.vk_context().diag
     d.dispatch_log_file = joinpath(tempdir(), "sam2runner_dispatch.log")
     d.dispatch_logging = true
 end
@@ -178,7 +185,7 @@ end
         @info "no SAM 2 assets; the layer-by-layer gate is SKIPPED, not passing"
         @test_skip SAM2Runner.ready()
     else
-        back = Lava.LavaBackend()
+        back = Mantle.LavaBackend()
         sam = SAM2Runner.sam2model(; backend = back)
         refs = SAM2Runner.sam2refs()
 
@@ -193,18 +200,53 @@ end
                                      sam.model.weights;
                                      dims = (res = 1024,), backend = back,
                                      verbose = false)
-        # Known, and so far unlocalised: the dump covers the encoder at its six
-        # outputs only, so `add_129` carries the accumulated fp16 difference of
-        # the 543 unchecked ops before it. `runsam2`'s score is unaffected and
-        # the value is identical fused and unfused. Localising it is
-        # `uv run tools/dump_sam2_refs.py --nodes all` — which needs a torch
-        # install this machine does not have. Until then the gate pins the
-        # signature: same node, same magnitude, and a change either way fails.
+        # LOCALISED, 2026-09-14, and it is not this runtime's: the divergence
+        # starts at `add_82` and `add_129` is only where it has grown big enough
+        # to see. Dumping every residual add —
+        #
+        #     tools/dump_sam2_refs.py --graphs encoder --keep 'add_*'
+        #
+        # (the `--keep` that makes bisecting the encoder affordable; `--nodes
+        # all` is 21.6 GiB and a smaller `--size` changes the computation) and
+        # running `verifygraph` against it puts the FIRST mismatch at `add_82`
+        # on both Mantle backends: 7.9% of that node's scale through Lava and
+        # 10.5% through ROCm, where every node before it passes. Three ops
+        # separate the last good node from it — one layer norm and the two
+        # `addmm`s of block 24's MLP — and that is where this graph's fp16
+        # residual jumps from 18.4 to 77.1 and then climbs to 560 by `add_120`.
+        #
+        # The ROCm share above was measured while that layer norm was still the
+        # six-pass fallback on that backend; the one-kernel form reaches it now
+        # and took `add_129` from 4.244 to 1.398, so the ROCm figure is smaller
+        # than 10.5% today. Re-measuring it needs the `--keep 'add_*'` dump
+        # again, which is not in the artifact.
+        #
+        # So the band below is one runtime's TAIL of a shared divergence, not a
+        # portable tolerance: PyTorch-on-ROCm reports 0.271 for this node
+        # against a CUDA dump, XLA 0.428 fused and 0.521 math, Lava 0.367 and
+        # DNNKernels-on-ROCm 1.398. A second backend should not be held to this
+        # number. What the gate is still good for is a CHANGE on this one:
+        # same node, same magnitude, and a move either way fails.
         f = first(diffse)
         @test !oke
         @test f.id == "add_129"
         @test 0.2 < f.maxabs < 0.6
     end
+end
+
+@testset "the replay gate asks whether a backend records, not which it is" begin
+    # `handover` refuses a backend that cannot replay a recorded plan, and the
+    # question it asks is `Mantle.recordsplans` on that backend's device. It read
+    # `s.model.backend isa Mantle.LavaBackend` until 2026-09-14, which named the
+    # one backend that recorded when it was written: the ROCm backend's device
+    # answers `true` and its decoder verifies bit-exact against the PyTorch
+    # references, and `runsam2` was still unreachable there.
+    #
+    # Both answers, so this is not vacuous — there IS a backend the gate has to
+    # refuse, and it is refused for the right reason. The positive path through
+    # `handover` itself is what `test_replay_decode.jl` exercises below.
+    @test Mantle.recordsplans(Mantle.Device(Mantle.LavaBackend()))
+    @test !Mantle.recordsplans(Mantle.Device(KernelAbstractions.CPU()))
 end
 
 # The decoder's baked-plan path. It lived in `DNNKernels/test` while `sam2.jl`

@@ -32,7 +32,7 @@ using ColorTypes: RGB, red, green, blue
 # Through ColorTypes rather than as a direct dependency: the workload needs the
 # editor's exact frame element type and nothing else from FixedPointNumbers.
 const N0f8 = ColorTypes.FixedPointNumbers.N0f8
-using Lava: @setup_workload, @compile_workload
+using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 # `Model`, `call` and `toback` are the graph-calling layer, which stays in the
 # kernel library. `SAM2`, `encode`, `decode`, `prompt` and `segment` are this
@@ -80,7 +80,21 @@ A caller that just wants to segment a picture never fetches these.
 refsdir() = @artifact_str("sam2-large-refs")
 
 """
-    sam2model(; backend, dir, res, kw...) -> SAM2
+    sam2graphs() -> Dict{String,Graph}
+
+Both graphs, keyed the way `Model` and `m.graphs[...]` name them.
+
+This exists because `Model` takes loaded objects rather than paths: which
+artifact holds SAM 2, and which graphs it wants, are this package's knowledge
+and not the runtime's. Weights are [`sam2weights`](@ref), below. Internal for
+the same reason `assetdir` is — nothing outside this file may name the layout
+inside the artifact.
+"""
+sam2graphs() = Dict(n => loadgraph(joinpath(assetdir(), "$n.json"))
+                    for n in ("sam2_encoder", "sam2_decoder"))
+
+"""
+    sam2model(; backend, res, kw...) -> SAM2
 
 Load the model. Separate from [`runsam2`](@ref) so the workload can build it in
 `@setup_workload`, where the loading is *not* what is being cached.
@@ -99,9 +113,8 @@ around that. It was also, unnoticed, the reason this package's own
 nothing at all. The decoder is a baked Mantle plan now; a plan holds references
 to everything it names, so there is no longer a fault to work around.
 """
-function sam2model(; backend = LavaBackend(), dir::AbstractString = assetdir(),
-                     res::Int = 1024, kw...)
-    return SAM2(dir, joinpath(dir, "weights.safetensors"); backend, res, kw...)
+function sam2model(; backend = Mantle.LavaBackend(), res::Int = 1024, kw...)
+    return SAM2(sam2graphs(), sam2weights(); backend, res, kw...)
 end
 
 # ── What callers outside this package may ask for ────────────────────────────
@@ -124,7 +137,8 @@ An exported ATen graph by name — `"sam2_encoder"` or `"sam2_decoder"`. Throws
 with the path it looked in rather than returning `nothing` for the caller to trip
 over later.
 """
-function sam2graph(name::AbstractString; dir::AbstractString = assetdir())
+function sam2graph(name::AbstractString)
+    dir = assetdir()
     p = joinpath(dir, "$name.json")
     isfile(p) || throw(ArgumentError(
         "SAM 2 graph `$name` not found at $p. Re-export and re-bind with " *
@@ -133,24 +147,26 @@ function sam2graph(name::AbstractString; dir::AbstractString = assetdir())
 end
 
 """
-    sam2weights(; dir = assetdir()) -> Dict
+    sam2weights() -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
-function sam2weights(; dir::AbstractString = assetdir())
+function sam2weights()
+    dir = assetdir()
     p = joinpath(dir, "weights.safetensors")
     isfile(p) || throw(ArgumentError("SAM 2 weights not found at $p"))
     return readsafetensors(p)
 end
 
 """
-    sam2refs(; dir = refsdir()) -> Dict
+    sam2refs() -> Dict
 
 The PyTorch reference activations, from the `sam2-large-refs` artifact. Test-only
 material, which is why it is a separate artifact: a caller that just wants to
 segment a picture never fetches 1.2 GB of fixtures.
 """
-function sam2refs(; dir::AbstractString = refsdir())
+function sam2refs()
+    dir = refsdir()
     p = joinpath(dir, "refs.safetensors")
     isfile(p) || throw(ArgumentError(
         "SAM 2 reference activations not found at $p — the `sam2-large-refs` " *
@@ -159,14 +175,14 @@ function sam2refs(; dir::AbstractString = refsdir())
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether the assets are installed. Workloads and tests both branch on this,
 because neither may fail on a machine that has not fetched the artifact.
 """
-ready(; dir::AbstractString = assetdir()) =
-    isfile(joinpath(dir, "weights.safetensors")) &&
-    isfile(joinpath(dir, "sam2_encoder.json"))
+ready() =
+    isfile(joinpath(assetdir(), "weights.safetensors")) &&
+    isfile(joinpath(assetdir(), "sam2_encoder.json"))
 
 """
     runsam2(model, image, points, labels; pick = :best) -> (mask, score)
@@ -206,7 +222,7 @@ iterations and the buffer used to reach it through a `Ref{Any}`. Every
 **~740 ms per call**, three times the encode it feeds. The same loop with a
 typed destination is 3.2 ms.
 
-That cost was invisible to every GPU profile — `Lava.with_dispatch_timing` says
+That cost was invisible to every GPU profile — `Mantle.with_dispatch_timing` says
 the encode is 98% GPU-bound and it is; this sits entirely outside it, in front.
 """
 function resizeto!(img::Array{Float32,4}, frame::AbstractMatrix, res::Integer)
@@ -298,20 +314,20 @@ convenience form useless for the thing it is for.
 const DEFAULT_MODEL = Ref{Any}(nothing)
 
 """
-    defaultmodel(; backend = LavaBackend()) -> SAM2
+    defaultmodel(; backend = Mantle.LavaBackend()) -> SAM2
 
 The shared model, built on first call. Throws with the path it looked in when
 the weights are not installed, rather than returning `nothing` for the caller to
 trip over later.
 """
-function defaultmodel(; backend = LavaBackend())
+function defaultmodel(; backend = Mantle.LavaBackend())
     m = DEFAULT_MODEL[]
     m === nothing || return m::SAM2
     dir = assetdir()
     isfile(joinpath(dir, "weights.safetensors")) || throw(ArgumentError(
         "SAM 2.1 weights not found at $dir. Set JULIA_SAM2_ASSETS, or generate " *
         "them with `uv run tools/export_sam2.py && uv run tools/convert_weights.py`."))
-    m = sam2model(; backend, dir)
+    m = sam2model(; backend)
     DEFAULT_MODEL[] = m
     return m
 end
@@ -348,7 +364,7 @@ after that is the network.
 """
 function segment(image::AbstractMatrix, points::AbstractVector;
                             key = nothing, model::Union{Nothing,SAM2} = nothing,
-                            pick = :confident, backend = LavaBackend())
+                            pick = :confident, backend = Mantle.LavaBackend())
     m = model === nothing ? defaultmodel(; backend) : model
     seg = get!(SEGMENTERS, (objectid(m), pick)) do
         sam2segmenter(m; pick)
@@ -438,7 +454,7 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
+    Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -462,7 +478,7 @@ end
             isfile(joinpath(dir, "sam2_encoder.json"))
     if ready
         try
-            backend = LavaBackend()
+            backend = Mantle.LavaBackend()
             res = 1024
 
             # The frame type the editor actually hands a segmenter, and the
@@ -484,7 +500,7 @@ end
                 #
                 # This used to sit outside, with a comment saying the loading is
                 # not what is being cached. The methods are not; the kernels are.
-                model = sam2model(; backend, dir)
+                model = sam2model(; backend)
                 image = toback(backend, zeros(Float32, res, res, 3, 1))
                 mask, score = runsam2(model, image)
                 # Force the results across the host boundary: the download path
@@ -513,7 +529,15 @@ end
                 KA.synchronize(backend)
             end
         catch err
-            @warn "SAM2Runner: workload skipped; first use will compile" exception = err
+            # The catch is here so precompilation survives a machine with no
+            # driver, and the message must not imply anything milder than what
+            # happened: this workload runs the same code a caller runs, so if it
+            # threw for a reason other than a missing device, first use throws
+            # too. It said "first use will compile" while `plansfor` had been
+            # broken against Mantle's deleted `custom!` the whole time.
+            @warn "SAM2Runner: workload FAILED, not skipped — unless this is a " *
+                  "machine without a working device, first use will throw the " *
+                  "same error" exception = (err, catch_backtrace())
         end
     else
         @info "SAM2Runner: no assets at $dir — nothing precompiled"
