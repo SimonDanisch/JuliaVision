@@ -58,7 +58,7 @@ accumulated in the operand's type would make that fold change the answer. A
 same argument-not-wrapper decision `ew!` makes, so a premapped sum is still one
 dispatch and one pass.
 """
-function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f) where {N}
+function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, scale = nothing) where {N}
     i = KI.get_global_id().x
     i <= prod(od) || return
     ist = colstrides(id)
@@ -81,7 +81,13 @@ function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f) where {N}
         end
         acc += f(a[off + 1])
     end
-    @inbounds out[i] = acc
+    # `scale` is `mean.dim`: the reduction divided by how many elements it summed.
+    # In the SAME kernel, and folded into the accumulator's type rather than a
+    # second elementwise pass, because the count is a host scalar the emit
+    # already knows — a pass to multiply by a constant is a whole extra
+    # round-trip of the result through memory. `nothing` is `sum`, and the
+    # branch is on a type, so neither form pays for the other.
+    @inbounds out[i] = scale === nothing ? acc : acc * scale
     return
 end
 
@@ -99,5 +105,117 @@ function arange!(out, n::Int, start, step)
     i = KI.get_global_id().x
     i <= n || return
     @inbounds out[i] = start + (i - 1) * step
+    return
+end
+
+# ── advanced indexing ────────────────────────────────────────────────────────
+#
+# `index.Tensor` was two host-side shapes: an outer product, which Julia's
+# `view` already computes and which could stay on the device, and torch's
+# PAIRED broadcast, which had no Julia spelling and so gathered on the HOST --
+# `collect(vec(x))[vec(lin)]`, a full round trip. That is exactly what a
+# recorded plan forbids, so the paired form could never be replayed.
+#
+# Declared, both are a gather, and the index arrays are ordinary read operands.
+# Nothing comes to the host and nothing needs the `.+ 1` pass the interpreted
+# path ran to make torch's 0-based values into Julia ones: a 0-based value IS
+# the coordinate, and the one `+ 1` is on the final linear index.
+
+"""
+The source coordinate for output axis `k` at output coordinate `c` (0-based).
+
+`c` itself where the axis is sliced, and `idxs[j][c + 1]` where it is the `j`-th
+indexed axis. A recursive walk rather than a lookup because the index arrays
+have different types; it unrolls, so the kernel has no tuple indexing at run
+time. Both signatures are typed identically so `Tuple{}` is strictly more
+specific — untyped trailing arguments make the two AMBIGUOUS, which inside a
+kernel is a `jl_f_throw_methoderror` reported as "method lookup failure".
+"""
+@inline srccoord(::Tuple{}, ::Tuple{}, k::Int, c::Int) = c
+@inline function srccoord(idxs::Tuple, dims::Tuple, k::Int, c::Int)
+    first(dims) == k && return Int(@inbounds first(idxs)[c + 1])
+    return srccoord(Base.tail(idxs), Base.tail(dims), k, c)
+end
+
+"""
+    indexgather!(out, od, x, xd, idxs, dims)
+
+`out = x[..., idxs[1], ..., idxs[2], ...]` where the index tensors form an OUTER
+PRODUCT over the axes they index — the separable case, and the only one Julia's
+`view` computes the same way.
+
+`out` has `x`'s rank with each indexed axis replaced by that index's length, so
+one linear pass over `out` decomposes into output coordinates and each one maps
+through `srccoord`.
+"""
+function indexgather!(out, od::NTuple{N,Int}, x, xd::NTuple{N,Int},
+                      idxs::Tuple, dims::Tuple) where {N}
+    i = KI.get_global_id().x
+    i <= prod(od) || return
+    xst = colstrides(xd)
+    off = 0
+    r = i - 1
+    @inbounds for k in 1:N
+        c = r % od[k]
+        r = r ÷ od[k]
+        off += srccoord(idxs, dims, k, c) * xst[k]
+    end
+    @inbounds out[i] = x[off + 1]
+    return
+end
+
+"""The contribution of each paired index tensor to the source offset."""
+@inline pairedoffset(::Tuple{}, ::Tuple{}, xst::Tuple, lin::Int,
+                     od::NTuple{N,Int}, j::Int) where {N} = 0
+@inline pairedoffset(idxs::Tuple, sts::Tuple, xst::Tuple, lin::Int,
+                     od::NTuple{N,Int}, j::Int) where {N} =
+    Int(@inbounds first(idxs)[bcindex(lin, od, first(sts))]) * @inbounds(xst[j]) +
+    pairedoffset(Base.tail(idxs), Base.tail(sts), xst, lin, od, j + 1)
+
+"""
+    indexpaired!(out, od, x, xd, idxs, sts)
+
+Torch's advanced indexing with more than one index tensor and no outer-product
+structure: the index arrays are broadcast against EACH OTHER, and each output
+position takes one element of `x`.
+
+Every axis of `x` is indexed here, so the source coordinate is complete — the
+mixed case is separable and handled by [`indexgather!`](@ref). `sts` is each
+index tensor's effective strides against `od`, computed at emit time, so the
+broadcast costs a `bcindex` and no materialised copy.
+"""
+function indexpaired!(out, od::NTuple{N,Int}, x, xd::Tuple, idxs::Tuple,
+                      sts::Tuple) where {N}
+    i = KI.get_global_id().x
+    i <= prod(od) || return
+    off = pairedoffset(idxs, sts, colstrides(xd), i - 1, od, 1)
+    @inbounds out[i] = x[off + 1]
+    return
+end
+
+"""
+    catcopy!(out, od, part, pd, d, off)
+
+One input of a `cat` into its slice of the output: `out[..., off+1:off+pd[d], ...] = part`.
+
+A kernel and not a `slice`, because a `cat` along anything but the last axis is
+not contiguous in the output — the slice a `Mantle.slice` names is a linear
+range, and this one is strided. One dispatch per input, each writing a disjoint
+region, which is why the graph may run them concurrently: the walk reports `out`
+written by each and `Barriers` finds no hazard between them.
+"""
+function catcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
+                  ::Val{D}, off::Int) where {N,D}
+    i = KI.get_global_id().x
+    i <= prod(pd) || return
+    ost = colstrides(od)
+    o = 0
+    r = i - 1
+    @inbounds for k in 1:N
+        c = r % pd[k]
+        r = r ÷ pd[k]
+        o += (k == D ? c + off : c) * ost[k]
+    end
+    @inbounds out[o + 1] = part[i]
     return
 end

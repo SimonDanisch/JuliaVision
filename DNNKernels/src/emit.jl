@@ -260,6 +260,7 @@ It was two `use` calls at this site, which is the same fact stated twice.
 function elementwise!(ec::EmitCtx, op::Op, f, ins...)
     out = dest(ec)
     od = size(out)
+    length(out) == 0 && return out      # see `mapbody!`
     ops, sts = operandtuples(od, ins)
     M.dispatch!(ec.g, ew!, (out, od, ops, sts, f), length(out); name = op.id)
     return out
@@ -452,6 +453,9 @@ sequence length writes `full((1,), t)`.
 """
 function emitfill!(ec::EmitCtx, op::Op, v)
     out = dest(ec)
+    # See `mapbody!`: an empty result needs no pass, and `empty.memory_format`
+    # is where they come from.
+    length(out) == 0 && return out
     M.dispatch!(ec.g, M.fill_kernel!, (out, convert(eltype(out), v)), length(out);
                 name = op.id)
     return out
@@ -593,6 +597,241 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("arange.start_step")})
     T = eltype(out)
     M.dispatch!(ec.g, arange!, (out, n, T(start), T(step)), n; name = op.id)
     return out
+end
+
+"""
+`aten::index.Tensor` — torch's advanced indexing, as one gather.
+
+Torch indexes the UN-REVERSED shape, so entry `k` of `arg1` addresses Julia
+dimension `ndims - k + 1`, and the values are 0-based. They stay 0-based: a
+0-based value is the source coordinate the kernel adds to an offset, so the
+`.+ 1` pass the interpreted path ran is gone with it.
+
+Two shapes, and telling them apart is the part that is easy to get silently
+wrong, because Julia spells the other thing the same way. `x[i, j]` with two
+vectors selects `length(i) * length(j)` elements; torch broadcasts `i` against
+`j` and selects `length(i)` of them, one per position. `indexseparable` is when
+the two agree — each index tensor varying along its own broadcast axis — which is
+SAM 2's position-embedding interpolation, sixteen times.
+
+Declared, both are a gather and both keep their index on the device. The paired
+form used to run on the HOST (`collect(vec(x))[vec(lin)]`), which is why it could
+never be recorded; there is no round trip now.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
+    x = operand(ec, op, 1)
+    spec = op.attrs["arg1"]
+    n = ndims(x)
+    dims, idxs = Int[], Any[]
+    for (k, e) in enumerate(spec)
+        e === nothing && continue
+        jd = n - k + 1
+        1 <= jd <= n || error(
+            "DNNKernels: `index.Tensor` (op $(op.id)) indexes dim $k of a " *
+            "$(n)-d input.")
+        push!(dims, jd)
+        push!(idxs, operand(ec, String(e)[2:end]))   # attrs store "\$name"
+    end
+    out = dest(ec)
+    isempty(dims) && return elementwise!(ec, op, identity, x)
+    # Ascending Julia dimension. `spec` is in torch order, so reversing each
+    # entry's axis walks the Julia dims backwards; `indexgather!` pairs the j-th
+    # indexed dimension with the j-th index tensor, and unsorted that is
+    # transposed.
+    p = sortperm(dims)
+    dims, idxs = dims[p], Tuple(idxs[p])
+    od = size(out)
+    if length(dims) == 1 || indexseparable(dims, idxs)
+        size(x) isa NTuple{length(od),Int} || error(
+            "DNNKernels: `index.Tensor` (op $(op.id)) is separable, so its " *
+            "output has the input's rank $(ndims(x)) and holds $(length(od)).")
+        M.dispatch!(ec.g, indexgather!, (out, od, x, size(x), idxs, Tuple(dims)),
+                    prod(od); name = op.id)
+    else
+        length(dims) == n || error(
+            "DNNKernels: `index.Tensor` (op $(op.id)) pairs $(length(dims)) " *
+            "index tensors over a $(n)-d input. Mixing paired and sliced axes " *
+            "is where torch also has to decide WHERE the gathered axis goes, " *
+            "and the separable half of that is handled above.")
+        sts = Tuple(bcstrides(od, size(i)) for i in idxs)
+        M.dispatch!(ec.g, indexpaired!, (out, od, x, size(x), idxs, sts),
+                    prod(od); name = op.id)
+    end
+    return out
+end
+
+"""
+    mapbody!(ec, op, body, out, args...) -> out
+
+Declare `body(I, args...)` at every index of `out`, as one dispatch.
+
+The kernel is `ndmap_flat!`, which is the one `launch!` picks for a
+linearly-indexable destination, and the body is the same function the
+interpreted path passed it. So the index arithmetic and the arithmetic are
+literally that code -- an op declared through this differs from the op that ran
+in when it is submitted and in nothing else. `Mantle.FastDiv32` is why the flat
+variant is the fast one: the coordinate decomposition is a magic-number multiply
+rather than N-1 real divisions.
+"""
+function mapbody!(ec::EmitCtx, op::Op, body, out, args...; name = op.id)
+    n = length(out)
+    # An EMPTY result needs no pass, and `Mantle.dispatch!` refuses one rather
+    # than carrying a dispatch that does nothing. torch produces empty tensors
+    # legitimately -- SAM 2's decoder concatenates a `(1, 0, 256)` on the branch
+    # with no boxes -- so the skip belongs here, where the shape is known, and
+    # the refusal belongs there, where a zero ndrange would otherwise become a
+    # `DivideError` inside `KernelAbstractions.partition`.
+    n == 0 && return out
+    M.dispatch!(ec.g, ndmap_flat!,
+                (body, out, map(M.FastDiv32, size(out)), n, args...), n; name)
+    return out
+end
+
+"""`aten::upsample_nearest2d`, as one gather at the output's resolution."""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("upsample_nearest2d.vec")})
+    x = operand(ec, op, 1)
+    out = dest(ec)
+    return mapbody!(ec, op, upsample_nearest, out, x,
+                    Float32(size(x, 1) / size(out, 1)),
+                    Float32(size(x, 2) / size(out, 2)))
+end
+
+"""
+`aten::cumsum` along one axis, one thread per output element.
+
+Each thread walks the axis from its start, so the work is quadratic in the
+scanned extent rather than a parallel scan's linear cost. Deliberate, and the
+reason is in `cumsum_body`: the only `cumsum` in any graph here builds SAM 2's
+dense positional encoding from a constant 64x64 tensor, 262k adds once per
+decoder call. A work-efficient scan belongs here the moment something scans a
+long axis, and until then it would be untested code.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("cumsum.default")})
+    a = operand(ec, op, 1)
+    out = dest(ec)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    return mapbody!(ec, op, cumsum_body, out, a, Val(Int(d)))
+end
+
+"""
+`aten::max_pool2d_with_indices`, whose second result nothing reads.
+
+torch returns `(values, indices)` and every graph here uses only the first, so
+the indices are declared as the empty buffer the export gives them. The window,
+stride and padding are `Val`-parameters: they are host constants, and in the
+kernel's type they make its bounds arithmetic compile-time.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default")})
+    x = operand(ec, op, 1)
+    k = reverse(ints(op.attrs["arg1"]))
+    st = haskey(op.attrs, "arg2") ? reverse(ints(op.attrs["arg2"])) : k
+    pd = haskey(op.attrs, "arg3") ? reverse(ints(op.attrs["arg3"])) : [0, 0]
+    out = dest(ec, 0)
+    mapbody!(ec, op, maxpool, out, x, Val(k[1]), Val(k[2]),
+             Val(st[1]), Val(st[2]), Val(pd[1]), Val(pd[2]))
+    return (out, dest(ec, 1))
+end
+
+"""
+`aten::mean.dim`, which is `sum.dim_IntList` with the count folded into the
+store.
+
+Not a second pass to divide: the count is a host scalar the emit already knows,
+so `sumdims!` takes a `scale` and multiplies once, inside the accumulator's
+type. A pass to scale by a constant is a whole round trip of the result through
+memory.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("mean.dim")})
+    a = operand(ec, op, 1)
+    out = dest(ec)
+    id = size(a)
+    dims = Tuple(jdim(d, length(id)) for d in ints(op.attrs["arg1"]))
+    od = ntuple(k -> k in dims ? 1 : id[k], length(id))
+    prod(od) == length(out) ||
+        error("DNNKernels: `mean.dim` (op $(op.id)) reduces $(id) over $(dims) " *
+              "to $(prod(od)) elements, and its output buffer holds $(length(out)).")
+    f = something(premap(op), identity)
+    n = prod(id[k] for k in dims)
+    scale = accum(eltype(out))(1 // n)
+    M.dispatch!(ec.g, sumdims!, (out, od, a, id, f, scale), prod(od); name = op.id)
+    return out
+end
+
+"""
+`aten::cat`, as one dispatch per input into its slice of the output.
+
+Each input writes a disjoint region, so nothing orders them against each other:
+the walk reports `out` written by each and `Barriers` finds no hazard. An empty
+input is skipped rather than dispatched over zero elements -- SAM 2's decoder
+concatenates a `(1, 0, 256)` onto the sparse embeddings on the branch with no
+boxes.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
+    parts = [operand(ec, i) for i in op.ins]
+    out = dest(ec)
+    od = size(out)
+    n = length(od)
+    d = jdim(Int(get(op.attrs, "arg1", 0)), n)
+    total = sum(size(p, d) for p in parts)
+    total == od[d] ||
+        error("DNNKernels: `cat` (op $(op.id)) joins $(total) along axis $d and " *
+              "its output holds $(od[d]).")
+    off = 0
+    for (j, p) in enumerate(parts)
+        len = size(p, d)
+        len == 0 && continue
+        M.dispatch!(ec.g, catcopy!,
+                    (out, od, p, ntuple(k -> size(p, k), n), Val(d), off),
+                    length(p); name = "$(op.id).$j")
+        off += len
+    end
+    return out
+end
+
+"""
+`aten::native_layer_norm`, as ONE dispatch.
+
+One workgroup per normalised group, two reduction passes inside the kernel. The
+fallback the interpreted path carried -- six broadcast passes for a non-dense or
+host operand -- is not here: this path requires the normalised axes to be
+leading and dense, which is what the reversed layout gives (torch normalises
+over trailing dims, we see them leading), and a graph that violates it gets a
+refusal naming the shape rather than a silently slower answer. SAM 2's 96 layer
+norms are all this form.
+
+`γ` and `β` are optional and the kernel takes a PLACEHOLDER for a missing one,
+with `Val(has)` deciding. Declared, that costs nothing: the walk specialises on
+the `Val`, so the branch reading an absent `γ` folds away and the placeholder
+comes out `NOTOUCH` rather than declared read.
+
+All three of torch's results are declared -- the output, the mean and the
+reciprocal standard deviation. The last two are what a backward pass reads, and
+a graph that never reads them still has them placed, which keeps the op's shape
+honest for `2 * groups` floats.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.default")})
+    a = operand(ec, op, 1)
+    nshape = ints(op.attrs["arg1"])
+    eps = Float32(op.attrs["arg4"])
+    n = prod(size(a, i) for i in 1:length(nshape))
+    γ = length(op.ins) >= 2 ? operand(ec, op.ins[2]) : nothing
+    β = length(op.ins) >= 3 ? operand(ec, op.ins[3]) : nothing
+    length(a) % n == 0 || error(
+        "DNNKernels: `native_layer_norm` (op $(op.id)) normalises $n elements " *
+        "of a $(size(a)) operand, which does not divide it. The normalised axes " *
+        "have to be leading and dense here; `hoistpermutes` is what makes them so.")
+    out, μ, r = dests(ec, 3)
+    groups = length(a) ÷ n
+    # The placeholder for an absent operand, and it must be a RESOURCE: the
+    # kernel indexes it whether or not the `Val` lets it, so a `nothing` would
+    # not compile. `a` is always present and already declared read.
+    dummy = γ === nothing ? (β === nothing ? a : β) : γ
+    M.dispatch!(ec.g, layernorm_kernel!,
+                (out, μ, r, a,
+                 γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+                 Int32(n), eps, Val(γ !== nothing), Val(β !== nothing)),
+                groups * LN_WG; group = LN_WG, name = op.id)
+    return (out, μ, r)
 end
 
 # ── batch norm, in training mode ─────────────────────────────────────────────
