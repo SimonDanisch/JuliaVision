@@ -25,9 +25,17 @@ matanyone(n::AbstractString) = loadgraph(joinpath(artifact"matanyone", "graphs",
 "SAM 2's `sam2_encoder` or `sam2_decoder`."
 sam2(n::AbstractString) = loadgraph(joinpath(artifact"sam2-large", "$n.json"))
 
-"Names present in the artifact, so a test can skip precisely rather than throw."
+"""
+Graph names present in the artifact, so a test can skip precisely rather than
+throw.
+
+`op_histogram.json` sits next to the graphs and is not one — `loadgraph` on it
+is a `KeyError: key :buffers not found`. Excluded here rather than worked around
+by each caller with its own list of the eight names it expects; that list was in
+`test_plan.jl` and went out of date the moment the export gained a graph.
+"""
 matanyonenames() = [splitext(f)[1] for f in readdir(joinpath(artifact"matanyone", "graphs"))
-                    if endswith(f, ".json")]
+                    if endswith(f, ".json") && f != "op_histogram.json"]
 have(n::AbstractString) = n in matanyonenames()
 
 end
