@@ -426,8 +426,23 @@ function hoistconstants(g::Graph, weights::Dict{String,Any}, backend)
     # reason to exist.
     payload < freed || return (g, 0)
 
-    vals = execute!(constsubgraph(g, ops, sort(collect(esc))), Dict{String,Any}(), weights;
-                    dims = NamedTuple(), backend)
+    # The one pass that has to RUN what it folds, and it runs it the declared
+    # way: emit the constant subgraph into a Mantle graph, plan it, submit it
+    # once. It used to call `execute!`, which is the interpreted path and which
+    # needed a `Workspace` this package no longer has.
+    #
+    # `copy` and not the storage itself: what comes back is the plan's own
+    # buffer, and the plan is dropped at the end of this function while the value
+    # goes into `weights` for the life of the model. The gate above bounds how
+    # much this copies -- a fold that materialises more than it frees is refused.
+    sub = constsubgraph(g, ops, sort(collect(esc)))
+    dev = Mantle.Device(backend)
+    mgraph, ec = emitgraph(dev, sub, weights, NamedTuple())
+    plan = Mantle.Plan(mgraph)
+    Mantle.run!(plan)
+    Mantle.waitidle(dev)
+    vals = Dict{String,Any}(e => copy(Mantle.storage(ec.res[e])) for e in esc)
+    Mantle.free!(plan)
 
     buffers = Dict{String,Buffer}(g.buffers)
     for e in esc

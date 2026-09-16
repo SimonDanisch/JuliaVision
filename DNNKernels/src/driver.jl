@@ -57,51 +57,12 @@ Model(graphs, weights, backend, memevery, memframes, topk, scratch;
     Model(graphs, weights, backend, memevery, memframes, topk, scratch,
           Diagnostics(), record, Dict{String,Int}(record_maxpasses))
 
-"""
-    scratchfor(m, dims) -> (slab, plans, workspace, lazies, recyclers)
-
-One slab for every graph at this resolution, sized to the largest peak. The
-graphs run one after another inside a step, so they can share it; values that
-escape a graph are excluded from the plan (see `escaping`).
-
-The recyclers are *per graph*, unlike the slab and the workspace: their ordinals
-count allocations within one graph call, so sharing one across graphs would make
-a graph's ordinals depend on what ran before it in the step — and the step has
-two shapes (`encode_mask_deep` on every fifth frame, `encode_mask_shallow`
-otherwise), which would shift every ordinal after that point on alternate steps.
-
-**Only graphs whose symbols `dims` resolves are planned.** A model's graphs need
-not share an axis: Kokoro's text half is symbolic in the token count and its
-vocoder in the frame count, and the frame count is not known until the text half
-has run — the model predicts it. Planning every graph at every `dims` made that
-model impossible to call at all, with a `FieldError` naming the missing field
-rather than the graph that wanted it.
-"""
-function scratchfor(m::Model, dims)
-    get!(m.scratch, dims) do
-        plans = Dict(n => planslab(g, dims)
-                     for (n, g) in m.graphs if all(s -> haskey(dims, Symbol(s)), g.symbols))
-        nb = maximum(p -> p.bytes, values(plans); init = 0)
-        # From MANTLE'S pool, not `KA.allocate`. This slab is the largest thing a
-        # model allocates and it is scratch — dead the moment the graph is done —
-        # so it is exactly what an allocator that sees every workload should be
-        # reusing. Allocated privately it was invisible: an editor previewing
-        # frames and a model running on a click cannot both be resident, yet each
-        # held its own bytes.
-        dev = Mantle.Device(m.backend)
-        region = Mantle.allocate(Mantle.pool(dev), dev, Mantle.Persistent(),
-                                 UInt8, (max(nb, 1),);
-                                 align = 256, blocksize = Mantle.blocksize(dev))
-        slab = Mantle.deviceview(dev, region)
-        @debug "DNNKernels: static scratch slab $(round(nb/2^20, digits=2)) MB at $dims"
-        # One workspace for every graph at this resolution: it is reset per op,
-        # so the graphs cannot collide over it any more than two ops can.
-        # ... and one more for `step!` itself, which materialises the alpha and
-        # the mask it carries to the next frame outside of any graph.
-        (slab, plans, Workspace(m.backend), fusablesets(m.graphs),
-         Dict(n => Recycler() for n in keys(m.graphs)), Recycler())
-    end
-end
+# `scratchfor` was here: one slab per resolution from `planslab`, a `Workspace`
+# arena, and a `Recycler` per graph. All three recovered something the ATen
+# graph had already stated, and Mantle's `Liveness`/`Place`/`Aliasing` see the
+# whole of it before a byte is touched -- see `planfor`. `planslab`, `Slab` and
+# `Workspace` were deleted from this package on 2026-09-15; this is the caller
+# that still named them.
 
 """
     toback(backend, a) -> array
@@ -536,76 +497,66 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
         size(a) == want || throw(ArgumentError(
             "$name input `$id` is declared $want but got $(size(a))"))
     end
-    slab, plans, ws, lazies, recs, _ = scratchfor(m, dims)
-    # An alternating recycler bank has different output/scratch addresses.
-    # Likewise ZeroNoise and RandomNoise are different computations.
-    key = (:mantleplan, name, dims, clampattn, recs[name].bank, typeof(noise))
-    if m.record
-        mp = get(m.scratch, key, nothing)
-        if mp !== nothing
-            # The plan reads the buffers it was recorded against, so the call's
-            # arguments have to land in those. Identical objects are the common
-            # case and cost nothing.
-            for (dst, src) in zip(mp.inputs, args)
-                size(dst) == size(src) && eltype(dst) === eltype(src) ||
-                    throw(ArgumentError("$name replay input shape or dtype changed"))
-            end
-            for (dst, src) in zip(mp.inputs, args)
-                dst === src || copyto!(dst, src)
-            end
-            Mantle.run!(mp.plan)
-            return mp.outputs
-        end
+    # One plan per (graph, resolution, kernel selection), built on first call and
+    # replayed after. `clampattn` is in the key because it changes which kernels
+    # the graph dispatches, and `noise` because ZeroNoise and RandomNoise are
+    # different computations.
+    #
+    # There used to be TWO runs before a plan existed: an interpreted one for
+    # the values, then the whole graph again with a capture scope open so the
+    # backend's launch path could intercept each kernel. `emitgraph` declares
+    # instead of running, so there are none -- and `Plan` sees the whole graph
+    # before a byte is touched, which is what `scratchfor`'s slab, `Workspace`'s
+    # arena and the `Recycler` were each recovering a piece of.
+    key = (:plan, name, dims, clampattn, typeof(noise))
+    mp = get!(m.scratch, key) do
+        planfor(m, g, name, dims, clampattn, noise)
     end
-    rec = startcall!(recs[name])
-    vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
-                 dims, backend=m.backend, slab=slab, plan=plans[name], ws=ws,
-                 lazy=lazies[name], rec=rec, diag=m.diag, clampattn, noise)
-    # The same recycler resolves the outputs: an output that is a view gets
-    # materialised right here, and that copy needs a stable address as much as
-    # anything inside the graph did. Ordinals carry on from where `execute!` left
-    # them, which is deterministic because the op sequence is.
-    ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
-              lazy = lazies[name], rec, diag = m.diag, clampattn, noise)
-    outs = Tuple(value(ctx, o) for o in g.outputs)
-    # RECORD, after a full immediate run has settled everything a replay closes
-    # over: the workspace has reached its high-water mark, the split-K scratch
-    # has stopped growing, and every kernel is compiled. Recording before that
-    # captures dispatches pointing at buffers the next call would replace.
-    # Keyed on `clampattn` too: it changes which kernels the graph dispatches, so
-    # a plan recorded with it on is not the plan a call without it asked for.
-    if m.record && !haskey(m.scratch, key)
-        m.scratch[key] =
-            recordplan(m, g, name, args, dims, clampattn, noise)
+    # The plan reads the buffers it was declared against, so the call's arguments
+    # have to land in those. Identical objects are the common case and cost
+    # nothing.
+    for (dst, src) in zip(mp.inputs, args)
+        size(dst) == size(src) && eltype(dst) === eltype(src) ||
+            throw(ArgumentError("$name input shape or dtype changed between calls"))
     end
-    outs
+    for (dst, src) in zip(mp.inputs, args)
+        dst === src || copyto!(dst, src)
+    end
+    Mantle.run!(mp.plan)
+    return mp.outputs
 end
 
-"""Record one graph call into a Mantle plan, and the arrays it closed over."""
-function recordplan(m::Model, g::Graph, name, args, dims, clampattn, noise)
+"""
+    planfor(m, g, name, dims, clampattn, noise) -> RecordedPlan
+
+Declare one graph into a Mantle plan and record it. Runs no op.
+
+`emitgraph` walks the ops calling `emitop!`, which declares a dispatch per
+launch and nothing else -- what each one reads and writes is inferred from the
+kernel body. `Plan` then runs all seven of Mantle's phases over the whole graph
+(`Dag`, `Schedule`, `Liveness`, `Place`, `Aliasing`, `Barriers`, `Pipelines`),
+so placement, aliasing and barriers are decided before anything executes.
+
+The inputs and outputs are the STORAGE of the resources the graph declared, not
+fresh arrays: an output that escapes is a `Buffer` (see `escaping`), so reading
+it needs no copy, and an input is the array the plan's dispatches were packed
+with, which is why `call` copies into it rather than rebinding.
+"""
+function planfor(m::Model, g::Graph, name::AbstractString, dims,
+                 clampattn::Bool, noise::NoiseSource)
     dev = Mantle.Device(m.backend)
-    Mantle.recordsplans(dev) || throw(ArgumentError(
-        "record=true requires a backend with recorded graph support"))
-    slab, plans, ws, lazies, recs, _ = scratchfor(m, dims)
-    mg = Mantle.Graph(dev)
-    rec = startcall!(recs[name])
-    vals = execute!(g, Dict{String,Any}(zip(g.inputs, args)), m.weights;
-                    dims, backend = m.backend, slab = slab, plan = plans[name], ws = ws,
-                    lazy = lazies[name], rec = rec, diag = m.diag, clampattn, noise,
-                    mgraph = mg)
-    ctx = Ctx(vals, g, dims, m.backend; slab, plan = plans[name], ws,
-              lazy = lazies[name], rec, diag = m.diag, clampattn, noise)
-    # INSIDE the recording. An output that is a view is materialised here, by a
-    # copy, and a copy outside the recording happens once — at record time — so
-    # every replay afterwards hands back the bytes that call produced. Whisper is
-    # where that shows: its encoder output is a slab slot, and with the copy left
-    # out of the plan every window transcribed as the first one had.
-    outs = Mantle.record_into(mg, string(name, "_out")) do
-        Tuple(value(ctx, o) for o in g.outputs)
-    end
-    RecordedPlan(Mantle.record!(Mantle.Plan(mg);
-        maxpasses = get(m.record_maxpasses, name, 0)), args, outs)
+    mgraph, ec = emitgraph(dev, g, m.weights, dims)
+    plan = Mantle.Plan(mgraph)
+    Mantle.record!(plan; maxpasses = get(m.record_maxpasses, name, 0))
+    ins  = Tuple(Mantle.storage(ec.res[id]) for id in g.inputs)
+    outs = Tuple(Mantle.storage(ec.res[id]) for id in g.outputs)
+    return RecordedPlan(plan, ins, outs)
 end
+
+# `recordplan` was here, and it was the second interpreted run: the whole graph
+# again with `record_into` open so the backend's launch path captured each
+# kernel into a Mantle graph. `planfor` above declares the graph instead, so
+# there is no run to capture. `Mantle.record_into` is gone too.
 
 mutable struct State
     bank::MemoryBank
@@ -642,11 +593,11 @@ matte as `(W, H)`.
 function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
     dims = s.dims
     s.ti += 1
-    # One flip per step, before any graph runs: this step's outputs land in the
-    # other bank from the values it still has to read out of the last one.
-    recs, steprec = scratchfor(m, dims)[5:6]
-    foreach(flip!, values(recs))
-    startcall!(flip!(steprec))
+    # A `Recycler` flip was here, one per graph plus one for `step!` itself: it
+    # alternated two banks of addresses so this step's outputs did not land on
+    # bytes the last step still had to read. Mantle's placer decides that from
+    # declared liveness now -- a value that outlives its graph is not a
+    # transient, so nothing it might alias with is placed on it.
 
     # inference_core.py:288-301
     ismem = ((s.ti - s.lastmemti >= m.memevery) || mask !== nothing)
