@@ -1,5 +1,24 @@
 """
-Graph execution.
+Graph execution, op by op, on the HOST side of the library.
+
+**No model reaches this.** A `Model` declares: `call` asks `planfor` for one
+Mantle plan per `(graph, dims, …)` and `replay!` submits it, so placement,
+aliasing and barriers are decided for the whole graph before a byte is touched
+(`driver.jl`, and `wan.jl` for the video pipeline). `emitop!` in `emit.jl` is
+that path's op set.
+
+What this is FOR is being the other route to the same answer. `runop!` writes
+each op as broadcasting and `launch!` over ordinary Julia arrays, which runs on
+the CPU backend with no device and no plan — so a unit test can state an op's
+definition and check it, which is what `test_hunyuan3d_ops.jl` and
+`test_atenarg.jl` do. A wrong kernel that a shape check and a smoke test both
+wave through is exactly what a second implementation catches; the same reasoning
+is written out in `test_convtranspose_gemm.jl`.
+
+It is not a fallback and must not become one. Two paths a MODEL could take is
+the thing this refactor removed: which kernel a shape gets is decided once
+(`mmplan`, `flashcm_plan`, `shufflecase`) and submitted two ways, and that is a
+different claim from having two definitions of what an op means.
 
 `runop!` dispatches on `Val{op}` so the op set extends by adding a method, not
 by editing a switch. Anything elementwise or reducing goes through broadcasting
@@ -519,15 +538,6 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
         try
             ctx.outid[] = op.out          # tells `dest` which slab slot to hand out
             reset!(ctx.ws)                # kernel scratch does not outlive its op
-            # ↑ `ctx.ws` is always `nothing`: `Workspace` went with this path on
-            #   2026-09-15 and `reset!` has no `Nothing` method, so this line is
-            #   where an `execute!` stops. Left as it is rather than papered
-            #   over -- there is exactly one lowering path now (`emitgraph` ->
-            #   `Mantle.Plan` -> `record!` -> `run!`, see `driver.jl`'s `call`),
-            #   and `declaredvalues` is the entry point for a per-buffer result.
-            #   What remains here is `runop!`'s 87 methods, which the emits are
-            #   written against and which are the reference for what each op
-            #   means; deleting the driver around them is a separate change.
             # RECORDING. With a Mantle graph open, each LAUNCH this op makes
             # becomes a pass of the graph and is captured rather than submitted,
             # so the whole step is one command buffer with the barriers the graph
