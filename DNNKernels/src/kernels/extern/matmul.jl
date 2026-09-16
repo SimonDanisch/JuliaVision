@@ -535,7 +535,6 @@ bmmpad(n::Int) = cld(n, BMM_PADSTEP) * BMM_PADSTEP
 
 """Would padding this plane's `M`/`N` onto a block buy a real kernel?"""
 @inline function bmmpad_worth(ctx, out, A, B)
-    ctx.ws === nothing && return false
     eltype(out) === Float16 && eltype(A) === Float16 && eltype(B) === Float16 || return false
     A isa Mantle.LavaArray && B isa Mantle.LavaArray && out isa Mantle.LavaArray || return false
     M, N = size(out, 1), size(out, 2)
@@ -677,7 +676,6 @@ function bmm_nblocked!(ctx, out, A, B)
     size(B, 2) == N && size(B, 3) == NBATCH || return nothing
     K = size(A, 2)
     K == size(B, 1) || return nothing
-    ctx.ws === nothing && return nothing
     S = 1
     while S * M * NBATCH < BMM_TARGET_THREADS[] && cld(K, 2S) >= 16
         S *= 2

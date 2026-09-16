@@ -21,7 +21,7 @@ in the padding copies.
 using Test, Lava, DNNKernels, KernelAbstractions
 import Mantle
 using DNNKernels: sdpa, sdpa_coopmat!, coopmat_sdpa_plan, CoopMatSDPAPlan, Decline,
-                  Workspace, Ctx
+                  Ctx
 const KA = KernelAbstractions
 const LD = DNNKernels
 
@@ -51,7 +51,7 @@ well as the arithmetic — the same lesson as the two toggles deleted in step 1.
 """
 function coopmatpath(E, L, H, B)
     back = LavaBackend()
-    ctx = Ctx(back; ws = Workspace(back))
+    ctx = Ctx(back; ws = nothing)
     host(f, s) = Float16.(reshape(0.4 .* f.(range(0, s, E * L * H * B)), E, L, H, B))
     qh, kh, vh = host(sin, 9), host(cos, 7), host(sin, 5)
     mk(x) = (a = KA.allocate(back, Float16, E, L, H, B); copyto!(a, x); a)

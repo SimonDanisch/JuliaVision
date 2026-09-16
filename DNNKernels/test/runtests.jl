@@ -44,8 +44,11 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 # read as "no fixtures" and went from 61 assertions to 1, still green.
 # `ensure_artifact_installed` succeeds on retry; the gate then runs and passes.
 
-# Host-only, so it belongs in stage 1 with the rest of this file: what the
-# static slab may contain, and that nothing overlaps inside it.
+# Which buffers a declared plan may place at all, over every exported graph.
+# Needs a device now — it used to plan a static slab this package owned, and
+# `Mantle.Place` does the placement. Two silent faults from running SAM 2 end to
+# end are in there: two output views placed on one another's bytes, and an
+# eagerly-evaluated scratch belonging to no pass.
 include(joinpath(@__DIR__, "test_plan.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
@@ -110,7 +113,3 @@ include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # including the one its own docstring calls "the whole test". It covers the tiled
 # transpose, which is now also how every transposed weight reaches the device.
 include(joinpath(@__DIR__, "test_transposeLE.jl"))
-# What a graph's outputs own, and what a declaration may not leak. Two silent
-# faults from running SAM 2 end to end: two output views placed on one another's
-# bytes, and an eagerly-evaluated scratch belonging to no pass.
-include(joinpath(@__DIR__, "test_declared_outputs.jl"))

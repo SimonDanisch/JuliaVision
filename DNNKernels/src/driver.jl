@@ -44,18 +44,22 @@ struct Model{B}
     # model and not a module `Ref` for the same reason `diag` is: it is a
     # property of a model, two of them in one process disagree, and a global
     # would make one of them silently wrong.
-    record::Bool
     record_maxpasses::Dict{String,Int}
 end
 
+# `record` was a field and a keyword here. It is not a choice any more: `call`
+# declares the graph, plans it and replays the plan, and there is no other path
+# for it to take. The keyword is still ACCEPTED and ignored, because four call
+# sites in the runners and the tools pass it and a model that asks for the only
+# behaviour there is should not be an error.
 Model(graphs, weights, backend, memevery, memframes, topk;
-      record::Bool = false, record_maxpasses = Dict{String,Int}()) =
+      record::Bool = true, record_maxpasses = Dict{String,Int}()) =
     Model(graphs, weights, backend, memevery, memframes, topk, Dict{Any,Any}(),
-          Diagnostics(), record, Dict{String,Int}(record_maxpasses))
+          Diagnostics(), Dict{String,Int}(record_maxpasses))
 Model(graphs, weights, backend, memevery, memframes, topk, scratch;
-      record::Bool = false, record_maxpasses = Dict{String,Int}()) =
+      record::Bool = true, record_maxpasses = Dict{String,Int}()) =
     Model(graphs, weights, backend, memevery, memframes, topk, scratch,
-          Diagnostics(), record, Dict{String,Int}(record_maxpasses))
+          Diagnostics(), Dict{String,Int}(record_maxpasses))
 
 # `scratchfor` was here: one slab per resolution from `planslab`, a `Workspace`
 # arena, and a `Recycler` per graph. All three recovered something the ATen
@@ -408,8 +412,12 @@ end
 """
     record
 
-`Model(...; record = true)`: record each graph call into a Mantle plan once and
-replay the compiled plan on every later call at the same `dims`.
+**Not a mode any more.** `call` declares each graph into a Mantle plan once per
+`(name, dims, clampattn, noise)` and replays that plan on every later call; there
+is no immediate path left for it to be turned off in favour of. The keyword is
+accepted and ignored. What follows is why the recorded form is the one there is,
+and what a model has to satisfy for it to be correct — which is still true and
+is now a precondition rather than a caveat.
 
 The backend's immediate launch is one command buffer and one queue submit per
 dispatch, which is right for an ad hoc kernel and wrong for a step that issues a
@@ -433,9 +441,9 @@ the recording rather than something that happened once while it was made.
 
 # What a model has to satisfy
 
-**Off by default, because a model that does not meet these comes out WRONG
-rather than slow.** Turn it on per model, having checked the outputs against the
-immediate path.
+These were the reasons it was off by default. They are now REFUSALS: a host read
+during a recording cannot be papered over, so what used to be "check your
+outputs against the immediate path" is the graph failing to declare.
 
   * Nothing between the graph's first op and its last may read device memory on
     the HOST. A recording defers every launch, so a host read during it sees a
@@ -446,8 +454,10 @@ immediate path.
     slab, the weights and the input buffers. `call` enforces the last of those by
     copying into the arrays it recorded against; the first two are fixed for the
     life of a `Model`.
-  * Host noise draws cannot be replayed and are rejected during recording.
-    `ZeroNoise` is captured as a device fill and can be replayed.
+  * Host noise draws cannot be replayed. `rand.default` has no `emitop!` at all,
+    so a graph containing one is refused by name whichever `NoiseSource` it was
+    given; the declared form would be a device RNG, which is a kernel and not a
+    capture.
 
 Whisper exposed two recording defects: dtype conversions outside the capture
 scope, and missing submission tracking for captured dispatch buffers. Operation

@@ -13,7 +13,7 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
         out=similar(q)
         g=DNNKernels.Graph("empty",String[],String[],String[],
             Dict{String,DNNKernels.Buffer}(),String[],DNNKernels.Op[])
-        ctx=DNNKernels.Ctx(Dict{String,Any}(),g,(;),be;ws=DNNKernels.Workspace(be))
+        ctx=DNNKernels.Ctx(Dict{String,Any}(),g,(;),be;ws=nothing)
         for offset in (0,63)
             mh=Float16[s<=mod(r-1,16)+offset+1 ? 0 : -65504
                        for s in 1:128,r in 1:128,h in 1:1,b in 1:1]
@@ -48,7 +48,7 @@ end
         v=DNNKernels.toback(be,zeros(Float16,128,nk,8,1))
         g=DNNKernels.Graph("empty",String[],String[],String[],
             Dict{String,DNNKernels.Buffer}(),String[],DNNKernels.Op[])
-        ctx=DNNKernels.Ctx(Dict{String,Any}(),g,(;),be;ws=DNNKernels.Workspace(be))
+        ctx=DNNKernels.Ctx(Dict{String,Any}(),g,(;),be;ws=nothing)
         for (nq,want) in ((1024,false),(2048,true),(4096,true))
             q=DNNKernels.toback(be,zeros(Float16,128,nq,8,1))
             mask=DNNKernels.toback(be,zeros(Float16,nk,nq,1,1))

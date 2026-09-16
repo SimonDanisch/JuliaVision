@@ -519,6 +519,15 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
         try
             ctx.outid[] = op.out          # tells `dest` which slab slot to hand out
             reset!(ctx.ws)                # kernel scratch does not outlive its op
+            # ↑ `ctx.ws` is always `nothing`: `Workspace` went with this path on
+            #   2026-09-15 and `reset!` has no `Nothing` method, so this line is
+            #   where an `execute!` stops. Left as it is rather than papered
+            #   over -- there is exactly one lowering path now (`emitgraph` ->
+            #   `Mantle.Plan` -> `record!` -> `run!`, see `driver.jl`'s `call`),
+            #   and `declaredvalues` is the entry point for a per-buffer result.
+            #   What remains here is `runop!`'s 87 methods, which the emits are
+            #   written against and which are the reference for what each op
+            #   means; deleting the driver around them is a separate change.
             # RECORDING. With a Mantle graph open, each LAUNCH this op makes
             # becomes a pass of the graph and is captured rather than submitted,
             # so the whole step is one command buffer with the barriers the graph

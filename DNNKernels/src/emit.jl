@@ -187,11 +187,52 @@ function consumedids(g::Graph; all::Bool = false)
     return live
 end
 
+"""
+    residentweights(dev, aten, weights) -> Dict{String,Any}
+
+The weights this graph names, on `dev`.
+
+`emitgraph` puts a weight straight into `res` as a kernel operand, so a host
+array reaches the compiler as a non-bitstype argument: "Argument 4 to your kernel
+function is of type `Tuple{Matrix{Float32}, …}`, which is not a bitstype". Every
+caller has to upload, so the rule is here rather than repeated: `hoistconstants`
+did not and `verifygraph` did, in its own words.
+
+Only what THIS graph names, which is the selectivity `verifygraph` needs —
+checking a two-block prefix of a 2.4 GB encoder must not upload the other thirty
+blocks. Every `:weight` buffer rather than only the ones an op reads: a
+buffer whose only reader is a VIEW still needs its resource, and `declare!` walks
+`aten.order`, so it asks for all of them.
+
+`toback` is the identity on something already resident, so this is a no-op on a
+`Model`'s own dict.
+"""
+function residentweights(dev, aten::Graph, weights::AbstractDict)
+    out = Dict{String,Any}()
+    be = M.backend(dev)
+    for (_, b) in aten.buffers
+        (b.kind === :weight && !isempty(b.key)) || continue
+        haskey(out, b.key) && continue
+        haskey(weights, b.key) || continue     # `declare!` names the missing one
+        out[b.key] = toback(be, weights[b.key])
+    end
+    return out
+end
+
 """A resource of this shape: transient unless the id escapes or is written from
-outside."""
+outside.
+
+An EMPTY buffer is never a transient. A transient is memory the placer manages
+and there is nothing here to manage — nothing can read an element of it and no
+pass can be launched over it, so `Liveness` would refuse it as unused. torch
+produces empty tensors legitimately (SAM 2's decoder concatenates a `(1, 0,
+256)` on the branch with no boxes) and the emits skip the pass, so the
+declaration still has to answer something: a zero-byte buffer of its own.
+"""
 function make(emitctx::EmitCtx, id::AbstractString, ::Type{T}, dims::Dims) where {T}
     b = emitctx.aten.buffers[id]
-    owned = b.kind === :external || id in emitctx.esc || id in emitctx.aten.outputs
+    owned = prod(dims) == 0 || b.kind === :external ||
+            id in emitctx.esc || id in emitctx.aten.outputs
     return owned ? M.Buffer(emitctx.dev, T, dims) : M.Transient.Buffer(emitctx.g, T, dims)
 end
 
@@ -337,9 +378,22 @@ end
 
 Where the op being emitted writes. `dest(ctx, i)` for element `i` of a
 multi-output op, zero-based as the export numbers them.
+
+Refuses by NAME when the buffer has no resource, because a bare `KeyError` on an
+op id says nothing about why. Only one thing causes it: `declare!` gives storage
+to the buffers something CONSUMES (`consumedids`), so an op writing one nothing
+reads has no destination — and such an op is dead. `dropdead` removes those, and
+the driver runs it before planning; a graph reaching here with one has not been
+through that pass.
 """
-dest(emitctx::EmitCtx) = emitctx.res[emitctx.outid[]]
-dest(emitctx::EmitCtx, i::Integer) = emitctx.res["$(emitctx.outid[])#$(i)"]
+function dest(emitctx::EmitCtx, i::Union{Nothing,Integer} = nothing)
+    key = i === nothing ? emitctx.outid[] : "$(emitctx.outid[])#$(i)"
+    haskey(emitctx.res, key) || error(
+        "DNNKernels: op `$(emitctx.outid[])` writes `$key`, which nothing in " *
+        "the graph consumes, so it has no destination. That op is dead and " *
+        "`dropdead` is the pass that removes it.")
+    return emitctx.res[key]
+end
 
 """Every declared element of a multi-output op's result, in order."""
 dests(emitctx::EmitCtx, n::Integer) = ntuple(i -> dest(emitctx, i - 1), n)
@@ -1061,6 +1115,50 @@ function emitop!(emitctx::EmitCtx, op::Op,
                 (out, x, mean, invstd, gamma, beta, length(out), cstride, C),
                 length(out); name = op.id)
     return (out, mean, invstd)
+end
+
+"""
+`aten::_native_batch_norm_legit_no_training`, which is inference-mode batch norm:
+the statistics are the RUNNING ones, so there is nothing to reduce.
+
+One pass, sharing `bnapply!` with the training form above — the only difference
+between them is where `mean` and `invstd` come from, and here they are weights.
+`bnapply!` wants the inverse standard deviation while torch stores the variance,
+so the reciprocal square root is folded into a `(C,)` scratch by an `ew!` rather
+than into the apply kernel: that keeps one kernel for both forms, and `C` is a
+few hundred elements.
+
+The driver folds this op into the preceding convolution (`foldbatchnorm`) and so
+never asks for it, which is why it had no emit. It is declared anyway: which
+passes have run is not something an emit gets to assume, and MatAnyone's graphs
+contain it as exported.
+"""
+function emitop!(emitctx::EmitCtx, op::Op,
+                 ::Val{Symbol("_native_batch_norm_legit_no_training.default")})
+    x = operand(emitctx, op.ins[1])
+    gamma = operand(emitctx, op.ins[2])
+    beta = operand(emitctx, op.ins[3])
+    rmean = operand(emitctx, op.ins[4])
+    rvar = operand(emitctx, op.ins[5])
+    out = dest(emitctx, 0)
+    eps = Float32(op.attrs["arg6"])
+    id = size(x)
+    # torch's channel dim is 1, which in the reversed shape is `ndims - 1`.
+    c = length(id) - 1
+    C = id[c]
+    cstride = prod(ntuple(k -> id[k], c - 1); init = 1)
+    invstd = scratch(emitctx, Float32, C)
+    M.dispatch!(emitctx.g, ew!,
+                (invstd, (C,), (rvar,), (bcstrides((C,), (C,)),),
+                 v -> inv(sqrt(Float32(v) + eps))), C;
+                name = "$(op.id).invstd")
+    M.dispatch!(emitctx.g, bnapply!,
+                (out, x, rmean, invstd, gamma, beta, length(out), cstride, C),
+                length(out); name = op.id)
+    # The running statistics are returned in place of the batch ones: torch's
+    # no-training form declares the two results empty, and the graph reads
+    # neither.
+    return (out, rmean, invstd)
 end
 
 # ── attention ────────────────────────────────────────────────────────────────

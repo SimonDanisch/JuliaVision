@@ -80,29 +80,6 @@ tohost(x::Array) = x
 tohost(x::AbstractArray) = collect(x)
 
 """
-    weightkeys(g) -> Set{String}
-
-The `weights.safetensors` names a graph's ops actually read, following views to
-their parent: a transposed weight reaches a `mm` as a `:view` buffer, so
-scanning `op.ins` for `:weight` alone finds none of the projections in a
-transformer.
-"""
-function weightkeys(g::Graph)
-    ks = Set{String}()
-    function walk(id)
-        b = get(g.buffers, id, nothing)
-        b === nothing && return
-        b.kind === :weight && !isempty(b.key) && push!(ks, b.key)
-        b.kind === :view && !isempty(b.of) && walk(b.of)
-        return
-    end
-    for op in g.ops, i in op.ins
-        walk(i)
-    end
-    ks
-end
-
-"""
     declaredvalues(g, inputs, weights; dims, backend, overrides) -> Dict{String,Any}
 
 Every buffer's value after ONE declared run, on the host.
@@ -123,7 +100,7 @@ arithmetic.
 function declaredvalues(g::Graph, inputs::AbstractDict, weights::AbstractDict;
                         dims, backend, overrides::AbstractDict = Dict{String,Any}())
     dev = M.Device(backend)
-    mantlegraph, emitctx = emitgraph(dev, g, weights, dims;
+    mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims;
                                      keepall = true, skip = keys(overrides))
     for (id, x) in Iterators.flatten((inputs, overrides))
         haskey(emitctx.res, id) || continue
@@ -172,15 +149,6 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
         # would only be downloaded again.
         inputs[name] = refs[k]
     end
-
-    # `readsafetensors` returns host arrays and `execute!` does not upload —
-    # `Model` does that on the way in, and this entry point has no `Model`. Only
-    # the weights this graph names, so verifying a two-block prefix of a 2.4 GB
-    # encoder does not upload the other thirty blocks. A no-op when they are
-    # already resident, and when the backend is the CPU.
-    used = weightkeys(g)
-    weights = Dict{String,Any}(k => (k in used ? toback(backend, v) : v)
-                               for (k, v) in weights)
 
     # THE DECLARED PATH, which is the only path there is.
     #

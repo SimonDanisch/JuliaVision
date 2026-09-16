@@ -66,63 +66,22 @@ const KA = KernelAbstractions
         @test sum(first, values(d.launches)) == 2
     end
 
-    if !Fixtures.have("transform_key")
-        @info "no `matanyone` artifact; skipping the execute! half"
-    else
-        g = Fixtures.matanyone("transform_key")
-        dims = (h = 8, w = 8)
-        weights = Dict{String,Any}()
-        for id in g.order
-            b = g.buffers[id]
-            b.kind === :weight || continue
-            weights[b.key] = zeros(b.dtype, DK.evalshape(b.shape, dims)...)
-        end
-        inputs = Dict{String,Any}(i => zeros(g.buffers[i].dtype,
-                                             DK.evalshape(g.buffers[i].shape, dims)...)
-                                  for i in g.inputs)
-        run(d) = execute!(g, inputs, weights; dims, backend = KA.CPU(), diag = d)
-
-        @testset "op timings accumulate into the object they were given" begin
-            d = Diagnostics(optimes = Dict{String,Tuple{Int,Float64}}())
-            run(d)
-            @test !isempty(d.optimes)
-            @test sum(first, values(d.optimes)) == length(g.ops)
-            @test all(t -> t[2] >= 0, values(d.optimes))
-            # Same object, second run: the counts add up rather than reset.
-            run(d)
-            @test sum(first, values(d.optimes)) == 2 * length(g.ops)
-        end
-
-        @testset "two runs, two instruments, no crosstalk" begin
-            timed = Diagnostics(optimes = Dict{String,Tuple{Int,Float64}}())
-            missed = Diagnostics(planmisses = Dict{String,Tuple{Int,Int}}())
-            run(timed)
-            run(missed)
-            # Each recorded only what it was asked for, and nothing of the other's.
-            @test !isempty(timed.optimes)
-            @test timed.planmisses === nothing
-            # No plan was supplied, so every output `dest` handed out is a miss —
-            # which is what makes this a usable assertion rather than a vacuous one.
-            @test !isempty(missed.planmisses)
-            @test missed.optimes === nothing
-            @test first(planmisses(missed)).bytes >= last(planmisses(missed)).bytes
-        end
-
-        @testset "`opdouble` runs the named op twice, `opdoublefilter` narrows it" begin
-            # An idempotent op run twice must not change the answer: that is the
-            # whole basis of the differential-ablation measurement.
-            base = run(Diagnostics())
-            aten = g.ops[1].aten
-            doubled = run(Diagnostics(opdouble = aten))
-            @test base[g.outputs[1]] == doubled[g.outputs[1]]
-
-            seen = String[]
-            d = Diagnostics(opdouble = "*",
-                            opdoublefilter = (ctx, op) -> (push!(seen, op.aten); false))
-            run(d)
-            # The filter saw every op and refused every one, so nothing doubled.
-            @test length(seen) == length(g.ops)
-            @test run(Diagnostics())[g.outputs[1]] == base[g.outputs[1]]
-        end
-    end
+    # ── the `execute!` half is gone, with the path it instrumented ───────────
+    #
+    # Three testsets lived here: per-op timings accumulating into a
+    # `Diagnostics`, two instruments not crosstalking, and `opdouble` running a
+    # named op twice for the differential-ablation measurement. All three drove
+    # `execute!`, which is the interpreted run — and `execute!` cannot run: it
+    # calls `reset!(ctx.ws)` per op and `ctx.ws` is a `Workspace`, which went
+    # with that path on 2026-09-15.
+    #
+    # `optimes` is not a facility the declared path has, and not because it was
+    # dropped: a declared graph has PASSES, not ops, and Mantle times them from
+    # the device's own query pool (`Mantle.timings`, tested there). An op is a
+    # host-side notion here and several of them become one pass. `opdouble` has
+    # no declared meaning either — running one op twice inside a recorded plan
+    # is not a thing a plan can be asked to do.
+    #
+    # What survives is above: the launch probe on the context, which is what
+    # `Diagnostics` still instruments.
 end

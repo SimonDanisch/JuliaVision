@@ -18,13 +18,13 @@ without accounting for its offset would read the wrong elements just as silently
 
 using Test, Lava, DNNKernels, KernelAbstractions, Random
 using Mantle: LavaBackend
-using DNNKernels: transposeLE, stridedroot, Workspace, Ctx
+using DNNKernels: transposeLE, stridedroot, Ctx
 const KA = KernelAbstractions
 
 "`transposeLE(a)` against `permutedims(host, (2,1,3,4))`."
 function checkLE(a, host)
     back = LavaBackend()
-    d = transposeLE(Ctx(back; ws = Workspace(back)), a)
+    d = transposeLE(Ctx(back; ws = nothing), a)
     KA.synchronize(back)
     Array(d) == permutedims(host, (2, 1, 3, 4))
 end

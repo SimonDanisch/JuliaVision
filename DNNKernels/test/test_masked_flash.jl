@@ -46,7 +46,7 @@ end
             q,k,v = map(a->DNNKernels.toback(backend,a),(qh,kh,vh))
             out = similar(q)
             g = DNNKernels.Graph("empty",String[],String[],String[],Dict{String,DNNKernels.Buffer}(),String[],DNNKernels.Op[])
-            ctx = DNNKernels.Ctx(Dict{String,Any}(),g,(;),backend;ws=DNNKernels.Workspace(backend))
+            ctx = DNNKernels.Ctx(Dict{String,Any}(),g,(;),backend;ws=DNNKernels.nothing)
             plan = DNNKernels.flashcm_plan(caps,q,k,v,nothing;clamp=true)
             @test plan isa DNNKernels.FlashCMPlan
             for offset in (0, lk÷2)

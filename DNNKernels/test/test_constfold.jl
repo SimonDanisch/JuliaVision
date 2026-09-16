@@ -11,13 +11,20 @@ at a resolution. Those are properties of how a real exported graph is shaped —
 tuple outputs, views over weights, casts on top of casts — and a hand-built graph
 exercises none of them.
 
-**Semantics**, against a four-op synthetic graph on the CPU backend: that the
-folded graph computes what the unfolded one computed. The real encoder would say
-the same thing far more convincingly, but folding it on the CPU backend costs
-6.5 s, almost all of it JIT for kernels nothing else needs; the GPU end-to-end
-check lives in `bench_sam2.jl`, where the encoder's six outputs are compared
-against PyTorch on every run. What is left for here is the rewrite itself, and
-four ops show that as well as six hundred.
+**Semantics**, against a four-op synthetic graph: that the folded graph computes
+what the unfolded one computed. The real encoder would say the same thing far
+more convincingly, but folding it costs 6.5 s, almost all of it JIT for kernels
+nothing else needs; the numerical gate for the encoder is `verifygraph`. What is
+left for here is the rewrite itself, and four ops show that as well as six
+hundred.
+
+This half was on the CPU backend and cannot be. `hoistconstants` folds through
+`emitgraph` now, and the elementwise emit declares `ew!`, a macro-free kernel —
+`KernelAbstractions.CPU` implements no `KI.kernel_function`, so Mantle refuses it
+by name (see `test_declared_kernel.jl`, which states that limitation as an
+assertion). It ran before because the interpreted `execute!` called the kernel
+as a plain function; `execute!` itself no longer runs at all, since it resets a
+`Workspace` that went with the interpreted path.
 
 The guard gets its own case in both directions. A pass that trades slab space for
 resident weights is only worth having when the trade is a win, and "it happened
@@ -26,6 +33,7 @@ to be a win on SAM 2" is not the same claim.
 
 include("fixtures.jl")
 using Test, DNNKernels, KernelAbstractions
+import Mantle
 const DK = DNNKernels
 const KA = KernelAbstractions
 
@@ -34,6 +42,12 @@ const KA = KernelAbstractions
 # `Total 0` rather than skip visibly, and both a fixed `../../../../gen` and a
 # walk up looking for one did exactly that, differently on every machine.
 const HAVE_SAM2 = true   # bound in DNNKernels/Artifacts.toml
+
+# The backend the semantic half folds on. See the docstring: it has to be one
+# that can compile a macro-free kernel, which the CPU cannot.
+const FOLDBACKEND = let bes = Mantle.eachbackend()
+    isempty(bes) ? nothing : first(bes)
+end
 
 cfbuf(id, kind, shape, dtype; key = "") =
     DK.Buffer(id, kind, Any[shape...], dtype, key, (0, 0), "", "", Dict{String,Any}())
@@ -106,17 +120,24 @@ end
         end
     end
 
+    # `declaredvalues` and not `execute!` for the reference.
+    #
+    # `execute!` calls `reset!(ctx.ws)` per op and `ctx.ws` is a `Workspace`,
+    # which went with the interpreted run — so it cannot run at all, and these
+    # two testsets were the only thing still asking it to. The graph is three
+    # ops, so `keepall`'s cost is nothing here, and this checks the fold through
+    # the path `hoistconstants` itself folds with.
     @testset "it folds the chain and keeps the tail" begin
         g = cfgraph()
         w = Dict{String,Any}("w1" => Float32[i + j for i in 1:4, j in 1:4],
                              "w2" => Float32[i - 2j for i in 1:4, j in 1:4])
         x = Float32[0.5i * j for i in 1:4, j in 1:4]
 
-        want = DK.execute!(g, Dict{String,Any}("x" => x), copy(w);
-                           dims = NamedTuple(), backend = KA.CPU())["out"]
+        want = DK.declaredvalues(g, Dict{String,Any}("x" => x), copy(w);
+                           dims = NamedTuple(), backend = FOLDBACKEND)["out"]
 
         w2 = Dict{String,Any}(w)
-        g2, n = DK.hoistconstants(g, w2, KA.CPU())
+        g2, n = DK.hoistconstants(g, w2, FOLDBACKEND)
         @test n == 2                                   # c1 and c2, not `out`
         @test length(g2.ops) == 1
         @test only(g2.ops).id == "out"
@@ -124,16 +145,16 @@ end
         @test g2.buffers["c1"].kind === :transient     # the interior did not
         @test haskey(w2, g2.buffers["c2"].key)
 
-        got = DK.execute!(g2, Dict{String,Any}("x" => x), w2;
-                          dims = NamedTuple(), backend = KA.CPU())["out"]
+        got = DK.declaredvalues(g2, Dict{String,Any}("x" => x), w2;
+                          dims = NamedTuple(), backend = FOLDBACKEND)["out"]
         @test got == want
         # The graph still answers to a different input, i.e. the fold froze the
         # constant part and *only* the constant part.
         x2 = Float32[i + 3j for i in 1:4, j in 1:4]
-        @test DK.execute!(g2, Dict{String,Any}("x" => x2), w2;
-                          dims = NamedTuple(), backend = KA.CPU())["out"] ==
-              DK.execute!(g, Dict{String,Any}("x" => x2), copy(w);
-                          dims = NamedTuple(), backend = KA.CPU())["out"]
+        @test DK.declaredvalues(g2, Dict{String,Any}("x" => x2), w2;
+                          dims = NamedTuple(), backend = FOLDBACKEND)["out"] ==
+              DK.declaredvalues(g, Dict{String,Any}("x" => x2), copy(w);
+                          dims = NamedTuple(), backend = FOLDBACKEND)["out"]
     end
 
     @testset "it refuses a fold that would not pay" begin
@@ -146,7 +167,7 @@ end
         g1 = DK.Graph(g.name, g.symbols, g.inputs, g.outputs, bufs,
                       ["w1", "w2", "x", "c1", "out"], ops, Vector{Vector{String}}())
         w = Dict{String,Any}("w1" => zeros(Float32, 4, 4), "w2" => zeros(Float32, 4, 4))
-        g1b, n = DK.hoistconstants(g1, w, KA.CPU())
+        g1b, n = DK.hoistconstants(g1, w, FOLDBACKEND)
         @test n == 0
         @test length(g1b.ops) == 2
         @test g1b.buffers["c1"].kind === :transient
@@ -179,22 +200,22 @@ end
         w = Dict{String,Any}("w" => Float32[i + j for i in 1:4, j in 1:4],
                              "s" => fill(2.5f0))
         x = Float32[0.5i for i in 1:4, j in 1:4]
-        want = DK.execute!(g, Dict{String,Any}("x" => x), copy(w);
-                           dims = NamedTuple(), backend = KA.CPU())["out"]
+        want = DK.declaredvalues(g, Dict{String,Any}("x" => x), copy(w);
+                           dims = NamedTuple(), backend = FOLDBACKEND)["out"]
         w2 = Dict{String,Any}(w)
-        g2, n = DK.hoistconstants(g, w2, KA.CPU())
+        g2, n = DK.hoistconstants(g, w2, FOLDBACKEND)
         @test n == 2
-        @test DK.execute!(g2, Dict{String,Any}("x" => x), w2;
-                          dims = NamedTuple(), backend = KA.CPU())["out"] == want
+        @test DK.declaredvalues(g2, Dict{String,Any}("x" => x), w2;
+                          dims = NamedTuple(), backend = FOLDBACKEND)["out"] == want
     end
 
     @testset "it refuses an extent that is only known at a resolution" begin
-        # `scratchfor` keys the slab on `dims`, so one `Model` serves several
+        # `call` keys its plan on `dims`, so one `Model` serves several
         # resolutions; a value that depends on one is not a constant of the model.
         g = cfgraph(; cshape = ("res", 4))
         @test isempty(DK.constops(g))
         w = Dict{String,Any}("w1" => zeros(Float32, 4, 4), "w2" => zeros(Float32, 4, 4))
-        g2, n = DK.hoistconstants(g, w, KA.CPU())
+        g2, n = DK.hoistconstants(g, w, FOLDBACKEND)
         @test n == 0
         @test length(g2.ops) == length(g.ops)
     end

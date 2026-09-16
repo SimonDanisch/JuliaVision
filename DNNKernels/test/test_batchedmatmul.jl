@@ -29,12 +29,12 @@ qualifying fp16 batch really does reach the tensor-core plan.
 using Test, Lava, DNNKernels, KernelAbstractions
 import Mantle
 using DNNKernels: batchedmatmul!, mm3, mm_coopmat_plan, MMCoopMatPlan, Decline,
-                  Ctx, Workspace, caps, launch!
+                  Ctx, caps, launch!
 const KA = KernelAbstractions
 const DK = DNNKernels
 
 back = LavaBackend()
-ctx = DK.Ctx(back; ws = Workspace(back))
+ctx = DK.Ctx(back; ws = nothing)
 # MERGE (2026-08-05): `Device(backend)` became `caps(backend) -> Lava.DeviceCaps`
 # in the device-capability refactor on this branch, after this test was written
 # on `main`. Same query, one record instead of three.

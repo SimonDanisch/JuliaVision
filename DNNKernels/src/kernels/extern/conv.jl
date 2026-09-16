@@ -137,7 +137,7 @@ function convolution!(ctx, out, x, w, bias, stride, padding, dilation, groups;
         # `onebyone`. Checked before the coopmat path because it is the same
         # product with two passes removed.
         cmplan = conv_coopmat_plan(ctx.dev, out, x, w)
-        if ctx.ws !== nothing && onebyone(w, stride, padding, dilation, groups) &&
+        if onebyone(w, stride, padding, dilation, groups) &&
            cmplan isa ConvCoopMatPlan
             Wi, Hi, Cin, Nb = size(x)
             Cout = size(w, 4)
@@ -356,12 +356,12 @@ function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, 
     # then an interleave. Checked before `shufflecase` only in the sense that it
     # is the more general test; `shufflecase`'s `K == S` shapes are left to it
     # because its GEMM needs no phase weight and no padding.
-    if ctx.ws !== nothing && size(x, 4) == 1 &&
+    if size(x, 4) == 1 &&
        !shufflecase(w, stride, padding, dilation, outpad, groups) &&
        phasecase(w, stride, padding, dilation, outpad, groups)
         return convolutiontranspose_phase!(ctx, out, x, w, bias, stride, padding)
     end
-    if groups == 1 && ctx.ws !== nothing && size(x, 4) == 1 &&
+    if groups == 1 && size(x, 4) == 1 &&
        shufflecase(w, stride, padding, dilation, outpad, groups)
         Wi, Hi, Ci, _ = size(x)
         KX, KY, Co, _ = size(w)

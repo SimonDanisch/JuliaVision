@@ -310,6 +310,37 @@ struct Ctx{B,N,S,P,W,L,R}
     diag::Diagnostics             # per-run instrumentation, all off by default
 end
 
+"""
+    scratch!(ctx, T, dims...) -> array
+
+Working storage a kernel needs and no ATen graph names: the tensor-core
+convolution's im2col matrix, an fp32 GEMM destination, a plane per split-K
+split.
+
+**An immediate call allocates.** The declared path takes scratch from the graph
+instead — `scratch(emitctx, T, dims…)` is a `Transient.Buffer`, so `Place` sizes
+it against every other buffer in the graph and `Aliasing` hands its bytes on at
+its last use. That is strictly better and it is what a model does. What is left
+for this one is a kernel called DIRECTLY, with no graph to plan against: a unit
+test, and the `X!` half of the `X_launches`/`X!`/`X_dispatch!` split that lets a
+shape's kernel be chosen in one place and submitted two ways.
+
+`Workspace` was the third answer — a bump arena reset per op, because the
+interpreted run allocated per op and that drove Lava's pool into repeated
+`reclaim on OOM retry`. It went with the interpreted run, and the arena's reason
+went with it: nothing calls these in a loop any more.
+"""
+scratch!(::Nothing, backend, ::Type{T}, dims::Integer...) where {T} =
+    KernelAbstractions.allocate(backend, T, dims...)
+
+@inline scratch!(ctx::Ctx, ::Type{T}, dims::Integer...) where {T} =
+    scratch!(ctx.ws, ctx.backend, T, dims...)
+
+# Nothing to reset when there is no arena. Kept as a method rather than as a
+# `ws === nothing` test at each of the call sites, which is where it was before
+# `Workspace` existed.
+reset!(::Nothing) = nothing
+
 # `dev` is derived from `backend` and never passed in. It costs one query per
 # context — once per graph execution — and each of those reads a field Lava
 # filled at device creation, so it does not go near the driver on the hot path.

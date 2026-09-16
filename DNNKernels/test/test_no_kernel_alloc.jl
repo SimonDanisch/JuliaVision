@@ -58,7 +58,16 @@ end
 # Float bounds on an integer operand are a legitimate call the Wan VAE makes and
 # must stay promoting.
 @testset "clamp bounds stay in the operand's type only when integral" begin
+    # `NamedTuple()` is the `dims` a graph with no symbolic extents has; the
+    # bounds themselves are the two `nothing`s. This passed `nothing` for dims,
+    # which the signature has never accepted — `numattr(dims, …)` needs the
+    # table to resolve a bound named by a symbol.
     cb = DNNKernels.clampbounds
-    @test cb(Int32, nothing, nothing, nothing) === (typemin(Int32), typemax(Int32))
-    @test cb(Float32, nothing, nothing, nothing) === (-Inf32, Inf32)
+    @test cb(Int32, NamedTuple(), nothing, nothing) ===
+          (typemin(Int32), typemax(Int32))
+    @test cb(Float32, NamedTuple(), nothing, nothing) === (-Inf32, Inf32)
+    # And a float bound on an integer operand stays promoting: `clamp(::Int,
+    # 0.25, …)` is a legitimate call the Wan VAE makes.
+    @test cb(Int32, NamedTuple(), 0.25, 4) === (0.25f0, 4.0f0)
+    @test cb(Int32, NamedTuple(), 0, 4) === (Int32(0), Int32(4))
 end

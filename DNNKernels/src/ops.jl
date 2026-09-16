@@ -1233,13 +1233,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # cancels catastrophically when the mean dominates the variance, and mask
     # parity with PyTorch to five decimals is not worth trading for an
     # allocation.
-    v = if ctx.ws === nothing
-        sum(abs2, a .- μ; dims=d, init=zero(A)) ./ n   # verification path, no workspace
-    else
-        t = scratch!(ctx.ws, ctx.backend, eltype(a), size(a)...)
-        t .= Base.broadcasted(-, a, μ)
-        sum(abs2, t; dims=d, init=zero(A)) ./ n
-    end
+    t = scratch!(ctx.ws, ctx.backend, eltype(a), size(a)...)
+    t .= Base.broadcasted(-, a, μ)
+    v = sum(abs2, t; dims=d, init=zero(A)) ./ n
     r = 1 ./ sqrt.(v .+ eps)
     # One broadcast, one write, into the slot the planner reserved.
     #
@@ -1894,7 +1890,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("convolution.default")})
         x2 = reshape(x, size(x, 1), 1, size(x, 2), size(x, 3))
         w2 = reshape(w, size(w, 1), 1, Cin1, Cout1)
         out2 = reshape(out, ox, 1, Cout1, size(x, 3))
-        if groups == 1 && ctx.ws !== nothing &&
+        if groups == 1 &&
            conv_coopmat_plan(ctx.dev, out2, x2, w2) isa ConvCoopMatPlan
             convolution!(ctx, out2, x2, w2, bias, [stride[1], 1], [pad[1], 0],
                          [dil[1], 1], 1; act)

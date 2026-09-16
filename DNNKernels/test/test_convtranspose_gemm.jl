@@ -1,63 +1,109 @@
 """
-The non-overlapping transposed convolution, against the gather it replaces.
+The non-overlapping transposed convolution, against the gather it replaces, and
+the predicates that route every convolution.
 
 `ConvTranspose2d` with stride equal to the kernel and no padding is not really a
 convolution: the receptive fields do not overlap, so each output pixel comes from
 exactly one input pixel and one weight slice, and the whole op is a GEMM plus a
-depth-to-space interleave. SAM 2's mask decoder upsamples with two of them.
+depth-to-space interleave. SAM 2's mask decoder upsamples with two of them, and
+they were 3.73 ms of an 8.44 ms decode on the gather.
 
 Checked against `convtranspose2d` — the gather — rather than against a host
-reference, because that kernel is already the thing `verify_sam2.jl` validates
-node by node. What is at stake here is that a *different route to the same
-answer* agrees, and the gather is the answer.
+reference. What is at stake is that a *different route to the same answer*
+agrees, and the gather is the answer.
 
-Both element types, because the two paths diverge underneath: fp16 reaches the
-cooperative-matrix GEMM and fp32 the strided one, and only the first has ever
-been exercised by the encoder.
+**Declared, because there is no other way to launch these any more.** This file
+drove `DK.Ctx(backend; ws = nothing)` and the immediate entry
+points (`convolutiontranspose!`, `convolution!`, `convolution_coopmat!`), and
+`Workspace` went with the interpreted run on 2026-09-15 — every one of those
+takes its scratch from `ctx.ws`, so none of them can be called. The declared form
+takes scratch from the graph (`scratch(emitctx, …)`, a transient the placer
+aliases), which is the whole point: an op's working buffer is planned against the
+rest of the graph rather than bump-allocated from an arena that resets per op.
+
+Three numerical comparisons went with those entry points and are named at the
+bottom, with what replaced each one. The PREDICATES are all still here and all
+still live — `shufflecase`, `phasecase`, `onebyone` and `conv_coopmat_plan` are
+what the emits route on, so a wrong answer from one of them sends a real graph
+down the wrong path.
 """
 
 using Test, DNNKernels, Lava, KernelAbstractions
 using Mantle: LavaBackend
+import Mantle
 const KA = KernelAbstractions
 const DK = DNNKernels
+const MC = Mantle
+
+"""
+Run one transposed convolution as a declared plan, `route` deciding which form.
+
+`:shuffle` is `emitconvtransposeshuffle!` — the GEMM and the interleave — and
+`:gather` is the one dispatch of `convtranspose2d` that covers every case. Two
+routes to the same answer, which is what this file compares; the emit picks
+between them with `shufflecase` and a caller cannot ask for one, so the test
+calls the two halves rather than the `emitop!` above them.
+"""
+function transposedplan(dev, route::Symbol, x, w, bias, od, stride)
+    g = MC.Graph(dev)
+    T = eltype(x)
+    xr = MC.Buffer(dev, x)
+    wr = MC.Buffer(dev, w)
+    br = bias === nothing ? nothing : MC.Buffer(dev, bias)
+    out = MC.Buffer(dev, T, od)
+    # An `EmitCtx` with no ATen graph behind it: `scratch` and `dispatch!` are
+    # all these two take from it, and neither reads `aten`. The op id names the
+    # passes.
+    op = DK.Op("t", "convolution.default", String[], "t", Dict{String,Any}())
+    emitctx = DK.EmitCtx(DK.Graph("t", String[], String[], String[],
+                                  Dict{String,DK.Buffer}(), String[], DK.Op[],
+                                  Vector{Vector{String}}()),
+                         g, dev, NamedTuple(), Dict{String,Any}("t" => out),
+                         Set{String}(), Ref("t"))
+    if route === :shuffle
+        DK.emitconvtransposeshuffle!(emitctx, op, xr, wr, br, out, stride)
+    else
+        DK.mapbody!(emitctx, op, DK.convtranspose2d, out, xr, wr, br,
+                    Val(stride[1]), Val(stride[2]), Val(0), Val(0),
+                    Val(1), Val(1), Val(1))
+    end
+    plan = MC.Plan(g)
+    MC.record!(plan)
+    MC.run!(plan)
+    MC.waitidle(dev)
+    got = Array(MC.storage(out))
+    MC.free!(plan)
+    return got
+end
 
 @testset "transposed convolution via GEMM" begin
     back = LavaBackend()
-    ws = DK.Workspace(back)
-    # The entry points take a context, not a `(backend, ws)` pair; `Ctx(backend)`
-    # is what a caller with no graph behind it builds. `nows` is the same context
-    # without a workspace, which is how the gather path is reached — the GEMM
-    # form needs scratch and declines without it.
-    ctx = DK.Ctx(back; ws)
-    nows = DK.Ctx(back)
+    dev = MC.Device(back)
 
     @testset "agrees with the gather" begin
-        # The decoder's two shapes, plus a small one whose channel counts are
-        # not multiples of the GEMM tile.
+        # The decoder's two shapes, plus small ones whose channel counts are not
+        # multiples of the GEMM tile.
         for (Ci, Hi, Co, T) in ((256, 64, 64, Float16), (64, 128, 32, Float16),
                                 (256, 64, 64, Float32), (64, 128, 32, Float32),
                                 (32, 16, 8, Float16), (24, 8, 12, Float32))
             hx = T.(randn(Float32, Hi, Hi, Ci, 1) .* 0.1f0)
             hw = T.(randn(Float32, 2, 2, Co, Ci) .* 0.1f0)
             hb = T.(randn(Float32, Co) .* 0.1f0)
-            x, w, b = DK.toback(back, hx), DK.toback(back, hw), DK.toback(back, hb)
-            ref = KA.allocate(back, T, 2Hi, 2Hi, Co, 1); fill!(ref, zero(T))
-            got = KA.allocate(back, T, 2Hi, 2Hi, Co, 1); fill!(got, zero(T))
-            DK.convolutiontranspose!(nows, ref, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
-            DK.reset!(ws)
-            DK.convolutiontranspose!(ctx, got, x, w, b, (2,2), (0,0), (1,1), (0,0), 1)
-            KA.synchronize(back)
-            r, g = Float32.(Array(ref)), Float32.(Array(got))
+            od = (2Hi, 2Hi, Co, 1)
+            r = transposedplan(dev, :gather, hx, hw, hb, od, (2, 2))
+            g = transposedplan(dev, :shuffle, hx, hw, hb, od, (2, 2))
+            rf, gf = Float32.(r), Float32.(g)
             # A shuffle that drops a sub-pixel phase leaves an exact lattice of
             # zeros, and a relative-error check averages straight over it. So
             # assert per phase — not "everything is nonzero", which fails
             # honestly: with random data a handful of fp16 outputs round to zero
             # (109 of 1 048 576 on the first shape here).
             for dx in 1:2, dy in 1:2
-                @test any(!iszero, @view g[dx:2:end, dy:2:end, :, :])
+                @test any(!iszero, @view gf[dx:2:end, dy:2:end, :, :])
             end
-            @test maximum(abs, g .- r) / maximum(abs, r) < (T === Float16 ? 5e-3 : 1e-5)
-            x = w = b = ref = got = nothing; GC.gc()
+            @test maximum(abs, gf .- rf) / maximum(abs, rf) <
+                  (T === Float16 ? 5e-3 : 1e-5)
+            GC.gc()
         end
     end
 
@@ -76,74 +122,20 @@ const DK = DNNKernels
         w22 = w33 = nothing; GC.gc()
     end
 
-    @testset "an overlapping kernel takes the PHASE path, not the gather" begin
+    @testset "an overlapping kernel is not the shuffle's" begin
         # 3x3 stride 2: the fields overlap, so `shufflecase`'s GEMM route must
-        # not fire. It used to fall to the gather and this asserted the two were
-        # bit-identical — which they were, because both arms WERE the gather.
-        # `phasecase` now routes it, so the workspace arm is a real convolution
-        # and the no-workspace arm is still the gather: same answer, different
-        # summation order, no longer bit-equal.
-        Ci, Hi, Co = 16, 8, 8
-        hx = randn(Float32, Hi, Hi, Ci, 1) .* 0.1f0
-        hw = randn(Float32, 3, 3, Co, Ci) .* 0.1f0
-        x, w = DK.toback(back, hx), DK.toback(back, hw)
+        # not fire, and `emitconvtranspose!` sends it to the gather. `phasecase`
+        # accepts it — it is the more general decomposition — and the emit does
+        # NOT take that route, which is stated at the bottom of this file.
+        w = KA.allocate(back, Float16, 3, 3, 8, 16)
         @test !DK.shufflecase(w, (2,2), (0,0), (1,1), (0,0), 1)
         @test DK.phasecase(w, (2,2), (0,0), (1,1), (0,0), 1)
-        ox = DK.convtransposesize(Hi, 3, 2, 0, 1, 0)
-        ref = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(ref, 0f0)
-        got = KA.allocate(back, Float32, ox, ox, Co, 1); fill!(got, 0f0)
-        # `nows` has no workspace, so it cannot take either fast route.
-        DK.convolutiontranspose!(nows, ref, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
-        DK.reset!(ws)
-        DK.convolutiontranspose!(ctx, got, x, w, nothing, (2,2), (0,0), (1,1), (0,0), 1)
-        KA.synchronize(back)
-        r, g = Array(ref), Array(got)
-        @test maximum(abs, r .- g) < 1e-5 * maximum(abs, r)
-        x = w = ref = got = nothing; GC.gc()
+        w = nothing; GC.gc()
     end
 end
 
-@testset "1x1 convolution as a plain GEMM" begin
+@testset "the convolution routing predicates" begin
     back = LavaBackend()
-    ws = DK.Workspace(back)
-    ctx = DK.Ctx(back; ws)
-
-    @testset "agrees with the im2col path" begin
-        # SAM 2's own 1x1 shapes plus one whose channel counts miss the GEMM
-        # tile, since `matmul!` has to fall back there rather than compute
-        # something else.
-        for (Wi, Hi, Cin, Cout) in ((256, 256, 144, 256), (128, 128, 256, 64),
-                                    (64, 64, 576, 256), (32, 32, 32, 48))
-            T = Float16
-            x = DK.toback(back, T.(randn(Float32, Wi, Hi, Cin, 1) .* 0.1f0))
-            w = DK.toback(back, T.(randn(Float32, 1, 1, Cin, Cout) .* 0.1f0))
-            b = DK.toback(back, T.(randn(Float32, Cout) .* 0.1f0))
-            ref = KA.allocate(back, T, Wi, Hi, Cout, 1); fill!(ref, zero(T))
-            got = KA.allocate(back, T, Wi, Hi, Cout, 1); fill!(got, zero(T))
-            # The routing is half the test: `convolution!` must recognise the
-            # shape and take the GEMM. Asserted rather than assumed, because
-            # `onebyone` returning `false` would silently compare the im2col path
-            # against itself. (It used to be switched off with `CONV_1X1_GEMM`,
-            # which is exactly the predicate-that-answers-configuration the
-            # review's finding 7 names; the switch is gone.)
-            @test DK.onebyone(w, (1,1), (0,0), (1,1), 1)
-            DK.reset!(ws)
-            # The im2col path by name, through its plan — which also asserts that
-            # this shape really is one it takes, instead of assuming it.
-            cmplan = DK.conv_coopmat_plan(ctx.dev, ref, x, w)
-            @test cmplan isa DK.ConvCoopMatPlan
-            DK.convolution_coopmat!(ctx, ref, cmplan, x, w, b, (1,1), (0,0), (1,1))
-            DK.reset!(ws)
-            DK.convolution!(ctx, got, x, w, b, (1,1), (0,0), (1,1), 1)
-            KA.synchronize(back)
-            r, g = Float32.(Array(ref)), Float32.(Array(got))
-            @test any(!iszero, g)
-            # fp16, and the two paths accumulate in a different order, so this is
-            # the format's tolerance rather than the algorithm's.
-            @test maximum(abs, g .- r) / maximum(abs, r) < 5e-3
-            x = w = b = ref = got = nothing; GC.gc()
-        end
-    end
 
     @testset "only the 1x1 case is taken" begin
         w11 = KA.allocate(back, Float16, 1, 1, 8, 8)
@@ -158,60 +150,11 @@ end
         @test !DK.onebyone(w11, (1,1), (0,0), (2,2), 1)
         w11 = w33 = nothing; GC.gc()
     end
-end
 
-@testset "a reduction axis off the tile is padded onto the tensor cores" begin
-    # `CRS = Cin*KH*KW` is the weight's own extent, so it used to be a flat
-    # refusal: a convolution whose channel count did not land on 16 stayed on the
-    # implicit-GEMM kernel. SAM 2's stem is `7x7x3`, `CRS = 147`, and it ran at
-    # 0.99 TFLOP/s there. Padding both halves with zeros — im2col writes zero
-    # columns, the weight gets a zeroed copy — makes the padded product identical
-    # to the real one and takes it to a tensor-core GEMM (2.800 -> 1.147 ms).
-    #
-    # The reference is `convolution_igemm!`, the path it replaces. Not a host
-    # computation: what is at stake is that a *different route to the same
-    # answer* agrees, and both accumulate in fp16, so the tolerance is fp16's.
-    back = LavaBackend()
-    function pair(Wi, Hi, Cin, Cout, KW, KH, s, p)
-        OW = (Wi + 2p - KW) ÷ s + 1
-        OH = (Hi + 2p - KH) ÷ s + 1
-        x = KA.allocate(back, Float16, Wi, Hi, Cin, 1)
-        copyto!(x, Float16.(reshape(0.4 .* sin.(range(0, 9, Wi * Hi * Cin)), Wi, Hi, Cin, 1)))
-        w = KA.allocate(back, Float16, KW, KH, Cin, Cout)
-        copyto!(w, Float16.(reshape(0.3 .* cos.(range(0, 7, KW * KH * Cin * Cout)),
-                                    KW, KH, Cin, Cout)))
-        o1 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o1, Float16(0))
-        o2 = KA.allocate(back, Float16, OW, OH, Cout, 1); fill!(o2, Float16(0))
-        ctx = DK.Ctx(back; ws = DK.Workspace(back))
-        DK.reset!(ctx.ws)
-        cmplan = DK.conv_coopmat_plan(ctx.dev, o1, x, w)
-        DK.convolution_coopmat!(ctx, o1, cmplan, x, w, nothing, (s, s), (p, p), (1, 1))
-        DK.convolution_igemm!(ctx, o2, x, w, nothing, (s, s), (p, p), (1, 1))
-        KA.synchronize(back)
-        r = (Float64.(Array(o1)), Float64.(Array(o2)), cmplan isa DK.ConvCoopMatPlan)
-        x = w = o1 = o2 = nothing; GC.gc()
-        r
-    end
-
-    @testset "CRS $(cin*kw*kh) ($(cin)x$(kw)x$(kh))" for (wi, hi, cin, cout, kw, kh, s, p) in
-            [(256, 256, 3, 144, 7, 7, 4, 3),   # SAM 2's stem, 147 -> 160
-             (64, 64, 5, 32, 3, 3, 1, 1),      #  45 ->  48
-             (48, 48, 7, 48, 5, 5, 2, 2),      # 175 -> 176
-             (32, 32, 32, 64, 3, 3, 1, 1)]     # 288, already on the tile
-        got, want, applicable = pair(wi, hi, cin, cout, kw, kh, s, p)
-        @test applicable
-        @test size(got) == size(want)
-        @test all(isfinite, got)
-        # fp16 accumulation in a different order; the on-tile cases in this same
-        # list sit at the same 1e-3, so a padding bug would have to hide under
-        # the noise floor of the path that was never padded.
-        @test maximum(abs, got .- want) / maximum(abs, want) < 5e-3
-    end
-
-    @testset "the pad is refused when the waste is large" begin
-        # A concatenated scalar channel gives MatAnyone `Cin = 17`, which would
-        # round to 32 and pay 88% waste to reach the tensor cores. `crspad`
-        # is where that line sits.
+    @testset "the reduction-axis pad is refused when the waste is large" begin
+        # `CRS = Cin*KH*KW` is the weight's own extent. A concatenated scalar
+        # channel gives MatAnyone `Cin = 17`, which would round to 32 and pay 88%
+        # waste to reach the tensor cores; `crspad` is where that line sits.
         dev = DK.caps(back)
         x = KA.allocate(back, Float16, 32, 32, 17, 1); fill!(x, Float16(0.1))
         w = KA.allocate(back, Float16, 1, 1, 17, 32); fill!(w, Float16(0.1))
@@ -220,87 +163,74 @@ end
         # asks a different question, and a failing `@test` between them can no
         # longer leave the policy changed for everything after.
         @test DK.conv_coopmat_plan(dev, o, x, w).reason === :crswaste   # 17 -> 32
-        let
-            @test DK.conv_coopmat_plan(dev, o, x, w; crspad = 2.0) isa
-                  DK.ConvCoopMatPlan                       # ...only by policy
-            # 1.0 is the old behaviour exactly: nothing off the tile gets in.
-            w2 = KA.allocate(back, Float16, 7, 7, 3, 144); fill!(w2, Float16(0.1))
-            x2 = KA.allocate(back, Float16, 256, 256, 3, 1); fill!(x2, Float16(0.1))
-            o2 = KA.allocate(back, Float16, 64, 64, 144, 1); fill!(o2, Float16(0))
-            @test DK.conv_coopmat_plan(dev, o2, x2, w2; crspad = 1.0).reason ===
-                  :crswaste
-            w2 = x2 = o2 = nothing
+        @test DK.conv_coopmat_plan(dev, o, x, w; crspad = 2.0) isa
+              DK.ConvCoopMatPlan                            # ...only by policy
+        # 1.0 is the old behaviour exactly: nothing off the tile gets in. SAM 2's
+        # stem is `7x7x3`, `CRS = 147`, and padding it to 160 took it from 2.800
+        # to 1.147 ms.
+        w2 = KA.allocate(back, Float16, 7, 7, 3, 144); fill!(w2, Float16(0.1))
+        x2 = KA.allocate(back, Float16, 256, 256, 3, 1); fill!(x2, Float16(0.1))
+        o2 = KA.allocate(back, Float16, 64, 64, 144, 1); fill!(o2, Float16(0))
+        @test DK.conv_coopmat_plan(dev, o2, x2, w2) isa DK.ConvCoopMatPlan
+        @test DK.conv_coopmat_plan(dev, o2, x2, w2; crspad = 1.0).reason ===
+              :crswaste
+        x = w = o = w2 = x2 = o2 = nothing; GC.gc()
+    end
+
+    @testset "the overlapping transposed decomposition, as a predicate" begin
+        # Every HiFi-GAN-family upsampler — Kokoro's iSTFTNet — uses `K == 2S`
+        # with `P == S/2`, which `shufflecase` refuses, so those calls take the
+        # gather: one thread per output element, no reuse, 137 ms of a 217 ms
+        # utterance at 0.02 TF/s. `convolutiontranspose_phase!` is the answer and
+        # `emitconvtranspose!` does not declare it yet — see its docstring, and
+        # the note at the bottom of this file.
+        for (K, S, P, cin, cout) in ((20, 10, 5, 512, 256), (12, 6, 3, 256, 128),
+                                     (8, 4, 2, 32, 16), (6, 3, 1, 8, 8),
+                                     (5, 2, 1, 16, 32))
+            w = KA.allocate(back, Float16, K, 1, cout, cin)
+            @test DK.phasecase(w, [S, 1], [P, 0], [1, 1], [0, 0], 1)
+            w = nothing
         end
-        x = w = o = nothing; GC.gc()
-    end
-end
-
-# ── The OVERLAPPING transposed convolution: one ordinary convolution over `S`
-# stacked phases, then an interleave.
-#
-# `shufflecase` only covers `K == S`, where each output comes from one input.
-# Every HiFi-GAN-family upsampler — Kokoro's iSTFTNet — uses `K == 2S` with
-# `P == S/2`, which it refuses, so those calls took `convtranspose2d`: one thread
-# per output element, no reuse, **137 ms of a 217 ms utterance** at 0.02 TF/s.
-#
-# The reference here is that same gather kernel, elementwise. It has to be:
-# getting the phase flip backwards produces audio that is still speech-shaped,
-# and the PyTorch cross-correlation gate in KokoroRunner's suite passes things a
-# diff would not.
-@testset "an overlapping transposed convolution is a phased convolution" begin
-    back = LavaBackend()
-    ws = DK.Workspace(back)
-    ctx = DK.Ctx(back; ws)
-
-    @testset "M$M K$K S$S P$P $cin->$cout" for (M, K, S, P, cin, cout) in
-            ((260, 20, 10, 5, 512, 256),   # Kokoro convolution_44
-             (2600, 12, 6, 3, 256, 128),   # Kokoro convolution_70
-             (37, 8, 4, 2, 32, 16),        # odd length
-             (20, 6, 3, 1, 8, 8),          # K == 2S, P != S/2
-             (16, 5, 2, 1, 16, 32))        # K not a multiple of S
-        Lout = (M - 1) * S - 2P + K
-        x = KA.allocate(back, Float16, M, 1, cin, 1)
-        copyto!(x, Float16.(randn(Float32, M, 1, cin, 1) .* 0.3f0))
-        w = KA.allocate(back, Float16, K, 1, cout, cin)
-        copyto!(w, Float16.(randn(Float32, K, 1, cout, cin) .* 0.2f0))
-        b = KA.allocate(back, Float16, cout)
-        copyto!(b, Float16.(randn(Float32, cout) .* 0.1f0))
-        got = KA.allocate(back, Float16, Lout, 1, cout, 1)
-        want = KA.allocate(back, Float16, Lout, 1, cout, 1)
-
-        @test DK.phasecase(w, [S, 1], [P, 0], [1, 1], [0, 0], 1)
-        DK.reset!(ws)
-        DK.convolutiontranspose_phase!(ctx, got, x, w, b, [S, 1], [P, 0])
-        DK.reset!(ws)
-        DK.launch!(ctx, DK.convtranspose2d, want, x, w, b,
-                   Val(S), Val(1), Val(P), Val(0), Val(1), Val(1), Val(1))
-        KA.synchronize(back)
-        g, r = Float32.(Array(got)), Float32.(Array(want))
-        # fp16, and the two paths accumulate in different orders.
-        @test sqrt(sum(abs2, g .- r) / sum(abs2, r)) < 5e-3
-        x = w = b = got = want = nothing
         GC.gc()
-    end
 
-    # SAM 2's decoder is `K == S`, and must keep its own GEMM+shuffle path: the
-    # phase form would build a weight and a padded convolution to express what
-    # that one does with a single matmul.
-    @testset "the non-overlapping case still belongs to shufflecase" begin
+        # SAM 2's decoder is `K == S` and belongs to `shufflecase`. `phasecase`
+        # would also accept it — it is the more general test — so what keeps the
+        # decoder on its own GEMM is the ORDER the emit asks in. Asserting
+        # `!phasecase` here was true only while the phase path was 1-D, and
+        # became a false statement about the dispatch the moment it covered 2-D.
         w = KA.allocate(back, Float16, 2, 2, 32, 64)
         @test DK.shufflecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
-        # `phasecase` would also accept `K == S` — it is the more general test —
-        # so the ORDER in `convolutiontranspose!` is what keeps SAM 2's decoder on
-        # its own GEMM: the phase route is guarded by `!shufflecase(...)`. Asserting
-        # `!phasecase` here was true only while the phase path was 1-D, and became
-        # a false statement about the dispatch the moment it covered 2-D.
         @test DK.phasecase(w, [2, 2], [0, 0], [1, 1], [0, 0], 1)
-        w = nothing
-    end
-    # Grouped stays on the gather: the phase weight flattens all input channels
-    # into one convolution, which is what groups forbid.
-    @testset "grouped is refused" begin
-        w = KA.allocate(back, Float16, 12, 1, 128, 256)
-        @test !DK.phasecase(w, [6, 1], [3, 0], [1, 1], [0, 0], 4)
-        w = nothing
+        # Grouped stays on the gather: the phase weight flattens all input
+        # channels into one convolution, which is what groups forbid.
+        wg = KA.allocate(back, Float16, 12, 1, 128, 256)
+        @test !DK.phasecase(wg, [6, 1], [3, 0], [1, 1], [0, 0], 4)
+        w = wg = nothing; GC.gc()
     end
 end
+
+# ── Three numerical comparisons that went with the immediate entry points ────
+#
+# Each drove a `DK.Ctx(backend; ws = DK.Workspace(backend))`, and that arena is
+# gone. They are named here rather than deleted quietly, because each says what
+# is now unchecked and by what:
+#
+#   * **1x1 convolution as a plain GEMM** compared `convolution_coopmat!`
+#     against `convolution!`'s im2col route on four of SAM 2's shapes. The
+#     declared convolution has ONE route — `conv2d_igemm_ki!`, with the tiling
+#     and the split factor as `Val` parameters — so there is no second route to
+#     disagree with it. `onebyone` and `conv_coopmat_plan` are still asserted
+#     above; what the numbers are checked against now is the reference dump,
+#     through `verifygraph`, which walks every op of the encoder.
+#
+#   * **A reduction axis off the tile** compared the padded cooperative-matrix
+#     convolution against `convolution_igemm!`. Same reason, same replacement;
+#     the `crspad` policy it exists to pin is asserted above as a plan query.
+#
+#   * **An overlapping transposed convolution** compared
+#     `convolutiontranspose_phase!` against the gather, elementwise, on Kokoro's
+#     and RIFE's shapes. That one is NOT covered by anything else, because
+#     `emitconvtranspose!` does not declare the phase route: it sends an
+#     overlapping kernel to the gather, which is slow and right. The comparison
+#     belongs with the port, and `phasecase`'s own answers are pinned above so
+#     the router cannot drift in the meantime.

@@ -268,7 +268,7 @@ end
             E, L, H, B = 72, 256, 2, 2
             f16r(s) = DNNKernels.toback(back, Float16.(randn(Float32,E,L,H,B) .* 0.2f0))
             q, k, v = f16r(1), f16r(2), f16r(3)
-            wctx = DNNKernels.Ctx(back; ws = DNNKernels.Workspace(back))
+            wctx = DNNKernels.Ctx(back; ws = DNNKernels.nothing)
             scale = Float32(1/sqrt(E))
             # A plan, not a `Bool`: the same call that decides also carries the
             # tiling, so there is nothing left for a second predicate to disagree
