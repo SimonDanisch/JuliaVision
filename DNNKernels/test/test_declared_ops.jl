@@ -32,11 +32,8 @@ function declaredops(dev, label)
             g = MM.Graph(dev)
             out = MM.Transient.Buffer(g, Float32, od)
             a = MM.Buffer(dev, ah)
-            MM.compute!(g, "repeat") do p
-                MM.dispatch!(p, DK.tilecopy!,
-                             (MM.use(p, out; write = true), od,
-                              MM.use(p, a; read = true), size(ah)), prod(od))
-            end
+            MM.dispatch!(g, DK.tilecopy!, (out, od, a, size(ah)), prod(od);
+                         name = "repeat")
             pl = MM.Plan(g)
             MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
             @test Array(MM.storage(out)) == repeat(ah, 2, 3)
@@ -57,11 +54,8 @@ function declaredops(dev, label)
                 g = MM.Graph(dev)
                 out = MM.Transient.Buffer(g, Float32, dropdims(ref; dims = dims) |> size)
                 x = MM.Buffer(dev, xh)
-                MM.compute!(g, "sum") do p
-                    MM.dispatch!(p, DK.sumdims!,
-                                 (MM.use(p, out; write = true), kd,
-                                  MM.use(p, x; read = true), id, f), prod(kd))
-                end
+                MM.dispatch!(g, DK.sumdims!, (out, kd, x, id, f), prod(kd);
+                             name = "sum")
                 pl = MM.Plan(g)
                 MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
                 @test Array(MM.storage(out)) == dropdims(ref; dims = dims)
@@ -86,18 +80,12 @@ function declaredops(dev, label)
             mu = MM.Transient.Buffer(g, Float32, C)
             ivs = MM.Transient.Buffer(g, Float32, C)
             xb, gb, bb = MM.Buffer(dev, bh), MM.Buffer(dev, gh), MM.Buffer(dev, beh)
-            MM.compute!(g, "bn.stats") do p
-                MM.dispatch!(p, DK.bnstats!,
-                             (MM.use(p, mu; write = true), MM.use(p, ivs; write = true),
-                              MM.use(p, xb; read = true), cstride, C, nouter, eps), C)
-            end
-            MM.compute!(g, "bn") do p
-                MM.dispatch!(p, DK.bnapply!,
-                             (MM.use(p, o; write = true), MM.use(p, xb; read = true),
-                              MM.use(p, mu; read = true), MM.use(p, ivs; read = true),
-                              MM.use(p, gb; read = true), MM.use(p, bb; read = true),
-                              length(bh), cstride, C), length(bh))
-            end
+            MM.dispatch!(g, DK.bnstats!,
+                         (mu, ivs, xb, cstride, C, nouter, eps), C;
+                         name = "bn.stats")
+            MM.dispatch!(g, DK.bnapply!,
+                         (o, xb, mu, ivs, gb, bb, length(bh), cstride, C),
+                         length(bh); name = "bn")
             pl = MM.Plan(g)
             MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
 
@@ -152,12 +140,9 @@ function declaredops(dev, label)
                                        (x, y, z) -> (x + y) * z))
                 g = MM.Graph(dev)
                 out = MM.Transient.Buffer(g, Float32, od)
-                MM.compute!(g, "ew") do p
-                    o, st = DK.operandtuples(p, od, ops)
-                    MM.dispatch!(p, DK.ew!,
-                                 (MM.use(p, out; write = true), od, o, st, f),
-                                 prod(od))
-                end
+                o, st = DK.operandtuples(od, ops)
+                MM.dispatch!(g, DK.ew!, (out, od, o, st, f), prod(od);
+                             name = "ew")
                 pl = MM.Plan(g)
                 MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
                 @test reshape(Array(MM.storage(out)), od) == f.(hostops...)

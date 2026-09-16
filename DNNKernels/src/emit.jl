@@ -229,18 +229,17 @@ One pass, one dispatch: `dest(ctx) .= f.(ins...)`.
 `f` is an argument rather than a type parameter of a wrapper, so a closure over
 scalars, leaky ReLU's slope or an epsilon, needs no operand of its own.
 
-The uses are the thing capture could not state. The destination is written, the
-operands are only read, so two ops that read the same weight no longer serialise
-against each other.
+Nothing here says what it touches. `ew!` stores through its first argument and
+reads through the operand tuple, and that is read off the kernel body by
+`Mantle.argument_usage` — so the destination is written, the operands are only
+read, and two ops that read the same weight do not serialise against each other.
+It was two `use` calls at this site, which is the same fact stated twice.
 """
 function elementwise!(ec::EmitCtx, op::Op, f, ins...)
     out = dest(ec)
     od = size(out)
-    M.compute!(ec.g, op.id) do p
-        ops, sts = operandtuples(p, od, ins)
-        M.dispatch!(p, ew!, (M.use(p, out; write = true), od, ops, sts, f),
-                    length(out))
-    end
+    ops, sts = operandtuples(od, ins)
+    M.dispatch!(ec.g, ew!, (out, od, ops, sts, f), length(out); name = op.id)
     return out
 end
 
@@ -257,20 +256,20 @@ and `devicepointeroffsets` stopped counting a tuple as a level of nesting, which
 is what a `resize!` under a recorded plan needs in order to find the operands'
 addresses (`Mantle.nestinglevels`).
 
-The second reason given was that `use(p, x; read = true)` needs each operand to
-be a top-level argument. That was simply wrong; `use` is called here, at emit
-time, where a walk over the operands does it.
+The second reason given was that each operand had to be a top-level argument so
+that `use(p, x; read = true)` could name it. That was wrong when it was written
+and is moot now: there is no `use`, and what the kernel reads is read off the
+kernel.
 """
-operandtuples(p, od::Dims, ::Tuple{}) = ((), ())
-function operandtuples(p, od::Dims, ins::Tuple)
+operandtuples(od::Dims, ::Tuple{}) = ((), ())
+function operandtuples(od::Dims, ins::Tuple)
     x = first(ins)
     isresource(x) || error(
         "DNNKernels: elementwise operand of type $(typeof(x)) has no bytes to " *
         "index. A host scalar belongs in the function, as `Base.Fix2(f, x)`, " *
         "rather than in the operand list; `binary!` is where that is decided.")
-    ops, sts = operandtuples(p, od, Base.tail(ins))
-    return ((M.use(p, x; read = true), ops...),
-            (bcstrides(od, size(x)), sts...))
+    ops, sts = operandtuples(od, Base.tail(ins))
+    return ((x, ops...), (bcstrides(od, size(x)), sts...))
 end
 
 """
@@ -343,12 +342,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("repeat.default")})
     out = dest(ec)
     od = size(out)
     id = ntuple(k -> k <= ndims(a) ? size(a, k) : 1, length(od))
-    M.compute!(ec.g, op.id) do p
-        M.dispatch!(p, tilecopy!,
-                    (M.use(p, out; write = true), od,
-                     M.use(p, a; read = true), id),
-                    prod(od))
-    end
+    M.dispatch!(ec.g, tilecopy!, (out, od, a, id), prod(od); name = op.id)
     return out
 end
 
@@ -372,12 +366,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
     # `foldpremap` folds a map step into the reduction; `identity` is the
     # unfolded case, so there is one kernel rather than two.
     f = something(premap(op), identity)
-    M.compute!(ec.g, op.id) do p
-        M.dispatch!(p, sumdims!,
-                    (M.use(p, out; write = true), od,
-                     M.use(p, a; read = true), id, f),
-                    prod(od))
-    end
+    M.dispatch!(ec.g, sumdims!, (out, od, a, id, f), prod(od); name = op.id)
     return out
 end
 
@@ -386,10 +375,11 @@ end
 """
 `aten::_native_batch_norm_legit.no_stats`, as two passes.
 
-Two `compute!`s and not two dispatches in one, because the second reads what the
-first writes: a pass is the unit that may run concurrently, so a dependency
-between dispatches is a dependency between passes. The uses state it and
-`Barriers` derives the wait, which is the whole of what used to be an implicit
+Two dispatches, and a dispatch is a pass: the second reads what the first writes,
+and a pass is the unit that may run concurrently, so the dependency between them
+is a dependency between passes. Nothing here orders it — `bnstats!` writes `mean`
+and `invstd`, `bnapply!` reads them, `argument_usage` reads that off both bodies
+and `Barriers` derives the wait. That is the whole of what used to be an implicit
 ordering inside a sequence of broadcasts.
 
 All three of torch's results are declared: the normalised output, the mean and
@@ -409,20 +399,11 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_
     C = id[c]
     cstride = prod(ntuple(k -> id[k], c - 1); init = 1)
     nouter = prod(ntuple(k -> id[c + k], length(id) - c); init = 1)
-    M.compute!(ec.g, "$(op.id).stats") do p
-        M.dispatch!(p, bnstats!,
-                    (M.use(p, mean; write = true), M.use(p, invstd; write = true),
-                     M.use(p, x; read = true), cstride, C, nouter, eps),
-                    C)
-    end
-    M.compute!(ec.g, op.id) do p
-        M.dispatch!(p, bnapply!,
-                    (M.use(p, out; write = true), M.use(p, x; read = true),
-                     M.use(p, mean; read = true), M.use(p, invstd; read = true),
-                     M.use(p, gamma; read = true), M.use(p, beta; read = true),
-                     length(out), cstride, C),
-                    length(out))
-    end
+    M.dispatch!(ec.g, bnstats!, (mean, invstd, x, cstride, C, nouter, eps), C;
+                name = "$(op.id).stats")
+    M.dispatch!(ec.g, bnapply!,
+                (out, x, mean, invstd, gamma, beta, length(out), cstride, C),
+                length(out); name = op.id)
     return (out, mean, invstd)
 end
 
@@ -511,60 +492,49 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     kact = (splitk == 1 && act === :relu) ? :relu : :none
 
     if splitk > 1
-        M.compute!(ec.g, "$(op.id).prefill") do p
-            od = size(acc)
-            if bias === nothing
-                M.dispatch!(p, M.fill_kernel!,
-                            (M.use(p, acc; write = true), zero(eltype(acc))),
-                            length(acc))
-            else
-                # The bias lies along the channel axis, which is the third of
-                # four in the reversed layout, so it broadcasts with a zero
-                # stride everywhere else. One pass, no materialised copy.
-                bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
-                M.dispatch!(p, ew!,
-                            (M.use(p, acc; write = true), od,
-                             (M.use(p, bias; read = true),), (bcstrides(od, bd),),
-                             identity),
-                            prod(od))
-            end
+        od = size(acc)
+        if bias === nothing
+            M.dispatch!(ec.g, M.fill_kernel!, (acc, zero(eltype(acc))),
+                        length(acc); name = "$(op.id).prefill")
+        else
+            # The bias lies along the channel axis, which is the third of four in
+            # the reversed layout, so it broadcasts with a zero stride everywhere
+            # else. One pass, no materialised copy.
+            bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
+            M.dispatch!(ec.g, ew!,
+                        (acc, od, (bias,), (bcstrides(od, bd),), identity),
+                        prod(od); name = "$(op.id).prefill")
         end
     end
 
-    M.compute!(ec.g, op.id) do p
-        args = (M.use(p, acc; write = true), M.use(p, x; read = true),
-                M.use(p, w; read = true),
-                bias === nothing ? nothing : M.use(p, bias; read = true),
-                Val(ACC), Val(splitk), Val(kact),
-                Val(BS_K), Val(BS_CRS), Val(BS_NPQ), Val(TS_K), Val(TS_NPQ),
-                Val(KWk), Val(KHk),
-                Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
-                Val(dil[1]), Val(dil[2]),
-                Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn)
-        M.dispatch!(p, conv2d_igemm_ki!, args, (nbk * WG, nbn * splitk);
-                    group = (WG, 1))
-    end
+    args = (acc, x, w, bias,
+            Val(ACC), Val(splitk), Val(kact),
+            Val(BS_K), Val(BS_CRS), Val(BS_NPQ), Val(TS_K), Val(TS_NPQ),
+            Val(KWk), Val(KHk),
+            Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
+            Val(dil[1]), Val(dil[2]),
+            Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn)
+    # `bias` is passed as `nothing` when there is none, rather than omitted: the
+    # kernel branches on `bias === nothing` at compile, and `nothing` is a
+    # zero-size argument the compiled kernel has no parameter for
+    # (`Mantle.NotPassed`), so there is no slot and nothing to declare.
+    M.dispatch!(ec.g, conv2d_igemm_ki!, args, (nbk * WG, nbn * splitk);
+                group = (WG, 1), name = op.id)
 
     # The third pass: convert the fp32 scratch down, applying the activation
     # once now that the splits have been summed.
     if acc !== out
-        M.compute!(ec.g, "$(op.id).reduce") do p
-            od = size(out)
-            f = act === :relu ? (v -> max(v, zero(v))) : identity
-            M.dispatch!(p, ew!,
-                        (M.use(p, out; write = true), od,
-                         (M.use(p, acc; read = true),), (bcstrides(od, od),), f),
-                        prod(od))
-        end
+        od = size(out)
+        f = act === :relu ? (v -> max(v, zero(v))) : identity
+        M.dispatch!(ec.g, ew!, (out, od, (acc,), (bcstrides(od, od),), f),
+                    prod(od); name = "$(op.id).reduce")
     elseif splitk > 1 && act === :relu
-        M.compute!(ec.g, "$(op.id).act") do p
-            od = size(out)
-            M.dispatch!(p, ew!,
-                        (M.use(p, out; write = true), od,
-                         (M.use(p, out; read = true),), (bcstrides(od, od),),
-                         v -> max(v, zero(v))),
-                        prod(od))
-        end
+        # In place: `out` is the destination AND the operand, so the walk reports
+        # it read+write and the pass is ordered against the splits that wrote it.
+        od = size(out)
+        M.dispatch!(ec.g, ew!,
+                    (out, od, (out,), (bcstrides(od, od),), v -> max(v, zero(v))),
+                    prod(od); name = "$(op.id).act")
     end
     return out
 end
