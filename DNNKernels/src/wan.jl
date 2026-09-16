@@ -79,9 +79,9 @@ struct WanPipeline
     vae::Graph
     vaeweights::Dict{String,Any}
     backend::Any
-    # graph name -> (slab, plan, workspace, lazy set). Built on first call and
-    # reused: the plan depends only on the graph, and the transformer runs
-    # `2 * steps` times off the same one.
+    # graph name -> `RecordedPlan`. Built on first call and reused: the plan
+    # depends only on the graph, and the transformer runs `2 * steps` times off
+    # the same one.
     scratch::Dict{String,Any}
 end
 
@@ -200,28 +200,26 @@ function liveroots(g::Graph)
 end
 
 """
-    scratchfor(pipe, name, g) -> (slab, plan, workspace, lazy)
+    planned(pipe, name, g, weights) -> RecordedPlan
 
-The planned slab for one graph, built once. Without it every intermediate stays
-alive for the whole graph: the VAE decoder is 1326 ops at 256×256×9, so its
-transients sum to far more than this machine has — planning them into one slab
-is what makes the decode run at all, not an optimisation.
+The recorded plan for one graph, built once.
+
+Placement is the reason this exists at all: the VAE decoder is 1326 ops at
+256x256x9 and its intermediates sum to far more than this machine has, so they
+have to share bytes. That used to be `planslab`, a slab this package laid out
+itself and passed to `execute!` alongside a `Workspace` and a lazy set — and all
+three went with the interpreted run. `planfor` is `driver.jl`'s, which is the
+same declaration and the same seven Mantle phases; asking it is what keeps the
+two pipelines from planning differently.
+
+Keyed by graph NAME and not by `dims`, because Wan's graphs take none: the shapes
+are fixed at export. `driver.jl`'s `call` keys on `dims` too and is otherwise
+this function.
 """
-function scratchfor(pipe::WanPipeline, name::AbstractString, g::Graph)
+planned(pipe::WanPipeline, name::AbstractString, g::Graph, weights::AbstractDict) =
     get!(pipe.scratch, name) do
-        plan = planslab(g, (;))
-        # From Mantle's pool, like `driver.jl`'s. Wan's VAE decoder is 1326 ops
-        # at 256x256x9 — this slab is the reason the decode runs at all, and it
-        # is the single largest scratch allocation in the package.
-        dev = Mantle.Device(pipe.backend)
-        region = Mantle.allocate(Mantle.pool(dev), dev, Mantle.Persistent(),
-                                 UInt8, (max(plan.bytes, 1),);
-                                 align = 256, blocksize = Mantle.blocksize(dev))
-        slab = Mantle.deviceview(dev, region)
-        @debug "DNNKernels: $name slab $(round(plan.bytes / 2^20, digits = 1)) MB"
-        (slab, plan, Workspace(pipe.backend), fusableset(g))
+        planfor(Mantle.Device(pipe.backend), g, weights, (;))
     end
-end
 
 """
     rungraph(pipe, name, g, weights, inputs) -> output
@@ -241,9 +239,10 @@ function rungraph(pipe::WanPipeline, name::AbstractString, g::Graph,
             error("graph $(g.name): input $id was not supplied")
         ins[id] = weights[id[3:end]]
     end
-    slab, plan, ws, lazy = scratchfor(pipe, name, g)
-    vals = execute!(g, ins, weights; dims = (;), backend = pipe.backend, slab, plan, ws, lazy)
-    return value(Ctx(vals, g, (;), pipe.backend), g.outputs[1])
+    mp = planned(pipe, name, g, weights)
+    # `g.inputs` order, because that is the order the plan's own input buffers
+    # are in -- `ins` is keyed by id and a `Dict` has no order to rely on.
+    return first(replay!(mp, name, (ins[id] for id in g.inputs)))
 end
 
 """

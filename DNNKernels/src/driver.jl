@@ -498,8 +498,8 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
     # the mistake, and the replay check below — which compares against whatever
     # that first call passed — then rejected the *correct* shape. Measured on
     # `horizon32b_decode_bucket` handed a batch-2 `input_ids`: it returned one
-    # batch element's logits twice, and the batch-1 call after it failed with
-    # "replay input shape or dtype changed".
+    # batch element's logits twice, and the batch-1 call after it was rejected by
+    # the replay check.
     for (id, a) in zip(g.inputs, args)
         b = get(g.buffers, id, nothing)
         (b === nothing || isempty(b.shape)) && continue
@@ -525,15 +525,16 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
     # The plan reads the buffers it was declared against, so the call's arguments
     # have to land in those. Identical objects are the common case and cost
     # nothing.
-    for (dst, src) in zip(mp.inputs, args)
-        size(dst) == size(src) && eltype(dst) === eltype(src) ||
-            throw(ArgumentError("$name input shape or dtype changed between calls"))
-    end
-    for (dst, src) in zip(mp.inputs, args)
-        dst === src || copyto!(dst, src)
-    end
-    Mantle.run!(mp.plan)
-    return mp.outputs
+    #
+    # SHAPE only, in `replay!`. The dtype is allowed to differ and `copyto!`
+    # converts, because the declared dtype is the one the graph reads and
+    # converting into it is what the graph asked for -- not a guess. Two graphs
+    # chained through a step disagree about it legitimately: under autocast
+    # MatAnyone's `encode_image` hands back `f16` as `Float16` while
+    # `transform_key` declares its input `Float32`, and refusing that stopped
+    # the model at its second graph. The interpreted run converted in the same
+    # place, through the same `copyto!`.
+    return replay!(mp, name, args)
 end
 
 """
@@ -552,15 +553,45 @@ fresh arrays: an output that escapes is a `Buffer` (see `escaping`), so reading
 it needs no copy, and an input is the array the plan's dispatches were packed
 with, which is why `call` copies into it rather than rebinding.
 """
-function planfor(m::Model, g::Graph, name::AbstractString, dims,
-                 clampattn::Bool, noise::NoiseSource)
-    dev = Mantle.Device(m.backend)
-    mantlegraph, emitctx = emitgraph(dev, g, m.weights, dims)
+planfor(m::Model, g::Graph, name::AbstractString, dims,
+        clampattn::Bool, noise::NoiseSource) =
+    planfor(Mantle.Device(m.backend), g, m.weights, dims;
+            maxpasses = get(m.record_maxpasses, name, 0))
+
+function planfor(dev, g::Graph, weights::AbstractDict, dims; maxpasses::Int = 0)
+    mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims)
     plan = Mantle.Plan(mantlegraph)
-    Mantle.record!(plan; maxpasses = get(m.record_maxpasses, name, 0))
+    Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
     outs = Tuple(Mantle.storage(emitctx.res[id]) for id in g.outputs)
     return RecordedPlan(plan, ins, outs)
+end
+
+"""
+    replay!(mp, name, args) -> outputs
+
+Write `args` into the buffers the plan was declared against, submit it, and hand
+back its outputs.
+
+Split from `call` because `wan.jl` needs the same two steps and had its own third
+copy of them — one that went through `execute!`, a `planslab` slab and a
+`Workspace`, all three of which the declared path replaced. There is one way to
+replay a plan and this is it.
+
+SHAPE has to match and the DTYPE does not: see the note in `call`.
+"""
+function replay!(mp::RecordedPlan, name::AbstractString, args)
+    for (dst, src) in zip(mp.inputs, args)
+        size(dst) == size(src) || throw(ArgumentError(
+            "$name input is declared $(size(dst)) and this call passed " *
+            "$(size(src)). A plan is built per `dims`, so a shape that does not " *
+            "follow from them cannot be replayed."))
+    end
+    for (dst, src) in zip(mp.inputs, args)
+        dst === src || copyto!(dst, src)
+    end
+    Mantle.run!(mp.plan)
+    return mp.outputs
 end
 
 # `recordplan` was here, and it was the second interpreted run: the whole graph
@@ -661,7 +692,14 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
         prob = cat(1 .- a, a; dims=3)
     end
 
-    s.lastmask = materialize(steprec, m.backend, view(prob, :, :, 2:2, :))
+    # `materialize(v)` and not `materialize(rec, backend, v)`: `steprec` was
+    # `step!`'s own `Recycler`, two banks of addresses alternated so this step's
+    # outputs did not land on bytes the last step still had to read. Mantle's
+    # placer decides that from declared liveness (see the note at the top of
+    # this function), and `s.lastmask` outlives the step, so it is an ordinary
+    # allocation. The `Recycler` went and these two calls still named it, which
+    # is an `UndefVarError` on the first frame of every clip.
+    s.lastmask = materialize(view(prob, :, :, 2:2, :))
     s.lastpixfeat = pixfeat
 
     if ismem
@@ -677,7 +715,7 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
         s.lastmskvalue = mv
     end
 
-    materialize(steprec, m.backend, view(prob, :, :, 2, 1))
+    materialize(view(prob, :, :, 2, 1))
 end
 
 """

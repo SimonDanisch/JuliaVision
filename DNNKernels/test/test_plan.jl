@@ -75,19 +75,16 @@ const GRAPHS = testgraphs()
 """
 Shape cases a DECLARED op refuses, per graph.
 
-`convolution.default` has an `emitop!` and covers the dense forward 2-D case;
-1-D lifts to it and 3-D has `convolution3d!`, and neither is written. So these
-graphs refuse at an op the coverage table says is ported — which is the right
-refusal and not a gap in the table, just one it cannot express.
+Empty, and kept as the mechanism rather than deleted: `convolution.default` has
+one `emitop!` covering 1-D and 2-D, dense and split-K, and it still refuses 3-D
+(`convolution3d!`) and the grouped form (`convolution_direct!`). No graph in the
+artifacts asks for either, so writing them would be untested code — but a graph
+that does will refuse at an op the coverage table calls ported, and this is where
+that is recorded rather than read as a coverage bug.
 
-MatAnyone's mask encoders are 1-D convolutions over a flattened mask. Lifting one
-to the 2-D implicit GEMM is the port, and the design question in it is that the
-degenerate axis carries a trip count of 1 through `conv2d_igemm_ki!`.
+It held MatAnyone's two mask encoders until the 1-D convolution was declared.
 """
-const UNPORTED_SHAPES = Dict(
-    "encode_mask_deep"    => "is 1-D",
-    "encode_mask_shallow" => "is 1-D",
-)
+const UNPORTED_SHAPES = Dict{String,String}()
 
 """
     portedatens() -> Set{String}
@@ -115,39 +112,24 @@ end
 """
 Every aten op a graph needs that the declared path has no `emitop!` for.
 
-MatAnyone's, and all of them. The declared port was driven by SAM 2; each of
-these is a `runop!` with no `emitop!`, and the emit REFUSES by name rather than
-running as something else.
+**Empty.** Every op of every exported graph in the artifacts is declared — 67 of
+them, both of SAM 2's graphs and all eight of MatAnyone's.
 
-**Complete, and that is the point.** This began as one op per graph, taken from
-what `emitgraph` threw — but the emit stops at the FIRST op it cannot do, so a
-list built that way named four ops where there are eleven. Comparing the SETS
-instead is static, needs no device and no weights, and reports the whole gap at
-once.
+Kept as the mechanism, not deleted, because it is checked with `==` in both
+directions: a graph that grows an op the emit does not have fails here naming it,
+rather than failing wherever `emitgraph` happened to reach. The reverse held too
+while it had entries — porting an op failed the test with a diff.
 
-Checked with `==` in both directions, so porting an op fails this test with a
-diff naming it. Most are a gather or a reduction the existing patterns cover
-(`mapbody!` and `sumdims!`, with `upsample_nearest2d` as the worked example
-beside them). `readout_query` is the outlier at nine, and `_softmax`/`max.dim`
-are new shapes rather than transcriptions.
-
-The 1-D `convolution.default` is NOT here: it is a shape case inside an op that
-IS declared, so no coverage check can see it. `UNPORTED_SHAPES` records it
-separately, because two graphs hit it BEFORE any of the ops above and a test that
-insisted the refusal name a missing op would fail on them.
+It listed eleven ops for MatAnyone at its widest: `_adaptive_avg_pool2d`,
+`slice_scatter`, `prod.dim_int`, `upsample_bilinear2d`, `_softmax`, `any.dim`,
+`bitwise_and`, `constant_pad_nd`, `ge.Tensor`, `max.dim` and `scalar_tensor`.
+Three generalisations did most of it: `folddims!` took `sumdims!`'s `+` as an
+argument so `prod`/`any`/`all` are the same kernel, `blockcopy!` took
+`catcopy!`'s single-axis offset as a tuple so `cat`/`slice_scatter`/
+`constant_pad_nd` are the same write, and the rest were `launch!` bodies that
+`mapbody!` already accepted.
 """
-const UNPORTED = Dict(
-    "encode_mask_deep"    => ["_adaptive_avg_pool2d.default", "slice_scatter.default"],
-    "encode_mask_shallow" => ["_adaptive_avg_pool2d.default", "slice_scatter.default"],
-    "pixel_fusion"        => ["_adaptive_avg_pool2d.default"],
-    "pred_uncertainty"    => ["_adaptive_avg_pool2d.default"],
-    "segment"             => ["_adaptive_avg_pool2d.default", "prod.dim_int",
-                              "upsample_bilinear2d.vec"],
-    "readout_query"       => ["_softmax.default", "any.dim", "bitwise_and.Tensor",
-                              "constant_pad_nd.default", "ge.Tensor", "max.dim",
-                              "prod.dim_int", "scalar_tensor.default",
-                              "slice_scatter.default"],
-)
+const UNPORTED = Dict{String,Vector{String}}()
 
 """
 Zeroed device buffers of each weight's declared shape.

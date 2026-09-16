@@ -258,12 +258,27 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
     b = emitctx.aten.buffers[id]
     b.kind === :view || error("buffer $id is not a view")
     # A `getitem` is not a window onto anything: it names one element of a
-    # multi-output op's result, and `declare!` gave that element a resource of
-    # its own under the `"$(id)#$(i)"` key. So this is a lookup, where
-    # `makeview` had to index the tuple the op had already returned.
-    occursin("getitem", b.viewop) &&
-        return (emitctx.res[id] = emitctx.res["$(b.of)#$(Int(b.attrs["arg1"]))"])
+    # multi-output result under the `"$(id)#$(i)"` key. So this is a lookup,
+    # where `makeview` had to index the tuple the op had already returned.
+    #
+    # The parent is resolved FIRST when the key is not there yet, because a
+    # multi-output result comes from two places: `declare!` makes the keys for an
+    # OP's results from the export's `shapes`, and `splitview!` makes them for a
+    # `split_with_sizes`, which is a VIEW and so is resolved on demand. A bare
+    # lookup found MatAnyone's `readout_query` split absent — nothing had asked
+    # for the split itself, only for its pieces.
+    if occursin("getitem", b.viewop)
+        key = "$(b.of)#$(Int(b.attrs["arg1"]))"
+        haskey(emitctx.res, key) || viewfor(emitctx, b.of)
+        haskey(emitctx.res, key) || error(
+            "DNNKernels: `$(b.viewop)` ($(id)) names element " *
+            "$(Int(b.attrs["arg1"])) of `$(b.of)`, which declared no resource " *
+            "for it. A multi-output op declares one per entry of its `shapes`, " *
+            "and an entry the export left as `nothing` gets none.")
+        return (emitctx.res[id] = emitctx.res[key])
+    end
     parent = operand(emitctx, b.of)
+    b.viewop == "split_with_sizes.default" && return splitview!(emitctx, id, b, parent)
     # A SHAPE-ONLY view is a descriptor: same elements, same order, so it is a
     # `ResourceView` and costs nothing.
     if b.viewop in SHAPEONLY_VIEWS
@@ -289,6 +304,59 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
     out = make(emitctx, id, eltype(parent), od)
     M.dispatch!(emitctx.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
                 name = "$(id).$(first(split(b.viewop, '.')))")
+    emitctx.res[id] = out
+    return out
+end
+
+"""
+    splitview!(emitctx, id, b, parent) -> Tuple
+
+`split_with_sizes`, which is a VIEW in the export and several resources here: one
+per piece, registered under `"\$(id)#\$(i)"` so the `getitem` above is a lookup
+like any other multi-output result.
+
+The pieces are consecutive boxes along one axis, so each is a `stridedcopy!` from
+the parent at that piece's offset — the same pass a `slice` gets, which is what a
+piece IS. Except along the LAST axis, where consecutive boxes are consecutive
+bytes and a piece is a `viewof` with an offset and no pass at all; that is the
+case MatAnyone's `readout_query` has.
+
+Registering all the pieces at once, rather than one per `getitem`, is what makes
+the offsets add up: each piece's offset is the sum of the extents before it, and
+a lazy per-piece path would have to recompute that from the piece's own index.
+"""
+function splitview!(emitctx::EmitCtx, id::AbstractString, b::Buffer, parent)
+    n = ndims(parent)
+    # `intlist` and not `ints`: a split size can be SYMBOLIC. MatAnyone's
+    # `readout_query` splits by a length the graph carries as a symbol, and
+    # `Int("n")` is a `MethodError` about `Int64` several frames from the split.
+    sizes = intlist(emitctx.dims, emitctx.res, b.attrs["arg1"])
+    d = jdim(Int(get(b.attrs, "arg2", 0)), n)
+    ast = colstrides(ntuple(k -> size(parent, k), n))
+    sum(sizes) == size(parent, d) || error(
+        "DNNKernels: `split_with_sizes` ($(id)) splits axis $d of $(size(parent)) " *
+        "into $(sizes), which sums to $(sum(sizes)).")
+    pieces = Any[]
+    off = 0
+    for (i, len) in enumerate(sizes)
+        od = ntuple(k -> k == d ? len : size(parent, k), n)
+        key = "$(id)#$(i - 1)"
+        piece = if d == n
+            # Contiguous: the pieces partition the trailing axis, so this is a
+            # window over the parent's bytes and costs a descriptor.
+            M.viewof(parent, od; offset = off * ast[d])
+        else
+            dst = make(emitctx, id, eltype(parent), od)
+            M.dispatch!(emitctx.g, stridedcopy!,
+                        (dst, od, parent, ast, off * ast[d]), prod(od);
+                        name = "$(id).split$(i)")
+            dst
+        end
+        emitctx.res[key] = piece
+        push!(pieces, piece)
+        off += len
+    end
+    out = Tuple(pieces)
     emitctx.res[id] = out
     return out
 end
@@ -612,6 +680,17 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("sub.Tensor")})
 end
 
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("eq.Scalar")}) = binary!(emitctx, op, ==)
+# `ge`/`le` in both spellings and `bitwise_and`, which is `logical_and` on a
+# `Bool` tensor and the same kernel either way. `binary!` picks the arity: a host
+# scalar on one side becomes a `Fix1`/`Fix2` in the closure and not an operand.
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("ge.Tensor")}) = binary!(emitctx, op, >=)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("ge.Scalar")}) = binary!(emitctx, op, >=)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("le.Tensor")}) = binary!(emitctx, op, <=)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("le.Scalar")}) = binary!(emitctx, op, <=)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("bitwise_and.Tensor")}) =
+    binary!(emitctx, op, &)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("logical_and.default")}) =
+    binary!(emitctx, op, &)
 
 """
 `aten::_to_copy`, a dtype conversion as one elementwise pass.
@@ -688,13 +767,13 @@ there are no boxes, where there is nothing to fill either way.
 The VALUE can be symbolic, not just the shape: a graph that materialises its own
 sequence length writes `full((1,), t)`.
 """
-function emitfill!(emitctx::EmitCtx, op::Op, v)
+function emitfill!(emitctx::EmitCtx, op::Op, v; name = op.id)
     out = dest(emitctx)
     # See `mapbody!`: an empty result needs no pass, and `empty.memory_format`
     # is where they come from.
     length(out) == 0 && return out
     M.dispatch!(emitctx.g, M.fill_kernel!, (out, convert(eltype(out), v)), length(out);
-                name = op.id)
+                name)
     return out
 end
 
@@ -704,6 +783,9 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("full_like.default")}) =
     emitfill!(emitctx, op, numattr(emitctx.dims, op.attrs["arg1"]))
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("empty.memory_format")}) =
     emitfill!(emitctx, op, 0)
+# A 0-d tensor holding one number, which is the same fill over one element.
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("scalar_tensor.default")}) =
+    emitfill!(emitctx, op, numattr(emitctx.dims, op.attrs["arg0"]))
 
 """
 `aten::pow.Tensor_Scalar`, with the small integer exponents written out.
@@ -778,27 +860,82 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("repeat.default")})
 end
 
 """
-`aten::sum.dim_IntList`, as one dispatch over the output.
+    folddims(emitctx, op, dims, combine, init; scale = nothing) -> out
+
+One reduction over `dims`, as one dispatch over the output.
 
 `od` carries the reduction: the input's shape with a `1` on each reduced axis.
 The output resource may have those axes dropped (`keepdim = false`), which
 changes its shape and not its bytes, so the kernel indexes both linearly.
+
+`combine` and `init` are what separate `sum` from `prod` from `any`. They are
+arguments of `folddims!` rather than four kernels, because the index arithmetic
+is the whole of what those ops have in common and all of what they do.
+
+**`init` decides the accumulator's type** — see `folddims!`. For a float
+reduction that is `accum(eltype(a))` and not `eltype(a)`, and `foldincasts`
+depends on it.
 """
-function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
+function folddims(emitctx::EmitCtx, op::Op, dims, combine, init; scale = nothing)
     a = operand(emitctx, op.ins[1])
     out = dest(emitctx)
     id = size(a)
-    dims = Tuple(jdim(d, length(id)) for d in ints(op.attrs["arg1"]))
     od = ntuple(k -> k in dims ? 1 : id[k], length(id))
     prod(od) == length(out) ||
-        error("DNNKernels: `sum.dim_IntList` (op $(op.id)) reduces $(id) over " *
+        error("DNNKernels: `$(op.aten)` (op $(op.id)) reduces $(id) over " *
               "$(dims) to $(prod(od)) elements, and its output buffer holds " *
               "$(length(out)).")
     # `foldpremap` folds a map step into the reduction; `identity` is the
     # unfolded case, so there is one kernel rather than two.
     f = something(premap(op), identity)
-    M.dispatch!(emitctx.g, sumdims!, (out, od, a, id, f), prod(od); name = op.id)
+    M.dispatch!(emitctx.g, folddims!, (out, od, a, id, f, combine, init, scale),
+                prod(od); name = op.id)
     return out
+end
+
+"""The axes an `arg1`-style reduction names, in Julia's order."""
+reduceddims(op::Op, n::Int) =
+    Tuple(jdim(d, n) for d in ints(op.attrs["arg1"]))
+
+"""`aten::sum.dim_IntList`."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
+    a = operand(emitctx, op.ins[1])
+    A = accum(eltype(a))
+    return folddims(emitctx, op, reduceddims(op, ndims(a)), +, zero(A))
+end
+
+"""
+`aten::prod.dim_int`, which is `sum` with the other operator and the other
+identity.
+
+The accumulator is `accum(eltype(a))` for the same reason a sum's is: a product
+over a long axis leaves `Float16`'s range far sooner than a sum does, and it does
+so silently.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("prod.dim_int")})
+    a = operand(emitctx, op.ins[1])
+    A = accum(eltype(a))
+    return folddims(emitctx, op, (jdim(Int(op.attrs["arg1"]), ndims(a)),), *, one(A))
+end
+
+"""
+`aten::any.dim`: `|` over `Bool`, so the accumulator is `false` and NOT
+`accum(eltype(a))`.
+
+The operand may be any type — torch's `any` is "nonzero somewhere" — so the map
+step is the test and the fold is the or. Written as `!iszero` rather than
+`x -> x != 0`, which needs a zero of the operand's type in the closure and so a
+non-isbits `Type` field.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("any.dim")})
+    a = operand(emitctx, op.ins[1])
+    return folddims(emitctx, op, (jdim(Int(op.attrs["arg1"]), ndims(a)),), |, false)
+end
+
+"""`aten::all.dim`, `any.dim`'s mirror: `&` from `true`."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("all.dim")})
+    a = operand(emitctx, op.ins[1])
+    return folddims(emitctx, op, (jdim(Int(op.attrs["arg1"]), ndims(a)),), &, true)
 end
 
 """
@@ -934,6 +1071,187 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("upsample_nearest2d.vec"
 end
 
 """
+`aten::upsample_bilinear2d`, the same gather one interpolation wider.
+
+`align_corners` is read and not assumed. torch exposes both conventions and the
+exported graphs use both — BasicVSR++'s SPyNet upsamples flow with `true` and its
+pyramid with `false` — and implementing one silently rescales by roughly
+`(n-1)/n`, which is invisible on a big tensor and enough to move an optical-flow
+field by a pixel.
+
+`sx`/`sy` carry the convention so the kernel needs no output extents; the two
+expressions are `upsample_bilinear2d!`'s, which is the immediate form of this
+same launch.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("upsample_bilinear2d.vec")})
+    x = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    align = Bool(something(get(op.attrs, "arg2", nothing), false))
+    sx = align ? (size(out, 1) > 1 ?
+                  Float32((size(out, 1) - 1) / max(size(x, 1) - 1, 1)) : 1.0f0) :
+                 Float32(size(out, 1) / size(x, 1))
+    sy = align ? (size(out, 2) > 1 ?
+                  Float32((size(out, 2) - 1) / max(size(x, 2) - 1, 1)) : 1.0f0) :
+                 Float32(size(out, 2) / size(x, 2))
+    return mapbody!(emitctx, op, upsample_bilinear, out, x, sx, sy, Val(align))
+end
+
+"""
+`aten::_adaptive_avg_pool2d`, one thread per output element.
+
+The output extents travel as `Val`s so the window arithmetic folds where the
+ratio is exact, which it is on every path in these graphs. torch gives the target
+as `(H, W)` and the reversed layout reads it as `(y, x)`, so the two `ins` are the
+output's second and first extents — but they are also its declared shape, and
+that is what this reads: a graph that disagreed with its own buffer would be a
+shape error and not something to resolve here.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_adaptive_avg_pool2d.default")})
+    x = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    return mapbody!(emitctx, op, adaptive_avg_pool, out, x,
+                    Val(size(out, 1)), Val(size(out, 2)))
+end
+
+"""
+`aten::slice_scatter(self, src, dim, start, end, step)`: `self` with one slice
+replaced.
+
+Two passes, and the first is the whole of `self`. That copy is not avoidable by
+aliasing the output onto the input: the graph may read `self` after this op, so
+writing into its bytes would change a value something else still wants. Where it
+does NOT — `self` dead after here — `Aliasing` is what notices, because the copy
+declares a read of `self` and a write of `out` and their intervals then do not
+overlap.
+
+The slice write is `blockcopy!`, which is already "one part into the box of the
+output that starts at `off`": a `cat` part, a scattered slice and a pad's
+interior are the same write with three reasons. `step` is refused rather than
+folded in, since `blockcopy!` walks the output contiguously along each axis and a
+step would make that a stride — `runop!` ignored the argument entirely, which is
+worse.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("slice_scatter.default")})
+    a = operand(emitctx, op, 1)
+    src = operand(emitctx, op, 2)
+    out = dest(emitctx)
+    n = ndims(out)
+    d = jdim(Int(get(op.attrs, "arg2", 0)), n)
+    lo = Int(get(op.attrs, "arg3", 0))
+    step = Int(something(get(op.attrs, "arg5", nothing), 1))
+    step == 1 || error(
+        "DNNKernels: `slice_scatter` (op $(op.id)) has step $(step), and only " *
+        "the unit step is declared -- `blockcopy!` walks the output contiguously " *
+        "along the scattered axis. A strided form needs a kernel of its own.")
+    od = size(out)
+    od == size(a) || error(
+        "DNNKernels: `slice_scatter` (op $(op.id)) writes $(od) but its `self` " *
+        "is $(size(a)); the result is `self` with a slice replaced, so they are " *
+        "the same shape.")
+    M.dispatch!(emitctx.g, ew!,
+                (out, od, (a,), (bcstrides(od, size(a)),), identity),
+                prod(od); name = "$(op.id).self")
+    length(src) == 0 && return out
+    M.dispatch!(emitctx.g, blockcopy!,
+                (out, od, src, size(src), ntuple(k -> k == d ? lo : 0, n)),
+                length(src); name = op.id)
+    return out
+end
+
+"""
+`aten::constant_pad_nd`: a fill, then the operand into the interior.
+
+`arg1` is `(lo, hi)` per torch dimension counting from the LAST, so torch's
+`-k` is Julia's `k` and the pairs are read in order without reversing. Only the
+low pads move the operand; the high ones only make the output bigger, which its
+declared shape already says.
+
+Two passes and not one: the border and the interior are disjoint writes, and a
+single kernel over the output would branch per element on whether it is inside.
+The fill is `fill_kernel!` over the whole output rather than the border only,
+because the border is not a box — it is the complement of one.
+
+Into the planned buffer, which is the point. Wan's VAE decoder pads before each
+of its 116 3-D convolutions, and at 256x256x9 those temporaries are hundreds of
+MB apiece; allocating them outside the plan is what took its decode from a 1.2 GB
+slab to a 14.8 GB peak.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("constant_pad_nd.default")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    n = ndims(out)
+    # `intlist` and not `ints`: a pad can be SYMBOLIC. MatAnyone's
+    # `readout_query` pads by an extent the graph carries as a symbol, and
+    # `Int("n")` is a `MethodError` about `Int64` several frames from the pad.
+    # Same rule the interpreted path read it with, asked with this path's tables.
+    pad = intlist(emitctx.dims, emitctx.res, op.attrs["arg1"])
+    los = ntuple(k -> 2k <= length(pad) ? pad[2k - 1] : 0, n)
+    his = ntuple(k -> 2k <= length(pad) ? pad[2k] : 0, n)
+    for k in 1:n
+        size(a, k) + los[k] + his[k] == size(out, k) || error(
+            "DNNKernels: `constant_pad_nd` (op $(op.id)) pads axis $k of " *
+            "$(size(a)) by ($(los[k]), $(his[k])), which is " *
+            "$(size(a, k) + los[k] + his[k]) and its output holds $(size(out, k)).")
+    end
+    emitfill!(emitctx, op, numattr(emitctx.dims,
+                                   something(get(op.attrs, "arg2", nothing), 0));
+              name = "$(op.id).border")
+    length(a) == 0 && return out
+    M.dispatch!(emitctx.g, blockcopy!,
+                (out, size(out), a, ntuple(k -> size(a, k), n), los),
+                length(a); name = "$(op.id).inner")
+    return out
+end
+
+"""
+`aten::max.dim`, which returns the maximum and WHERE it was.
+
+Two dispatches of one body, `Val(WANTIDX)` choosing which result it stores. Two
+rather than one because a kernel writes one element per thread and these are two
+tensors; the scan is repeated, which is the same trade `runop!` made and is one
+extra read of the reduced axis.
+
+The index is torch's, so 0-based, and it comes back in the VALUES' element type —
+that is `maxdim_body`'s choice and it is what the declared buffer's dtype says
+too. `destor` for the indices, because a graph that reads only the maximum
+declares no buffer for them and the kernel writes them anyway.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max.dim")})
+    a = operand(emitctx, op, 1)
+    vals = dest(emitctx, 0)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    sz = ntuple(k -> k == d ? 1 : size(a, k), ndims(a))
+    inds = destor(emitctx, 1, eltype(vals), sz)
+    mapbody!(emitctx, op, maxdim_body, vals, a, Val(d), Val(false);
+             name = "$(op.id).values")
+    mapbody!(emitctx, op, maxdim_body, inds, a, Val(d), Val(true);
+             name = "$(op.id).indices")
+    return (vals, inds)
+end
+
+"""
+`aten::_softmax` along one axis, as ONE dispatch: one workgroup per slice,
+reducing through workgroup memory.
+
+`softmax_kernel!` indexes `a` linearly over a `(pre, n, post)` view, so the
+operand has to be dense in that order. A declared operand always is —
+`hoistpermutes` resolved the permutes at build and a materialised view is its own
+transient — which is why the `materialize` call `runop!` needed here is not
+present: there is no wrapper left to collapse.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_softmax.default")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    pre = prod(ntuple(k -> size(a, k), d - 1); init = 1)
+    n = size(a, d)
+    post = length(a) ÷ (pre * n)
+    M.dispatch!(emitctx.g, softmax_kernel!, (out, a, Val(SOFTMAX_WG), pre, n),
+                SOFTMAX_WG * pre * post; group = SOFTMAX_WG, name = op.id)
+    return out
+end
+
+"""
 `aten::cumsum` along one axis, one thread per output element.
 
 Each thread walks the axis from its start, so the work is quadratic in the
@@ -974,24 +1292,16 @@ end
 store.
 
 Not a second pass to divide: the count is a host scalar the emit already knows,
-so `sumdims!` takes a `scale` and multiplies once, inside the accumulator's
+so `folddims!` takes a `scale` and multiplies once, inside the accumulator's
 type. A pass to scale by a constant is a whole round trip of the result through
 memory.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mean.dim")})
     a = operand(emitctx, op, 1)
-    out = dest(emitctx)
-    id = size(a)
-    dims = Tuple(jdim(d, length(id)) for d in ints(op.attrs["arg1"]))
-    od = ntuple(k -> k in dims ? 1 : id[k], length(id))
-    prod(od) == length(out) ||
-        error("DNNKernels: `mean.dim` (op $(op.id)) reduces $(id) over $(dims) " *
-              "to $(prod(od)) elements, and its output buffer holds $(length(out)).")
-    f = something(premap(op), identity)
-    n = prod(id[k] for k in dims)
-    scale = accum(eltype(out))(1 // n)
-    M.dispatch!(emitctx.g, sumdims!, (out, od, a, id, f, scale), prod(od); name = op.id)
-    return out
+    dims = reduceddims(op, ndims(a))
+    n = prod(size(a, k) for k in dims)
+    A = accum(eltype(dest(emitctx)))
+    return folddims(emitctx, op, dims, +, zero(A); scale = A(1 // n))
 end
 
 """
@@ -1017,8 +1327,9 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
     for (j, p) in enumerate(parts)
         len = size(p, d)
         len == 0 && continue
-        M.dispatch!(emitctx.g, catcopy!,
-                    (out, od, p, ntuple(k -> size(p, k), n), Val(d), off),
+        M.dispatch!(emitctx.g, blockcopy!,
+                    (out, od, p, ntuple(k -> size(p, k), n),
+                     ntuple(k -> k == d ? off : 0, n)),
                     length(p); name = "$(op.id).$j")
         off += len
     end
@@ -1506,10 +1817,18 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     # should say so here rather than run as something else. `runop!`'s note
     # applies unchanged — a `ConvTranspose2d` taken as an ordinary convolution
     # is a wrong picture with nothing in the numbers to point at it.
+    # 1-D is its OWN kernel and not the 2-D one with a degenerate axis: see
+    # `conv1d`, whose reason for existing is that the inner loop should not carry
+    # a trip count of 1. MatAnyone's mask encoders are 1-D convolutions over a
+    # flattened mask, and the layout is `(x, c, n)` with the weight reversed to
+    # `(kx, ci, co)`, which is what the export already hands over.
+    length(stride) == 1 && return mapbody!(emitctx, op, conv1d, out, x, w, bias,
+                                           Val(stride[1]), Val(pad[1]), Val(dil[1]),
+                                           Val(groups))
     length(stride) == 2 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(length(stride))-D, and only " *
-        "the 2-D convolution is declared. 1-D lifts to it and 3-D has " *
-        "`convolution3d!`; both need an `emitop!` of their own.")
+        "the 1-D and 2-D convolutions are declared. 3-D has `convolution3d!` and " *
+        "needs an `emitop!` of its own.")
     groups == 1 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) has $(groups) groups, and only " *
         "the dense convolution is declared. `convolution_direct!` is the " *

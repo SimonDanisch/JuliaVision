@@ -38,9 +38,9 @@ function tilecopy!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}) where {N}
 end
 
 """
-    sumdims!(out, od, a, id, f)
+    folddims!(out, od, a, id, f, combine, init, scale = nothing)
 
-`out = sum(f, a; dims)`, one thread per OUTPUT element.
+`out = reduce(combine, map(f, a); dims)`, one thread per OUTPUT element.
 
 `od` is the input's shape with a `1` on every reduced axis, so the reduced
 extents are exactly the axes the output holds as one, and the kernel needs no
@@ -48,17 +48,24 @@ separate list of dims. The output buffer's own shape may have them dropped
 instead; both orders are column-major over the same elements, so the linear
 index is the same either way.
 
-**The accumulator is `accum(eltype(a))` and that is a contract, not a
+**`init` carries the accumulator's type and that is a contract, not a
 preference.** `foldincasts` removes a widening cast in front of a reduction on
 the grounds that "its accumulator was already the wide type"; a reduction that
 accumulated in the operand's type would make that fold change the answer. A
-`Float16` sum over a long axis also saturates at 65504, which is silent.
+`Float16` sum over a long axis also saturates at 65504, which is silent. The
+emit states it once, in `foldinit`.
 
 `f` is the map step `foldpremap` folded in, `identity` when there is none: the
-same argument-not-wrapper decision `ew!` makes, so a premapped sum is still one
-dispatch and one pass.
+same argument-not-wrapper decision `ew!` makes, so a premapped reduction is
+still one dispatch and one pass.
+
+`combine` is why this is ONE kernel and not four. `sum`, `mean`, `prod` and
+`any` differ in the operator and its identity and in nothing else — same index
+arithmetic, same loop, same store — and this was `sumdims!` with `+` written
+into it, so `prod.dim_int` and `any.dim` had no declared form at all.
 """
-function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, scale = nothing) where {N}
+function folddims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, combine, init,
+                   scale = nothing) where {N}
     i = KI.get_global_id().x
     i <= prod(od) || return
     ist = colstrides(id)
@@ -71,7 +78,7 @@ function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, scale = nothi
         r = r ÷ od[k]
     end
     rd = ntuple(k -> od[k] == 1 ? id[k] : 1, Val(N))
-    acc = zero(accum(eltype(a)))
+    acc = init
     @inbounds for j in 0:(prod(rd) - 1)
         off = base
         q = j
@@ -79,14 +86,15 @@ function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, scale = nothi
             off += (q % rd[k]) * ist[k]
             q = q ÷ rd[k]
         end
-        acc += f(a[off + 1])
+        acc = combine(acc, f(a[off + 1]))
     end
-    # `scale` is `mean.dim`: the reduction divided by how many elements it summed.
-    # In the SAME kernel, and folded into the accumulator's type rather than a
-    # second elementwise pass, because the count is a host scalar the emit
-    # already knows — a pass to multiply by a constant is a whole extra
-    # round-trip of the result through memory. `nothing` is `sum`, and the
-    # branch is on a type, so neither form pays for the other.
+    # `scale` is `mean.dim`: the reduction divided by how many elements it
+    # summed. In the SAME kernel, and folded into the accumulator's type rather
+    # than a second elementwise pass, because the count is a host scalar the
+    # emit already knows — a pass to multiply by a constant is a whole extra
+    # round-trip of the result through memory. `nothing` is every other
+    # reduction, and the branch is on a type, so neither form pays for the
+    # other.
     @inbounds out[i] = scale === nothing ? acc : acc * scale
     return
 end
@@ -194,27 +202,39 @@ function indexpaired!(out, od::NTuple{N,Int}, x, xd::Tuple, idxs::Tuple,
 end
 
 """
-    catcopy!(out, od, part, pd, d, off)
+    blockcopy!(out, od, part, pd, off)
 
-One input of a `cat` into its slice of the output: `out[..., off+1:off+pd[d], ...] = part`.
+`part` into the box of `out` that starts at `off`: `out[off .+ c] = part[c]` for
+every coordinate `c` of `part`.
 
-A kernel and not a `slice`, because a `cat` along anything but the last axis is
-not contiguous in the output — the slice a `Mantle.slice` names is a linear
-range, and this one is strided. One dispatch per input, each writing a disjoint
-region, which is why the graph may run them concurrently: the walk reports `out`
-written by each and `Barriers` finds no hazard between them.
+A kernel and not a `slice`, because a box is not a linear range unless it spans
+every axis but the last — the window a `Mantle.slice` names IS a linear range,
+and this one is strided.
+
+`off` is one offset PER AXIS, which is what makes this one kernel for three ops:
+
+  * `cat` offsets the concatenated axis and nothing else;
+  * `slice_scatter` offsets the scattered axis and nothing else;
+  * `constant_pad_nd` offsets every axis at once, by its low pad.
+
+It was `Val{D}, off::Int` for the first of those, with `k == D ? c + off : c`
+inside the loop — the tuple form has no branch at all, so the general kernel is
+also the cheaper one.
+
+One dispatch per part, each writing a disjoint region, which is why a graph may
+run several concurrently: the walk reports `out` written by each and `Barriers`
+finds no hazard between them.
 """
-function catcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
-                  ::Val{D}, off::Int) where {N,D}
+function blockcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
+                    off::NTuple{N,Int}) where {N}
     i = KI.get_global_id().x
     i <= prod(pd) || return
     ost = colstrides(od)
     o = 0
     r = i - 1
     @inbounds for k in 1:N
-        c = r % pd[k]
+        o += ((r % pd[k]) + off[k]) * ost[k]
         r = r ÷ pd[k]
-        o += (k == D ? c + off : c) * ost[k]
     end
     @inbounds out[o + 1] = part[i]
     return

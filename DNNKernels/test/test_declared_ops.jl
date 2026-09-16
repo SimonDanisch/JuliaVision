@@ -12,7 +12,7 @@
 # would pin whatever the kernel did the first time it ran.
 #
 # Over every backend rather than `LavaBackend()`, which is what most of this
-# suite still hardcodes. `sumdims!`'s loop bound and `bnstats!`'s stride
+# suite still hardcodes. `folddims!`'s loop bound and `bnstats!`'s stride
 # arithmetic are the kind of thing that works on one device and not another, and
 # the point of writing a kernel macro-free is that one source runs on all of
 # them.
@@ -54,7 +54,9 @@ function declaredops(dev, label)
                 g = MM.Graph(dev)
                 out = MM.Transient.Buffer(g, Float32, dropdims(ref; dims = dims) |> size)
                 x = MM.Buffer(dev, xh)
-                MM.dispatch!(g, DK.sumdims!, (out, kd, x, id, f), prod(kd);
+                MM.dispatch!(g, DK.folddims!,
+                             (out, kd, x, id, f, +, zero(DK.accum(eltype(xh))), nothing),
+                             prod(kd);
                              name = "sum")
                 pl = MM.Plan(g)
                 MM.record!(pl); MM.run!(pl); MM.waitidle(dev)

@@ -40,12 +40,19 @@ using Test, DNNKernels, Mantle, KernelAbstractions
     @test Array(only(DK.call(m, "cast", x2; dims=(;)))) == fill(Float16(3), 128)
     fill!(x2, 4f0)
     @test Array(only(DK.call(m, "cast", x2; dims=(;)))) == fill(Float16(4), 128)
-    # And the wrong arity, shape or dtype is refused rather than made to fit.
+    # The wrong arity or SHAPE is refused rather than made to fit.
     @test_throws ErrorException DK.call(m, "cast"; dims=(;))
     @test_throws ArgumentError DK.call(m, "cast",
         DK.toback(backend, zeros(Float32, 64)); dims=(;))
-    @test_throws ArgumentError DK.call(m, "cast",
-        DK.toback(backend, zeros(Float16, 128)); dims=(;))
+    # A differing DTYPE is not refused: the declared one is what the graph reads,
+    # and converting into it is what the graph asked for. Two graphs chained
+    # through a step disagree about it legitimately — under autocast MatAnyone's
+    # `encode_image` hands back `f16` as `Float16` where `transform_key` declares
+    # its input `Float32` — and this used to throw, which stopped that model at
+    # its second graph. Asserted on the VALUE and not just on the absence of a
+    # throw, because a conversion that dropped the input would also not throw.
+    @test Array(only(DK.call(m, "cast",
+        DK.toback(backend, fill(Float16(7), 128)); dims=(;)))) == fill(Float16(7), 128)
     # One plan, not one per call.
     @test count(v -> v isa DK.RecordedPlan, values(m.scratch)) == 1
 end

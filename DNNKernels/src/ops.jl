@@ -169,7 +169,8 @@ end
 An attr list whose elements may be constants or `"\$buffer"` references to host
 scalars (see export_graphs: mixed lists keep their order in the attr).
 """
-intlist(ctx::Ctx, v) = Int[intattr(ctx, el) for el in v]
+intlist(ctx::Ctx, v) = intlist(ctx.dims, ctx.values, v)
+intlist(dims::NamedTuple, scalars, v) = Int[intattr(dims, scalars, el) for el in v]
 
 """
     intattr(ctx, v) -> Int
@@ -187,12 +188,20 @@ already did it for buffer *shapes*; an attribute that carries a length (an
 it the symbol reaches arithmetic as a `String` and fails with
 `MethodError: no method matching -(::String, ::Int64)` — which names neither the
 op nor the symbol.
+
+On `(dims, scalars)` and not on a context, because BOTH paths need the same
+answer: the emit reads the same attributes and a second copy of this rule is a
+second set of forms it might not cover. `scalars` is where a `"\$name"`
+reference resolves — `ctx.values` for a run, `emitctx.res` for a declaration —
+and a graph whose attributes are all literal never touches it.
 """
-intattr(ctx::Ctx, v::Integer) = Int(v)
-intattr(ctx::Ctx, v::Bool) = Int(v)
-intattr(ctx::Ctx, v::AbstractString) =
-    startswith(v, "\$") ? Int(value(ctx, v[2:end])) : evalexpr(String(v), ctx.dims)
-intattr(ctx::Ctx, v) = Int(v)
+intattr(dims::NamedTuple, scalars, v::Bool) = Int(v)
+intattr(dims::NamedTuple, scalars, v::Integer) = Int(v)
+intattr(dims::NamedTuple, scalars, v::AbstractString) =
+    startswith(v, "\$") ? Int(scalars[v[2:end]]) : evalexpr(String(v), dims)
+intattr(dims::NamedTuple, scalars, v) = Int(v)
+
+intattr(ctx::Ctx, v) = intattr(ctx.dims, ctx.values, v)
 
 # ---------------------------------------------------------------- elementwise
 
