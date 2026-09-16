@@ -730,6 +730,12 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("le.Tensor")}) = binary!(emitctx,
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("le.Scalar")}) = binary!(emitctx, op, <=)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("bitwise_and.Tensor")}) =
     binary!(emitctx, op, &)
+# `gt`/`lt` against a scalar. `binary!` reads the operand positionally, so the
+# scalar arrives from `attrs` and travels in the closure, not as an operand.
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("gt.Scalar")}) = binary!(emitctx, op, >)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("lt.Scalar")}) = binary!(emitctx, op, <)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("gt.Tensor")}) = binary!(emitctx, op, >)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("lt.Tensor")}) = binary!(emitctx, op, <)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("logical_and.default")}) =
     binary!(emitctx, op, &)
 
@@ -1511,6 +1517,266 @@ function emitop!(emitctx::EmitCtx, op::Op,
     # no-training form declares the two results empty, and the graph reads
     # neither.
     return (out, rmean, invstd)
+end
+
+"""
+`aten::embedding(weight, indices)`: a column gather.
+
+The reversed layout puts the embedding dimension FIRST — `weight` is
+`(dim, vocab)` and the result is `(dim, indices...)` — so this gathers columns,
+and the indices are torch's 0-based ones. `embedding_kernel!` does that
+arithmetic and takes the index tensor flattened, since only its linear order
+matters.
+
+One dispatch, and the index tensor is an ordinary read operand: nothing comes to
+the host. That is what makes an embedding replayable — the interpreted path's
+`value` had already kept it on the device, and this keeps it in the plan.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("embedding.default")})
+    w = operand(emitctx, op, 1)
+    idx = operand(emitctx, op, 2)
+    out = dest(emitctx)
+    length(out) == 0 && return out
+    M.dispatch!(emitctx.g, embedding_kernel!,
+                (out, w, M.viewof(idx, (length(idx),)), Int32(length(out))),
+                length(out); name = op.id)
+    return out
+end
+
+"""
+`aten::flip` along one or more axes, as one strided read.
+
+The axes are `Val`-parameterised so the per-axis reversal folds; `flip_kernel!`
+walks the output flat and `coords4` decomposes it, which is the same shape as
+every other rank-4 gather here.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("flip.default")})
+    x = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    length(out) == 0 && return out
+    d = ints(op.attrs["arg1"])
+    jd = Tuple(jdim(Int(k), ndims(x)) for k in (d isa Integer ? [d] : d))
+    nd, W4, H4, C4 = flat4(x)
+    M.dispatch!(emitctx.g, flip_kernel!, (out, x, Val(jd), W4, H4, C4), nd;
+                group = launchgroup(nd), name = op.id)
+    return out
+end
+
+"""
+`aten::avg_pool2d`: a fixed window and stride, where `_adaptive_avg_pool2d`
+derives the window from the output size.
+
+torch orders the window and stride `(H, W)` and Julia's first axis is `W`, so
+each pair is read from its ends. The output extents come from the declared
+buffer rather than being recomputed — a graph that disagreed with its own shape
+is a shape error, not something to resolve here.
+
+`count_include_pad` is not modelled, exactly as in `avg_pool2d!`: every call in
+the graphs pools with no padding, where the two agree, and a padded one needs
+the divisor to switch between the window area and the in-bounds count. Refused
+rather than guessed.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("avg_pool2d.default")})
+    x = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    length(out) == 0 && return out
+    pair(v, dflt) = (u = ints(get(op.attrs, v, dflt));
+                     u isa Integer ? (u, u) : Tuple(u))
+    kk = pair("arg1", nothing)
+    ss = let u = get(op.attrs, "arg2", nothing)
+        u === nothing || isempty(ints(u)) ? kk : pair("arg2", nothing)
+    end
+    pp = pair("arg3", [0, 0])
+    all(==(0), pp) || error(
+        "DNNKernels: `avg_pool2d` (op $(op.id)) pads by $(pp), and the divisor " *
+        "then depends on `count_include_pad`, which `avg_pool2d_kernel!` does " *
+        "not model. Every call in the graphs pools without padding.")
+    nd, W4, H4, C4 = flat4(out)
+    M.dispatch!(emitctx.g, avg_pool2d_kernel!,
+                (out, x, Int32(kk[end]), Int32(kk[1]), Int32(ss[end]), Int32(ss[1]),
+                 Int32(pp[end]), Int32(pp[1]), W4, H4, C4),
+                nd; group = launchgroup(nd), name = op.id)
+    return out
+end
+
+"""
+`aten::grid_sampler_2d`: bilinear resampling at coordinates the graph computed,
+which is how every optical-flow warp reaches the device.
+
+`grid` is `(2, W, H, N)` after reversal — coordinates first — and the output
+takes its spatial extents from the grid and its channels from `x`, which is what
+the declared buffer already says.
+
+Both of torch's conventions are read and neither assumed. `align_corners`
+changes the coordinate mapping, and `padding_mode` decides what a sample outside
+the image is: 0 zeros, 1 border, 2 reflection. BasicVSR++ uses 0 and 1, and
+treating border as zeros leaves a dark rim the next warp amplifies. Reflection
+is refused rather than approximated by either of the other two.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("grid_sampler_2d.default")})
+    x = operand(emitctx, op, 1)
+    grid = operand(emitctx, op, 2)
+    out = dest(emitctx)
+    length(out) == 0 && return out
+    align = Bool(something(get(op.attrs, "arg4", nothing), true))
+    mode = Int(something(get(op.attrs, "arg3", nothing), 0))
+    mode in (0, 1) || error(
+        "DNNKernels: `grid_sampler_2d` (op $(op.id)) has padding_mode $(mode), " *
+        "and only zeros (0) and border (1) are declared. Reflection is a " *
+        "different coordinate fold, not one of these two with a different " *
+        "constant.")
+    pad = mode == 1 ? :border : :zeros
+    nd, W4, H4, C4 = flat4(out)
+    M.dispatch!(emitctx.g, grid_sample2d_kernel!,
+                (out, x, grid, Val(align), Val(pad), W4, H4, C4), nd;
+                group = launchgroup(nd), name = op.id)
+    return out
+end
+
+"""
+`torchvision.deform_conv2d`: modulated deformable convolution v2, which is what
+BasicVSR++'s `SecondOrderDeformableAlignment` runs 16 times a clip.
+
+Not an ATen op — it survives `run_decompositions` because it is a registered
+custom operator, which is what we want: one graph node instead of a scatter of
+index arithmetic to re-fuse.
+
+torch orders the stride, padding and dilation `(h, w)` and Julia's first axis is
+`w`, so each pair is read in that order from `arg5` onward. The mask is optional
+and a `Val` decides, with the offset standing in for it when absent — a kernel
+cannot be handed `nothing` for an array it indexes.
+"""
+function emitop!(emitctx::EmitCtx, op::Op,
+                 ::Val{Symbol("torchvision.deform_conv2d.default")})
+    x = operand(emitctx, op.ins[1])
+    w = operand(emitctx, op.ins[2])
+    offset = operand(emitctx, op.ins[3])
+    mask = length(op.ins) >= 4 ? operand(emitctx, op.ins[4]) : nothing
+    bias = length(op.ins) >= 5 ? operand(emitctx, op.ins[5]) : nothing
+    out = dest(emitctx)
+    length(out) == 0 && return out
+    a(k, d) = Int(something(get(op.attrs, k, nothing), d))
+    nd, W4, H4, C4 = flat4(out)
+    M.dispatch!(emitctx.g, deform_conv2d_kernel!,
+                (out, x, offset, mask === nothing ? offset : mask, w, bias,
+                 Int32(a("arg5", 1)), Int32(a("arg6", 1)),
+                 Int32(a("arg7", 0)), Int32(a("arg8", 0)),
+                 Int32(a("arg9", 1)), Int32(a("arg10", 1)),
+                 Int32(a("arg12", 1)), Int32(a("arg11", 1)),
+                 Val(mask !== nothing), W4, H4, C4),
+                nd; group = launchgroup(nd), name = op.id)
+    return out
+end
+
+"""
+`aten::_fused_rms_norm`, as ONE dispatch: one workgroup per group, reducing
+through workgroup memory.
+
+The normalised axes have to be leading and dense, which is what the reversed
+layout gives and what a declared operand always is — `hoistpermutes` resolved
+the permutes at build and a materialised view is its own transient. So the
+six-pass fallback `runop!` carries for a permuted view has nothing to do here,
+and with it goes the `sqaccum` subtlety that fallback needed: the kernel
+accumulates in fp32 by construction.
+
+Both results are declared. The reciprocal standard deviation is what a backward
+pass reads and the kernel writes it either way; `destor` gives it scratch when
+the graph declares none.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_fused_rms_norm.default")})
+    a = operand(emitctx, op.ins[1])
+    γ = length(op.ins) >= 2 ? operand(emitctx, op.ins[2]) : nothing
+    out = dest(emitctx, 0)
+    nshape = ints(op.attrs["arg1"])
+    C = prod(size(a, i) for i in 1:length(nshape))
+    length(a) % C == 0 || error(
+        "DNNKernels: `_fused_rms_norm` (op $(op.id)) normalises $(C) elements " *
+        "of a $(size(a)) operand, which does not divide it. The normalised axes " *
+        "have to be leading and dense here; `hoistpermutes` is what makes them " *
+        "so.")
+    groups = length(a) ÷ C
+    ε = Float32(something(get(op.attrs, "arg3", nothing), eps(float(eltype(a)))))
+    rstd = destor(emitctx, 1, Float32, (groups,))
+    M.dispatch!(emitctx.g, rmsnorm_kernel!,
+                (out, rstd, a, γ === nothing ? a : γ, Int32(C), ε,
+                 Val(γ !== nothing)),
+                groups * LN_WG; group = LN_WG, name = op.id)
+    return (out, rstd)
+end
+
+"""
+`aten::scatter.src`: `self` with `src` written at the coordinates `index` names
+along one axis.
+
+Two passes, and the first is the whole of `self` — the same trade
+`slice_scatter` makes and for the same reason: the graph may read `self` after
+this op, so writing into its bytes would change a value something else wants.
+Where it does not, `Aliasing` notices, because the copy declares a read of
+`self` and a write of `out`.
+
+The scatter itself is `ndrange = size(idx)`, one thread per index element, and
+the index values are torch's 0-based ones.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("scatter.src")})
+    a = operand(emitctx, op, 1)
+    idx = operand(emitctx, op, 3)
+    src = operand(emitctx, op, 4)
+    out = dest(emitctx)
+    n = ndims(out)
+    d = jdim(Int(op.attrs["arg1"]), n)
+    size(idx) == size(src) || error(
+        "DNNKernels: `scatter.src` (op $(op.id)) has index $(size(idx)) and " *
+        "src $(size(src)); they index the same positions, so they are the same " *
+        "shape.")
+    ndims(idx) == n || error(
+        "DNNKernels: `scatter.src` (op $(op.id)) has a $(ndims(idx))-d index " *
+        "and a $(n)-d self.")
+    od = size(out)
+    M.dispatch!(emitctx.g, ew!,
+                (out, od, (a,), (bcstrides(od, size(a)),), identity),
+                prod(od); name = "$(op.id).self")
+    length(idx) == 0 && return out
+    M.dispatch!(emitctx.g, scatter_kernel!, (out, idx, src, Val(d), Val(n)),
+                size(idx); name = op.id)
+    return out
+end
+
+"""
+`aten::topk`: the `k` largest along one axis, and where they were.
+
+Two dispatches of one body, `Val(WANTIDX)` choosing which result it stores --
+the same shape `max.dim` has, for the same reason: a kernel writes one element
+per thread and these are two tensors.
+
+One thread per OUTPUT element, so the thread producing rank `r` re-runs the
+selection `r+1` times: O(k*n) per slice with no sort, no shared memory and no
+cross-thread agreement. `TOPK_MAX_N` is where that stops being the right trade
+and it refuses rather than degrading, as does `largest = false`.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("topk.default")})
+    a = operand(emitctx, op.ins[1])
+    vals = dest(emitctx, 0)
+    k = Int(op.attrs["arg1"])
+    d = jdim(Int(get(op.attrs, "arg2", -1)), ndims(a))
+    Bool(something(get(op.attrs, "arg3", nothing), true)) || error(
+        "DNNKernels: `topk` (op $(op.id)) asks for the SMALLEST k, and " *
+        "`topk_body` selects the largest. That is a different comparison, not " *
+        "this one with a flag.")
+    nn = size(a, d)
+    k <= nn || error(
+        "DNNKernels: `topk` (op $(op.id)) asks for $(k) of axis $(d), which " *
+        "has $(nn).")
+    nn <= TOPK_MAX_N || error(
+        "DNNKernels: `topk` (op $(op.id)) scans an axis of $(nn) and this " *
+        "kernel is O(k*n) per output -- above $(TOPK_MAX_N) it needs a sorting " *
+        "network, not this.")
+    sz = ntuple(i -> i == d ? k : size(a, i), ndims(a))
+    inds = destor(emitctx, 1, eltype(vals), sz)
+    mapbody!(emitctx, op, topk_body, vals, a, Val(d), Val(false);
+             name = "$(op.id).values")
+    mapbody!(emitctx, op, topk_body, inds, a, Val(d), Val(true);
+             name = "$(op.id).indices")
+    return (vals, inds)
 end
 
 # ── attention ────────────────────────────────────────────────────────────────
