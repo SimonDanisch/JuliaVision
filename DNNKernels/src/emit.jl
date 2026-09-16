@@ -54,21 +54,47 @@ struct EmitCtx{G,D}
 end
 
 """
-    emitgraph(dev, aten, weights, dims) -> (mantle_graph, ctx)
+    emitgraph(dev, aten, weights, dims; keepall = false, skip = ()) -> (mantle_graph, ctx)
 
 Declare `aten` into a fresh Mantle graph. Runs nothing.
+
+`keepall` gives EVERY buffer storage of its own instead of a transient the placer
+may alias, which is what layer-by-layer verification needs: an intermediate's
+value after the whole plan has run is not its value at its own op unless nothing
+else was allowed to reuse those bytes. It costs the sum of every buffer rather
+than the placer's peak (5.68 GiB against ~1 for SAM 2's encoder at 1024x1024),
+so it is for `verifygraph` and not for running a model.
+
+`skip` names ops NOT to emit, for the same caller: `verifygraph` pins a buffer
+whose predicate flipped to the reference value and re-runs, so the layers
+downstream are still checked strictly instead of drowning in the consequence. A
+skipped op's output buffer still exists — `declare!` made it — and the caller
+writes it before the run.
 """
-function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple)
+function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
+                   keepall::Bool = false, skip = ())
     g = M.Graph(dev)
-    esc = escaping(aten)
+    live = consumedids(aten; all = keepall)
+    esc = keepall ? live : escaping(aten)
     ec = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""))
-    live = consumedids(aten)
     for id in aten.order
         declare!(ec, aten.buffers[id], weights, live)
     end
     for op in aten.ops
+        op.out in skip && continue
         ec.outid[] = op.out
         emitop!(ec, op, op.tag)
+    end
+    # An OUTPUT that is a view is resolved by nobody else.
+    #
+    # A view is materialised on demand, by the op that reads it -- and the
+    # caller's read is not an op. SAM 2's decoder returns `slice_2` and
+    # `slice_3`, two windows onto the mask stack that nothing inside the graph
+    # touches, so `planfor` looked them up in `res` and got a `KeyError`.
+    # Resolved here, a shape-only output view costs a descriptor and a
+    # materialised one gets its fill pass like any other.
+    for id in aten.outputs
+        operand(ec, id)
     end
     return g, ec
 end
@@ -115,10 +141,14 @@ function declare!(ec::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{Strin
 end
 
 """
-    consumedids(aten) -> Set{String}
+    consumedids(aten; all = false) -> Set{String}
 
 Every buffer, and every element of a multi-output buffer, that something in the
 graph consumes: an op's input, a view's parent, or a declared output.
+
+`all = true` answers every id instead, which is `emitgraph`'s `keepall`: the same
+set in the same shape (the `"\$(id)#\$(i)"` keys included), so one function
+decides what a buffer is called in both modes.
 
 A declaration needs this and an interpreted run did not. torch's schema returns
 four values from flash attention and two from `max_pool2d_with_indices`, and a
@@ -133,13 +163,19 @@ results is not.
 An `:external` buffer is always consumed — it is an input, and a graph that
 ignores one still has to be handed it.
 """
-function consumedids(g::Graph)
+function consumedids(g::Graph; all::Bool = false)
     live = Set{String}(g.outputs)
     for o in g.ops, i in o.ins
         push!(live, i)
     end
     for (_, b) in g.buffers
+        all && push!(live, b.id)
         b.kind === :external && push!(live, b.id)
+        if all && haskey(b.attrs, "shapes")
+            for i in eachindex(b.attrs["shapes"])
+                push!(live, "$(b.id)#$(i - 1)")
+            end
+        end
         b.kind === :view || continue
         push!(live, b.of)
         # A `getitem` names ONE element of a tuple, which is the only way an
@@ -194,13 +230,22 @@ function viewfor(ec::EmitCtx, id::AbstractString)
         ec.res[id] = v
         return v
     end
-    # Anything else MOVES its elements, so it is a transient and one pass that
-    # fills it. `contiguous` did the permute case with `permutedims!` at run
-    # time and left the rest as lazy Julia wrappers; a wrapper is not something
-    # a kernel can be handed, and a transient is what the placer can alias.
+    # Anything else MOVES its elements, so it needs storage of its own and one
+    # pass that fills it. `contiguous` did the permute case with `permutedims!`
+    # at run time and left the rest as lazy Julia wrappers; a wrapper is not
+    # something a kernel can be handed, and a resource is what the placer can
+    # alias.
+    #
+    # Through `make`, so a view that ESCAPES is owned and not a transient, on the
+    # same rule every other buffer is. `Transient.Buffer` unconditionally is what
+    # was here, and SAM 2's decoder returns two materialised views (`slice_2` and
+    # `slice_3`) that nothing inside the graph reads: two transients with no use
+    # between them, which the placer correctly overlapped, so the mask's first
+    # three elements came back holding the IoU scores. Silent -- the shapes and
+    # dtypes were right and 196,605 of 196,608 elements were too.
     od = evalshape(b.shape, ec.dims)
     ast, off = viewstrides(ec, b, parent, od)
-    out = M.Transient.Buffer(ec.g, eltype(parent), od)
+    out = make(ec, id, eltype(parent), od)
     M.dispatch!(ec.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
                 name = "$(id).$(first(split(b.viewop, '.')))")
     ec.res[id] = out
@@ -324,9 +369,19 @@ reads it: `layernorm_kernel!` always writes the mean and the reciprocal standard
 deviation, and `bnstats!` always writes both of its. `maybedest` is for the
 results an emit can simply not produce; this is for the ones a kernel produces
 anyway, and then they are scratch the placer aliases like any other transient.
+
+Written out rather than as `something(maybedest(...), scratch(...))`, because
+`something` evaluates BOTH arguments: the scratch was declared even when the
+export had a destination, and a transient nothing then passes to a pass is one
+`Liveness` refuses by name. It took `verifygraph`'s `keepall` to fire -- there,
+every result has a destination -- but the leak was not conditional on that: any
+graph that reads a layer norm's mean would have hit it.
 """
-destor(ec::EmitCtx, i::Integer, ::Type{T}, dims::Dims) where {T} =
-    something(maybedest(ec, i), scratch(ec, T, dims...))
+function destor(ec::EmitCtx, i::Integer, ::Type{T}, dims::Dims) where {T}
+    d = maybedest(ec, i)
+    d === nothing || return d
+    return scratch(ec, T, dims...)
+end
 
 """
     scratch(ctx, T, dims...) -> TransientBuffer
@@ -1136,9 +1191,13 @@ what to check it against.
 function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
     dev = ec.dev
     caps = M.caps(M.backend(dev))
-    plan = mmplan(caps, M.devicetype(dev, out), M.devicetype(dev, A),
-                  M.devicetype(dev, B), size(out), size(A), size(B),
-                  bias !== nothing)
+    # `Core.Typeof` of the OPERAND, not `devicetype`: what the plan asks is
+    # whether the operand is a dense rank-2 matrix of a given element type, which
+    # is a property of the operand and which `densematrix` answers for a resource
+    # and for an array alike. `devicetype` answers what the kernel RECEIVES,
+    # which is a different question and a different type family.
+    plan = mmplan(caps, Core.Typeof(out), Core.Typeof(A), Core.Typeof(B),
+                  size(out), size(A), size(B), bias !== nothing)
     if plan isa Decline
         # Mantle's own scalar GEMM, and NOT a library call: `mul!` on a device
         # array is this backend's kernel, so it is declared like any other
@@ -1165,11 +1224,21 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
             prod(od); name = "$(op.id).act")
         return out
     end
+    if plan isa MMGemvPlan
+        # The matrix-VECTOR product: one pass with the bias and the epilogue in
+        # its store. `A` is the `(M, K)` matrix and `B` its single column, which
+        # is why the immediate path spells this `gemv!(out, B, transpose(A))` --
+        # the `Transpose` is that call's dispatch between the two layouts, and a
+        # declaration names the layout instead.
+        M.gemv_dispatch!(ec.g, out, B, A, size(A, 1), size(A, 2);
+                         bias, epilogue = epi, name = op.id)
+        return out
+    end
     plan isa MMCoopMatPlan || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
         "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
-        "yet. `MMCoopMatPlan` and `Decline` are ported; `MMInt8Plan` and " *
-        "`MMGemvPlan` still launch immediately (`matmul!`) and a graph cannot " *
+        "yet. `MMCoopMatPlan`, `MMGemvPlan` and `Decline` are ported; " *
+        "`MMInt8Plan` still launches immediately (`matmul!`) and a graph cannot " *
         "hold that. Port the plan rather than widening this branch.")
     Mm, K = size(A)
     N = size(B, 2)
@@ -1322,16 +1391,18 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     groups = Int(op.attrs["arg8"])
     act = Symbol(get(op.attrs, "act", "none"))
 
+    # A different lowering, not a variant of this one: it branches before any of
+    # the shape arithmetic below, which is the forward convolution's.
+    get(op.attrs, "arg6", false) == true &&
+        return emitconvtranspose!(ec, op, x, w, bias, out, stride, pad, dil,
+                                  reverse(ints(op.attrs["arg7"])), groups, act)
+
     # What is declared so far is the dense forward 2-D case. The others are not
     # refusals on principle, they are unported: each has its own kernel in
     # `kernels/extern/` and its own reason to exist, and a graph that needs one
     # should say so here rather than run as something else. `runop!`'s note
     # applies unchanged — a `ConvTranspose2d` taken as an ordinary convolution
     # is a wrong picture with nothing in the numbers to point at it.
-    get(op.attrs, "arg6", false) == true && error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) is TRANSPOSED (arg6), and only " *
-        "the forward convolution is declared. `convolutiontranspose!` is the " *
-        "kernel; it needs an `emitop!` of its own.")
     length(stride) == 2 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(length(stride))-D, and only " *
         "the 2-D convolution is declared. 1-D lifts to it and 3-D has " *
@@ -1407,4 +1478,82 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
                     prod(od); name = "$(op.id).act")
     end
     return out
+end
+
+"""
+`aten::convolution` with `transposed = true` -- SAM 2's mask decoder upsamples
+its 64x64 embedding to 256x256 with two of these.
+
+Two of the three shapes `convolutiontranspose!` runs are declared, and the choice
+between them is [`shufflecase`](@ref)'s, the same predicate the immediate path
+asks:
+
+  * **non-overlapping** (stride equal to the kernel, no padding, no dilation, one
+    group): the pixel-shuffle identity. One GEMM over `(H*W) x C_in x
+    (C_out*S*S)` and one interleave, which on SAM 2's decoder is what turns 3.73
+    ms of an 8.44 ms decode into two passes.
+  * **everything else**, including grouped: the gather, one thread per output
+    element. It is the reference `convtranspose2d` and it is correct for every
+    case; it is simply the slow one.
+
+What is NOT declared is `convolutiontranspose_phase!`, the overlapping
+decomposition (`K == 2S`, `P == S/2`) that Kokoro's iSTFTNet upsampler and RIFE's
+flow decoder need: 137 ms of a 217 ms utterance and 63.0 ms of a 170 ms
+interpolation respectively, against the gather. It builds a phase-sliced weight
+with `S*J` host-side slice copies, and a declared graph wants that weight folded
+at load (`hoistconstants`) rather than rebuilt per call, so it is a port with a
+design question in it and not a transcription. Graphs that need it take the
+gather meanwhile, which is slow and right.
+"""
+function emitconvtranspose!(ec::EmitCtx, op::Op, x, w, bias, out,
+                            stride, pad, dil, outpad, groups, act)
+    act === :none || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) is transposed and has a fused " *
+        "`$(act)`. Neither declared path has an epilogue to fold it into; the " *
+        "fusion pass should not have attached one.")
+    length(stride) == 2 || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) is a $(length(stride))-D " *
+        "transposed convolution, and only the 2-D form is declared.")
+
+    if shufflecase(w, stride, pad, dil, outpad, groups) && size(x, 4) == 1
+        return emitconvtransposeshuffle!(ec, op, x, w, bias, out, stride)
+    end
+    # `output_padding` needs no code here: it only chooses the output SIZE, and
+    # the gather computes each output position from whichever inputs reach it --
+    # of which the padded positions have none.
+    return mapbody!(ec, op, convtranspose2d, out, x, w, bias,
+                    Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
+                    Val(dil[1]), Val(dil[2]), Val(groups))
+end
+
+"""
+The non-overlapping transposed convolution: one GEMM and one interleave.
+
+`size(x, 4) == 1` is required because the GEMM flattens `W` and `H` into one
+axis, and those are only adjacent in memory within a single batch element.
+
+The weight arrives `(KX, KY, C_out, C_in)` and the GEMM wants
+`(C_in, KX*KY*C_out)`. The immediate path writes that as `permutedims(w, (4, 1,
+2, 3))` and a `reshape`, and it is exactly the TRANSPOSE of `reshape(w,
+KX*KY*C_out, C_in)` -- element `(ci, c)` of the target is `w[c + KX*KY*C_out *
+(ci - 1)]` either way -- so it is one `stridedcopy!` and needs no permute kernel.
+
+That transpose is of a graph CONSTANT and belongs at load time, which is
+`hoistconstants`' territory; declared per call it is one pass over 2*2*C_out*C_in
+elements (65k on SAM 2's decoder, both layers together).
+"""
+function emitconvtransposeshuffle!(ec::EmitCtx, op::Op, x, w, bias, out, stride)
+    Wi, Hi, Ci = size(x, 1), size(x, 2), size(x, 3)
+    KX, KY, Co = size(w, 1), size(w, 2), size(w, 3)
+    ncol = KX * KY * Co
+    T = eltype(out)
+
+    wm = scratch(ec, eltype(w), Ci, ncol)
+    M.dispatch!(ec.g, stridedcopy!, (wm, (Ci, ncol), w, (ncol, 1), 0),
+                Ci * ncol; name = "$(op.id).weight")
+    xm = M.viewof(x, (Wi * Hi, Ci))
+    gemmout = scratch(ec, T, Wi * Hi, ncol)
+    gemm!(ec, op, gemmout, xm, wm)
+    return mapbody!(ec, op, shuffleout, out, gemmout, bias,
+                    Val(stride[1]), Val(stride[2]), Int32(Wi))
 end

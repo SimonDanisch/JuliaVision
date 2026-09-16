@@ -103,6 +103,48 @@ function weightkeys(g::Graph)
 end
 
 """
+    declaredvalues(g, inputs, weights; dims, backend, overrides) -> Dict{String,Any}
+
+Every buffer's value after ONE declared run, on the host.
+
+Layer-by-layer verification needs each intermediate to still hold what its own op
+wrote, and a transient does not: the placer aliases it the moment its last reader
+has run, which is the whole point of declaring liveness. `keepall` turns that off
+for this one run — every buffer gets storage of its own, at the cost of the sum of
+them all rather than the peak (5.68 GiB against ~1 for SAM 2's encoder at
+1024x1024). That is affordable once and not per call, which is why it is a
+keyword on `emitgraph` and not the default.
+
+`overrides` pins a buffer to a given value: its producing op is not emitted and
+the value is written in before the run. `verifygraph` uses it for a Bool
+predicate that flipped, so the ops downstream are still judged on their own
+arithmetic.
+"""
+function declaredvalues(g::Graph, inputs::AbstractDict, weights::AbstractDict;
+                        dims, backend, overrides::AbstractDict = Dict{String,Any}())
+    dev = M.Device(backend)
+    mg, ec = emitgraph(dev, g, weights, dims; keepall = true, skip = keys(overrides))
+    for (id, x) in Iterators.flatten((inputs, overrides))
+        haskey(ec.res, id) || continue
+        dst = M.storage(ec.res[id])
+        copyto!(dst, reshape(convert(Array{eltype(dst)}, tohost(x)), size(dst)))
+    end
+    plan = M.Plan(mg)
+    M.record!(plan)
+    M.run!(plan)
+    M.waitidle(dev)
+    # Downloaded BEFORE `free!`, since freeing the plan returns the storage.
+    values = Dict{String,Any}()
+    for (id, r) in ec.res
+        # `Mantle.storage` is the identity on anything that is not a resource, so
+        # a host scalar and a resident weight come through unchanged.
+        values[id] = tohost(M.storage(r))
+    end
+    M.free!(plan)
+    return values
+end
+
+"""
     verifygraph(graphpath, refs, weights; dims, backend, atol, amplify)
 
 `refs` is the dict from `readsafetensors`, keyed `"<graph>/in<i>"` and
@@ -124,7 +166,10 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
     for (i, name) in enumerate(g.inputs)
         k = "$(g.name)/in$(i-1)"
         haskey(refs, k) || error("no reference input $k")
-        inputs[name] = toback(backend, refs[k])
+        # Host, not uploaded: an input is an owned buffer the declared graph
+        # holds and `declaredvalues` writes it with `copyto!`, so uploading here
+        # would only be downloaded again.
+        inputs[name] = refs[k]
     end
 
     # `readsafetensors` returns host arrays and `execute!` does not upload —
@@ -136,12 +181,15 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
     weights = Dict{String,Any}(k => (k in used ? toback(backend, v) : v)
                                for (k, v) in weights)
 
-    # With a workspace, so this checks the path that actually runs. Op bodies
-    # branch on `ctx.ws === nothing` — `native_layer_norm` centres into scratch
-    # when it has one and allocates when it does not — and verifying only the
-    # allocating branch leaves the shipped one unverified.
-    ws = Workspace(backend)
-    values = execute!(g, inputs, weights; dims, backend, ws)
+    # THE DECLARED PATH, which is the only path there is.
+    #
+    # This called `execute!` with a `Workspace`, and the note here said the
+    # workspace was the point: op bodies branched on `ctx.ws === nothing` and
+    # verifying the allocating branch left the shipped one unchecked. Both are
+    # gone — `Workspace` was deleted with the interpreted run on 2026-09-15 — so
+    # what the note was guarding against cannot happen, and the tool verifies
+    # what `Model` actually submits.
+    values = declaredvalues(g, inputs, weights; dims, backend)
 
     # A flipped predicate changes the graph's behaviour discontinuously, so
     # everything after it diverges for a reason that is not a bug. Pin the tie
@@ -155,9 +203,10 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
         eltype(got) === Bool || continue
         size(got) == size(refs[k]) || continue
         n = count(tohost(got) .!= refs[k])
-        n > 0 && (pinned[op.out] = toback(backend, refs[k]); flips[op.out] = n)
+        n > 0 && (pinned[op.out] = refs[k]; flips[op.out] = n)
     end
-    isempty(pinned) || (values = execute!(g, inputs, weights; dims, backend, ws, overrides=pinned))
+    isempty(pinned) || (values = declaredvalues(g, inputs, weights;
+                                                dims, backend, overrides = pinned))
 
     err = Dict{String,Float64}()          # per-buffer error carried so far
     # fp16 precision is transitive: once a value has passed through an fp16
@@ -197,23 +246,17 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
     # surfaces ops later, as a GEMM "creating" rel-1.0 error. Resolve each
     # reffed view through the same machinery execution uses and record its
     # error, so attribution starts at the view instead of its consumer.
-    # `resolvable` first: a view left behind by a rewrite pass can have a
-    # parent no op produces any more (its consumers were folded with it) — it
-    # is dead at run time and there is nothing to compare.
-    function resolvable(id)
-        haskey(values, id) && return true
-        b = get(g.buffers, id, nothing)
-        b === nothing && return false
-        b.kind === :view && !isempty(b.of) && return resolvable(b.of)
-        false
-    end
-    vctx = nothing
+    # Declared, a view is a resource like any other and `declaredvalues` already
+    # downloaded it, so this is a lookup. It used to need a whole `Ctx` and
+    # `value(vctx, id)` to rebuild the Julia wrapper the interpreted run would
+    # have made, plus a `resolvable` walk for the views a rewrite pass had
+    # orphaned — an orphan is simply absent from `res` now, because nothing
+    # asked for it.
     for (id, b) in g.buffers
-        (b.kind === :view && !haskey(values, id)) || continue
+        b.kind === :view || continue
         k = "$(g.name)/node/$id"
-        (haskey(refs, k) && resolvable(b.of)) || continue
-        vctx === nothing && (vctx = Ctx(values, g, dims, backend; ws))
-        got, want = tohost(value(vctx, id)), refs[k]
+        (haskey(refs, k) && haskey(values, id)) || continue
+        got, want = values[id], refs[k]
         (size(got) == size(want) && eltype(got) !== Bool && eltype(want) !== Bool) || continue
         err[id] = maxerr(got, want)
         half[id] = eltype(want) === Float16 || b.dtype === Float16

@@ -38,13 +38,36 @@ end
     end
 end
 
+# A 2-D permutation *is* a transpose, so say so. `Transpose` is what LinearAlgebra
+# and cuBLAS dispatch on; a `PermutedDimsArray` carries the same memory but matches
+# no BLAS method, so it falls through to the generic matmul, which scalar-indexes a
+# GPU array from the host. The exported graph produces these constantly — every
+# `addmm` operand arrives permuted.
+
 """
-A 2-D permutation *is* a transpose, so say so. `Transpose` is what LinearAlgebra
-and cuBLAS dispatch on; a `PermutedDimsArray` carries the same memory but matches
-no BLAS method, so it falls through to the generic matmul, which scalar-indexes a
-GPU array from the host. The exported graph produces these constantly — every
-`addmm` operand arrives permuted.
+    densematrix(T, X) -> Bool
+
+Whether an operand of type `X` is a dense rank-2 matrix of `T` — which is what
+the cooperative-matrix and GEMV kernels require, and the whole of what their
+plans ask about the operand itself.
+
+`A isa Mantle.LavaArray{Float16,2}` was the test. It names ONE backend's array
+type from a consumer, which is a portability smell on its own, and it cannot be
+asked of a declared operand at all: at emit time an operand is a graph resource
+with no storage yet. Both families answer this, so plan selection is one
+predicate and an immediate call and a declared one cannot disagree — which
+matters because disagreeing is silent. Measured on SAM 2's encoder: 195 fp16
+products whose extents are all multiples of 16 declined the tensor-core path and
+took `strided_gemm_kernel!`, one invocation per output element.
+
+A `BufferRange` is deliberately absent: it is rank 1 by construction.
 """
+densematrix(::Type{T}, ::Type) where {T} = false
+densematrix(::Type{T}, ::Type{<:Mantle.LavaArray{T,2}}) where {T} = true
+densematrix(::Type{T}, ::Type{<:M.Buffer{T,2}}) where {T} = true
+densematrix(::Type{T}, ::Type{<:M.TransientBuffer{T,2}}) where {T} = true
+densematrix(::Type{T}, ::Type{<:M.ResourceView{T,2}}) where {T} = true
+
 astranspose(a) = a
 astranspose(a::PermutedDimsArray{T,2,(2, 1)}) where {T} = transpose(parent(a))
 
@@ -152,9 +175,9 @@ mm_gemv_plan(dev, out, A, B, bias) =
 
 function mm_gemv_plan(dev, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                       sa::Dims, sb::Dims, biasok::Bool) where {Tout,Ta,Tb}
-    Ta <: Mantle.LavaArray{Float32,2} || return Decline(:operands)
-    Tb <: Mantle.LavaArray{Float32,2} || return Decline(:operands)
-    Tout <: Mantle.LavaArray{Float32,2} || return Decline(:operands)
+    densematrix(Float32, Ta) || return Decline(:operands)
+    densematrix(Float32, Tb) || return Decline(:operands)
+    densematrix(Float32, Tout) || return Decline(:operands)
     sb[2] == 1 || return Decline(:notvector)
     biasok || return Decline(:bias)
     MMGemvPlan()
@@ -221,8 +244,7 @@ mm_coopmat_plan(dev::M.DeviceCaps, out, A, B) =
 
 function mm_coopmat_plan(dev::M.DeviceCaps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                          sa::Dims, sb::Dims) where {Tout,Ta,Tb}
-    Ta <: Mantle.LavaArray{Float16,2} && Tb <: Mantle.LavaArray{Float16,2} ||
-        return Decline(:operands)
+    densematrix(Float16, Ta) && densematrix(Float16, Tb) || return Decline(:operands)
     # A MATRIX-VECTOR PRODUCT IS NOT A TENSOR-CORE SHAPE. One column of `B` has
     # no reuse to amortise a 16-wide tile over, and `gemm_padn` rounds `N = 1` up
     # to the staged kernel's block, so the cooperative-matrix path does the whole

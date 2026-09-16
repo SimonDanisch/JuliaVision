@@ -110,3 +110,7 @@ include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # including the one its own docstring calls "the whole test". It covers the tiled
 # transpose, which is now also how every transposed weight reaches the device.
 include(joinpath(@__DIR__, "test_transposeLE.jl"))
+# What a graph's outputs own, and what a declaration may not leak. Two silent
+# faults from running SAM 2 end to end: two output views placed on one another's
+# bytes, and an eagerly-evaluated scratch belonging to no pass.
+include(joinpath(@__DIR__, "test_declared_outputs.jl"))
