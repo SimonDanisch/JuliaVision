@@ -87,8 +87,13 @@ function rootbuffer(graph::Graph, id::AbstractString, depth::Int = 0)
 end
 
 """View ops that only reinterpret the shape — the same list `makeview` uses."""
+# `alias.default` is the identity: torch's `alias` is a view with the parent's
+# own shape AND strides, so there is nothing to reinterpret and nothing to move.
+# It belongs here rather than in `viewstrides` for that reason, and
+# `materialisedview` reads it correctly too -- an alias of a permute is
+# materialised exactly as a reshape of one is.
 const SHAPEONLY_VIEWS = ("view.default", "_unsafe_view.default", "unsqueeze.default",
-                         "squeeze.dims", "squeeze.dim")
+                         "squeeze.dims", "squeeze.dim", "alias.default")
 
 """
     materialisedview(graph, b) -> Bool

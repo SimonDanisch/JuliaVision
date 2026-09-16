@@ -99,6 +99,26 @@ function mmplan(dev, out, A, B, bias)
     mm_gemv_plan(dev, out, A, B, bias)
 end
 
+"""
+    mmplan(caps, Tout, Ta, Tb, sout, sa, sb, hasbias) -> plan
+
+The same decision from TYPES and SHAPES, which is all a declaration has.
+
+`emitop!` holds graph resources, not arrays: a transient has no storage until
+`Place` has run, so `typeof` cannot be asked and `Mantle.devicetype` answers
+instead. The array form above forwards to this one, so which path a shape takes
+is decided in one place and an immediate call and a declared one cannot pick
+differently -- and which path a shape takes is measured, so two copies drifting
+is a performance regression nothing would report.
+"""
+function mmplan(caps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
+                sout::Dims, sa::Dims, sb::Dims, hasbias::Bool) where {Tout,Ta,Tb}
+    Ta <: QInt8Matrix && return MMInt8Plan()
+    p = mm_coopmat_plan(caps, Tout, Ta, Tb, sa, sb)
+    p isa Decline || return p
+    mm_gemv_plan(caps, Tout, Ta, Tb, sa, sb, hasbias)
+end
+
 # One method per plan type (review finding 1): a new GEMM path is a new plan type
 # and a new method here, not another branch in the function above.
 matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi; gemm=NamedTuple()) =
@@ -125,13 +145,18 @@ shape *declines* to the scalar path, which broadcasts anything, instead of
 throwing. Whisper's decoder biases are all `(M,)`; the check is for the next
 model.
 """
-function mm_gemv_plan(dev, out, A, B, bias)
-    A isa Mantle.LavaArray{Float32,2} || return Decline(:operands)
-    B isa Mantle.LavaArray{Float32,2} || return Decline(:operands)
-    out isa Mantle.LavaArray{Float32,2} || return Decline(:operands)
-    size(B, 2) == 1 || return Decline(:notvector)
-    bias === nothing || (bias isa AbstractVector && length(bias) == size(A, 1)) ||
-        return Decline(:bias)
+mm_gemv_plan(dev, out, A, B, bias) =
+    mm_gemv_plan(dev, typeof(out), typeof(A), typeof(B), size(A), size(B),
+                 bias !== nothing &&
+                 (bias isa AbstractVector && length(bias) == size(A, 1)))
+
+function mm_gemv_plan(dev, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
+                      sa::Dims, sb::Dims, biasok::Bool) where {Tout,Ta,Tb}
+    Ta <: Mantle.LavaArray{Float32,2} || return Decline(:operands)
+    Tb <: Mantle.LavaArray{Float32,2} || return Decline(:operands)
+    Tout <: Mantle.LavaArray{Float32,2} || return Decline(:operands)
+    sb[2] == 1 || return Decline(:notvector)
+    biasok || return Decline(:bias)
     MMGemvPlan()
 end
 
@@ -191,8 +216,12 @@ difference is a factor of several: Whisper's 1500 tokens round to 1504, which no
 tiling's 64- or 128-wide block divides, so every one of its 160 matmuls ran on
 the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
 """
-function mm_coopmat_plan(dev::M.DeviceCaps, out, A, B)
-    A isa Mantle.LavaArray{Float16,2} && B isa Mantle.LavaArray{Float16,2} ||
+mm_coopmat_plan(dev::M.DeviceCaps, out, A, B) =
+    mm_coopmat_plan(dev, typeof(out), typeof(A), typeof(B), size(A), size(B))
+
+function mm_coopmat_plan(dev::M.DeviceCaps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
+                         sa::Dims, sb::Dims) where {Tout,Ta,Tb}
+    Ta <: Mantle.LavaArray{Float16,2} && Tb <: Mantle.LavaArray{Float16,2} ||
         return Decline(:operands)
     # A MATRIX-VECTOR PRODUCT IS NOT A TENSOR-CORE SHAPE. One column of `B` has
     # no reuse to amortise a 16-wide tile over, and `gemm_padn` rounds `N = 1` up
@@ -204,15 +233,14 @@ function mm_coopmat_plan(dev::M.DeviceCaps, out, A, B)
     # `mm_gemv_plan` below asks for fp32 and so never caught them. On K2 Horizon
     # 32B's 449 decode GEMVs it cost **733 ms per token against 380** for
     # `mul!`'s split-K GEMV, which is bandwidth-bound and the right kernel here.
-    size(B, 2) == 1 && return Decline(:notmatrix)
+    sb[2] == 1 && return Decline(:notmatrix)
     # BEFORE the extent test, which divides by `dev.tile`. A device with no
     # matrix hardware reports no tile, and the extent test would then throw a
     # DivideError instead of declining. It only ever ran in the other order
     # because `tile` used to be a module constant that was 16 everywhere.
     dev.coopmat || return Decline(:nocoopmat)
-    size(A, 1) % dev.tile == 0 && size(A, 2) % dev.tile == 0 || return Decline(:extent)
-    MMCoopMatPlan(Mantle.gemm_padn(size(A, 1), size(B, 2), size(A, 2); tile = dev.tile),
-                  dev.tile)
+    sa[1] % dev.tile == 0 && sa[2] % dev.tile == 0 || return Decline(:extent)
+    MMCoopMatPlan(Mantle.gemm_padn(sa[1], sb[2], sa[2]; tile = dev.tile), dev.tile)
 end
 
 """Copy `B` into the leading `N` columns of a `K x NP` scratch, zeroing the rest."""

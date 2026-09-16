@@ -145,14 +145,71 @@ function viewfor(ec::EmitCtx, id::AbstractString)
     # `makeview` had to index the tuple the op had already returned.
     occursin("getitem", b.viewop) &&
         return (ec.res[id] = ec.res["$(b.of)#$(Int(b.attrs["arg1"]))"])
-    b.viewop in SHAPEONLY_VIEWS || error(
-        "view $id is a `$(b.viewop)`, which moves its elements rather than only " *
-        "reinterpreting the shape, so it cannot be a window onto its parent. It " *
-        "needs a transient and a pass that fills it — see `materialisedview`.")
     parent = operand(ec, b.of)
-    v = M.viewof(parent, evalshape(b.shape, ec.dims))
-    ec.res[id] = v
-    return v
+    # A SHAPE-ONLY view is a descriptor: same elements, same order, so it is a
+    # `ResourceView` and costs nothing.
+    if b.viewop in SHAPEONLY_VIEWS
+        v = M.viewof(parent, evalshape(b.shape, ec.dims))
+        ec.res[id] = v
+        return v
+    end
+    # Anything else MOVES its elements, so it is a transient and one pass that
+    # fills it. `contiguous` did the permute case with `permutedims!` at run
+    # time and left the rest as lazy Julia wrappers; a wrapper is not something
+    # a kernel can be handed, and a transient is what the placer can alias.
+    od = evalshape(b.shape, ec.dims)
+    ast, off = viewstrides(ec, b, parent, od)
+    out = M.Transient.Buffer(ec.g, eltype(parent), od)
+    M.dispatch!(ec.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
+                name = "$(id).$(first(split(b.viewop, '.')))")
+    ec.res[id] = out
+    return out
+end
+
+"""
+    viewstrides(ec, b, parent, od) -> (strides, offset)
+
+How view `b` reads its parent: one parent stride per axis of the view's own
+shape, and where the view starts.
+
+Torch indexes the UN-REVERSED shape, so its axis `d` is Julia axis `n - d`
+(`jdim`) and its indices are 0-based. Every conversion below is that one fact
+applied to a different attribute, which is why they are together rather than one
+per op.
+"""
+function viewstrides(ec::EmitCtx, b, parent, od::Dims)
+    ps = size(parent)
+    n = length(ps)
+    pst = colstrides(ps)
+    op = b.viewop
+    if op == "permute.default"
+        perm = ints(b.attrs["arg1"])
+        length(perm) == n || error(
+            "DNNKernels: view $(b.id) permutes $(length(perm)) axes of a " *
+            "$(n)-d parent.")
+        # Julia output axis `jo` is torch axis `n - jo`, whose parent axis is
+        # `perm[n - jo + 1]`, which is Julia parent axis `n - perm[...]`.
+        return (ntuple(jo -> pst[n - perm[n - jo + 1]], n), 0)
+    elseif op == "expand.default"
+        # A repeated axis has stride 0, which is exactly what a broadcast is.
+        return (bcstrides(od, ps), 0)
+    elseif op == "slice.Tensor"
+        jd = jdim(Int(b.attrs["arg1"]), n)
+        start = Int(get(b.attrs, "arg2", 0))
+        step = Int(get(b.attrs, "arg4", 1))
+        return (ntuple(k -> k == jd ? pst[k] * step : pst[k], n), start * pst[jd])
+    elseif op == "select.int"
+        jd = jdim(Int(b.attrs["arg1"]), n)
+        i = Int(b.attrs["arg2"])
+        # The axis is DROPPED, so the view has rank n-1 and the axis's
+        # contribution is a constant offset.
+        keep = Tuple(k for k in 1:n if k != jd)
+        return (ntuple(j -> pst[keep[j]], n - 1), i * pst[jd])
+    end
+    error("DNNKernels: view $(b.id) is a `$op`, which has no declared form. " *
+          "A view that moves its elements needs its parent strides and offset " *
+          "in `viewstrides`; a view that only reinterprets the shape belongs in " *
+          "`SHAPEONLY_VIEWS`.")
 end
 
 """
@@ -870,6 +927,167 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_
                 length(out); name = op.id)
     return (out, mean, invstd)
 end
+
+# ── matrix products ──────────────────────────────────────────────────────────
+
+"""
+    gemm!(ec, op, out, A, B; bias = nothing, epi = identity) -> out
+
+`out = A * B` (+ bias, then `epi`) as declared dispatches, in Mantle's layout.
+
+The operands are already swapped by the caller: torch's `a * b` is `b * a` in the
+reversed layout, which is what `runop!` passed `matmul!` too.
+
+`mmplan` decides which path from TYPES and SHAPES — the same function an
+immediate `matmul!` asks, so a declared product and an immediate one cannot take
+different kernels. Only the cooperative-matrix path is declared here; every other
+plan REFUSES by name rather than being written untested. A refusal names the
+plan and the shape, which is what tells the next person which one to port and
+what to check it against.
+"""
+function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
+    dev = ec.dev
+    caps = M.caps(M.backend(dev))
+    plan = mmplan(caps, M.devicetype(dev, out), M.devicetype(dev, A),
+                  M.devicetype(dev, B), size(out), size(A), size(B),
+                  bias !== nothing)
+    if plan isa Decline
+        # Mantle's own scalar GEMM, and NOT a library call: `mul!` on a device
+        # array is this backend's kernel, so it is declared like any other
+        # dispatch. `astranspose` is not applied because it is the identity for
+        # anything but a `PermutedDimsArray`, and a declared resource is never
+        # one — `hoistpermutes` resolved those at build.
+        Mm, N, K = size(out, 1), size(out, 2), size(A, 2)
+        # The split-K GEMV's planes, declared rather than allocated.
+        S = N == 1 ? M.gemv_split(Mm, K) : 1
+        parts = S > 1 ? scratch(ec, Float32, Mm, 1, S) : nothing
+        M.scalar_gemm_dispatch!(ec.g, out, A, B, Mm, N, K,
+                                one(eltype(out)), zero(eltype(out));
+                                name = op.id, partials = parts)
+        # The scalar path has no epilogue to fold into, so the bias and the
+        # activation are passes here — the same ones the graph would have run as
+        # their own ops. Folding is an optimisation on the tensor-core path,
+        # never a correctness requirement.
+        od = size(out)
+        bias === nothing || M.dispatch!(ec.g, ew!,
+            (out, od, (out, bias), (bcstrides(od, od), bcstrides(od, size(bias))), +),
+            prod(od); name = "$(op.id).bias")
+        epi === identity || M.dispatch!(ec.g, ew!,
+            (out, od, (out,), (bcstrides(od, od),), epi),
+            prod(od); name = "$(op.id).act")
+        return out
+    end
+    plan isa MMCoopMatPlan || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
+        "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
+        "yet. `MMCoopMatPlan` and `Decline` are ported; `MMInt8Plan` and " *
+        "`MMGemvPlan` still launch immediately (`matmul!`) and a graph cannot " *
+        "hold that. Port the plan rather than widening this branch.")
+    Mm, K = size(A)
+    N = size(B, 2)
+    NP = plan.NP
+    # `N` padded up to the kernel's block: `B` is copied into the leading columns
+    # of a `K x NP` scratch and the rest zeroed. A declared transient, so the
+    # placer aliases it against the whole graph — `Workspace` could only ever
+    # reuse it within this one op.
+    Bp = B
+    if NP != N
+        Bp = scratch(ec, Float16, K, NP)
+        M.dispatch!(ec.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
+                    name = "$(op.id).padB")
+    end
+    blk_split = M.coopmat_gemm_shape(Mm, NP, K)
+    splitk = blk_split[2]
+    if splitk == 1
+        # Nothing to reduce: the GEMM starts its accumulators from the bias and
+        # converts to `out`'s type as it stores, so there is no fp32 scratch and
+        # no second pass. A padded `N` does not force one back either — the
+        # destination is column-major, so columns 1..N of an `Mm x NP` buffer are
+        # its first `Mm*N` elements contiguously, and the discard is a linear
+        # copy rather than a gather.
+        dst = NP == N ? out : scratch(ec, eltype(out), Mm, NP)
+        M.coopmat_gemm_dispatch!(ec.g, dst, A, Bp, Mm, NP, K;
+                                 blk_split, bias, epilogue = epi, name = op.id)
+        # Columns 1..N of the padded buffer ARE its first `Mm*N` elements, so
+        # the discard is a whole-resource copy between two views of that shape
+        # rather than a gather: `copy!` is a pass of the graph and needs no
+        # kernel of ours.
+        NP == N || M.copy!(ec.g, "$(op.id).unpad", out,
+                           M.viewof(dst, size(out)))
+        return out
+    end
+    C = scratch(ec, Float32, Mm, NP, max(splitk, 1))
+    M.coopmat_gemm_dispatch!(ec.g, C, A, Bp, Mm, NP, K;
+                             blk_split, partials = C, reduce = false, name = op.id)
+    M.dispatch!(ec.g, mm_epilogue_kernel!,
+                (out, C, bias, epi, Val(Mm), Val(splitk), Mm * NP, Mm * N),
+                Mm * N; name = "$(op.id).epilogue")
+    return out
+end
+
+"""`aten::mm(a, b)`, which in the reversed layout is `b * a`."""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("mm.default")})
+    a, b = operand(ec, op, 1), operand(ec, op, 2)
+    out = dest(ec)
+    return gemm!(ec, op, out, b, a)
+end
+
+"""
+`aten::addmm(bias, a, b)` = `bias + a*b`, with the bias and any folded
+activation inside the GEMM's store.
+
+`act` is set by `foldrelu`, which deleted the activation op and aliased its
+buffer onto this one; `epilogue` is the general form, any unary elementwise
+expression as a `FusedOp`. Both are applied in the store, so the fused form
+reads and writes the result once instead of three times — and passing the
+callable as an argument is the function barrier that keeps it static, since it
+comes out of a `Dict{String,Any}`.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("addmm.default")})
+    bias = operand(ec, op, 1)
+    a, b = operand(ec, op, 2), operand(ec, op, 3)
+    out = dest(ec)
+    epi = get(op.attrs, "epilogue", nothing)
+    f = epi === nothing ? actfn(Symbol(get(op.attrs, "act", "none"))) : epi
+    return gemm!(ec, op, out, b, a; bias, epi = f)
+end
+
+"""
+`aten::bmm(a, b)`, one declared product per batch plane.
+
+A plane is `Mantle.slice` of the operand, which for the trailing axis is a
+contiguous range — so the slice is a descriptor and not a copy, and each plane
+gets the same capability dispatch a 2-D product does. `runop!` sliced with
+`view` for the same reason and the same result.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("bmm.default")})
+    a, b = operand(ec, op, 1), operand(ec, op, 2)
+    out = dest(ec)
+    nb = size(a, 3)
+    nb == size(b, 3) == size(out, 3) || error(
+        "DNNKernels: `bmm` (op $(op.id)) has batch extents " *
+        "$(size(a, 3)), $(size(b, 3)) and $(size(out, 3)).")
+    for i in 1:nb
+        gemm!(ec, op, planeof(ec, out, i), planeof(ec, b, i), planeof(ec, a, i))
+    end
+    return out
+end
+
+"""
+One batch plane of a rank-3 resource, as a RANK-2 view at that plane's offset.
+
+`Mantle.slice` would be wrong here even though the elements are the same: it
+answers a `BufferRange`, which is rank 1, and `mmplan` asks whether the operand
+is a `LavaArray{Float16,2}` — so every plane would decline to a path that has no
+declared form. `viewof` keeps the rank, which is what makes a plane get the same
+capability dispatch a 2-D product does.
+
+The trailing axis is the batch, so a plane is contiguous and the view is a
+descriptor rather than a copy.
+"""
+planeof(ec::EmitCtx, x, i::Integer) =
+    M.viewof(x, (size(x, 1), size(x, 2));
+             offset = (i - 1) * size(x, 1) * size(x, 2))
 
 # ── convolution ──────────────────────────────────────────────────────────────
 

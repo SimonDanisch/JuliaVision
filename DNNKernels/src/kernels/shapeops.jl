@@ -219,3 +219,37 @@ function catcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
     @inbounds out[o + 1] = part[i]
     return
 end
+
+"""
+    stridedcopy!(out, od, a, ast, off)
+
+`out[i] = a[off + Σ_k c_k * ast[k]]` where `c` is `i`'s coordinate in `od`.
+
+One kernel for every view whose read moves elements, because each of them is the
+same thing — the parent read at a strided coordinate — and only the strides
+differ:
+
+  * a PERMUTE reorders the parent's strides;
+  * an EXPAND gives a repeated axis stride 0, which is what `bcstrides` already
+    computes;
+  * a SLICE adds an offset and multiplies one axis's stride by the step;
+  * a SELECT adds an offset and drops the axis.
+
+Four ops, four ways of filling `ast` and `off` on the host, one kernel and one
+pass. `contiguous` did the permute case with `permutedims!` and the rest stayed
+lazy Julia wrappers; declared, a wrapper is not a thing a kernel can be handed,
+so the copy is a pass the placer can alias like any other.
+"""
+function stridedcopy!(out, od::NTuple{N,Int}, a, ast::NTuple{N,Int},
+                      off::Int) where {N}
+    i = KI.get_global_id().x
+    i <= prod(od) || return
+    o = off
+    r = i - 1
+    @inbounds for k in 1:N
+        o += (r % od[k]) * ast[k]
+        r = r ÷ od[k]
+    end
+    @inbounds out[i] = a[o + 1]
+    return
+end
