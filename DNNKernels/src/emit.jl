@@ -168,6 +168,28 @@ function operand(ec::EmitCtx, id::AbstractString)
     error("buffer $id of kind $(b.kind) was never declared")
 end
 
+"""
+One operand of an op by POSITION, which is not the same as by index into `ins`.
+
+torch folds a scalar operand into the schema, so it arrives in `attrs` under its
+positional slot and `ins` holds only the tensors, consumed in order. Either side
+can be the scalar: `1 - sigmoid(x)` exports as
+`sub.Tensor(ins = [sigmoid], arg0 = 1)`.
+
+`binary!` used to index `op.ins` directly, which works for as long as every op
+reaching it has tensors on both sides — `mul`, `div` and `add` did — and is a
+`BoundsError` the first time one does not. Same rule as `runop!`'s
+`operand(ctx, op, pos)`, and `ARGKEY` is shared with it.
+"""
+function operand(ec::EmitCtx, op::Op, pos::Int)
+    key = argkey(pos)
+    haskey(op.attrs, key) && return numattr(ec.dims, op.attrs[key])
+    idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
+    idx <= length(op.ins) || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) has no operand at position $pos")
+    return operand(ec, op.ins[idx])
+end
+
 """    dest(ctx) -> resource
 
 Where the op being emitted writes. `dest(ctx, i)` for element `i` of a
@@ -300,7 +322,7 @@ operand list. `Fix1`/`Fix2` put it in the closure's TYPE, so it costs no
 argument and no memory.
 """
 function binary!(ec::EmitCtx, op::Op, f)
-    a, b = operand(ec, op.ins[1]), operand(ec, op.ins[2])
+    a, b = operand(ec, op, 1), operand(ec, op, 2)
     isresource(a) && isresource(b) && return elementwise!(ec, op, f, a, b)
     isresource(a) && return elementwise!(ec, op, Base.Fix2(f, b), a)
     isresource(b) && return elementwise!(ec, op, Base.Fix1(f, a), b)
@@ -318,14 +340,182 @@ emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")}) = binary!(ec, op, +)
 # other elementwise op. `runop!` wrote `d .= a`, which is the same launch by
 # another spelling.
 emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("clone.default")}) =
-    elementwise!(ec, op, identity, operand(ec, op.ins[1]))
+    elementwise!(ec, op, identity, operand(ec, op, 1))
 
 function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("leaky_relu.default")})
-    x = operand(ec, op.ins[1])
+    x = operand(ec, op, 1)
     s = eltype(dest(ec))(something(get(op.attrs, "arg1", nothing), 0.01))
     # The slope is captured, so it travels in the closure and not as an operand.
     elementwise!(ec, op, v -> v >= zero(v) ? v : s * v, x)
 end
+
+# ── one function of one operand ──────────────────────────────────────────────
+#
+# From `UNARY_FUSED`, the same table `runop!` generated its methods from and
+# `fusedfunc` reads to build a `FusedOp`. Read a third time here rather than
+# listed again: two lists for one fact took about an hour to diverge the first
+# time, when a fusion emitting `x -> inv(sqrt(x))` was not the `rsqrt.default`
+# anybody had tested.
+for (name, f) in UNARY_FUSED
+    @eval emitop!(ec::EmitCtx, op::Op, ::Val{Symbol($name)}) =
+        elementwise!(ec, op, $f, operand(ec, op, 1))
+end
+
+"""
+`aten::sub.Tensor(a, b, alpha)`, which is `a - alpha * b`.
+
+`alpha` defaults to 1, and when it is 1 the multiply is not emitted at all --
+the closure is `-` itself, so the kernel is the same one `add.Tensor` compiles.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("sub.Tensor")})
+    k = alpha(op)
+    return k == 1 ? binary!(ec, op, -) :
+                    binary!(ec, op, (x, y) -> x - k * y)
+end
+
+emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("eq.Scalar")}) = binary!(ec, op, ==)
+
+"""
+`aten::_to_copy`, a dtype conversion as one elementwise pass.
+
+torch's float-to-integer cast truncates toward zero and saturates: `+/-Inf`
+become the integer extremes and `NaN` becomes 0, where Julia's `convert` throws
+`InexactError`. `SafeTrunc` is that rule, and it matters on real graphs -- T5's
+attention mask carries `-Inf` into exactly this cast, and the Wan VAE casts
+index arithmetic where 0.25 is a legitimate input torch turns into 0.
+
+Everything else is `convert`, which for a float-to-float narrowing is the single
+store rounding once.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_to_copy.default")})
+    a = operand(ec, op, 1)
+    T = eltype(dest(ec))
+    f = (T <: Integer && !(eltype(a) <: Integer)) ? SafeTrunc{T}() : ToType{T}()
+    return elementwise!(ec, op, f, a)
+end
+
+"""
+`aten::clamp` with either bound optional, and either bound possibly symbolic --
+the iSTFT clamps an index against the frame count, so a bound becomes a function
+of the sequence length once the graph is length-generic.
+
+The bounds travel in the CLOSURE and not as operands: they are host scalars, and
+a kernel argument has to have bytes to index. `clampbounds` keeps them in the
+operand's own type when that type is an integer, because a `Float32` bound
+promotes the result and storing that into an integer destination is a `convert`
+with an `InexactError` path -- a throw inside a kernel, whose exception
+allocation is a hostcall on AMDGPU and dead code the compiler still emits
+everywhere else.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("clamp.default")})
+    x = operand(ec, op, 1)
+    l, h = clampbounds(eltype(x), ec.dims, get(op.attrs, "arg1", nothing),
+                       get(op.attrs, "arg2", nothing))
+    return elementwise!(ec, op, v -> clamp(v, l, h), x)
+end
+
+"""
+`aten::where.self(cond, a, b)`, as one three-operand pass.
+
+A zero VALUE is captured and not the type: a closure capturing `T` has a
+`Type{Float32}` field, which is not isbits, and a kernel cannot take a
+non-bitstype argument. Either branch may also be a host scalar, which `binary!`
+handles for two operands and this does for three.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("where.self")})
+    c = operand(ec, op, 1)
+    a = operand(ec, op, 2)
+    b = operand(ec, op, 3)
+    z = zero(eltype(dest(ec)))
+    isresource(a) && isresource(b) &&
+        return elementwise!(ec, op, (p, x, y) -> ifelse(p, oftype(z, x), oftype(z, y)),
+                            c, a, b)
+    isresource(a) && return elementwise!(ec, op,
+        (p, x) -> ifelse(p, oftype(z, x), oftype(z, b)), c, a)
+    isresource(b) && return elementwise!(ec, op,
+        (p, y) -> ifelse(p, oftype(z, a), oftype(z, y)), c, b)
+    return elementwise!(ec, op, p -> ifelse(p, oftype(z, a), oftype(z, b)), c)
+end
+
+"""
+`full`, `full_like` and `empty.memory_format`: a constant into the declared
+buffer.
+
+`empty` leaves the contents undefined in torch, so zeroing is a legal
+implementation and the only one under which a graph that wrongly reads the
+result fails the same way twice instead of intermittently. SAM 2's decoder uses
+it for the `(1, 0, 256)` tensor concatenated onto the sparse embeddings when
+there are no boxes, where there is nothing to fill either way.
+
+The VALUE can be symbolic, not just the shape: a graph that materialises its own
+sequence length writes `full((1,), t)`.
+"""
+function emitfill!(ec::EmitCtx, op::Op, v)
+    out = dest(ec)
+    M.dispatch!(ec.g, M.fill_kernel!, (out, convert(eltype(out), v)), length(out);
+                name = op.id)
+    return out
+end
+
+emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("full.default")}) =
+    emitfill!(ec, op, numattr(ec.dims, op.attrs["arg1"]))
+emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("full_like.default")}) =
+    emitfill!(ec, op, numattr(ec.dims, op.attrs["arg1"]))
+emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("empty.memory_format")}) =
+    emitfill!(ec, op, 0)
+
+"""
+`aten::pow.Tensor_Scalar`, with the small integer exponents written out.
+
+`x^2` as a multiply rather than a call to `pow` is not a micro-optimisation on a
+GPU: `pow` is a library call with a branchy implementation, and the exponent is
+a host scalar so the specialisation is free. Anything else goes through `^`.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("pow.Tensor_Scalar")})
+    a = operand(ec, op, 1)
+    e = operand(ec, op, 2)
+    if e isa Real && isinteger(e)
+        n = Int(e)
+        n == 1 && return elementwise!(ec, op, identity, a)
+        n == 2 && return elementwise!(ec, op, x -> x * x, a)
+        n == 3 && return elementwise!(ec, op, x -> x * x * x, a)
+        n == -1 && return elementwise!(ec, op, inv, a)
+        return elementwise!(ec, op, x -> intpow(x, n), a)
+    end
+    return elementwise!(ec, op, Base.Fix2(^, e), a)
+end
+
+"""
+`aten::gelu`, in whichever formulation the export asked for.
+
+`approximate = "tanh"` selects the cheap one and torch's default is exact. Read
+through `atenarg` because `approximate` is a keyword in almost every PyTorch
+source that writes it, and picking the wrong formulation is a silent accuracy
+change rather than an error. Both evaluate in `accum(T)` and round once, which is
+what PyTorch does for a half tensor.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("gelu.default")})
+    f = String(atenarg(op, 1, "approximate", "none")) == "tanh" ? gelutanh : geluexact
+    return elementwise!(ec, op, f, operand(ec, op, 1))
+end
+
+"""`aten::copy_`'s functional form: the SOURCE is what lands in the
+destination, and the first argument is only there to give the shape."""
+emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("copy.default")}) =
+    elementwise!(ec, op, identity, operand(ec, op, 2))
+
+"""
+`fused.elementwise` — the group [`fuseops`](@ref) collapses a chain of
+elementwise ops into.
+
+Its `FusedOp` is a plain callable, so it needs no kernel of its own: it is the
+`f` of one `ew!` dispatch over the group's operands. Passing it as an argument is
+the function barrier that keeps the per-element call static -- it comes out of a
+`Dict{String,Any}`, so a body that read it inline would dispatch dynamically once
+per element.
+"""
+emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("fused.elementwise")}) =
+    elementwise!(ec, op, op.attrs["fused"], map(i -> operand(ec, i), op.ins)...)
 
 # ── repeat, and a reduction ──────────────────────────────────────────────────
 
@@ -367,6 +557,41 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
     # unfolded case, so there is one kernel rather than two.
     f = something(premap(op), identity)
     M.dispatch!(ec.g, sumdims!, (out, od, a, id, f), prod(od); name = op.id)
+    return out
+end
+
+"""
+`aten::arange.start_step(start, end, step)`, as one dispatch.
+
+The three scalars may be **fractional** — DINOv3's rotary embedding asks for
+`arange(0.5, 32, 1)`, the patch centres — so they are read with `numattr` and
+not `intattr`.
+
+The length is aten's own `ceil((end - start) / step)` and not a Julia range's.
+Those disagree whenever the step is not 1: `arange(0, 5, 2)` is `[0, 2, 4]` to
+torch, three elements, where `0:2:5` is also three but `0:2:4` and `0:2:5` are
+not the same range to reason about. `test_arange.jl` pins both, and the length is
+checked against the declared buffer rather than allocated to fit — a declared
+graph has already placed those bytes.
+
+`end` may be a host value the graph computed rather than an attribute, which is
+why `op.ins` is consulted first.
+"""
+function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("arange.start_step")})
+    # NOT the positional accessor: that assumes every position is either an
+    # attribute or an `ins` entry, and `start`/`step` here may be neither --
+    # torch defaults them. Same three reads `runop!` made.
+    start = numattr(ec.dims, something(get(op.attrs, "arg0", nothing), 0))
+    stop  = length(op.ins) >= 1 ? operand(ec, op.ins[1]) :
+                                  numattr(ec.dims, op.attrs["arg1"])
+    step  = numattr(ec.dims, something(get(op.attrs, "arg2", nothing), 1))
+    out = dest(ec)
+    n = max(0, ceil(Int, (Float64(stop) - Float64(start)) / Float64(step)))
+    n == length(out) || error(
+        "DNNKernels: `arange.start_step` (op $(op.id)) is $start:$step:$stop, " *
+        "which is $n elements, and its output buffer holds $(length(out)).")
+    T = eltype(out)
+    M.dispatch!(ec.g, arange!, (out, n, T(start), T(step)), n; name = op.id)
     return out
 end
 

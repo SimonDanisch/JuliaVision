@@ -93,6 +93,17 @@ struct SafeTrunc{T} end
 @inline (::SafeTrunc{T})(v) where {T<:Integer} = safetrunc(T, v)
 
 """
+`convert` to a fixed type, as a singleton callable.
+
+`v -> T(v)` would be a closure with a `Type{Float32}` field, which is not isbits,
+and a kernel cannot take a non-bitstype argument -- the same trap `where.self`
+avoids by capturing `zero(T)` instead of `T`. As a parametric singleton it has no
+field at all, so it costs no slot (`Mantle.NotPassed`).
+"""
+struct ToType{T} end
+@inline (::ToType{T})(v) where {T} = convert(T, v)
+
+"""
     pycomplex(s) -> ComplexF32 | nothing
 
 Parse a Python complex literal — `"1j"`, `"-2j"`, `"(1+2j)"`, `"(-1.5-0.5j)"`.
@@ -133,10 +144,14 @@ be evaluated against the `dims` of this call, or they reach arithmetic as a
 `String` and fail with `MethodError: no method matching Float32(::String)` —
 which names neither the op nor the symbol.
 """
-function numattr(ctx::Ctx, v)
+function numattr(dims::NamedTuple, v)
     s = scalar(v)
-    s isa AbstractString ? evalexpr(String(s), ctx.dims) : s
+    s isa AbstractString ? evalexpr(String(s), dims) : s
 end
+# Both contexts carry `dims`, and an attribute that is a shape expression means
+# the same thing to either: the interpreted path asked with a `Ctx` and `emitop!`
+# asks with an `EmitCtx`, so the shared half takes the `dims` alone.
+numattr(ctx::Ctx, v) = numattr(ctx.dims, v)
 
 """Non-finite and complex scalars are serialised as strings; see export_graphs.const."""
 scalar(v) = v
@@ -400,13 +415,13 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
     # Only when the bounds ARE integral: `clamp(::Int, 0.25, …)` is a legitimate
     # call the Wan VAE makes, and rounding the bound there would change it.
     T = eltype(x)
-    l, h = clampbounds(T, ctx, lo, hi)
+    l, h = clampbounds(T, ctx.dims, lo, hi)
     emit(ctx, Base.broadcasted(clamp, x, l, h))
 end
 """The pair of bounds `clamp` should be broadcast with: see `clamp.default`."""
-function clampbounds(::Type{T}, ctx, lo, hi) where {T}
-    l = lo === nothing ? -Inf32 : Float32(numattr(ctx, lo))
-    h = hi === nothing ? Inf32 : Float32(numattr(ctx, hi))
+function clampbounds(::Type{T}, dims::NamedTuple, lo, hi) where {T}
+    l = lo === nothing ? -Inf32 : Float32(numattr(dims, lo))
+    h = hi === nothing ? Inf32 : Float32(numattr(dims, hi))
     T <: Integer || return (l, h)
     (isinteger(l) || isinf(l)) && (isinteger(h) || isinf(h)) || return (l, h)
     return (l == -Inf32 ? typemin(T) : T(l), h == Inf32 ? typemax(T) : T(h))

@@ -84,3 +84,20 @@ function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f) where {N}
     @inbounds out[i] = acc
     return
 end
+
+"""
+    arange!(out, n, start, step)
+
+`out[i] = start + (i - 1) * step`, for `n` elements.
+
+The scalars arrive already converted to the output's element type, because the
+length is not derivable from them here: aten's is `ceil((end - start) / step)`,
+which disagrees with a Julia range's whenever the step is not 1, and the host is
+where that was decided. See the `arange.start_step` emit.
+"""
+function arange!(out, n::Int, start, step)
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[i] = start + (i - 1) * step
+    return
+end
