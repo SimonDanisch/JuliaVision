@@ -1446,44 +1446,49 @@ uniform across a wave — every `e` of one row reads the same two floats.
     end
 end
 
+# sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale) -> out
+# 
+# Run the cooperative-matrix fused kernel. `q`, `k`, `v` are `(E, L, H, B)`.
+# 
+# **This cannot decline.** Every condition it used to re-test is settled by
+# [`flashcm_plan`](@ref), which is the whole point of holding a plan: the six
+# `return false`s that used to live here ran *after* the caller had allocated `out`
+# and committed to the fused path, and they had to agree with a separate predicate
+# that had already said yes.
+# 
+# `ballast`, `shpad`, `nrsc`, `preonly` and `rscbar` are the diagnostics from the
+# held-`O` investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords
+# rather than plan fields because they describe an experiment, not a routing
+# decision, and nothing in the library sets them.
+
 """
-    sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale) -> out
+    flash_launches(caps, out, plan, q, k, v, scale, partial, ml; …) -> Vector
 
-Run the cooperative-matrix fused kernel. `q`, `k`, `v` are `(E, L, H, B)`.
+What this attention IS: one launch, or two when the plan splits the key axis for
+flash decoding. No side effects and no allocation — `partial` and `ml` are the
+split's scratch and the caller owns them, because a graph's scratch is a declared
+transient and an immediate call's is `scratch!`.
 
-**This cannot decline.** Every condition it used to re-test is settled by
-[`flashcm_plan`](@ref), which is the whole point of holding a plan: the six
-`return false`s that used to live here ran *after* the caller had allocated `out`
-and committed to the fused path, and they had to agree with a separate predicate
-that had already said yes.
-
-`ballast`, `shpad`, `nrsc`, `preonly` and `rscbar` are the diagnostics from the
-held-`O` investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords
-rather than plan fields because they describe an experiment, not a routing
-decision, and nothing in the library sets them.
+Split from the launching for the reason `coopmat_gemm_launches` is: a graph
+declares these and `sdpaflashcm!` submits them, and which tiling a shape takes
+is measured, so two copies of the decision drifting is a performance regression
+nothing would report.
 """
-function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
+function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, ml;
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       preonly::Bool = false, rscbar::Bool = false,
                       epad::Int = flashepad(plan.EP), rpad::Int = flashrpad(plan.BR))
-    backend = ctx.backend
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     BR, BC, NW, NT = plan.BR, plan.BC, plan.NW, plan.NT
     rego, held = plan.rego, plan.held
     rq, rk, rv = stridedroot(q), stridedroot(k), stridedroot(v)
-    st(a) = map(Int32, strides(a))
-    sq, sk, sv = st(q), st(k), st(v)
-    flat(r) = reshape(r[1], length(r[1]))
+    sq, sk, sv = flashstrides(q), flashstrides(k), flashstrides(v)
+    flat(r) = flashflat(r[1])
 
-    # Flash-decoding scratch. Only allocated when the plan asks for a split, so
-    # the single-split path is byte-for-byte the launch it always was.
     ns = plan.nsplit
-    partial = ns == 1 ? out : scratch!(ctx, Float32, size(v, 1), Lq, H, B, ns)
-    ml      = ns == 1 ? out : scratch!(ctx, Float32, Lq, H, B, ns, 2)
-
-    attn_flash_cm!(backend, NT)(out, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
+    args = (out, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
                                 Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
                                 Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
@@ -1498,20 +1503,67 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
                                 Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
                                 Val(rscbar),
                                 Val(ns), Val(epad), Val(rpad),
-                                Val(ctx.dev.coopmatsubgroup),
+                                Val(caps.coopmatsubgroup),
                                 Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
-                                Int32(plan.onepass && !rego ? 1 : 0), partial, ml;
-                                ndrange = (NT * cld(Lq, BR) * ns, H, B))
-    if ns > 1
-        # The merge is a separate dispatch because every split has to have
-        # finished before any row's true maximum is known — that is the one real
-        # dependency flash-decoding introduces, and it is why the split has to
-        # pay for a second pass over `Lq * H * B * E` to buy its parallelism.
-        attn_flash_cm_merge!(backend)(out, partial, ml, Int32(ns), Int32(H);
-                                      ndrange = (plan.E, Lq, H * B))
+                                Int32(plan.onepass && !rego ? 1 : 0), partial, ml)
+    first = (kern = attn_flash_cm!, args = args,
+             ndrange = (NT * cld(Lq, BR) * ns, H, B), group = NT)
+    ns == 1 && return [first]
+    # The merge is a separate dispatch because every split has to have
+    # finished before any row's true maximum is known — that is the one real
+    # dependency flash-decoding introduces, and it is why the split has to
+    # pay for a second pass over `Lq * H * B * E` to buy its parallelism.
+    return [first, (kern = attn_flash_cm_merge!,
+                    args = (out, partial, ml, Int32(ns), Int32(H)),
+                    ndrange = (plan.E, Lq, H * B), group = 0)]
+end
+
+"""Submit this attention now."""
+function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale; kw...)
+    ns = plan.nsplit
+    Lq, H, B = size(q, 2), size(q, 3), size(q, 4)
+    partial = ns == 1 ? out : scratch!(ctx, Float32, size(v, 1), Lq, H, B, ns)
+    ml      = ns == 1 ? out : scratch!(ctx, Float32, Lq, H, B, ns, 2)
+    for l in flash_launches(ctx.dev, out, plan, q, k, v, scale, partial, ml; kw...)
+        k_ = l.group == 0 ? l.kern(ctx.backend) : l.kern(ctx.backend, l.group)
+        k_(l.args...; ndrange = l.ndrange)
     end
     return out
 end
+
+"""
+    flash_dispatch!(g, caps, out, plan, q, k, v, scale, partial, ml; name, …) -> out
+
+DECLARE this attention into a graph: one pass per launch.
+"""
+function flash_dispatch!(g, caps, out, plan::FlashCMPlan, q, k, v, scale,
+                         partial, ml; name::AbstractString = "sdpa", kw...)
+    ls = flash_launches(caps, out, plan, q, k, v, scale, partial, ml; kw...)
+    for (i, l) in enumerate(ls)
+        M.dispatch!(g, l.kern, l.args, l.ndrange;
+                    group = l.group == 0 ? nothing : l.group,
+                    name = length(ls) == 1 ? name : "$name.$i")
+    end
+    return out
+end
+
+"""
+The strides a flash launch passes, and the 1-D form of an operand it indexes
+through.
+
+Two spellings of one fact, and which one applies is decided by what the operand
+IS rather than by a flag: an ARRAY answers from its own strides and reshapes,
+and a DECLARED resource is dense by construction (`viewstrides` materialises any
+view that moves elements) so its strides come from `size` and it is already
+addressed linearly. Written here so the immediate launch and the declared one
+cannot disagree about the addressing, which would be a silently wrong answer
+rather than an error.
+"""
+flashstrides(a) = map(Int32, strides(a))
+flashstrides(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) =
+    declstrides(x)
+flashflat(r) = reshape(r, length(r))
+flashflat(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) = x
 
 """
     sdpaflashcm!(ctx, out, q, k, v, scale; kw...) -> Bool

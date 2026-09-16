@@ -62,8 +62,9 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple)
     g = M.Graph(dev)
     esc = escaping(aten)
     ec = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""))
+    live = consumedids(aten)
     for id in aten.order
-        declare!(ec, aten.buffers[id], weights)
+        declare!(ec, aten.buffers[id], weights, live)
     end
     for op in aten.ops
         ec.outid[] = op.out
@@ -86,7 +87,7 @@ The kinds are the export's, and the decision each one makes is Mantle's:
     graph, or by the caller reading an output — so it cannot be memory the placer
     may hand to something else at its last use.
 """
-function declare!(ec::EmitCtx, b::Buffer, weights::AbstractDict)
+function declare!(ec::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{String})
     b.kind === :view && return                      # `viewfor`, on demand
     if b.kind === :weight
         haskey(weights, b.key) || error("missing weight $(b.key)")
@@ -103,11 +104,51 @@ function declare!(ec::EmitCtx, b::Buffer, weights::AbstractDict)
     if haskey(b.attrs, "shapes")
         for (i, (shape, T)) in enumerate(zip(b.attrs["shapes"], b.attrs["dtypes"]))
             (shape === nothing || T === nothing) && continue
-            ec.res["$(b.id)#$(i - 1)"] = make(ec, b.id, T, evalshape(shape, ec.dims))
+            key = "$(b.id)#$(i - 1)"
+            key in live || continue
+            ec.res[key] = make(ec, b.id, T, evalshape(shape, ec.dims))
         end
         return
     end
+    b.id in live || return
     ec.res[b.id] = make(ec, b.id, b.dtype, evalshape(b.shape, ec.dims))
+end
+
+"""
+    consumedids(aten) -> Set{String}
+
+Every buffer, and every element of a multi-output buffer, that something in the
+graph consumes: an op's input, a view's parent, or a declared output.
+
+A declaration needs this and an interpreted run did not. torch's schema returns
+four values from flash attention and two from `max_pool2d_with_indices`, and a
+graph reads one of each — so the export declares buffers nothing touches, and
+running lazily meant an unread one simply never got allocated. Declared, a
+transient is placed from its USE, so one with none has nothing to place and
+Mantle refuses it by name (measured: 102 of SAM 2's encoder's 1301).
+
+`dropdead` prunes dead OPS and cannot see this: the op is live, one of its
+results is not.
+
+An `:external` buffer is always consumed — it is an input, and a graph that
+ignores one still has to be handed it.
+"""
+function consumedids(g::Graph)
+    live = Set{String}(g.outputs)
+    for o in g.ops, i in o.ins
+        push!(live, i)
+    end
+    for (_, b) in g.buffers
+        b.kind === :external && push!(live, b.id)
+        b.kind === :view || continue
+        push!(live, b.of)
+        # A `getitem` names ONE element of a tuple, which is the only way an
+        # element is read; the bare id would be the whole tuple and nothing takes
+        # that.
+        occursin("getitem", b.viewop) &&
+            push!(live, "$(b.of)#$(Int(b.attrs["arg1"]))")
+    end
+    return live
 end
 
 """A resource of this shape: transient unless the id escapes or is written from
@@ -257,6 +298,35 @@ dest(ec::EmitCtx, i::Integer) = ec.res["$(ec.outid[])#$(i)"]
 
 """Every declared element of a multi-output op's result, in order."""
 dests(ec::EmitCtx, n::Integer) = ntuple(i -> dest(ec, i - 1), n)
+
+"""
+    maybedest(ec, i) -> resource or nothing
+
+Element `i` of a multi-output op's result where the export declared one.
+
+torch returns four values from flash attention and two from
+`max_pool2d_with_indices`, and a graph that reads only the first declares only
+the first — `declare!` gives a resource to each buffer the graph HAS. The
+interpreted path fabricated the others with `similar(out, 0)`, which is a real
+allocation standing in for something nothing reads; `nothing` says the same
+thing and costs nothing.
+"""
+maybedest(ec::EmitCtx, i::Integer) = get(ec.res, "$(ec.outid[])#$(i)", nothing)
+
+"""
+    destor(ec, i, T, dims) -> resource
+
+Element `i` of a multi-output op's result, or a TRANSIENT of that shape where the
+export declared none.
+
+A kernel that writes a result needs somewhere to put it whether or not the graph
+reads it: `layernorm_kernel!` always writes the mean and the reciprocal standard
+deviation, and `bnstats!` always writes both of its. `maybedest` is for the
+results an emit can simply not produce; this is for the ones a kernel produces
+anyway, and then they are scratch the placer aliases like any other transient.
+"""
+destor(ec::EmitCtx, i::Integer, ::Type{T}, dims::Dims) where {T} =
+    something(maybedest(ec, i), scratch(ec, T, dims...))
 
 """
     scratch(ctx, T, dims...) -> TransientBuffer
@@ -786,7 +856,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("max_pool2d_with_indices.defa
     out = dest(ec, 0)
     mapbody!(ec, op, maxpool, out, x, Val(k[1]), Val(k[2]),
              Val(st[1]), Val(st[2]), Val(pd[1]), Val(pd[2]))
-    return (out, dest(ec, 1))
+    return (out, maybedest(ec, 1))
 end
 
 """
@@ -877,8 +947,13 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.default")}
         "DNNKernels: `native_layer_norm` (op $(op.id)) normalises $n elements " *
         "of a $(size(a)) operand, which does not divide it. The normalised axes " *
         "have to be leading and dense here; `hoistpermutes` is what makes them so.")
-    out, μ, r = dests(ec, 3)
+    out = dest(ec, 0)
     groups = length(a) ÷ n
+    # The mean and the reciprocal standard deviation are what a backward pass
+    # reads, and SAM 2 reads neither -- but the kernel writes them, so they get
+    # a destination either way. See `destor`.
+    μ = destor(ec, 1, Float32, (groups,))
+    r = destor(ec, 2, Float32, (groups,))
     # The placeholder for an absent operand, and it must be a RESOURCE: the
     # kernel indexes it whether or not the `Val` lets it, so a `nothing` would
     # not compile. `a` is always present and already declared read.
@@ -912,7 +987,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_
     x = operand(ec, op.ins[1])
     gamma = operand(ec, op.ins[2])
     beta = operand(ec, op.ins[3])
-    out, mean, invstd = dests(ec, 3)
+    out = dest(ec, 0)
     eps = Float32(op.attrs["arg5"])
     id = size(x)
     # torch's channel dim is 1, which in the reversed shape is `ndims - 1`.
@@ -920,6 +995,9 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_
     C = id[c]
     cstride = prod(ntuple(k -> id[k], c - 1); init = 1)
     nouter = prod(ntuple(k -> id[c + k], length(id) - c); init = 1)
+    # `bnstats!` writes both statistics whether or not the graph reads them.
+    mean = destor(ec, 1, Float32, (C,))
+    invstd = destor(ec, 2, Float32, (C,))
     M.dispatch!(ec.g, bnstats!, (mean, invstd, x, cstride, C, nouter, eps), C;
                 name = "$(op.id).stats")
     M.dispatch!(ec.g, bnapply!,
@@ -927,6 +1005,116 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_
                 length(out); name = op.id)
     return (out, mean, invstd)
 end
+
+# ── attention ────────────────────────────────────────────────────────────────
+
+"""
+`aten::_scaled_dot_product_{flash,efficient}_attention`, as declared flash
+attention.
+
+Both spellings are the same computation — torch distinguishes which CUDA kernel
+it would have used, which says nothing about ours — so they share this body, as
+they shared `sdpa` before.
+
+The plan is chosen by the same `flashcm_plan` an immediate call asks, from
+`eltype` and `size` alone, which is all a declaration has. `FlashCM2Plan` and
+the two fallbacks are REFUSED by name rather than written untested: each has its
+own launch shape, and a declared form of one has to be split from its launcher
+the way `flash_launches` was. A refusal names the plan, which is what tells the
+next person which one to port.
+
+torch returns four results and only the first is read; the export declares the
+other three empty, and they are handed back so the tuple's shape is honest.
+"""
+function emitsdpa!(ec::EmitCtx, op::Op)
+    q = operand(ec, op, 1)
+    k = operand(ec, op, 2)
+    v = operand(ec, op, 3)
+    bias = length(op.ins) >= 4 ? operand(ec, op.ins[4]) : nothing
+    sc = get(op.attrs, "scale", nothing)
+    scale = sc === nothing ? inv(sqrt(size(q, 1))) : Float64(sc)
+    out = dest(ec, 0)
+    caps = M.caps(M.backend(ec.dev))
+    E, Lq, H, B = size(q)
+    size(out) == (size(v, 1), Lq, H, B) || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(out)) result " *
+        "where its operands give $((size(v, 1), Lq, H, B)).")
+    cm2 = flashcm2_plan(caps, q, k, v, bias)
+    cm2 isa Decline || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
+        "not split from `sdpaflashcm2!` yet, so it has no declared form. " *
+        "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
+        "shape a port takes.")
+    plan = flashcm_plan(caps, q, k, v, bias)
+    if plan isa Decline
+        cm = coopmat_sdpa_plan(caps, q, k, v, bias)
+        cm isa Decline || error(
+            "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm), whose launch is " *
+            "not split from `sdpa_coopmat!` yet, so it has no declared form. " *
+            "See `flash_launches` for the shape a port takes.")
+        return threepass!(ec, op, out, q, k, v, bias, scale)
+    end
+    ns = plan.nsplit
+    # Flash-decoding scratch, declared rather than bump-allocated: only when the
+    # plan splits the key axis, so the single-split path declares nothing extra.
+    partial = ns == 1 ? out : scratch(ec, Float32, size(v, 1), Lq, H, B, ns)
+    ml      = ns == 1 ? out : scratch(ec, Float32, Lq, H, B, ns, 2)
+    flash_dispatch!(ec.g, caps, out, plan, q, k, v, scale, partial, ml; name = op.id)
+    return (out, maybedest(ec, 1), maybedest(ec, 2), maybedest(ec, 3))
+end
+
+"""
+The three-pass path: always available, always right, and the slowest.
+
+`scores` and `sums` are working storage and are declared transients, so the
+placer aliases them against the whole graph — `Workspace` could only ever reuse
+them within this one op, and on SAM 2's global blocks the score matrix is the
+largest thing the graph asks for.
+
+`q` is transposed to `(L, E, H, B)`, which is the layout `attn_scores` reads;
+`k` and `v` need no `densify` because a declared operand is already dense (see
+`viewstrides`). The three launches are the same bodies and the same blocked
+kernels the immediate path picks, through the selectors that decision was split
+into.
+"""
+function threepass!(ec::EmitCtx, op::Op, out, q, k, v, bias, scale)
+    E, Lq, H, B = size(q)
+    Lk = size(k, 2)
+    T = accum(eltype(q))
+    qt = scratch(ec, eltype(q), Lq, E, H, B)
+    transposeLE_dispatch!(ec.g, qt, q; name = "$(op.id).toLE")
+    ST = eltype(qt)
+    scores = scratch(ec, ST, Lq, Lk, H, B)
+    tk = blockfor(Lk, Lq)
+    if tk > 1
+        nd = (Lq, Lk ÷ tk, H, B)
+        M.dispatch!(ec.g, scoresblocked!kernel(tk),
+                    (scores, qt, k, bias, T(scale)), nd;
+                    group = launchgroup(nd), name = "$(op.id).scores")
+    else
+        mapbody!(ec, op, attn_scores, scores, qt, k, bias, scale;
+                 name = "$(op.id).scores")
+    end
+    # Normalises `scores` IN PLACE and writes the sums, which nothing reads --
+    # they are declared because the kernel writes them, not because they are
+    # wanted.
+    sums = scratch(ec, T, Lq, H, B)
+    mapbody!(ec, op, attn_softmax, sums, scores; name = "$(op.id).softmax")
+    tq = blockfor(Lq, Lk)
+    if tq > 1
+        nd = (size(v, 1), Lq ÷ tq, H, B)
+        M.dispatch!(ec.g, applyblocked!kernel(tq), (out, scores, v, sums), nd;
+                    group = launchgroup(nd), name = "$(op.id).apply")
+    else
+        mapbody!(ec, op, attn_apply, out, scores, v, sums; name = "$(op.id).apply")
+    end
+    return (out, maybedest(ec, 1), maybedest(ec, 2), maybedest(ec, 3))
+end
+
+emitop!(ec::EmitCtx, op::Op,
+        ::Val{Symbol("_scaled_dot_product_flash_attention.default")}) = emitsdpa!(ec, op)
+emitop!(ec::EmitCtx, op::Op,
+        ::Val{Symbol("_scaled_dot_product_efficient_attention.default")}) = emitsdpa!(ec, op)
 
 # ── matrix products ──────────────────────────────────────────────────────────
 

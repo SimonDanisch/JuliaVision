@@ -252,14 +252,20 @@ for (name, kern, args) in (("scoresblocked!", "attn_scores_b", (:scores, :q, :k,
                            ("applyblocked!",  "attn_apply_b",  (:out, :p, :v, :sums)))
     # Largest first, smallest as the unguarded fallback — the shape that was
     # written by hand, minus the opportunity to forget an entry.
-    guarded = [:(tk == $B && return $(Symbol(kern, B, "!"))(backend)($(args...);
-                                                                    ndrange, workgroupsize = wg))
+    guarded = [:(tk == $B && return $(Symbol(kern, B, "!")))
                for B in reverse(ATTN_BLOCKS)[1:end-1]]
     fallback = Symbol(kern, first(ATTN_BLOCKS), "!")
+    # WHICH kernel, separately from launching it — a graph declares the same one
+    # through `dispatch!` and an immediate call submits it, and the block size a
+    # shape takes is measured.
+    @eval $(Symbol(name, "kernel"))(tk) = begin
+        $(guarded...)
+        return $(fallback)
+    end
     @eval function $(Symbol(name))(backend, tk, $(args...), ndrange)
         wg = launchgroup(ndrange)
-        $(guarded...)
-        $(fallback)(backend)($(args...); ndrange, workgroupsize = wg)
+        $(Symbol(name, "kernel"))(tk)(backend)($(args...); ndrange,
+                                               workgroupsize = wg)
     end
 end
 
@@ -324,6 +330,16 @@ is what it said until 2026-09-14: "root DENSE array" is the question, a host
 `nothing` so `transposeLE` took the gather for all of them — 0.250 ms against
 0.035 on SAM 2's windowed shape.
 """
+# A DECLARED operand: a graph resource has no storage until `Place` has run, and
+# it is dense by construction — `viewstrides` materialises any view that moves
+# elements into a transient, so nothing permuted or strided reaches a kernel from
+# a declaration. So the root is the resource itself at offset 0, and its strides
+# are `colstrides(size(x))`. Same shape of answer as the array forms below, with
+# the resource where the array goes; `resolve` turns it into that array when the
+# dispatch is baked.
+stridedroot(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) = (x, 0)
+declstrides(x) = map(Int32, colstrides(size(x)))
+
 function stridedroot(a)
     off = 0
     p = a
@@ -377,6 +393,18 @@ for T in (Float16, Float32)
     end
 end
 
+"""Which tiled transpose an element type takes."""
+toLEkernel(::Type{Float16}) = toLE_tiled_Float16!
+toLEkernel(::Type{Float32}) = toLE_tiled_Float32!
+
+"""
+The tiled transpose's ndrange, which is a function of the shape alone.
+
+Named so the declared form and the immediate one cannot disagree about it; the
+workgroup is in the kernel's TYPE and is the literal `(32, 4, 1)` every time.
+"""
+toLErange(E, L, H, B) = (32 * cld(E, 32), 4 * cld(L, 32), H * B)
+
 """`(E, L, H, B)` operand as a dense `(L, E, H, B)` one in the workspace."""
 function transposeLE(ctx, a)
     E, L, H, B = size(a)
@@ -388,17 +416,40 @@ function transposeLE(ctx, a)
         return d
     end
     root, off = r
-    st = map(Int32, strides(a))
-    k = eltype(a) === Float16 ? toLE_tiled_Float16! : toLE_tiled_Float32!
+    st = flashstrides(a)
+    k = toLEkernel(eltype(a))
     # Workgroup in the kernel's TYPE, not as a keyword: it is the literal
     # `(32, 4, 1)` every time, so this costs exactly one extra SPIR-V module and
     # the index arithmetic folds to constants — 3.34 -> 2.01 ms in SAM 2's
     # encoder. Safe because `(32, 4, 1)`'s only unit extent is trailing; see
     # `Mantle.interior_unit_workgroup`.
-    k(backend, (32, 4, 1))(d, reshape(root, length(root)), Int32(off + 1),
+    k(backend, (32, 4, 1))(d, flashflat(root), Int32(off + 1),
                            st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H);
-                           ndrange = (32 * cld(E, 32), 4 * cld(L, 32), H * B))
+                           ndrange = toLErange(E, L, H, B))
     d
+end
+
+"""
+    transposeLE_dispatch!(g, d, a) -> d
+
+DECLARE the tiled transpose: `a` is `(E, L, H, B)` and `d` is the dense
+`(L, E, H, B)` the caller declared for it.
+
+A declared operand is dense — `viewstrides` materialises any view that moves
+elements — so `stridedroot` is the resource at offset 0 and the strides come
+from `size`. There is no `toLE` body fallback here for that reason: the fallback
+exists for an operand stack `stridedroot` cannot account for, and a declaration
+never has one.
+"""
+function transposeLE_dispatch!(g, d, a; name::AbstractString = "toLE")
+    E, L, H, B = size(a)
+    root, off = stridedroot(a)
+    st = flashstrides(a)
+    M.dispatch!(g, toLEkernel(eltype(a)),
+                (d, flashflat(root), Int32(off + 1),
+                 st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H)),
+                toLErange(E, L, H, B); group = (32, 4, 1), name)
+    return d
 end
 
 # ---------------------------------------------------------- tensor-core path
