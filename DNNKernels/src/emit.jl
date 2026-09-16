@@ -54,7 +54,7 @@ struct EmitCtx{G,D}
 end
 
 """
-    emitgraph(dev, aten, weights, dims; keepall = false, skip = ()) -> (mantle_graph, ctx)
+    emitgraph(dev, aten, weights, dims; keepall = false, skip = ())
 
 Declare `aten` into a fresh Mantle graph. Runs nothing.
 
@@ -76,14 +76,14 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
-    ec = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""))
+    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""))
     for id in aten.order
-        declare!(ec, aten.buffers[id], weights, live)
+        declare!(emitctx, aten.buffers[id], weights, live)
     end
     for op in aten.ops
         op.out in skip && continue
-        ec.outid[] = op.out
-        emitop!(ec, op, op.tag)
+        emitctx.outid[] = op.out
+        emitop!(emitctx, op, op.tag)
     end
     # An OUTPUT that is a view is resolved by nobody else.
     #
@@ -94,9 +94,9 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     # Resolved here, a shape-only output view costs a descriptor and a
     # materialised one gets its fill pass like any other.
     for id in aten.outputs
-        operand(ec, id)
+        operand(emitctx, id)
     end
-    return g, ec
+    return g, emitctx
 end
 
 """
@@ -113,15 +113,15 @@ The kinds are the export's, and the decision each one makes is Mantle's:
     graph, or by the caller reading an output — so it cannot be memory the placer
     may hand to something else at its last use.
 """
-function declare!(ec::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{String})
+function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{String})
     b.kind === :view && return                      # `viewfor`, on demand
     if b.kind === :weight
         haskey(weights, b.key) || error("missing weight $(b.key)")
-        ec.res[b.id] = weights[b.key]
+        emitctx.res[b.id] = weights[b.key]
         return
     end
     if b.kind === :host
-        ec.res[b.id] = evalexpr(String(b.attrs["expr"]), ec.dims)
+        emitctx.res[b.id] = evalexpr(String(b.attrs["expr"]), emitctx.dims)
         return
     end
     # A multi-output op declares `shapes`/`dtypes` instead of `shape`/`dtype`;
@@ -132,12 +132,12 @@ function declare!(ec::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{Strin
             (shape === nothing || T === nothing) && continue
             key = "$(b.id)#$(i - 1)"
             key in live || continue
-            ec.res[key] = make(ec, b.id, T, evalshape(shape, ec.dims))
+            emitctx.res[key] = make(emitctx, b.id, T, evalshape(shape, emitctx.dims))
         end
         return
     end
     b.id in live || return
-    ec.res[b.id] = make(ec, b.id, b.dtype, evalshape(b.shape, ec.dims))
+    emitctx.res[b.id] = make(emitctx, b.id, b.dtype, evalshape(b.shape, emitctx.dims))
 end
 
 """
@@ -189,10 +189,10 @@ end
 
 """A resource of this shape: transient unless the id escapes or is written from
 outside."""
-function make(ec::EmitCtx, id::AbstractString, ::Type{T}, dims::Dims) where {T}
-    b = ec.aten.buffers[id]
-    owned = b.kind === :external || id in ec.esc || id in ec.aten.outputs
-    return owned ? M.Buffer(ec.dev, T, dims) : M.Transient.Buffer(ec.g, T, dims)
+function make(emitctx::EmitCtx, id::AbstractString, ::Type{T}, dims::Dims) where {T}
+    b = emitctx.aten.buffers[id]
+    owned = b.kind === :external || id in emitctx.esc || id in emitctx.aten.outputs
+    return owned ? M.Buffer(emitctx.dev, T, dims) : M.Transient.Buffer(emitctx.g, T, dims)
 end
 
 """
@@ -212,22 +212,22 @@ it; `materialisedview` in `plan.jl` is the predicate that says which, and those
 are declared as ordinary transients by the op that produces them. Throwing here
 rather than guessing is deliberate: a wrong offset is silent.
 """
-function viewfor(ec::EmitCtx, id::AbstractString)
-    haskey(ec.res, id) && return ec.res[id]
-    b = ec.aten.buffers[id]
+function viewfor(emitctx::EmitCtx, id::AbstractString)
+    haskey(emitctx.res, id) && return emitctx.res[id]
+    b = emitctx.aten.buffers[id]
     b.kind === :view || error("buffer $id is not a view")
     # A `getitem` is not a window onto anything: it names one element of a
     # multi-output op's result, and `declare!` gave that element a resource of
     # its own under the `"$(id)#$(i)"` key. So this is a lookup, where
     # `makeview` had to index the tuple the op had already returned.
     occursin("getitem", b.viewop) &&
-        return (ec.res[id] = ec.res["$(b.of)#$(Int(b.attrs["arg1"]))"])
-    parent = operand(ec, b.of)
+        return (emitctx.res[id] = emitctx.res["$(b.of)#$(Int(b.attrs["arg1"]))"])
+    parent = operand(emitctx, b.of)
     # A SHAPE-ONLY view is a descriptor: same elements, same order, so it is a
     # `ResourceView` and costs nothing.
     if b.viewop in SHAPEONLY_VIEWS
-        v = M.viewof(parent, evalshape(b.shape, ec.dims))
-        ec.res[id] = v
+        v = M.viewof(parent, evalshape(b.shape, emitctx.dims))
+        emitctx.res[id] = v
         return v
     end
     # Anything else MOVES its elements, so it needs storage of its own and one
@@ -243,17 +243,17 @@ function viewfor(ec::EmitCtx, id::AbstractString)
     # between them, which the placer correctly overlapped, so the mask's first
     # three elements came back holding the IoU scores. Silent -- the shapes and
     # dtypes were right and 196,605 of 196,608 elements were too.
-    od = evalshape(b.shape, ec.dims)
-    ast, off = viewstrides(ec, b, parent, od)
-    out = make(ec, id, eltype(parent), od)
-    M.dispatch!(ec.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
+    od = evalshape(b.shape, emitctx.dims)
+    ast, off = viewstrides(emitctx, b, parent, od)
+    out = make(emitctx, id, eltype(parent), od)
+    M.dispatch!(emitctx.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
                 name = "$(id).$(first(split(b.viewop, '.')))")
-    ec.res[id] = out
+    emitctx.res[id] = out
     return out
 end
 
 """
-    viewstrides(ec, b, parent, od) -> (strides, offset)
+    viewstrides(emitctx, b, parent, od) -> (strides, offset)
 
 How view `b` reads its parent: one parent stride per axis of the view's own
 shape, and where the view starts.
@@ -263,7 +263,7 @@ Torch indexes the UN-REVERSED shape, so its axis `d` is Julia axis `n - d`
 applied to a different attribute, which is why they are together rather than one
 per op.
 """
-function viewstrides(ec::EmitCtx, b, parent, od::Dims)
+function viewstrides(emitctx::EmitCtx, b, parent, od::Dims)
     ps = size(parent)
     n = length(ps)
     pst = colstrides(ps)
@@ -303,11 +303,11 @@ end
 
 What an op reads for input `id`: a resource, a view of one, or a host value.
 """
-function operand(ec::EmitCtx, id::AbstractString)
-    haskey(ec.res, id) && return ec.res[id]
-    b = get(ec.aten.buffers, id, nothing)
+function operand(emitctx::EmitCtx, id::AbstractString)
+    haskey(emitctx.res, id) && return emitctx.res[id]
+    b = get(emitctx.aten.buffers, id, nothing)
     b === nothing && error("unknown buffer $id")
-    b.kind === :view && return viewfor(ec, id)
+    b.kind === :view && return viewfor(emitctx, id)
     error("buffer $id of kind $(b.kind) was never declared")
 end
 
@@ -324,13 +324,13 @@ reaching it has tensors on both sides — `mul`, `div` and `add` did — and is 
 `BoundsError` the first time one does not. Same rule as `runop!`'s
 `operand(ctx, op, pos)`, and `ARGKEY` is shared with it.
 """
-function operand(ec::EmitCtx, op::Op, pos::Int)
+function operand(emitctx::EmitCtx, op::Op, pos::Int)
     key = argkey(pos)
-    haskey(op.attrs, key) && return numattr(ec.dims, op.attrs[key])
+    haskey(op.attrs, key) && return numattr(emitctx.dims, op.attrs[key])
     idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
     idx <= length(op.ins) || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) has no operand at position $pos")
-    return operand(ec, op.ins[idx])
+    return operand(emitctx, op.ins[idx])
 end
 
 """    dest(ctx) -> resource
@@ -338,14 +338,14 @@ end
 Where the op being emitted writes. `dest(ctx, i)` for element `i` of a
 multi-output op, zero-based as the export numbers them.
 """
-dest(ec::EmitCtx) = ec.res[ec.outid[]]
-dest(ec::EmitCtx, i::Integer) = ec.res["$(ec.outid[])#$(i)"]
+dest(emitctx::EmitCtx) = emitctx.res[emitctx.outid[]]
+dest(emitctx::EmitCtx, i::Integer) = emitctx.res["$(emitctx.outid[])#$(i)"]
 
 """Every declared element of a multi-output op's result, in order."""
-dests(ec::EmitCtx, n::Integer) = ntuple(i -> dest(ec, i - 1), n)
+dests(emitctx::EmitCtx, n::Integer) = ntuple(i -> dest(emitctx, i - 1), n)
 
 """
-    maybedest(ec, i) -> resource or nothing
+    maybedest(emitctx, i) -> resource or nothing
 
 Element `i` of a multi-output op's result where the export declared one.
 
@@ -356,10 +356,11 @@ interpreted path fabricated the others with `similar(out, 0)`, which is a real
 allocation standing in for something nothing reads; `nothing` says the same
 thing and costs nothing.
 """
-maybedest(ec::EmitCtx, i::Integer) = get(ec.res, "$(ec.outid[])#$(i)", nothing)
+maybedest(emitctx::EmitCtx, i::Integer) =
+    get(emitctx.res, "$(emitctx.outid[])#$(i)", nothing)
 
 """
-    destor(ec, i, T, dims) -> resource
+    destor(emitctx, i, T, dims) -> resource
 
 Element `i` of a multi-output op's result, or a TRANSIENT of that shape where the
 export declared none.
@@ -377,10 +378,10 @@ export had a destination, and a transient nothing then passes to a pass is one
 every result has a destination -- but the leak was not conditional on that: any
 graph that reads a layer norm's mean would have hit it.
 """
-function destor(ec::EmitCtx, i::Integer, ::Type{T}, dims::Dims) where {T}
-    d = maybedest(ec, i)
+function destor(emitctx::EmitCtx, i::Integer, ::Type{T}, dims::Dims) where {T}
+    d = maybedest(emitctx, i)
     d === nothing || return d
-    return scratch(ec, T, dims...)
+    return scratch(emitctx, T, dims...)
 end
 
 """
@@ -395,12 +396,12 @@ bump-allocated from an arena that reset per op, which meant its bytes could only
 ever be reused by the SAME op. Declared, its liveness is whatever its uses say,
 so the placer aliases it against the whole graph like any other transient.
 """
-scratch(ec::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
-    M.Transient.Buffer(ec.g, T, map(Int, dims))
+scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
+    M.Transient.Buffer(emitctx.g, T, map(Int, dims))
 
 """The fallback, so an unported op says which one it is rather than failing four
 frames down in `dispatch!`."""
-emitop!(ec::EmitCtx, op::Op, ::Val{A}) where {A} = error(
+emitop!(emitctx::EmitCtx, op::Op, ::Val{A}) where {A} = error(
     "DNNKernels.emitop!: no emit method for `$(op.aten)` (op $(op.id)). The op " *
     "declares its dispatches now instead of launching them; see `emit.jl` for " *
     "the patterns and `runop!` for what this one used to do.")
@@ -439,12 +440,12 @@ reads through the operand tuple, and that is read off the kernel body by
 read, and two ops that read the same weight do not serialise against each other.
 It was two `use` calls at this site, which is the same fact stated twice.
 """
-function elementwise!(ec::EmitCtx, op::Op, f, ins...)
-    out = dest(ec)
+function elementwise!(emitctx::EmitCtx, op::Op, f, ins...)
+    out = dest(emitctx)
     od = size(out)
     length(out) == 0 && return out      # see `mapbody!`
     ops, sts = operandtuples(od, ins)
-    M.dispatch!(ec.g, ew!, (out, od, ops, sts, f), length(out); name = op.id)
+    M.dispatch!(emitctx.g, ew!, (out, od, ops, sts, f), length(out); name = op.id)
     return out
 end
 
@@ -504,32 +505,32 @@ have bytes to index, so the number goes into the function rather than into the
 operand list. `Fix1`/`Fix2` put it in the closure's TYPE, so it costs no
 argument and no memory.
 """
-function binary!(ec::EmitCtx, op::Op, f)
-    a, b = operand(ec, op, 1), operand(ec, op, 2)
-    isresource(a) && isresource(b) && return elementwise!(ec, op, f, a, b)
-    isresource(a) && return elementwise!(ec, op, Base.Fix2(f, b), a)
-    isresource(b) && return elementwise!(ec, op, Base.Fix1(f, a), b)
+function binary!(emitctx::EmitCtx, op::Op, f)
+    a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
+    isresource(a) && isresource(b) && return elementwise!(emitctx, op, f, a, b)
+    isresource(a) && return elementwise!(emitctx, op, Base.Fix2(f, b), a)
+    isresource(b) && return elementwise!(emitctx, op, Base.Fix1(f, a), b)
     error("DNNKernels: `$(op.aten)` (op $(op.id)) has a host scalar on both " *
           "sides, so it is a constant and `constfold` should have removed it.")
 end
 
 # ── the ops ──────────────────────────────────────────────────────────────────
 
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(ec, op, *)
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(ec, op, /)
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")}) = binary!(ec, op, +)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx, op, *)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")}) = binary!(emitctx, op, +)
 
 # A copy is `identity` over one operand, which is the same one dispatch as any
 # other elementwise op. `runop!` wrote `d .= a`, which is the same launch by
 # another spelling.
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("clone.default")}) =
-    elementwise!(ec, op, identity, operand(ec, op, 1))
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("clone.default")}) =
+    elementwise!(emitctx, op, identity, operand(emitctx, op, 1))
 
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("leaky_relu.default")})
-    x = operand(ec, op, 1)
-    s = eltype(dest(ec))(something(get(op.attrs, "arg1", nothing), 0.01))
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("leaky_relu.default")})
+    x = operand(emitctx, op, 1)
+    s = eltype(dest(emitctx))(something(get(op.attrs, "arg1", nothing), 0.01))
     # The slope is captured, so it travels in the closure and not as an operand.
-    elementwise!(ec, op, v -> v >= zero(v) ? v : s * v, x)
+    elementwise!(emitctx, op, v -> v >= zero(v) ? v : s * v, x)
 end
 
 # ── one function of one operand ──────────────────────────────────────────────
@@ -540,8 +541,8 @@ end
 # time, when a fusion emitting `x -> inv(sqrt(x))` was not the `rsqrt.default`
 # anybody had tested.
 for (name, f) in UNARY_FUSED
-    @eval emitop!(ec::EmitCtx, op::Op, ::Val{Symbol($name)}) =
-        elementwise!(ec, op, $f, operand(ec, op, 1))
+    @eval emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol($name)}) =
+        elementwise!(emitctx, op, $f, operand(emitctx, op, 1))
 end
 
 """
@@ -550,13 +551,13 @@ end
 `alpha` defaults to 1, and when it is 1 the multiply is not emitted at all --
 the closure is `-` itself, so the kernel is the same one `add.Tensor` compiles.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("sub.Tensor")})
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("sub.Tensor")})
     k = alpha(op)
-    return k == 1 ? binary!(ec, op, -) :
-                    binary!(ec, op, (x, y) -> x - k * y)
+    return k == 1 ? binary!(emitctx, op, -) :
+                    binary!(emitctx, op, (x, y) -> x - k * y)
 end
 
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("eq.Scalar")}) = binary!(ec, op, ==)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("eq.Scalar")}) = binary!(emitctx, op, ==)
 
 """
 `aten::_to_copy`, a dtype conversion as one elementwise pass.
@@ -570,11 +571,11 @@ index arithmetic where 0.25 is a legitimate input torch turns into 0.
 Everything else is `convert`, which for a float-to-float narrowing is the single
 store rounding once.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_to_copy.default")})
-    a = operand(ec, op, 1)
-    T = eltype(dest(ec))
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_to_copy.default")})
+    a = operand(emitctx, op, 1)
+    T = eltype(dest(emitctx))
     f = (T <: Integer && !(eltype(a) <: Integer)) ? SafeTrunc{T}() : ToType{T}()
-    return elementwise!(ec, op, f, a)
+    return elementwise!(emitctx, op, f, a)
 end
 
 """
@@ -590,11 +591,11 @@ with an `InexactError` path -- a throw inside a kernel, whose exception
 allocation is a hostcall on AMDGPU and dead code the compiler still emits
 everywhere else.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("clamp.default")})
-    x = operand(ec, op, 1)
-    l, h = clampbounds(eltype(x), ec.dims, get(op.attrs, "arg1", nothing),
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("clamp.default")})
+    x = operand(emitctx, op, 1)
+    l, h = clampbounds(eltype(x), emitctx.dims, get(op.attrs, "arg1", nothing),
                        get(op.attrs, "arg2", nothing))
-    return elementwise!(ec, op, v -> clamp(v, l, h), x)
+    return elementwise!(emitctx, op, v -> clamp(v, l, h), x)
 end
 
 """
@@ -605,19 +606,19 @@ A zero VALUE is captured and not the type: a closure capturing `T` has a
 non-bitstype argument. Either branch may also be a host scalar, which `binary!`
 handles for two operands and this does for three.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("where.self")})
-    c = operand(ec, op, 1)
-    a = operand(ec, op, 2)
-    b = operand(ec, op, 3)
-    z = zero(eltype(dest(ec)))
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("where.self")})
+    c = operand(emitctx, op, 1)
+    a = operand(emitctx, op, 2)
+    b = operand(emitctx, op, 3)
+    z = zero(eltype(dest(emitctx)))
     isresource(a) && isresource(b) &&
-        return elementwise!(ec, op, (p, x, y) -> ifelse(p, oftype(z, x), oftype(z, y)),
+        return elementwise!(emitctx, op, (p, x, y) -> ifelse(p, oftype(z, x), oftype(z, y)),
                             c, a, b)
-    isresource(a) && return elementwise!(ec, op,
+    isresource(a) && return elementwise!(emitctx, op,
         (p, x) -> ifelse(p, oftype(z, x), oftype(z, b)), c, a)
-    isresource(b) && return elementwise!(ec, op,
+    isresource(b) && return elementwise!(emitctx, op,
         (p, y) -> ifelse(p, oftype(z, a), oftype(z, y)), c, b)
-    return elementwise!(ec, op, p -> ifelse(p, oftype(z, a), oftype(z, b)), c)
+    return elementwise!(emitctx, op, p -> ifelse(p, oftype(z, a), oftype(z, b)), c)
 end
 
 """
@@ -633,22 +634,22 @@ there are no boxes, where there is nothing to fill either way.
 The VALUE can be symbolic, not just the shape: a graph that materialises its own
 sequence length writes `full((1,), t)`.
 """
-function emitfill!(ec::EmitCtx, op::Op, v)
-    out = dest(ec)
+function emitfill!(emitctx::EmitCtx, op::Op, v)
+    out = dest(emitctx)
     # See `mapbody!`: an empty result needs no pass, and `empty.memory_format`
     # is where they come from.
     length(out) == 0 && return out
-    M.dispatch!(ec.g, M.fill_kernel!, (out, convert(eltype(out), v)), length(out);
+    M.dispatch!(emitctx.g, M.fill_kernel!, (out, convert(eltype(out), v)), length(out);
                 name = op.id)
     return out
 end
 
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("full.default")}) =
-    emitfill!(ec, op, numattr(ec.dims, op.attrs["arg1"]))
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("full_like.default")}) =
-    emitfill!(ec, op, numattr(ec.dims, op.attrs["arg1"]))
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("empty.memory_format")}) =
-    emitfill!(ec, op, 0)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("full.default")}) =
+    emitfill!(emitctx, op, numattr(emitctx.dims, op.attrs["arg1"]))
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("full_like.default")}) =
+    emitfill!(emitctx, op, numattr(emitctx.dims, op.attrs["arg1"]))
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("empty.memory_format")}) =
+    emitfill!(emitctx, op, 0)
 
 """
 `aten::pow.Tensor_Scalar`, with the small integer exponents written out.
@@ -657,18 +658,18 @@ emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("empty.memory_format")}) =
 GPU: `pow` is a library call with a branchy implementation, and the exponent is
 a host scalar so the specialisation is free. Anything else goes through `^`.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("pow.Tensor_Scalar")})
-    a = operand(ec, op, 1)
-    e = operand(ec, op, 2)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("pow.Tensor_Scalar")})
+    a = operand(emitctx, op, 1)
+    e = operand(emitctx, op, 2)
     if e isa Real && isinteger(e)
         n = Int(e)
-        n == 1 && return elementwise!(ec, op, identity, a)
-        n == 2 && return elementwise!(ec, op, x -> x * x, a)
-        n == 3 && return elementwise!(ec, op, x -> x * x * x, a)
-        n == -1 && return elementwise!(ec, op, inv, a)
-        return elementwise!(ec, op, x -> intpow(x, n), a)
+        n == 1 && return elementwise!(emitctx, op, identity, a)
+        n == 2 && return elementwise!(emitctx, op, x -> x * x, a)
+        n == 3 && return elementwise!(emitctx, op, x -> x * x * x, a)
+        n == -1 && return elementwise!(emitctx, op, inv, a)
+        return elementwise!(emitctx, op, x -> intpow(x, n), a)
     end
-    return elementwise!(ec, op, Base.Fix2(^, e), a)
+    return elementwise!(emitctx, op, Base.Fix2(^, e), a)
 end
 
 """
@@ -680,15 +681,15 @@ source that writes it, and picking the wrong formulation is a silent accuracy
 change rather than an error. Both evaluate in `accum(T)` and round once, which is
 what PyTorch does for a half tensor.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("gelu.default")})
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("gelu.default")})
     f = String(atenarg(op, 1, "approximate", "none")) == "tanh" ? gelutanh : geluexact
-    return elementwise!(ec, op, f, operand(ec, op, 1))
+    return elementwise!(emitctx, op, f, operand(emitctx, op, 1))
 end
 
 """`aten::copy_`'s functional form: the SOURCE is what lands in the
 destination, and the first argument is only there to give the shape."""
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("copy.default")}) =
-    elementwise!(ec, op, identity, operand(ec, op, 2))
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("copy.default")}) =
+    elementwise!(emitctx, op, identity, operand(emitctx, op, 2))
 
 """
 `fused.elementwise` — the group [`fuseops`](@ref) collapses a chain of
@@ -700,8 +701,8 @@ the function barrier that keeps the per-element call static -- it comes out of a
 `Dict{String,Any}`, so a body that read it inline would dispatch dynamically once
 per element.
 """
-emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("fused.elementwise")}) =
-    elementwise!(ec, op, op.attrs["fused"], map(i -> operand(ec, i), op.ins)...)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.elementwise")}) =
+    elementwise!(emitctx, op, op.attrs["fused"], map(i -> operand(emitctx, i), op.ins)...)
 
 # ── repeat, and a reduction ──────────────────────────────────────────────────
 
@@ -713,12 +714,12 @@ the declaration-time form of the `reshape` loop `runop!` ran: torch prepends
 singleton dims when the repeat spec is longer than the rank, and a prepend in
 torch's order is an append in the reversed one.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("repeat.default")})
-    a = operand(ec, op.ins[1])
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("repeat.default")})
+    a = operand(emitctx, op.ins[1])
+    out = dest(emitctx)
     od = size(out)
     id = ntuple(k -> k <= ndims(a) ? size(a, k) : 1, length(od))
-    M.dispatch!(ec.g, tilecopy!, (out, od, a, id), prod(od); name = op.id)
+    M.dispatch!(emitctx.g, tilecopy!, (out, od, a, id), prod(od); name = op.id)
     return out
 end
 
@@ -729,9 +730,9 @@ end
 The output resource may have those axes dropped (`keepdim = false`), which
 changes its shape and not its bytes, so the kernel indexes both linearly.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
-    a = operand(ec, op.ins[1])
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
+    a = operand(emitctx, op.ins[1])
+    out = dest(emitctx)
     id = size(a)
     dims = Tuple(jdim(d, length(id)) for d in ints(op.attrs["arg1"]))
     od = ntuple(k -> k in dims ? 1 : id[k], length(id))
@@ -742,7 +743,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("sum.dim_IntList")})
     # `foldpremap` folds a map step into the reduction; `identity` is the
     # unfolded case, so there is one kernel rather than two.
     f = something(premap(op), identity)
-    M.dispatch!(ec.g, sumdims!, (out, od, a, id, f), prod(od); name = op.id)
+    M.dispatch!(emitctx.g, sumdims!, (out, od, a, id, f), prod(od); name = op.id)
     return out
 end
 
@@ -763,21 +764,21 @@ graph has already placed those bytes.
 `end` may be a host value the graph computed rather than an attribute, which is
 why `op.ins` is consulted first.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("arange.start_step")})
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("arange.start_step")})
     # NOT the positional accessor: that assumes every position is either an
     # attribute or an `ins` entry, and `start`/`step` here may be neither --
     # torch defaults them. Same three reads `runop!` made.
-    start = numattr(ec.dims, something(get(op.attrs, "arg0", nothing), 0))
-    stop  = length(op.ins) >= 1 ? operand(ec, op.ins[1]) :
-                                  numattr(ec.dims, op.attrs["arg1"])
-    step  = numattr(ec.dims, something(get(op.attrs, "arg2", nothing), 1))
-    out = dest(ec)
+    start = numattr(emitctx.dims, something(get(op.attrs, "arg0", nothing), 0))
+    stop  = length(op.ins) >= 1 ? operand(emitctx, op.ins[1]) :
+                                  numattr(emitctx.dims, op.attrs["arg1"])
+    step  = numattr(emitctx.dims, something(get(op.attrs, "arg2", nothing), 1))
+    out = dest(emitctx)
     n = max(0, ceil(Int, (Float64(stop) - Float64(start)) / Float64(step)))
     n == length(out) || error(
         "DNNKernels: `arange.start_step` (op $(op.id)) is $start:$step:$stop, " *
         "which is $n elements, and its output buffer holds $(length(out)).")
     T = eltype(out)
-    M.dispatch!(ec.g, arange!, (out, n, T(start), T(step)), n; name = op.id)
+    M.dispatch!(emitctx.g, arange!, (out, n, T(start), T(step)), n; name = op.id)
     return out
 end
 
@@ -800,8 +801,8 @@ Declared, both are a gather and both keep their index on the device. The paired
 form used to run on the HOST (`collect(vec(x))[vec(lin)]`), which is why it could
 never be recorded; there is no round trip now.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
-    x = operand(ec, op, 1)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
+    x = operand(emitctx, op, 1)
     spec = op.attrs["arg1"]
     n = ndims(x)
     dims, idxs = Int[], Any[]
@@ -812,10 +813,10 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
             "DNNKernels: `index.Tensor` (op $(op.id)) indexes dim $k of a " *
             "$(n)-d input.")
         push!(dims, jd)
-        push!(idxs, operand(ec, String(e)[2:end]))   # attrs store "\$name"
+        push!(idxs, operand(emitctx, String(e)[2:end]))   # attrs store "\$name"
     end
-    out = dest(ec)
-    isempty(dims) && return elementwise!(ec, op, identity, x)
+    out = dest(emitctx)
+    isempty(dims) && return elementwise!(emitctx, op, identity, x)
     # Ascending Julia dimension. `spec` is in torch order, so reversing each
     # entry's axis walks the Julia dims backwards; `indexgather!` pairs the j-th
     # indexed dimension with the j-th index tensor, and unsorted that is
@@ -827,7 +828,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
         size(x) isa NTuple{length(od),Int} || error(
             "DNNKernels: `index.Tensor` (op $(op.id)) is separable, so its " *
             "output has the input's rank $(ndims(x)) and holds $(length(od)).")
-        M.dispatch!(ec.g, indexgather!, (out, od, x, size(x), idxs, Tuple(dims)),
+        M.dispatch!(emitctx.g, indexgather!, (out, od, x, size(x), idxs, Tuple(dims)),
                     prod(od); name = op.id)
     else
         length(dims) == n || error(
@@ -836,14 +837,14 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
             "is where torch also has to decide WHERE the gathered axis goes, " *
             "and the separable half of that is handled above.")
         sts = Tuple(bcstrides(od, size(i)) for i in idxs)
-        M.dispatch!(ec.g, indexpaired!, (out, od, x, size(x), idxs, sts),
+        M.dispatch!(emitctx.g, indexpaired!, (out, od, x, size(x), idxs, sts),
                     prod(od); name = op.id)
     end
     return out
 end
 
 """
-    mapbody!(ec, op, body, out, args...) -> out
+    mapbody!(emitctx, op, body, out, args...) -> out
 
 Declare `body(I, args...)` at every index of `out`, as one dispatch.
 
@@ -855,7 +856,7 @@ in when it is submitted and in nothing else. `Mantle.FastDiv32` is why the flat
 variant is the fast one: the coordinate decomposition is a magic-number multiply
 rather than N-1 real divisions.
 """
-function mapbody!(ec::EmitCtx, op::Op, body, out, args...; name = op.id)
+function mapbody!(emitctx::EmitCtx, op::Op, body, out, args...; name = op.id)
     n = length(out)
     # An EMPTY result needs no pass, and `Mantle.dispatch!` refuses one rather
     # than carrying a dispatch that does nothing. torch produces empty tensors
@@ -864,16 +865,16 @@ function mapbody!(ec::EmitCtx, op::Op, body, out, args...; name = op.id)
     # the refusal belongs there, where a zero ndrange would otherwise become a
     # `DivideError` inside `KernelAbstractions.partition`.
     n == 0 && return out
-    M.dispatch!(ec.g, ndmap_flat!,
+    M.dispatch!(emitctx.g, ndmap_flat!,
                 (body, out, map(M.FastDiv32, size(out)), n, args...), n; name)
     return out
 end
 
 """`aten::upsample_nearest2d`, as one gather at the output's resolution."""
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("upsample_nearest2d.vec")})
-    x = operand(ec, op, 1)
-    out = dest(ec)
-    return mapbody!(ec, op, upsample_nearest, out, x,
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("upsample_nearest2d.vec")})
+    x = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    return mapbody!(emitctx, op, upsample_nearest, out, x,
                     Float32(size(x, 1) / size(out, 1)),
                     Float32(size(x, 2) / size(out, 2)))
 end
@@ -888,11 +889,11 @@ dense positional encoding from a constant 64x64 tensor, 262k adds once per
 decoder call. A work-efficient scan belongs here the moment something scans a
 long axis, and until then it would be untested code.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("cumsum.default")})
-    a = operand(ec, op, 1)
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cumsum.default")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
     d = jdim(Int(op.attrs["arg1"]), ndims(a))
-    return mapbody!(ec, op, cumsum_body, out, a, Val(Int(d)))
+    return mapbody!(emitctx, op, cumsum_body, out, a, Val(Int(d)))
 end
 
 """
@@ -903,15 +904,15 @@ the indices are declared as the empty buffer the export gives them. The window,
 stride and padding are `Val`-parameters: they are host constants, and in the
 kernel's type they make its bounds arithmetic compile-time.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default")})
-    x = operand(ec, op, 1)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default")})
+    x = operand(emitctx, op, 1)
     k = reverse(ints(op.attrs["arg1"]))
     st = haskey(op.attrs, "arg2") ? reverse(ints(op.attrs["arg2"])) : k
     pd = haskey(op.attrs, "arg3") ? reverse(ints(op.attrs["arg3"])) : [0, 0]
-    out = dest(ec, 0)
-    mapbody!(ec, op, maxpool, out, x, Val(k[1]), Val(k[2]),
+    out = dest(emitctx, 0)
+    mapbody!(emitctx, op, maxpool, out, x, Val(k[1]), Val(k[2]),
              Val(st[1]), Val(st[2]), Val(pd[1]), Val(pd[2]))
-    return (out, maybedest(ec, 1))
+    return (out, maybedest(emitctx, 1))
 end
 
 """
@@ -923,9 +924,9 @@ so `sumdims!` takes a `scale` and multiplies once, inside the accumulator's
 type. A pass to scale by a constant is a whole round trip of the result through
 memory.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("mean.dim")})
-    a = operand(ec, op, 1)
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mean.dim")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
     id = size(a)
     dims = Tuple(jdim(d, length(id)) for d in ints(op.attrs["arg1"]))
     od = ntuple(k -> k in dims ? 1 : id[k], length(id))
@@ -935,7 +936,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("mean.dim")})
     f = something(premap(op), identity)
     n = prod(id[k] for k in dims)
     scale = accum(eltype(out))(1 // n)
-    M.dispatch!(ec.g, sumdims!, (out, od, a, id, f, scale), prod(od); name = op.id)
+    M.dispatch!(emitctx.g, sumdims!, (out, od, a, id, f, scale), prod(od); name = op.id)
     return out
 end
 
@@ -948,9 +949,9 @@ input is skipped rather than dispatched over zero elements -- SAM 2's decoder
 concatenates a `(1, 0, 256)` onto the sparse embeddings on the branch with no
 boxes.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
-    parts = [operand(ec, i) for i in op.ins]
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
+    parts = [operand(emitctx, i) for i in op.ins]
+    out = dest(emitctx)
     od = size(out)
     n = length(od)
     d = jdim(Int(get(op.attrs, "arg1", 0)), n)
@@ -962,7 +963,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
     for (j, p) in enumerate(parts)
         len = size(p, d)
         len == 0 && continue
-        M.dispatch!(ec.g, catcopy!,
+        M.dispatch!(emitctx.g, catcopy!,
                     (out, od, p, ntuple(k -> size(p, k), n), Val(d), off),
                     length(p); name = "$(op.id).$j")
         off += len
@@ -991,29 +992,29 @@ reciprocal standard deviation. The last two are what a backward pass reads, and
 a graph that never reads them still has them placed, which keeps the op's shape
 honest for `2 * groups` floats.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.default")})
-    a = operand(ec, op, 1)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.default")})
+    a = operand(emitctx, op, 1)
     nshape = ints(op.attrs["arg1"])
     eps = Float32(op.attrs["arg4"])
     n = prod(size(a, i) for i in 1:length(nshape))
-    γ = length(op.ins) >= 2 ? operand(ec, op.ins[2]) : nothing
-    β = length(op.ins) >= 3 ? operand(ec, op.ins[3]) : nothing
+    γ = length(op.ins) >= 2 ? operand(emitctx, op.ins[2]) : nothing
+    β = length(op.ins) >= 3 ? operand(emitctx, op.ins[3]) : nothing
     length(a) % n == 0 || error(
         "DNNKernels: `native_layer_norm` (op $(op.id)) normalises $n elements " *
         "of a $(size(a)) operand, which does not divide it. The normalised axes " *
         "have to be leading and dense here; `hoistpermutes` is what makes them so.")
-    out = dest(ec, 0)
+    out = dest(emitctx, 0)
     groups = length(a) ÷ n
     # The mean and the reciprocal standard deviation are what a backward pass
     # reads, and SAM 2 reads neither -- but the kernel writes them, so they get
     # a destination either way. See `destor`.
-    μ = destor(ec, 1, Float32, (groups,))
-    r = destor(ec, 2, Float32, (groups,))
+    μ = destor(emitctx, 1, Float32, (groups,))
+    r = destor(emitctx, 2, Float32, (groups,))
     # The placeholder for an absent operand, and it must be a RESOURCE: the
     # kernel indexes it whether or not the `Val` lets it, so a `nothing` would
     # not compile. `a` is always present and already declared read.
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
-    M.dispatch!(ec.g, layernorm_kernel!,
+    M.dispatch!(emitctx.g, layernorm_kernel!,
                 (out, μ, r, a,
                  γ === nothing ? dummy : γ, β === nothing ? dummy : β,
                  Int32(n), eps, Val(γ !== nothing), Val(β !== nothing)),
@@ -1038,11 +1039,12 @@ the inverse standard deviation. The last two are what the backward pass reads,
 and a graph that never reads them still has them placed, which costs `2C`
 floats and keeps the op's shape honest.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_stats")})
-    x = operand(ec, op.ins[1])
-    gamma = operand(ec, op.ins[2])
-    beta = operand(ec, op.ins[3])
-    out = dest(ec, 0)
+function emitop!(emitctx::EmitCtx, op::Op,
+                 ::Val{Symbol("_native_batch_norm_legit.no_stats")})
+    x = operand(emitctx, op.ins[1])
+    gamma = operand(emitctx, op.ins[2])
+    beta = operand(emitctx, op.ins[3])
+    out = dest(emitctx, 0)
     eps = Float32(op.attrs["arg5"])
     id = size(x)
     # torch's channel dim is 1, which in the reversed shape is `ndims - 1`.
@@ -1051,11 +1053,11 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("_native_batch_norm_legit.no_
     cstride = prod(ntuple(k -> id[k], c - 1); init = 1)
     nouter = prod(ntuple(k -> id[c + k], length(id) - c); init = 1)
     # `bnstats!` writes both statistics whether or not the graph reads them.
-    mean = destor(ec, 1, Float32, (C,))
-    invstd = destor(ec, 2, Float32, (C,))
-    M.dispatch!(ec.g, bnstats!, (mean, invstd, x, cstride, C, nouter, eps), C;
+    mean = destor(emitctx, 1, Float32, (C,))
+    invstd = destor(emitctx, 2, Float32, (C,))
+    M.dispatch!(emitctx.g, bnstats!, (mean, invstd, x, cstride, C, nouter, eps), C;
                 name = "$(op.id).stats")
-    M.dispatch!(ec.g, bnapply!,
+    M.dispatch!(emitctx.g, bnapply!,
                 (out, x, mean, invstd, gamma, beta, length(out), cstride, C),
                 length(out); name = op.id)
     return (out, mean, invstd)
@@ -1081,15 +1083,15 @@ next person which one to port.
 torch returns four results and only the first is read; the export declares the
 other three empty, and they are handed back so the tuple's shape is honest.
 """
-function emitsdpa!(ec::EmitCtx, op::Op)
-    q = operand(ec, op, 1)
-    k = operand(ec, op, 2)
-    v = operand(ec, op, 3)
-    bias = length(op.ins) >= 4 ? operand(ec, op.ins[4]) : nothing
+function emitsdpa!(emitctx::EmitCtx, op::Op)
+    q = operand(emitctx, op, 1)
+    k = operand(emitctx, op, 2)
+    v = operand(emitctx, op, 3)
+    bias = length(op.ins) >= 4 ? operand(emitctx, op.ins[4]) : nothing
     sc = get(op.attrs, "scale", nothing)
     scale = sc === nothing ? inv(sqrt(size(q, 1))) : Float64(sc)
-    out = dest(ec, 0)
-    caps = M.caps(M.backend(ec.dev))
+    out = dest(emitctx, 0)
+    caps = M.caps(M.backend(emitctx.dev))
     E, Lq, H, B = size(q)
     size(out) == (size(v, 1), Lq, H, B) || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(out)) result " *
@@ -1107,15 +1109,15 @@ function emitsdpa!(ec::EmitCtx, op::Op)
             "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm), whose launch is " *
             "not split from `sdpa_coopmat!` yet, so it has no declared form. " *
             "See `flash_launches` for the shape a port takes.")
-        return threepass!(ec, op, out, q, k, v, bias, scale)
+        return threepass!(emitctx, op, out, q, k, v, bias, scale)
     end
     ns = plan.nsplit
     # Flash-decoding scratch, declared rather than bump-allocated: only when the
     # plan splits the key axis, so the single-split path declares nothing extra.
-    partial = ns == 1 ? out : scratch(ec, Float32, size(v, 1), Lq, H, B, ns)
-    ml      = ns == 1 ? out : scratch(ec, Float32, Lq, H, B, ns, 2)
-    flash_dispatch!(ec.g, caps, out, plan, q, k, v, scale, partial, ml; name = op.id)
-    return (out, maybedest(ec, 1), maybedest(ec, 2), maybedest(ec, 3))
+    partial = ns == 1 ? out : scratch(emitctx, Float32, size(v, 1), Lq, H, B, ns)
+    ml      = ns == 1 ? out : scratch(emitctx, Float32, Lq, H, B, ns, 2)
+    flash_dispatch!(emitctx.g, caps, out, plan, q, k, v, scale, partial, ml; name = op.id)
+    return (out, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
 end
 
 """
@@ -1132,49 +1134,51 @@ largest thing the graph asks for.
 kernels the immediate path picks, through the selectors that decision was split
 into.
 """
-function threepass!(ec::EmitCtx, op::Op, out, q, k, v, bias, scale)
+function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     T = accum(eltype(q))
-    qt = scratch(ec, eltype(q), Lq, E, H, B)
-    transposeLE_dispatch!(ec.g, qt, q; name = "$(op.id).toLE")
+    qt = scratch(emitctx, eltype(q), Lq, E, H, B)
+    transposeLE_dispatch!(emitctx.g, qt, q; name = "$(op.id).toLE")
     ST = eltype(qt)
-    scores = scratch(ec, ST, Lq, Lk, H, B)
+    scores = scratch(emitctx, ST, Lq, Lk, H, B)
     tk = blockfor(Lk, Lq)
     if tk > 1
         nd = (Lq, Lk ÷ tk, H, B)
-        M.dispatch!(ec.g, scoresblocked!kernel(tk),
+        M.dispatch!(emitctx.g, scoresblocked!kernel(tk),
                     (scores, qt, k, bias, T(scale)), nd;
                     group = launchgroup(nd), name = "$(op.id).scores")
     else
-        mapbody!(ec, op, attn_scores, scores, qt, k, bias, scale;
+        mapbody!(emitctx, op, attn_scores, scores, qt, k, bias, scale;
                  name = "$(op.id).scores")
     end
     # Normalises `scores` IN PLACE and writes the sums, which nothing reads --
     # they are declared because the kernel writes them, not because they are
     # wanted.
-    sums = scratch(ec, T, Lq, H, B)
-    mapbody!(ec, op, attn_softmax, sums, scores; name = "$(op.id).softmax")
+    sums = scratch(emitctx, T, Lq, H, B)
+    mapbody!(emitctx, op, attn_softmax, sums, scores; name = "$(op.id).softmax")
     tq = blockfor(Lq, Lk)
     if tq > 1
         nd = (size(v, 1), Lq ÷ tq, H, B)
-        M.dispatch!(ec.g, applyblocked!kernel(tq), (out, scores, v, sums), nd;
+        M.dispatch!(emitctx.g, applyblocked!kernel(tq), (out, scores, v, sums), nd;
                     group = launchgroup(nd), name = "$(op.id).apply")
     else
-        mapbody!(ec, op, attn_apply, out, scores, v, sums; name = "$(op.id).apply")
+        mapbody!(emitctx, op, attn_apply, out, scores, v, sums; name = "$(op.id).apply")
     end
-    return (out, maybedest(ec, 1), maybedest(ec, 2), maybedest(ec, 3))
+    return (out, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
 end
 
-emitop!(ec::EmitCtx, op::Op,
-        ::Val{Symbol("_scaled_dot_product_flash_attention.default")}) = emitsdpa!(ec, op)
-emitop!(ec::EmitCtx, op::Op,
-        ::Val{Symbol("_scaled_dot_product_efficient_attention.default")}) = emitsdpa!(ec, op)
+emitop!(emitctx::EmitCtx, op::Op,
+        ::Val{Symbol("_scaled_dot_product_flash_attention.default")}) =
+    emitsdpa!(emitctx, op)
+emitop!(emitctx::EmitCtx, op::Op,
+        ::Val{Symbol("_scaled_dot_product_efficient_attention.default")}) =
+    emitsdpa!(emitctx, op)
 
 # ── matrix products ──────────────────────────────────────────────────────────
 
 """
-    gemm!(ec, op, out, A, B; bias = nothing, epi = identity) -> out
+    gemm!(emitctx, op, out, A, B; bias = nothing, epi = identity) -> out
 
 `out = A * B` (+ bias, then `epi`) as declared dispatches, in Mantle's layout.
 
@@ -1188,8 +1192,8 @@ plan REFUSES by name rather than being written untested. A refusal names the
 plan and the shape, which is what tells the next person which one to port and
 what to check it against.
 """
-function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
-    dev = ec.dev
+function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
+    dev = emitctx.dev
     caps = M.caps(M.backend(dev))
     # `Core.Typeof` of the OPERAND, not `devicetype`: what the plan asks is
     # whether the operand is a dense rank-2 matrix of a given element type, which
@@ -1197,7 +1201,7 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
     # and for an array alike. `devicetype` answers what the kernel RECEIVES,
     # which is a different question and a different type family.
     plan = mmplan(caps, Core.Typeof(out), Core.Typeof(A), Core.Typeof(B),
-                  size(out), size(A), size(B), bias !== nothing)
+                  size(out), size(A), size(B), biasfoldable(bias, size(A, 1)))
     if plan isa Decline
         # Mantle's own scalar GEMM, and NOT a library call: `mul!` on a device
         # array is this backend's kernel, so it is declared like any other
@@ -1207,8 +1211,8 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
         Mm, N, K = size(out, 1), size(out, 2), size(A, 2)
         # The split-K GEMV's planes, declared rather than allocated.
         S = N == 1 ? M.gemv_split(Mm, K) : 1
-        parts = S > 1 ? scratch(ec, Float32, Mm, 1, S) : nothing
-        M.scalar_gemm_dispatch!(ec.g, out, A, B, Mm, N, K,
+        parts = S > 1 ? scratch(emitctx, Float32, Mm, 1, S) : nothing
+        M.scalar_gemm_dispatch!(emitctx.g, out, A, B, Mm, N, K,
                                 one(eltype(out)), zero(eltype(out));
                                 name = op.id, partials = parts)
         # The scalar path has no epilogue to fold into, so the bias and the
@@ -1216,10 +1220,10 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
         # their own ops. Folding is an optimisation on the tensor-core path,
         # never a correctness requirement.
         od = size(out)
-        bias === nothing || M.dispatch!(ec.g, ew!,
+        bias === nothing || M.dispatch!(emitctx.g, ew!,
             (out, od, (out, bias), (bcstrides(od, od), bcstrides(od, size(bias))), +),
             prod(od); name = "$(op.id).bias")
-        epi === identity || M.dispatch!(ec.g, ew!,
+        epi === identity || M.dispatch!(emitctx.g, ew!,
             (out, od, (out,), (bcstrides(od, od),), epi),
             prod(od); name = "$(op.id).act")
         return out
@@ -1230,7 +1234,7 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
         # is why the immediate path spells this `gemv!(out, B, transpose(A))` --
         # the `Transpose` is that call's dispatch between the two layouts, and a
         # declaration names the layout instead.
-        M.gemv_dispatch!(ec.g, out, B, A, size(A, 1), size(A, 2);
+        M.gemv_dispatch!(emitctx.g, out, B, A, size(A, 1), size(A, 2);
                          bias, epilogue = epi, name = op.id)
         return out
     end
@@ -1249,8 +1253,8 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
     # reuse it within this one op.
     Bp = B
     if NP != N
-        Bp = scratch(ec, Float16, K, NP)
-        M.dispatch!(ec.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
+        Bp = scratch(emitctx, Float16, K, NP)
+        M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
                     name = "$(op.id).padB")
     end
     blk_split = M.coopmat_gemm_shape(Mm, NP, K)
@@ -1262,31 +1266,31 @@ function gemm!(ec::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
         # destination is column-major, so columns 1..N of an `Mm x NP` buffer are
         # its first `Mm*N` elements contiguously, and the discard is a linear
         # copy rather than a gather.
-        dst = NP == N ? out : scratch(ec, eltype(out), Mm, NP)
-        M.coopmat_gemm_dispatch!(ec.g, dst, A, Bp, Mm, NP, K;
+        dst = NP == N ? out : scratch(emitctx, eltype(out), Mm, NP)
+        M.coopmat_gemm_dispatch!(emitctx.g, dst, A, Bp, Mm, NP, K;
                                  blk_split, bias, epilogue = epi, name = op.id)
         # Columns 1..N of the padded buffer ARE its first `Mm*N` elements, so
         # the discard is a whole-resource copy between two views of that shape
         # rather than a gather: `copy!` is a pass of the graph and needs no
         # kernel of ours.
-        NP == N || M.copy!(ec.g, "$(op.id).unpad", out,
+        NP == N || M.copy!(emitctx.g, "$(op.id).unpad", out,
                            M.viewof(dst, size(out)))
         return out
     end
-    C = scratch(ec, Float32, Mm, NP, max(splitk, 1))
-    M.coopmat_gemm_dispatch!(ec.g, C, A, Bp, Mm, NP, K;
+    C = scratch(emitctx, Float32, Mm, NP, max(splitk, 1))
+    M.coopmat_gemm_dispatch!(emitctx.g, C, A, Bp, Mm, NP, K;
                              blk_split, partials = C, reduce = false, name = op.id)
-    M.dispatch!(ec.g, mm_epilogue_kernel!,
+    M.dispatch!(emitctx.g, mm_epilogue_kernel!,
                 (out, C, bias, epi, Val(Mm), Val(splitk), Mm * NP, Mm * N),
                 Mm * N; name = "$(op.id).epilogue")
     return out
 end
 
 """`aten::mm(a, b)`, which in the reversed layout is `b * a`."""
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("mm.default")})
-    a, b = operand(ec, op, 1), operand(ec, op, 2)
-    out = dest(ec)
-    return gemm!(ec, op, out, b, a)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mm.default")})
+    a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
+    out = dest(emitctx)
+    return gemm!(emitctx, op, out, b, a)
 end
 
 """
@@ -1300,13 +1304,13 @@ reads and writes the result once instead of three times — and passing the
 callable as an argument is the function barrier that keeps it static, since it
 comes out of a `Dict{String,Any}`.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("addmm.default")})
-    bias = operand(ec, op, 1)
-    a, b = operand(ec, op, 2), operand(ec, op, 3)
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("addmm.default")})
+    bias = operand(emitctx, op, 1)
+    a, b = operand(emitctx, op, 2), operand(emitctx, op, 3)
+    out = dest(emitctx)
     epi = get(op.attrs, "epilogue", nothing)
     f = epi === nothing ? actfn(Symbol(get(op.attrs, "act", "none"))) : epi
-    return gemm!(ec, op, out, b, a; bias, epi = f)
+    return gemm!(emitctx, op, out, b, a; bias, epi = f)
 end
 
 """
@@ -1317,15 +1321,16 @@ contiguous range — so the slice is a descriptor and not a copy, and each plane
 gets the same capability dispatch a 2-D product does. `runop!` sliced with
 `view` for the same reason and the same result.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("bmm.default")})
-    a, b = operand(ec, op, 1), operand(ec, op, 2)
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("bmm.default")})
+    a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
+    out = dest(emitctx)
     nb = size(a, 3)
     nb == size(b, 3) == size(out, 3) || error(
         "DNNKernels: `bmm` (op $(op.id)) has batch extents " *
         "$(size(a, 3)), $(size(b, 3)) and $(size(out, 3)).")
     for i in 1:nb
-        gemm!(ec, op, planeof(ec, out, i), planeof(ec, b, i), planeof(ec, a, i))
+        gemm!(emitctx, op, planeof(emitctx, out, i),
+              planeof(emitctx, b, i), planeof(emitctx, a, i))
     end
     return out
 end
@@ -1342,7 +1347,7 @@ capability dispatch a 2-D product does.
 The trailing axis is the batch, so a plane is contiguous and the view is a
 descriptor rather than a copy.
 """
-planeof(ec::EmitCtx, x, i::Integer) =
+planeof(emitctx::EmitCtx, x, i::Integer) =
     M.viewof(x, (size(x, 1), size(x, 2));
              offset = (i - 1) * size(x, 1) * size(x, 2))
 
@@ -1380,11 +1385,11 @@ runs on identical inputs differ by 3.05e-5 on 9% of elements, carrying to ~5e-7
 at the graph's outputs. Not a bug, it is what buys the 4-8x, but it is the floor
 for anything measured on a graph containing one.
 """
-function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
-    x = operand(ec, op.ins[1])
-    w = operand(ec, op.ins[2])
-    bias = length(op.ins) >= 3 ? operand(ec, op.ins[3]) : nothing
-    out = dest(ec)
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
+    x = operand(emitctx, op.ins[1])
+    w = operand(emitctx, op.ins[2])
+    bias = length(op.ins) >= 3 ? operand(emitctx, op.ins[3]) : nothing
+    out = dest(emitctx)
     stride = reverse(ints(op.attrs["arg3"]))
     pad = reverse(ints(op.attrs["arg4"]))
     dil = reverse(ints(op.attrs["arg5"]))
@@ -1394,7 +1399,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     # A different lowering, not a variant of this one: it branches before any of
     # the shape arithmetic below, which is the forward convolution's.
     get(op.attrs, "arg6", false) == true &&
-        return emitconvtranspose!(ec, op, x, w, bias, out, stride, pad, dil,
+        return emitconvtranspose!(emitctx, op, x, w, bias, out, stride, pad, dil,
                                   reverse(ints(op.attrs["arg7"])), groups, act)
 
     # What is declared so far is the dense forward 2-D case. The others are not
@@ -1419,7 +1424,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     NPQ = N * OH * OW
     T = eltype(out)
     ACC = accum(eltype(x))
-    cores = M.caps(M.backend(ec.dev)).cores
+    cores = M.caps(M.backend(emitctx.dev)).cores
     BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ = convtiles(Cout, NPQ; cores)
     nbk = cld(Cout, BS_K)
     nbn = cld(NPQ, BS_NPQ)
@@ -1428,21 +1433,21 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     # An fp32 destination with no fused activation can take the atomics itself;
     # anything else needs the scratch. Declared, not allocated.
     direct = splitk == 1 || (T === Float32 && act === :none)
-    acc = direct ? out : scratch(ec, Float32, size(out)...)
+    acc = direct ? out : scratch(emitctx, Float32, size(out)...)
     # Fold the activation into the write-back only when there is a single split.
     kact = (splitk == 1 && act === :relu) ? :relu : :none
 
     if splitk > 1
         od = size(acc)
         if bias === nothing
-            M.dispatch!(ec.g, M.fill_kernel!, (acc, zero(eltype(acc))),
+            M.dispatch!(emitctx.g, M.fill_kernel!, (acc, zero(eltype(acc))),
                         length(acc); name = "$(op.id).prefill")
         else
             # The bias lies along the channel axis, which is the third of four in
             # the reversed layout, so it broadcasts with a zero stride everywhere
             # else. One pass, no materialised copy.
             bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
-            M.dispatch!(ec.g, ew!,
+            M.dispatch!(emitctx.g, ew!,
                         (acc, od, (bias,), (bcstrides(od, bd),), identity),
                         prod(od); name = "$(op.id).prefill")
         end
@@ -1459,7 +1464,7 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     # kernel branches on `bias === nothing` at compile, and `nothing` is a
     # zero-size argument the compiled kernel has no parameter for
     # (`Mantle.NotPassed`), so there is no slot and nothing to declare.
-    M.dispatch!(ec.g, conv2d_igemm_ki!, args, (nbk * WG, nbn * splitk);
+    M.dispatch!(emitctx.g, conv2d_igemm_ki!, args, (nbk * WG, nbn * splitk);
                 group = (WG, 1), name = op.id)
 
     # The third pass: convert the fp32 scratch down, applying the activation
@@ -1467,13 +1472,13 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     if acc !== out
         od = size(out)
         f = act === :relu ? (v -> max(v, zero(v))) : identity
-        M.dispatch!(ec.g, ew!, (out, od, (acc,), (bcstrides(od, od),), f),
+        M.dispatch!(emitctx.g, ew!, (out, od, (acc,), (bcstrides(od, od),), f),
                     prod(od); name = "$(op.id).reduce")
     elseif splitk > 1 && act === :relu
         # In place: `out` is the destination AND the operand, so the walk reports
         # it read+write and the pass is ordered against the splits that wrote it.
         od = size(out)
-        M.dispatch!(ec.g, ew!,
+        M.dispatch!(emitctx.g, ew!,
                     (out, od, (out,), (bcstrides(od, od),), v -> max(v, zero(v))),
                     prod(od); name = "$(op.id).act")
     end
@@ -1505,7 +1510,7 @@ at load (`hoistconstants`) rather than rebuilt per call, so it is a port with a
 design question in it and not a transcription. Graphs that need it take the
 gather meanwhile, which is slow and right.
 """
-function emitconvtranspose!(ec::EmitCtx, op::Op, x, w, bias, out,
+function emitconvtranspose!(emitctx::EmitCtx, op::Op, x, w, bias, out,
                             stride, pad, dil, outpad, groups, act)
     act === :none || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is transposed and has a fused " *
@@ -1516,12 +1521,12 @@ function emitconvtranspose!(ec::EmitCtx, op::Op, x, w, bias, out,
         "transposed convolution, and only the 2-D form is declared.")
 
     if shufflecase(w, stride, pad, dil, outpad, groups) && size(x, 4) == 1
-        return emitconvtransposeshuffle!(ec, op, x, w, bias, out, stride)
+        return emitconvtransposeshuffle!(emitctx, op, x, w, bias, out, stride)
     end
     # `output_padding` needs no code here: it only chooses the output SIZE, and
     # the gather computes each output position from whichever inputs reach it --
     # of which the padded positions have none.
-    return mapbody!(ec, op, convtranspose2d, out, x, w, bias,
+    return mapbody!(emitctx, op, convtranspose2d, out, x, w, bias,
                     Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
                     Val(dil[1]), Val(dil[2]), Val(groups))
 end
@@ -1542,18 +1547,18 @@ That transpose is of a graph CONSTANT and belongs at load time, which is
 `hoistconstants`' territory; declared per call it is one pass over 2*2*C_out*C_in
 elements (65k on SAM 2's decoder, both layers together).
 """
-function emitconvtransposeshuffle!(ec::EmitCtx, op::Op, x, w, bias, out, stride)
+function emitconvtransposeshuffle!(emitctx::EmitCtx, op::Op, x, w, bias, out, stride)
     Wi, Hi, Ci = size(x, 1), size(x, 2), size(x, 3)
     KX, KY, Co = size(w, 1), size(w, 2), size(w, 3)
     ncol = KX * KY * Co
     T = eltype(out)
 
-    wm = scratch(ec, eltype(w), Ci, ncol)
-    M.dispatch!(ec.g, stridedcopy!, (wm, (Ci, ncol), w, (ncol, 1), 0),
+    wm = scratch(emitctx, eltype(w), Ci, ncol)
+    M.dispatch!(emitctx.g, stridedcopy!, (wm, (Ci, ncol), w, (ncol, 1), 0),
                 Ci * ncol; name = "$(op.id).weight")
     xm = M.viewof(x, (Wi * Hi, Ci))
-    gemmout = scratch(ec, T, Wi * Hi, ncol)
-    gemm!(ec, op, gemmout, xm, wm)
-    return mapbody!(ec, op, shuffleout, out, gemmout, bias,
+    gemmout = scratch(emitctx, T, Wi * Hi, ncol)
+    gemm!(emitctx, op, gemmout, xm, wm)
+    return mapbody!(emitctx, op, shuffleout, out, gemmout, bias,
                     Val(stride[1]), Val(stride[2]), Int32(Wi))
 end

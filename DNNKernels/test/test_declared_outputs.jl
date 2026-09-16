@@ -9,7 +9,7 @@
 #     back holding the IoU scores. Shapes right, dtypes right, 196,605 of 196,608
 #     elements right.
 #
-#   * `destor` was `something(maybedest(ec, i), scratch(ec, T, dims...))`, and
+#   * `destor` was `something(maybedest(emitctx, i), scratch(emitctx, T, dims...))`, and
 #     `something` evaluates both arguments: the scratch was declared even when
 #     the export had a destination for that result. A transient no pass then
 #     touches is one `Liveness` refuses by name, so this is loud -- but only on a
@@ -64,16 +64,16 @@ end
 function declaredoutputs(dev, label)
 @testset "a graph output owns its bytes — $label" begin
     g = Fixtures.sam2("sam2_decoder")
-    mg, ec = DKO.emitgraph(dev, g, stubweights(dev, g), (res = 1024,))
+    mantlegraph, emitctx = DKO.emitgraph(dev, g, stubweights(dev, g), (res = 1024,))
 
     @test !isempty(g.outputs)
     for id in g.outputs
         # Resolved at all: an output view is materialised by nobody else, since
         # the caller's read is not an op. This was a `KeyError` in `planfor`.
-        @test haskey(ec.res, id)
+        @test haskey(emitctx.res, id)
         # And OWNED. A transient's bytes are the placer's to hand on at its last
         # use, and an output's last use is after the plan has run.
-        @test !(ownerof(ec.res[id]) isa MO.TransientBuffer)
+        @test !(ownerof(emitctx.res[id]) isa MO.TransientBuffer)
     end
 end
 
@@ -84,17 +84,17 @@ end
     # an eager scratch alongside it then belongs to no pass. Stated as the
     # transient-registration check rather than as `Plan`, so the assertion names
     # the fault instead of reporting an allocator message about it.
-    mg, _ = DKO.emitgraph(dev, g, stubweights(dev, g), (res = 1024,); keepall = true)
+    mantlegraph, _ = DKO.emitgraph(dev, g, stubweights(dev, g), (res = 1024,); keepall = true)
     used = Set{Any}()
-    for p in mg.passes, (rid, _) in MO.usages(p)
+    for p in mantlegraph.passes, (rid, _) in MO.usages(p)
         push!(used, rid)
     end
-    orphans = [size(t) for (rid, t) in mg.transient_by_id if !(rid in used)]
+    orphans = [size(t) for (rid, t) in mantlegraph.transient_by_id if !(rid in used)]
     @test isempty(orphans)
     # …and every transient the graph holds is one some pass declared, which is
     # the same statement from the other side: a scratch that reached no
     # `dispatch!` never gets an id at all.
-    @test length(mg.transients) == length(mg.transient_by_id)
+    @test length(mantlegraph.transients) == length(mantlegraph.transient_by_id)
 end
 end
 

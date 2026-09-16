@@ -545,11 +545,11 @@ with, which is why `call` copies into it rather than rebinding.
 function planfor(m::Model, g::Graph, name::AbstractString, dims,
                  clampattn::Bool, noise::NoiseSource)
     dev = Mantle.Device(m.backend)
-    mgraph, ec = emitgraph(dev, g, m.weights, dims)
-    plan = Mantle.Plan(mgraph)
+    mantlegraph, emitctx = emitgraph(dev, g, m.weights, dims)
+    plan = Mantle.Plan(mantlegraph)
     Mantle.record!(plan; maxpasses = get(m.record_maxpasses, name, 0))
-    ins  = Tuple(Mantle.storage(ec.res[id]) for id in g.inputs)
-    outs = Tuple(Mantle.storage(ec.res[id]) for id in g.outputs)
+    ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
+    outs = Tuple(Mantle.storage(emitctx.res[id]) for id in g.outputs)
     return RecordedPlan(plan, ins, outs)
 end
 

@@ -123,19 +123,20 @@ arithmetic.
 function declaredvalues(g::Graph, inputs::AbstractDict, weights::AbstractDict;
                         dims, backend, overrides::AbstractDict = Dict{String,Any}())
     dev = M.Device(backend)
-    mg, ec = emitgraph(dev, g, weights, dims; keepall = true, skip = keys(overrides))
+    mantlegraph, emitctx = emitgraph(dev, g, weights, dims;
+                                     keepall = true, skip = keys(overrides))
     for (id, x) in Iterators.flatten((inputs, overrides))
-        haskey(ec.res, id) || continue
-        dst = M.storage(ec.res[id])
+        haskey(emitctx.res, id) || continue
+        dst = M.storage(emitctx.res[id])
         copyto!(dst, reshape(convert(Array{eltype(dst)}, tohost(x)), size(dst)))
     end
-    plan = M.Plan(mg)
+    plan = M.Plan(mantlegraph)
     M.record!(plan)
     M.run!(plan)
     M.waitidle(dev)
     # Downloaded BEFORE `free!`, since freeing the plan returns the storage.
     values = Dict{String,Any}()
-    for (id, r) in ec.res
+    for (id, r) in emitctx.res
         # `Mantle.storage` is the identity on anything that is not a resource, so
         # a host scalar and a resident weight come through unchanged.
         values[id] = tohost(M.storage(r))

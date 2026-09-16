@@ -437,15 +437,15 @@ function hoistconstants(g::Graph, weights::Dict{String,Any}, backend)
     # much this copies -- a fold that materialises more than it frees is refused.
     sub = constsubgraph(g, ops, sort(collect(esc)))
     dev = Mantle.Device(backend)
-    mgraph, ec = emitgraph(dev, sub, weights, NamedTuple())
-    plan = Mantle.Plan(mgraph)
+    mantlegraph, emitctx = emitgraph(dev, sub, weights, NamedTuple())
+    plan = Mantle.Plan(mantlegraph)
     # `record!` even though this submits once: `run!` submits a recording and
     # never makes one, so a plan that was not recorded is refused rather than
     # walked. One submission either way.
     Mantle.record!(plan)
     Mantle.run!(plan)
     Mantle.waitidle(dev)
-    vals = Dict{String,Any}(e => copy(Mantle.storage(ec.res[e])) for e in esc)
+    vals = Dict{String,Any}(e => copy(Mantle.storage(emitctx.res[e])) for e in esc)
     Mantle.free!(plan)
 
     buffers = Dict{String,Buffer}(g.buffers)

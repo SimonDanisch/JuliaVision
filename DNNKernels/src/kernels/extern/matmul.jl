@@ -170,8 +170,25 @@ model.
 """
 mm_gemv_plan(dev, out, A, B, bias) =
     mm_gemv_plan(dev, typeof(out), typeof(A), typeof(B), size(A), size(B),
-                 bias !== nothing &&
-                 (bias isa AbstractVector && length(bias) == size(A, 1)))
+                 biasfoldable(bias, size(A, 1)))
+
+"""
+    biasfoldable(bias, M) -> Bool
+
+Whether `bias` is one the GEMV's store can apply: one element per output row.
+
+Named because BOTH callers of the plan have to agree on it, and they did not.
+The array form above stated the rule inline while `emitop!`'s `gemm!` passed
+`bias !== nothing`, so a declared product could choose `MMGemvPlan` for a bias
+the kernel cannot index — the same "two non-equivalent rules for one decision"
+`mmplan`'s own docstring promises cannot happen.
+
+`ndims` rather than `isa AbstractVector`: a declared operand is a graph resource
+and not an `AbstractArray` at all, so the `isa` test answered `false` for every
+bias on the path that has no arrays in it.
+"""
+biasfoldable(::Nothing, ::Int) = false
+biasfoldable(bias, M::Int) = ndims(bias) == 1 && length(bias) == M
 
 function mm_gemv_plan(dev, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                       sa::Dims, sb::Dims, biasok::Bool) where {Tout,Ta,Tb}
