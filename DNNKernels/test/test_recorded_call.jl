@@ -85,6 +85,43 @@ end
     end
 end
 
+# A relu that `foldrelu` folded into an add has to actually happen.
+#
+# `foldrelu` deletes the activation op and records `attrs["act"]` on the producer
+# — a convolution OR the `add.Tensor` that ends a residual block — and `binary!`
+# did not read it. So the declared path computed the plain sum: finite, the right
+# shape and dtype, and wrong exactly where the sum was negative. On MatAnyone's
+# image encoder that was 51 of 59 ops disagreeing with the reference
+# implementation, the first at `add_94`.
+#
+# Asserted against `max.(a .+ b, 0)` and not against an absence of error, because
+# the wrong answer here IS a plausible tensor. `test_foldoutcasts.jl` checks the
+# other side of the same contract: that a fold only ever lands on an op whose
+# emit applies it.
+@testset "an activation folded into an add is applied" begin
+    DK = DNNKernels
+    backend = Mantle.LavaBackend()
+    n = 64
+    buffers = Dict(id => DK.Buffer(id, kind, Any[n], Float32, "", (0, 2), "", "",
+                                   Dict{String,Any}())
+                   for (id, kind) in (("a", :external), ("b", :external),
+                                      ("y", :transient)))
+    ah = Float32[i - n / 2 for i in 1:n]         # spans both signs
+    bh = Float32[0.25 * (i - n / 3) for i in 1:n]
+    for (act, f) in (("relu", v -> max(v, 0f0)), ("none", identity))
+        attrs = act == "none" ? Dict{String,Any}() : Dict{String,Any}("act" => act)
+        op = DK.Op("add", "add.Tensor", ["a", "b"], "y", attrs)
+        g = DK.Graph("res", String[], ["a", "b"], ["y"], buffers,
+                     ["a", "b", "y"], [op])
+        m = DK.Model(Dict("res" => g), Dict{String,Any}(), backend, 1, 1, 1)
+        got = Array(only(DK.call(m, "res", DK.toback(backend, ah),
+                                 DK.toback(backend, bh); dims = (;))))
+        @test got == f.(ah .+ bh)
+    end
+    # And the relu is not a no-op on this data, so the two cases above differ.
+    @test any(<(0), ah .+ bh)
+end
+
 @testset "host randomness has no declared form" begin
     DK = DNNKernels
     back = Mantle.LavaBackend()

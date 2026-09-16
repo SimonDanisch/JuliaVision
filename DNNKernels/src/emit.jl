@@ -362,6 +362,33 @@ function splitview!(emitctx::EmitCtx, id::AbstractString, b::Buffer, parent)
 end
 
 """
+    fromend(i, extent, id, op) -> i
+
+A torch index, normalised: NEGATIVE counts from the end, as everywhere in
+Python.
+
+`select.int(0, -1)` is "the last element" and it is what MatAnyone's three
+graphs use to read the last entry of an `arange`. Taken literally the offset is
+`-1 * stride`, which puts `stridedcopy!` one element BEFORE the parent — it read
+whatever was next to it in the pool, so the value was garbage that changed
+between runs and between graphs (-4.29e37 in `readout_query`, 1.49e-5 in
+`encode_mask_shallow`) and nothing failed. The interpreted path never had this:
+Julia's `view` is handed `end`-relative indices already resolved by `makeview`.
+
+Refuses rather than clamping an index still outside after normalising. A view
+that starts outside its parent cannot be what the graph meant, and reading
+adjacent memory is the failure this exists to stop.
+"""
+function fromend(i::Int, extent::Int, id, op)
+    j = i < 0 ? i + extent : i
+    0 <= j <= extent || error(
+        "DNNKernels: view $(id) is a `$op` indexing $(i) into an axis of " *
+        "extent $(extent), which is $(j) counted from the start. A view that " *
+        "begins outside its parent would read whatever is next to it.")
+    return j
+end
+
+"""
     viewstrides(emitctx, b, parent, od) -> (strides, offset)
 
 How view `b` reads its parent: one parent stride per axis of the view's own
@@ -390,12 +417,12 @@ function viewstrides(emitctx::EmitCtx, b, parent, od::Dims)
         return (bcstrides(od, ps), 0)
     elseif op == "slice.Tensor"
         jd = jdim(Int(b.attrs["arg1"]), n)
-        start = Int(get(b.attrs, "arg2", 0))
+        start = fromend(Int(get(b.attrs, "arg2", 0)), ps[jd], b.id, op)
         step = Int(get(b.attrs, "arg4", 1))
         return (ntuple(k -> k == jd ? pst[k] * step : pst[k], n), start * pst[jd])
     elseif op == "select.int"
         jd = jdim(Int(b.attrs["arg1"]), n)
-        i = Int(b.attrs["arg2"])
+        i = fromend(Int(b.attrs["arg2"]), ps[jd], b.id, op)
         # The axis is DROPPED, so the view has rank n-1 and the axis's
         # contribution is a constant offset.
         keep = Tuple(k for k in 1:n if k != jd)
@@ -627,8 +654,22 @@ have bytes to index, so the number goes into the function rather than into the
 operand list. `Fix1`/`Fix2` put it in the closure's TYPE, so it costs no
 argument and no memory.
 """
-function binary!(emitctx::EmitCtx, op::Op, f)
+function binary!(emitctx::EmitCtx, op::Op, f0)
     a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
+    # The FOLDED ACTIVATION, composed into the same closure so it stays one pass.
+    #
+    # `foldrelu` folds a relu into `convolution.default` **or `add.Tensor`**, and
+    # only the convolution and `addmm` emits read `act`. So every relu folded
+    # into an add was dropped: the result was finite, the right shape and dtype,
+    # and differed from the reference only where the sum was negative. Found by
+    # `tools/two_route_parity.jl` on MatAnyone's `add_94` -- interpreted min 0.0
+    # against declared min -2.68 -- and `foldrelu`'s own note says which adds
+    # those are: "a residual block ends `add(conv, skip) -> relu`, so the relus
+    # on the largest feature maps follow an *add*", 36 of them.
+    #
+    # Composed and not a second dispatch, because that is what folding bought.
+    g = actfn(Symbol(get(op.attrs, "act", "none")))
+    f = g === identity ? f0 : (x, y) -> g(f0(x, y))
     isresource(a) && isresource(b) && return elementwise!(emitctx, op, f, a, b)
     isresource(a) && return elementwise!(emitctx, op, Base.Fix2(f, b), a)
     isresource(b) && return elementwise!(emitctx, op, Base.Fix1(f, a), b)

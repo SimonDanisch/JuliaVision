@@ -98,6 +98,54 @@ const HAVE_SAM2 = true   # bound in DNNKernels/Artifacts.toml
     end
 end
 
+# ── What a fold puts on an op, and who reads it ──────────────────────────────
+#
+# `foldrelu` deletes an activation and records it as `attrs["act"]` on the op
+# BEFORE it; `fuseops` does the same with `attrs["epilogue"]`. That is only a
+# fold if the emit for that op applies it — and for `add.Tensor` it did not, so
+# every relu folded into a residual add was silently dropped. The result was
+# finite, the right shape and dtype, and wrong only where the sum was negative.
+#
+# `foldrelu`'s own note says which adds those are: "a residual block ends
+# `add(conv, skip) -> relu`, so the relus on the largest feature maps follow an
+# *add*", 36 of them on MatAnyone. Nothing in this suite noticed;
+# `tools/two_route_parity.jl` did, at `add_94`, interpreted min 0.0 against
+# declared min -2.68.
+#
+# So the two sides are stated once each and checked against each other. Adding a
+# producer to `foldrelu` now fails here until its emit reads the attribute.
+
+"""ATen ops whose `emitop!` applies `attrs["act"]`."""
+const READS_ACT = ("convolution.default", "add.Tensor", "addmm.default",
+                   "mul.Tensor", "div.Tensor", "sub.Tensor", "eq.Scalar",
+                   "ge.Tensor", "ge.Scalar", "le.Tensor", "le.Scalar",
+                   "bitwise_and.Tensor", "logical_and.default")
+
+"""ATen ops whose `emitop!` applies `attrs["epilogue"]`."""
+const READS_EPILOGUE = ("addmm.default",)
+
+@testset "every folded activation lands on an op that applies it" begin
+    graphs = Any[]
+    HAVE_SAM2 && for n in ("sam2_encoder", "sam2_decoder")
+        push!(graphs, (n, Fixtures.sam2(n)))
+    end
+    for n in Fixtures.matanyonenames()
+        push!(graphs, (n, Fixtures.matanyone(n)))
+    end
+    @test !isempty(graphs)
+    for (name, g) in graphs
+        # Through the two passes that set them, in the driver's order.
+        g1, _ = DK.foldrelu(g)
+        g2, _ = DK.fuseops(g1)
+        for op in g2.ops
+            haskey(op.attrs, "act") &&
+                @test op.aten in READS_ACT
+            haskey(op.attrs, "epilogue") &&
+                @test op.aten in READS_EPILOGUE
+        end
+    end
+end
+
 @testset "foldrelu folds gelu into addmm" begin
     if !HAVE_SAM2
         @info "the sam2-large artifact is not installed; skipping"
