@@ -55,7 +55,7 @@ accumulated in the operand's type would make that fold change the answer. A
 `Float16` sum over a long axis also saturates at 65504, which is silent.
 
 `f` is the map step `foldpremap` folded in, `identity` when there is none: the
-same argument-not-wrapper decision `ew1!` makes, so a premapped sum is still one
+same argument-not-wrapper decision `ew!` makes, so a premapped sum is still one
 dispatch and one pass.
 """
 function sumdims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f) where {N}

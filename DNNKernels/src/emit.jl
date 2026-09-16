@@ -213,9 +213,9 @@ emitop!(ec::EmitCtx, op::Op, ::Val{A}) where {A} = error(
 # run time was the codegen. Declared, there is nothing to defer: the group is
 # known, so it emits one dispatch.
 #
-# The kernel is `ew1!`/`ew2!`/`ew3!` from `kernels/elementwise.jl`: macro-free,
-# one method per operand count, taking the output shape and each operand's
-# effective strides as plain arguments. So broadcast is no longer GPUArrays'
+# The kernel is `ew!` from `kernels/elementwise.jl`: macro-free, ONE method over
+# a tuple of operands, taking the output shape and each operand's effective
+# strides as plain arguments. So broadcast is no longer GPUArrays'
 # either. It is `bcindex` over strides computed at emit time from shapes the
 # graph already states, which is what lets NeuralLUT's `(1, 1, 1, 1, 3)` factor
 # meet its `(33, 33, 33, 3, 3)` LUT with no materialised copy and no second
@@ -236,40 +236,41 @@ against each other.
 function elementwise!(ec::EmitCtx, op::Op, f, ins...)
     out = dest(ec)
     od = size(out)
-    kern = ewkernel(Val(length(ins)))
     M.compute!(ec.g, op.id) do p
-        M.dispatch!(p, kern,
-                    (M.use(p, out; write = true), od, operandargs(p, od, ins)..., f),
+        ops, sts = operandtuples(p, od, ins)
+        M.dispatch!(p, ew!, (M.use(p, out; write = true), od, ops, sts, f),
                     length(out))
     end
     return out
 end
 
 """
-The kernel for `n` operands.
+The operands and their effective strides, as the two tuples [`ew!`](@ref) walks
+in step.
 
-One method per count, and not a variadic kernel over a tuple of operands,
-because `Mantle.resolve` is applied per ELEMENT of a dispatch's argument tuple:
-a nested tuple of resources would arrive in the kernel as a tuple of unresolved
-handles. It is also what lets `use(p, x; read = true)` name each operand.
+`ewkernel(Val(n))` was here, picking `ew1!`, `ew2!` or `ew3!`, and it refused a
+fourth operand by name. The reason given was that `Mantle.resolve` is applied per
+ELEMENT of a dispatch's argument tuple, so a nested tuple of resources arrived in
+the kernel as unresolved handles. That was a one-line gap in core rather than a
+reason for three kernels: `resolve` and `storage` take a `::Tuple` method now,
+and `devicepointeroffsets` stopped counting a tuple as a level of nesting, which
+is what a `resize!` under a recorded plan needs in order to find the operands'
+addresses (`Mantle.nestinglevels`).
+
+The second reason given was that `use(p, x; read = true)` needs each operand to
+be a top-level argument. That was simply wrong; `use` is called here, at emit
+time, where a walk over the operands does it.
 """
-ewkernel(::Val{1}) = ew1!
-ewkernel(::Val{2}) = ew2!
-ewkernel(::Val{3}) = ew3!
-ewkernel(::Val{N}) where {N} = error(
-    "DNNKernels: elementwise over $N operands, and `kernels/elementwise.jl` " *
-    "defines `ew1!` through `ew3!`. Add `ew$(N)!` there, in the same shape.")
-
-"""The flat `(operand, strides)` pairs an `ewN!` reads, in order."""
-operandargs(p, od::Dims, ::Tuple{}) = ()
-function operandargs(p, od::Dims, ins::Tuple)
+operandtuples(p, od::Dims, ::Tuple{}) = ((), ())
+function operandtuples(p, od::Dims, ins::Tuple)
     x = first(ins)
     isresource(x) || error(
         "DNNKernels: elementwise operand of type $(typeof(x)) has no bytes to " *
         "index. A host scalar belongs in the function, as `Base.Fix2(f, x)`, " *
         "rather than in the operand list; `binary!` is where that is decided.")
-    return (M.use(p, x; read = true), bcstrides(od, size(x)),
-            operandargs(p, od, Base.tail(ins))...)
+    ops, sts = operandtuples(p, od, Base.tail(ins))
+    return ((M.use(p, x; read = true), ops...),
+            (bcstrides(od, size(x)), sts...))
 end
 
 """
@@ -440,7 +441,7 @@ Split-K is the interesting half, and it is what `Workspace` was for. Each split
 accumulates into the destination atomically, so:
 
   * the destination must START at the bias rather than being overwritten, which
-    is a pass of its own (`ew1!` broadcasting the bias along the channel axis, or
+    is a pass of its own (`ew!` broadcasting the bias along the channel axis, or
     `fill_kernel!` when there is none);
   * a partial sum cannot be clamped, so a fused activation has to wait until the
     splits are summed, and an fp16 output cannot be the accumulator at all
@@ -521,9 +522,9 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
                 # four in the reversed layout, so it broadcasts with a zero
                 # stride everywhere else. One pass, no materialised copy.
                 bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
-                M.dispatch!(p, ew1!,
+                M.dispatch!(p, ew!,
                             (M.use(p, acc; write = true), od,
-                             M.use(p, bias; read = true), bcstrides(od, bd),
+                             (M.use(p, bias; read = true),), (bcstrides(od, bd),),
                              identity),
                             prod(od))
             end
@@ -550,17 +551,17 @@ function emitop!(ec::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
         M.compute!(ec.g, "$(op.id).reduce") do p
             od = size(out)
             f = act === :relu ? (v -> max(v, zero(v))) : identity
-            M.dispatch!(p, ew1!,
+            M.dispatch!(p, ew!,
                         (M.use(p, out; write = true), od,
-                         M.use(p, acc; read = true), bcstrides(od, od), f),
+                         (M.use(p, acc; read = true),), (bcstrides(od, od),), f),
                         prod(od))
         end
     elseif splitk > 1 && act === :relu
         M.compute!(ec.g, "$(op.id).act") do p
             od = size(out)
-            M.dispatch!(p, ew1!,
+            M.dispatch!(p, ew!,
                         (M.use(p, out; write = true), od,
-                         M.use(p, out; read = true), bcstrides(od, od),
+                         (M.use(p, out; read = true),), (bcstrides(od, od),),
                          v -> max(v, zero(v))),
                         prod(od))
         end

@@ -20,11 +20,31 @@ returns `@NamedTuple{x::Int, y::Int, z::Int}` and is **1-based**, and there is n
 implicit ndrange bounds check the way `@kernel` had, so every kernel guards its
 own tail.
 
-Arity-specialised rather than variadic over a tuple of operands, and the reason
-is `Mantle.resolve`: it is applied per element of a dispatch's argument tuple, so
-a tuple-of-resources argument would arrive as a tuple of unresolved handles. One
-method per operand count keeps every resource a top-level argument, which is also
-what makes `use(p, x; read = true)` able to name each one.
+ONE kernel over a tuple of operands, not one per arity.
+
+It was `ew1!`/`ew2!`/`ew3!`, and the reason given was that `Mantle.resolve` is
+applied per element of a dispatch's argument tuple, so a tuple-of-resources
+argument arrived unresolved. That was true, and the gap was in core rather than
+a reason for three kernels. Three walks had to agree that a tuple argument is the
+argument list grouped:
+
+  * `resolve` and `storage` take a `::Tuple` method, so the operands reach the
+    kernel as device arrays instead of `Buffer` handles.
+  * `devicepointeroffsets` stopped counting a tuple as a level of nesting
+    (`Mantle.nestinglevels`). It had counted it, and stopped one short of the
+    addresses inside: a recorded plan noted only its output, so a `resize!` of
+    an operand left it reading the old storage with nothing to see anywhere.
+  * `find_tlas_in_args` walks into one, so an accel passed in a tuple still
+    enables ray query.
+
+`holdleaves!` already did the right thing, and the packer itself needed nothing:
+its generic branch inlines any isbits aggregate and hands core the aggregate's
+type. So the arity limit was the API bending around a gap, which is the wrong
+direction.
+
+The second reason given was that `use(p, x; read = true)` needs each operand to
+be a top-level argument. That was simply wrong — `use` is called at emit time,
+where a loop over the operands does it.
 """
 
 """
@@ -56,29 +76,38 @@ end
     return i, i <= prod(od)
 end
 
-"""One operand: `out .= f.(a)`. `clone` is this with `f = identity`."""
-function ew1!(out, od::NTuple{N,Int}, a, sa::NTuple{N,Int}, f) where {N}
-    i, ok = ewguard(od)
-    ok || return
-    @inbounds out[i] = f(a[bcindex(i - 1, od, sa)])
-    return
-end
+"""
+Each operand's element for output element `lin`, in order.
 
-"""Two operands: `out .= f.(a, b)`."""
-function ew2!(out, od::NTuple{N,Int}, a, sa::NTuple{N,Int}, b, sb::NTuple{N,Int}, f) where {N}
-    i, ok = ewguard(od)
-    ok || return
-    @inbounds out[i] = f(a[bcindex(i - 1, od, sa)], b[bcindex(i - 1, od, sb)])
-    return
-end
+A recursive tuple walk rather than a loop or an `ntuple`: the operands have
+different types, so only the recursion is type-stable without a `Val` for the
+count — and it unrolls, so the kernel has no tuple indexing at run time. Same
+shape as `operandtuples` uses on the host side.
+"""
+# The two signatures differ ONLY in the operand tuples, so `Tuple{}` is strictly
+# more specific and the recursion terminates. The base case first had an untyped
+# `od`, which makes the two AMBIGUOUS rather than ordered: more specific in the
+# operands, less specific in `od`. An ambiguity inside a kernel is a
+# `jl_f_throw_methoderror`, which the compiler reports as "method lookup
+# failure" four frames from anything that mentions dispatch.
+@inline gather(::Tuple{}, ::Tuple{}, lin::Int, od::NTuple{N,Int}) where {N} = ()
+@inline gather(ops::Tuple, sts::Tuple, lin::Int, od::NTuple{N,Int}) where {N} =
+    (@inbounds(first(ops)[bcindex(lin, od, first(sts))]),
+     gather(Base.tail(ops), Base.tail(sts), lin, od)...)
 
-"""Three operands, which is what a folded bias-and-activation group needs."""
-function ew3!(out, od::NTuple{N,Int}, a, sa::NTuple{N,Int}, b, sb::NTuple{N,Int},
-              c, sc::NTuple{N,Int}, f) where {N}
+"""
+    ew!(out, od, ops, sts, f)
+
+`out .= f.(ops...)` over the output shape `od`, with `sts[k]` the effective
+strides of `ops[k]` — zero on every axis it is broadcast along.
+
+Any number of operands. `clone` is this with one operand and `f = identity`; a
+folded bias-and-activation group is three.
+"""
+function ew!(out, od::NTuple{N,Int}, ops::Tuple, sts::Tuple, f) where {N}
     i, ok = ewguard(od)
     ok || return
-    @inbounds out[i] = f(a[bcindex(i - 1, od, sa)], b[bcindex(i - 1, od, sb)],
-                         c[bcindex(i - 1, od, sc)])
+    @inbounds out[i] = f(gather(ops, sts, i - 1, od)...)
     return
 end
 

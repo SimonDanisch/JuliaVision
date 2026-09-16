@@ -119,6 +119,55 @@ function declaredops(dev, label)
             @test Array(MM.storage(o)) ≈ want
             MM.free!(pl)
         end
+
+        # ── one `ew!` at every arity ─────────────────────────────────────────
+        #
+        # It was `ew1!`/`ew2!`/`ew3!`, one kernel per operand count, and the
+        # fourth was refused by name. One variadic kernel over a tuple of
+        # operands needed three walks in Mantle to agree that a tuple argument
+        # is the argument list grouped rather than a value of its own — see
+        # `Mantle.nestinglevels` and `Mantle/test/test_argument_packing.jl`.
+        #
+        # Three arities in one loop, which is the point: one compiled kernel per
+        # arity from one source, and the middle operand is broadcast on two axes
+        # so a wrong stride shows up as a wrong number rather than a crash.
+        #
+        # The `gather` walk is also pinned here. Its base case first read
+        # `gather(::Tuple{}, ::Tuple{}, lin, od)`, with `od` untyped, which is
+        # AMBIGUOUS against the recursive method rather than more specific than
+        # it: more specific in the operands, less specific in `od`. An ambiguity
+        # inside a kernel is not a `MethodError` at the call site, it is a
+        # `jl_f_throw_methoderror` in the IR that the backend reports as "method
+        # lookup failure" in `gather`, with nothing about dispatch anywhere in
+        # the message.
+        @testset "one ew! covers every arity" begin
+            od = (4, 3, 2)
+            ah = reshape(collect(Float32, 1:prod(od)), od)
+            bh = reshape(Float32[10, 20, 30], 1, 3, 1)   # broadcast on axes 1, 3
+            ch = fill(0.5f0, od)
+            a = MM.Buffer(dev, ah); b = MM.Buffer(dev, bh); c = MM.Buffer(dev, ch)
+            for (ops, hostops, f) in (((a,), (ah,), x -> 2x),
+                                      ((a, b), (ah, bh), (x, y) -> x + y),
+                                      ((a, b, c), (ah, bh, ch),
+                                       (x, y, z) -> (x + y) * z))
+                g = MM.Graph(dev)
+                out = MM.Transient.Buffer(g, Float32, od)
+                MM.compute!(g, "ew") do p
+                    o, st = DK.operandtuples(p, od, ops)
+                    MM.dispatch!(p, DK.ew!,
+                                 (MM.use(p, out; write = true), od, o, st, f),
+                                 prod(od))
+                end
+                pl = MM.Plan(g)
+                MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
+                @test reshape(Array(MM.storage(out)), od) == f.(hostops...)
+                MM.free!(pl)
+            end
+            # `gather`'s base case, asked directly: ambiguous methods answer
+            # here too, and the message names dispatch when the kernel's does
+            # not.
+            @test DK.gather((), (), 0, od) === ()
+        end
     end
 end
 
