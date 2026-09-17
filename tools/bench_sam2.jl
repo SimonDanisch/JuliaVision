@@ -26,9 +26,8 @@ that happens to threshold the same way.
 using DNNKernels, KernelAbstractions, Lava, Mantle, Statistics, Printf
 # `SAM2`, `encode`, `decode` and `prompt` moved from DNNKernels to SAM2Runner
 # (JuliaVision `5b59cd7`, "the model drivers leave the kernel library"). They are
-# model code, not kernels. This tool followed them here rather than through the
-# stale binding, which still *imported* under the old name and then failed with
-# `UndefVarError` at first use.
+# model code, not kernels. Imported from there and not from `DNNKernels`, where
+# the binding exists undefined and fails with `UndefVarError` at first use.
 using SAM2Runner: sam2model, sam2refs, encode, decode, prompt, ready
 using DNNKernels: toback
 const KA = KernelAbstractions
@@ -62,7 +61,7 @@ catch ex
     # `nvidia-smi` is simply absent on any non-NVIDIA machine, and that is the
     # whole reason this returns `nothing` instead of failing. Narrowed to that:
     # an nvidia-smi that IS present and answers something unparseable is a real
-    # problem, and used to come back as "VRAM unknown" like a missing binary.
+    # problem, and must not come back as "VRAM unknown" like a missing binary.
     ex isa Union{Base.IOError, SystemError, Base.ProcessFailedException} || rethrow()
     nothing
 end
@@ -72,11 +71,9 @@ const VRAM_CEILING = 1951        # 1756 MB PyTorch / 0.9
 
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
 backend = if mode == "gpu"
-    # `Mantle.LavaBackend`, not `Lava.LavaBackend`: the backend object moved to
-    # Mantle with the rest of the placement/recording API, and the `using Lava`
-    # that used to sit here left `LavaBackend` undefined. Same move that left
-    # SAM 2's `plansfor` calling `Mantle.Device(Lava)`; this file is the Julia
-    # half of the PyTorch comparison and had not been re-run on a machine since.
+    # `Mantle.LavaBackend`, not `Lava.LavaBackend`: the backend object belongs to
+    # Mantle with the rest of the placement/recording API, and `using Lava`
+    # leaves `LavaBackend` undefined.
     # `Lava` itself is still imported at the top — the coopmat2 A/B below reads
     # `Lava.caps()`, and scoping that import inside this branch is what made it
     # fail there instead of here.
@@ -205,8 +202,8 @@ d = timed(() -> decode(sam, feats, point, label), 3, mode == "gpu" ? 50 : 1)
 #
 # Alternating, same session: this card's run-to-run spread on one kernel is ~13%
 # and a cross-session comparison could not see a change smaller than that.
-# `Mantle.caps(backend)`, not `Lava.caps()`: caps became a property of a
-# device/backend rather than a global, so the no-argument form is gone.
+# `Mantle.caps(backend)`: caps is a property of a device, so there is no
+# no-argument form.
 if mode == "gpu" && !isempty(Mantle.caps(backend).wggran)
     full = Mantle.caps(backend)
     function arm(withcm2)

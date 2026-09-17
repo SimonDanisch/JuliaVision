@@ -1,8 +1,8 @@
 # Where does Whisper's encode go now?
 #
-# The `clampattn` fix (task #79) took encode 352.6 -> 124.5 ms, which invalidated
-# every attribution taken before it: the 32 attentions used to be ~75% of the
-# step and are now on the flash path. This re-attributes from scratch.
+# `clampattn` takes encode 352.6 -> 124.5 ms by putting the 32 attentions
+# (~75% of the step without it) on the flash path, so every attribution taken
+# without it is void. This re-attributes from scratch.
 #
 # METHOD: `Diagnostics.opdouble` — run one aten family twice per step and read
 # the wall-time difference as its cost. Per-op synchronisation is not usable here

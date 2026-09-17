@@ -151,9 +151,9 @@ end
 Whole-op timing of every path `sdpa` can take, on each dominant shape, so the
 stage table above can be checked against something that pays only one sync.
 
-**Both switches, not one.** This used to set `COOPMAT_MINL` alone and label the
-two columns "3-pass" and "coopmat" — but `flashcm_applicable` is gated on
-`FLASHCM[]`, so both columns took the *fused* path and the table compared one
+**Both switches, not one.** Setting `COOPMAT_MINL` alone and labelling the two
+columns "3-pass" and "coopmat" does not work: `flashcm_applicable` is gated on
+`FLASHCM[]`, so both columns take the *fused* path and the table compares one
 kernel with itself. It read plausibly for months (4.401 against 4.378) because
 two runs of the same kernel do agree. `sdpaflash!` is called directly because
 `sdpa` never routes to it.

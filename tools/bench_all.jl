@@ -53,9 +53,8 @@ include(joinpath(@__DIR__, "measure.jl"))
 
 using Lava, DNNKernels, KernelAbstractions
 using DNNKernels: readsafetensors, toback
-# `LavaBackend` from MANTLE, which owns it. It used to be Lava's and Lava does
-# not re-export it, so a bare `LavaBackend()` here has been an `UndefVarError`
-# since the move, and this file could not load at all. RayDemo had the same
+# `LavaBackend` from MANTLE, which owns it: Lava does not re-export it, so a
+# bare `LavaBackend()` here is an `UndefVarError`. RayDemo has the same
 # break and 35 of the one-off tools beside this one still do.
 import Mantle
 using Mantle: LavaBackend
@@ -159,8 +158,8 @@ for name in want
         f = () -> (call(); sync())
         plat, _ = plateau(f; seconds = 4)              # warm, and report what it reached
         r = bench(f; sync = nothing, plat, samples = 11, label = name)
-        # A row where the clock gate rejected everything used to print `NaN`,
-        # which reads as a broken model. It is not: `neurallut` is host-bound, so
+        # A row where the clock gate rejects everything prints no `NaN`, which
+        # would read as a broken model. It is not: `neurallut` is host-bound, so
         # the GPU idles inside its own sample and never holds the clock however
         # long the sample is made. Print the UNGATED median with a `!` — the
         # number is worth less than a gated one and is worth more than nothing,

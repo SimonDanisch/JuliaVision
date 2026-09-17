@@ -80,8 +80,8 @@ const MODELS = Dict(
     # of weights against 2.37) and 6.3x the encode, for output that is
     # token-for-token identical: checked on three clips, including 19 s of real
     # speech where the two transcriptions match character for character. The two
-    # bugs that used to make fp16 unusable were an accumulator width in Lava's
-    # scalar GEMM and `erf` evaluated in half; both are fixed.
+    # two bugs that make fp16 unusable — an accumulator width in Lava's scalar
+    # GEMM and `erf` evaluated in half — are both fixed.
     "whisper"       => ("WhisperRunner", "whisper-fp16"),
     # The fp32 encoder, shipped beside the fp16 one rather than instead of it.
     # `WhisperRunner.assetdir(:fp32)` resolves this; both are lazy, so a caller

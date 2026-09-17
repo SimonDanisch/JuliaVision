@@ -59,11 +59,11 @@ struct SAM2
 
     # ── Reuse the decoder's dtype-converted inputs across clicks on one embedding.
     #
-    # **Inert: the conversion moved into `encode`.** This used to gate a cache in
+    # **Inert: the conversion happens in `encode`.** This gated a cache in
     # `decode` of the three encoder outputs converted to the decoder's dtypes.
     # `handover` owns persistent `feat` buffers and `encode` fills them per
-    # frame, which is where the conversion belongs, so nothing reads this flag
-    # any more. It stays in the signature for one
+    # frame, which is where the conversion belongs, so nothing reads this flag.
+    # It stays in the signature for one
     # release, like `replaydecode`, so existing calls keep working. The
     # measurements that justified the cache still stand: 12.6 MB of device copies
     # per click if it were done in `decode`, +0.008 ms of actual time, and a
@@ -125,13 +125,13 @@ between clicks: that *is* the cached embedding.
 function encode(s::SAM2, image)
     p = handover(s)
     # `call` copies the argument into the buffer its plan was recorded against,
-    # so the caller's array is free to be a fresh one per frame — which is what
-    # the baked plan could not allow, and what the copy here used to arrange.
+    # so the caller's array is free to be a fresh one per frame, with no copy
+    # arranged here.
     out = DNNKernels.call(s.model, "sam2_encoder", image; dims = s.dims)
     # The dtype handover, here rather than in `decode`: it is per *embedding*,
-    # and the editor's shape is encode once and decode many. This is what the
-    # `cacheinputs` machinery used to arrange by caching a conversion; doing it
-    # where the conversion belongs needs no cache to be right.
+    # and the editor's shape is encode once and decode many. Caching a
+    # conversion in `decode` arranges the same thing; doing it where the
+    # conversion belongs needs no cache to be right.
     for i in 1:3
         p.feat[i] .= out[i]
     end
@@ -154,13 +154,12 @@ past. `prompt` is one pair rather than one per click because a click writes into
 it in place; `DNNKernels.call` copies from here into the plan's own inputs, so
 nothing downstream depends on these addresses.
 
-This used to build two Mantle plans directly, through `DNNKernels.build` ->
-`addpasses!` -> `Mantle.custom!`. Mantle deleted `custom!` on purpose (see the
-`Trace` docstring in `Mantle/src/graph/types.jl`: a `custom!` body packed its
-arguments out of per-run scratch, so a recorded plan aimed at memory the queue
-had since handed to somebody else), which left every `encode` here throwing
-`UndefVarError` and this package's own suite red. `Model`'s `record_into` path
-is the supported one and the one Horizon 32B is validated on.
+Built through `DNNKernels.call`, which declares each graph into a Mantle plan
+and replays it, and never by assembling passes here: Mantle has no `custom!`
+(see the `Trace` docstring in `Mantle/src/graph/types.jl` — a `custom!` body
+packed its arguments out of per-run scratch, so a recorded plan aimed at memory
+the queue had since handed to somebody else). The declared path is the one
+Horizon 32B is validated on.
 """
 function handover(s::SAM2)
     h = s.plans[]
@@ -210,13 +209,12 @@ function decode(s::SAM2, feats, point, label; replay::Bool = true)
     # anything that is not already in them has to be staged. `encode` leaves the
     # current embedding there and records it as the key, so the editor's path —
     # click again on the frame just encoded — stages nothing. A decode against
-    # some *other* feats tuple copies, which is what the old per-click
-    # conversion did unconditionally.
+    # some *other* feats tuple copies, which is what a per-click conversion
+    # would do unconditionally.
     #
-    # `===` is enough here and was not before: it used to be compared against a
-    # tuple the encoder had since overwritten in place, so identity held while
-    # the numbers had changed. The key is now set by the same call that fills the
-    # buffers, so the two cannot disagree.
+    # `===` is enough only because the key is set by the same call that fills
+    # the buffers: compared against a tuple the encoder has since overwritten in
+    # place, identity holds while the numbers have changed.
     if feats !== nothing && s.cachekey[] !== feats
         for i in 1:3
             p.feat[i] .= feats[i]

@@ -175,9 +175,9 @@ function neurallut(; backend = Mantle.LavaBackend())
     graph = model.graphs["neurallut"]
     # `emitgraph` DECLARES the ops into a Mantle graph and runs nothing; `Plan`
     # then runs all seven phases over the whole of it, so placement, aliasing
-    # and barriers are decided before a byte is touched. What this replaces was
-    # `planslab` plus a `KA.allocate`d slab plus a `Workspace` arena plus the
-    # lazy-broadcast set — four mechanisms for recovering what the graph had
+    # and barriers are decided before a byte is touched. A slab, a scratch arena
+    # and a lazy-broadcast set are four mechanisms for recovering what the graph
+    # had
     # already stated.
     dev = Mantle.Device(backend)
     mgraph, ec = emitgraph(dev, graph, model.weights, (;))
@@ -220,7 +220,7 @@ first.
 Applying is 0.80 ms at 4K on this machine and predicting is ~1.8 ms, so
 re-predicting per frame costs 2.6 ms all in and fits a 60 fps frame. Prefer the
 first form anyway when the look is constant across a shot — it is 3x cheaper and
-says what it means — but the `model` form is no longer a budget decision.
+says what it means — but the `model` form is not a budget decision.
 """
 grade!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB},
        lut::AbstractArray{Float32,4}) = lut3d!(out, img, lut)

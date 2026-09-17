@@ -50,9 +50,10 @@ kernel in one process, correctness checked between the arms, clock pinned at
     1152 x 16384 x  288   33.76     55.03     61%
     share-weighted        40.4      62.7      64%
 
-**This constant used to be 44.6 with no provenance and it understated cuBLAS by
-40%**, which turned a 1.55x gap into a 1.18x one and made the GEMM look nearly
-finished. It is a single number for six shapes, so it is kept only as the
+**A number with no provenance here is worse than none**: 44.6 understates
+cuBLAS by 40%, which turns a 1.55x gap into a 1.18x one and makes the GEMM look
+nearly finished. It is a single number for six shapes, so it is kept only as
+the
 headline; the per-shape table above is the baseline to compare against, and
 `gemm_vs_cublas.jl` re-measures it rather than trusting either."""
 const CUBLAS_TFLOPS = 62.7
@@ -134,9 +135,8 @@ function bench(variants::Vector{<:Pair}; shapes = SHAPES, n = 11, reps = 8, chec
         Cs = [KA.allocate(BACKEND, Float16, M, N) for _ in 1:NBUF]
         foreach(a -> copyto!(a, hA), As); foreach(b -> copyto!(b, hB), Bs)
         pick(x, r) = @inbounds x[mod1(r, NBUF)]
-        # `matmul!(ctx, out, A, B, bias)` — it grew a context argument in the
-        # `Ctx` refactor and this file was never updated, so both call sites here
-        # had been `MethodError`s. Found 2026-08-11; see `kernelstats` below.
+        # `matmul!(ctx, out, A, B, bias)`: it takes a context, so a call without
+        # one is a `MethodError`. See `kernelstats` below.
         fs = [r -> (set(); DNNKernels.reset!(WS);
                     DNNKernels.matmul!(CTX, pick(Cs, r), pick(As, r), pick(Bs, r), nothing))
               for (_, set) in variants]
@@ -217,10 +217,9 @@ function kernelstats(setup; M = 2304, N = 4096, K = 576)
     A = KA.allocate(BACKEND, Float16, M, K); fill!(A, Float16(0.01))
     B = KA.allocate(BACKEND, Float16, K, N); fill!(B, Float16(0.01))
     C = KA.allocate(BACKEND, Float16, M, N)
-    # `ctx.caches.pipelines`, not the module-level `Lava.PIPELINE_CACHE`: that was
-    # one of the twelve globals that moved onto the context, and this function
-    # had been throwing `UndefVarError` ever since. Found 2026-08-11 by calling
-    # it. A lab tool nobody calls rots exactly like a test nobody runs.
+    # `ctx.caches.pipelines`, and no module-level `PIPELINE_CACHE`: the cache is
+    # a per-device field, so a global name here is an `UndefVarError`. A lab tool
+    # nobody calls rots exactly like a test nobody runs.
     pipes() = Mantle.vk_context().caches.pipelines
     before = Set(keys(pipes()))
     setup(); DNNKernels.reset!(WS)

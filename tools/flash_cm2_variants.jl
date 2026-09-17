@@ -67,8 +67,8 @@ const CTX = DK.Ctx(BACKEND; ws = WS)
 # `BC = 80` is not a rounder number that got left out — it is `EP` at `E = 72,
 # NT = 128`, and at `BC == EP` the `Br x EP` smear becomes the identity, so the
 # THIRD reduction per key block disappears with it. Legal because 80 is a
-# multiple of the N and K granularity (16). The whole sweep before this used
-# powers of two and so could not contain it.
+# multiple of the N and K granularity (16), which a sweep over powers of two
+# cannot reach.
 const CM2 = [(64, 32, 128), (64, 16, 128), (128, 64, 128), (64, 64, 128),
              (64, 80, 128), (32, 80, 128), (128, 80, 128)]
 

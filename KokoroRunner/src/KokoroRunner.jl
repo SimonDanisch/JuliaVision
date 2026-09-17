@@ -313,10 +313,8 @@ function speak(k::Kokoro; phonemes::AbstractString, voice::AbstractString = "af_
     # device**. Only `duration` — `t` floats — has to reach the host, because the
     # model decides its own output length and `f` is a launch dimension.
     #
-    # This was a host loop, defended on the grounds that "the gather is `f` int
-    # reads and the graphs want contiguous inputs, so a device kernel here would
-    # buy nothing and cost an upload either way". Right about the bytes (0.83 MB
-    # round trip) and wrong about everything else, measured 2026-08-12:
+    # A host loop is right about the bytes (the gather is `f` int reads, 0.83 MB
+    # round trip) and wrong about everything else, measured:
     #
     #   * `call` returns `Any`, so `dh`/`teh` were untyped and the inner loops
     #     **boxed every element** — 166 660 of the utterance's 324 967 host

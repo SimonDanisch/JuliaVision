@@ -64,10 +64,9 @@ const VARIANTS = [
     ("l 128x256/64 @256",      (128, 256, 64, 256), true, nothing),
 ]
 
-# The pipeline cache is `ctx.caches.pipelines`, NOT the module-level
-# `Lava.PIPELINE_CACHE` — that was one of the twelve globals that moved onto the
-# context. `gemm_lab.jl`'s own `kernelstats` still reaches for the old name and
-# would throw the same `UndefVarError` the first time anyone called it.
+# The pipeline cache is `ctx.caches.pipelines` and there is no module-level
+# `PIPELINE_CACHE`: it is a per-device field, so reaching for a global name here
+# is an `UndefVarError` at first call.
 pipecache() = Mantle.vk_context().caches.pipelines
 
 function stats_for(f)

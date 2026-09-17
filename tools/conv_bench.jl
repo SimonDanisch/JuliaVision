@@ -2,9 +2,9 @@
 Convolution cost for the model's real shapes, measured so the number survives a
 restart.
 
-Standalone conv timings in this repo were wrong by 5-7x across sessions — the
-same five shapes read 216/290/200/271/18 us once and 31/42/34/17/20 us the next
-run. The cause is that Lava compiles a cooperative-matrix kernel per tile shape
+Standalone conv timings are wrong by 5-7x across sessions — the same five
+shapes read 216/290/200/271/18 us once and 31/42/34/17/20 us the next run. The
+cause is that Lava compiles a cooperative-matrix kernel per tile shape
 on first use, and a plain best-of-N does not exclude it: the compile lands in one
 round, the minimum comes from another, and whether you caught the warm state is
 luck. An entire "1x1 256->256 is 15x slower than 1x1 1024->256" anomaly was
@@ -24,7 +24,8 @@ against an in-situ 6.62 ms — 2.1x high.
 
 Rotating the destination and workspace across 8 slots (below), on the theory that
 a self-dependent loop was serialising im2col against the previous GEMM, moved it
-to 13.10 ms. **Still 2x, so that hypothesis was wrong.** Worse, per-shape numbers
+to 13.10 ms, **still 2x, so that hypothesis does not hold.** Worse, per-shape
+numbers
 swing across runs of identical code: `1x1 256->256 @15x8` read 16.0 us and then
 116.1 us, with the convergence rule reporting it settled both times. Something
 outside the timed loop dominates — clock state, contention, or allocation

@@ -243,9 +243,8 @@ narrows again on the way out.
 
 Getting this wrong is not visible in one step — it moves 3969 of 262144 elements
 by one fp16 ULP — and it does not announce itself later either; it just walks a
-slightly different trajectory. It was found by dumping torch's own
-`(sigma_next - sigma) * v` and comparing dtypes, which is the only way this kind
-of thing gets found.
+slightly different trajectory. Dumping torch's own `(sigma_next - sigma) * v`
+and comparing dtypes is the only way this kind of thing gets found.
 
 `sigma`/`sigma_next` are fp32 because [`flowsigmas`](@ref) returns fp32; the
 narrowing below is from there, not from an fp64 schedule.

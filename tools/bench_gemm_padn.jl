@@ -8,9 +8,8 @@ Three arms, **interleaved on one clock plateau**, because two `bench` calls are
 two measurements of two different clock states and comparing them has produced
 wrong numbers here before (`tools/measure.jl`):
 
-  * `tile`  — `NP = cld(N, 16) * 16`, the old rounding, and with it the fp32
-              scratch + `mm_epilogue_kernel!` that a padded destination used to
-              require. This is what shipped.
+  * `tile`  — `NP = cld(N, 16) * 16`, tile rounding, with the fp32 scratch +
+              `mm_epilogue_kernel!` a padded destination needs that way.
   * `block` — `NP = Mantle.gemm_padn(...)`, same fp32 route, so the difference
               against `tile` is the KERNEL alone: 1504 divides no tiling's block
               and lands on the register-blocked kernel, 1536 is 12 x 128 and

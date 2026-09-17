@@ -246,7 +246,7 @@ function greedy(w::Whisper, prompt::AbstractVector{<:Integer};
     return out
 end
 
-# `transcribe` used to live here as a single-window, fixed-prompt helper. It is
-# now `window.jl`: real audio needs the 30 s loop, the temperature fallback and
-# the no-speech test, and a second entry point that skipped all three was a trap
+# `transcribe` is `window.jl`'s, not a single-window fixed-prompt helper here:
+# real audio needs the 30 s loop, the temperature fallback and the no-speech
+# test, and a second entry point that skips all three is a trap
 # rather than a convenience.

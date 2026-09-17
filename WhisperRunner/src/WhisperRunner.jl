@@ -142,9 +142,9 @@ artifactname(::Val{:fp32}) = "whisper-fp32"
 # `@artifact_str` on a **literal** resolves at MACRO EXPANSION, i.e. while the
 # package precompiles — so a literal `@artifact_str("whisper-fp32")` makes
 # `using WhisperRunner` fail outright, everywhere, until that artifact is bound.
-# Not hypothetical: adding the fp32 method broke the package's own precompile
-# within the minute, and only a fresh process showed it (the running session had
-# the old module and reported eight green assertions).
+# Not hypothetical: adding the fp32 method breaks the package's own precompile,
+# and only a fresh process shows it — a running session still holds the module
+# it loaded and reports green assertions.
 #
 # Interpolating the name defers the lookup to the CALL, which is where it
 # belongs: asking for a precision you have no binding for should fail when you

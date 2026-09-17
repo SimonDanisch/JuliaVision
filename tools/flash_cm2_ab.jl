@@ -163,7 +163,7 @@ for (E, Lq, Lk, H, B, calls) in SWEEP
     @printf("\nE%d L%dx%d H%d B%d  (x%d per encode, %.1f GFLOP)\n", E, Lq, Lk, H, B, calls, g)
     # Flushed line by line, because a run redirected to a file block-buffers and
     # a kernel that takes the device down loses everything still in the buffer —
-    # which is how the first attempt reported an empty log and exit code 0.
+    # which reports an empty log and exit code 0.
     flush(stdout)
     rows = ab(E, Lq, Lk, H, B)
     # Percentages are against what SHIPS today, which is cm1 wherever it applies

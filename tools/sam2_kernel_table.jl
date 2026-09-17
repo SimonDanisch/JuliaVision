@@ -26,10 +26,10 @@ using Lava, DNNKernels, SAM2Runner, KernelAbstractions
 # Through DNNKernels rather than as a direct dependency, the way its own
 # test suite does: this reads one JSON file and does not warrant a dep.
 const JSON3 = DNNKernels.JSON3
-# `encode` lives in SAM2Runner, not DNNKernels (JuliaVision `5b59cd7`, "the model
-# drivers leave the kernel library"). Importing it from the old home still
-# *imports* — the binding exists, undefined — and then fails with `UndefVarError`
-# at first use, which is exactly the trap `bench_sam2.jl`'s header describes.
+# `encode` lives in SAM2Runner, not DNNKernels: importing it from the kernel
+# library still *imports* — the binding exists, undefined — and then fails with
+# `UndefVarError` at first use, which is the trap `bench_sam2.jl`'s header
+# describes.
 using SAM2Runner: encode
 using DNNKernels: toback, readsafetensors, evalshape
 
@@ -76,9 +76,8 @@ end
 
 **`call`, not `encode`.** `encode` runs a baked Mantle plan — the first call
 records command buffers and every later call replays them — and a replay never
-reaches `timeop!`, so instrumenting `encode` yields an EMPTY table and this
-printed a page of zeros without saying anything was wrong. Found 2026-08-11 while
-trying to attribute an attention change; `sam2_attn_share.jl` has the same note.
+reaches `timeop!`, so instrumenting `encode` yields an EMPTY table: a page of
+zeros with nothing saying it is empty. `sam2_attn_share.jl` has the same note.
 The interpreted path is slower and is the only one that can be attributed.
 """
 function ourtimes(model, img; iters = 5)

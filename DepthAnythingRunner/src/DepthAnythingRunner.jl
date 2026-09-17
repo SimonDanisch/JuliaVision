@@ -15,25 +15,22 @@ depth. The map matches PyTorch to **4.2e-5**, which is 0.0025% of its own range.
 is throughput in `DNNKernels` rather than anything in this package — see
 `plans/projects/small-models/REPORT.md`.
 
-Most of that gap was matrix multiply, in two layers, and both are gone.
+Most of that gap was matrix multiply, in two layers.
 
-`aten::bmm` had no capability dispatch: it ran one thread per output element with
-the K-loop in global memory, and on this model that was **79.6% of the forward
-pass**. Routing each batch plane through `matmul!` (`DNNKernels`'
-`batchedmatmul!`) took a 518² map from 972 ms to 233 ms. That only moved the cost
-onto Lava's fp32 `mul!`, which had the same defect one level down: no shared
-memory at all. Porting the scalar branch of llama.cpp's `mul_mm.comp` (Lava
-already ran the cooperative-matrix branch of that same shader) took it from
-0.447 to 5.432 TFLOP/s at 2048³, and the frame from 233 ms to **115 ms** on a
-Radeon 8060S. Output is unchanged to 1.0e-6 of its own range across both fixes,
+`aten::bmm` with no capability dispatch runs one thread per output element with
+the K-loop in global memory, which is **79.6% of the forward pass** on this
+model. Routing each batch plane through `matmul!` (`DNNKernels`'
+`batchedmatmul!`) takes a 518² map from 972 ms to 233 ms, and that moves the
+cost onto Lava's fp32 `mul!`, which has the same defect one level down: no
+shared memory at all. The scalar branch of llama.cpp's `mul_mm.comp` (Lava
+already ran the cooperative-matrix branch of that same shader) takes it from
+0.447 to 5.432 TFLOP/s at 2048³ and the frame from 233 ms to **115 ms** on a
+Radeon 8060S. Output is unchanged to 1.0e-6 of its own range across both,
 against a model verified to 4.2e-5 of PyTorch.
 
-Convolution is what is left, and it is now the largest single op family at 30.2%
-of the frame. It was 4.8% *before* any of this, so "the gap is convolution" was
-not true when it was written; it is true now. The ~380 ms RTX 3070 figure this
-file used to quote predates both changes and has not been re-measured on that
-machine; cross-machine numbers do not compare (GUARDRAILS §6), so it is not
-restated as a corrected number.
+Convolution is what is left, and the largest single op family at 30.2% of the
+frame. Numbers from another machine do not compare (GUARDRAILS §6), so this file
+quotes none.
 
 **The attention decomposes even though the export is from CUDA.** Unlike Whisper,
 DINOv2 falls back to a manual `bmm` + `softmax` when xFormers is absent, so the

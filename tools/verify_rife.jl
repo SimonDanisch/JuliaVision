@@ -63,11 +63,11 @@ w = Dict{String,Any}(k => toback(backend, v) for (k, v) in weights)
 
 inputs = Dict{String,Any}("imgs" => imgs, "timestep" => tstep)
 
-# The slab is not an optimisation here, it is what makes the graph run at all.
+# Placement is not an optimisation here, it is what makes the graph run at all.
 # Unplanned, every one of the 645 buffers stays live for the whole graph and
-# 1920x1152 fp32 intermediates sum to more than this card has — the first attempt
-# died at "4973 MiB live across 18 buffers" with 5135 MiB of budget. `planslab`
-# places them by lifetime so the transients reuse each other's bytes.
+# 1920x1152 fp32 intermediates sum to more than this card has: "4973 MiB live
+# across 18 buffers" against 5135 MiB of budget. Placed by lifetime, the
+# transients reuse each other's bytes.
 plan = planslab(graph, (;))
 slab = KA.allocate(backend, UInt8, max(plan.bytes, 1))
 @printf("slab: %.1f MiB planned\n", plan.bytes / 2^20)

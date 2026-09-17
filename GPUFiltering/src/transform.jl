@@ -14,10 +14,10 @@ end
 """
 What a warp does with the pixel it resampled.
 
-A PARAMETER of the one kernel, not a second kernel. Placing a layer on a canvas
-and compositing it there are the same resample — the editor used to warp into a
-canvas-sized scratch image and run a second full-canvas pass to composite it,
-which is one resample and two copies of where the layer is.
+A PARAMETER of the one kernel, not a second kernel: placing a layer on a canvas
+and compositing it there are the same resample. Warping into a canvas-sized
+scratch image and running a second full-canvas pass to composite it is one
+resample and two copies of where the layer is.
 """
 abstract type WarpWrite end
 

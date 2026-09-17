@@ -105,13 +105,10 @@ constructor could not reach them at all; `SAM2` is immutable, so it could not se
 them afterwards either. (`cacheinputs` is inert, like `replaydecode`: the
 conversion it gated moved into `encode`.)
 
-`replaydecode` is still accepted and is now inert. It used to switch off a raw
-`Lava.capture` of the decoder, whose buffers a garbage collection between two
-clicks could free underneath it — and switching it off was the documented way
-around that. It was also, unnoticed, the reason this package's own
-`@setup_workload` lost the device on every fresh precompile and therefore froze
-nothing at all. The decoder is a baked Mantle plan now; a plan holds references
-to everything it names, so there is no longer a fault to work around.
+`replaydecode` is accepted and inert: it switched off a capture of the decoder
+whose buffers a garbage collection between two clicks could free underneath it.
+The decoder is a recorded Mantle plan, which holds references to everything it
+names, so there is no such fault to work around.
 """
 function sam2model(; backend = Mantle.LavaBackend(), res::Int = 1024, kw...)
     return SAM2(sam2graphs(), sam2weights(); backend, res, kw...)
@@ -126,9 +123,8 @@ end
 # the references — so it asks for those, and `dir` is a config keyword whose
 # default is the artifact.
 #
-# This is the shape `BasicVSRRunner`, `DeepFilterRunner` and the rest already
-# use. The two ported runners had drifted from it, and the drift is what let
-# `DNNKernels`' tests reach in and build paths by hand.
+# This is the shape `BasicVSRRunner`, `DeepFilterRunner` and the rest use. A
+# runner that drifts from it is one whose callers build paths by hand.
 
 """
     sam2graph(name; dir = assetdir()) -> Graph
@@ -217,9 +213,9 @@ Nearest-neighbour resample of `frame` into the model's square `res × res × 3`
 input buffer.
 
 Its own function, and `img` concretely typed, because it is 3.1 million
-iterations and the buffer used to reach it through a `Ref{Any}`. Every
-`img[i, j, c, 1] = …` was then a dynamically dispatched, boxed `setindex!`:
-**~740 ms per call**, three times the encode it feeds. The same loop with a
+iterations: reached through a `Ref{Any}`, every `img[i, j, c, 1] = …` is a
+dynamically dispatched, boxed `setindex!` at **~740 ms per call**, three times
+the encode it feeds. The same loop with a
 typed destination is 3.2 ms.
 
 That cost was invisible to every GPU profile — `Mantle.with_dispatch_timing` says
@@ -412,16 +408,16 @@ end
 thresholded at zero — SAM's own convention, and why the decoder returns logits
 rather than probabilities.
 
-**This was the largest single cost of a click**, at 8.1 ms for 1920x1080 against
-3.3 for the decode itself, because the original wrote the interpolation out
-literally: two divides, two floors, four clamps and four scattered loads per
-output pixel, 2.07 million times. None of it varies the way the loop assumed —
-`x0`, `x1` and `tx` depend on `i` alone and are identical down every column, and
-for one output row the two source rows are fixed. So the x mapping is tabulated
-once, the two source rows are blended into a 256-long vector once per row, and
-the inner loop is two loads and two multiply-adds against a cache-resident
-vector. **8.10 -> 1.04 ms**, bit-identical output (checked over the full frame,
-both loop orders interleaved), and the click it sits in went 16.7 -> 4.6 ms.
+**The largest single cost of a click** if written out literally: two divides,
+two floors, four clamps and four scattered loads per output pixel, 2.07 million
+times, is 8.1 ms for 1920x1080 against 3.3 for the decode itself. None of that
+varies per pixel — `x0`, `x1` and `tx` depend on `i` alone and are identical
+down every column, and for one output row the two source rows are fixed. So the
+x mapping is tabulated once, the two source rows are blended into a 256-long
+vector once per row, and the inner loop is two loads and two multiply-adds
+against a cache-resident vector. **8.10 -> 1.04 ms**, bit-identical output
+(checked over the full frame, both loop orders interleaved), and the click it
+sits in goes 16.7 -> 4.6 ms.
 """
 function maskatframe(lg::AbstractMatrix, w::Integer, h::Integer)
     mw, mh = size(lg)
@@ -498,8 +494,8 @@ end
                 # was 37 s of every cold start, and it read as "loading weights
                 # is slow" because nothing attributed it.
                 #
-                # This used to sit outside, with a comment saying the loading is
-                # not what is being cached. The methods are not; the kernels are.
+                # Inside the workload, not outside it: the methods are not what
+                # is being cached, the kernels are.
                 model = sam2model(; backend)
                 image = toback(backend, zeros(Float32, res, res, 3, 1))
                 mask, score = runsam2(model, image)
@@ -533,8 +529,8 @@ end
             # driver, and the message must not imply anything milder than what
             # happened: this workload runs the same code a caller runs, so if it
             # threw for a reason other than a missing device, first use throws
-            # too. It said "first use will compile" while `plansfor` had been
-            # broken against Mantle's deleted `custom!` the whole time.
+            # too, so a message reading "first use will compile" would hide a
+            # package that cannot build its plans at all.
             @warn "SAM2Runner: workload FAILED, not skipped — unless this is a " *
                   "machine without a working device, first use will throw the " *
                   "same error" exception = (err, catch_backtrace())

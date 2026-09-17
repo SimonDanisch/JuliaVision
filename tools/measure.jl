@@ -11,7 +11,7 @@
 #
 # So a bare `@elapsed` here does not measure the code. It measures the code, the
 # clock state, and whatever else happened to be drawing. Three attributions in
-# this project were wrong for exactly that reason:
+# this project have gone wrong for exactly that reason:
 #
 #   * a per-op serialised profile blamed `pow` for 157 ms; timed directly, the
 #     two forms were 1.0x apart — the instrument was measuring itself;
@@ -298,9 +298,9 @@ know that is to run it and look.
 The first second is discarded: that is the ramp, and including it drags the
 plateau down by whatever fraction of the window it occupies.
 
-**`window` is what makes this work at all, and it was missing.** The loop used to
-read the clock after every 5 calls of `f`; [`gpustate`](@ref) is an `nvidia-smi`
-*subprocess* costing 26 ms, so for a kernel of tens of microseconds the card was
+**`window` is what makes this work at all.** Reading the clock after every 5
+calls of `f` does not: [`gpustate`](@ref) is a *subprocess* costing 26 ms, so
+for a kernel of tens of microseconds the card is
 idle 99.7% of a "warm-up" whose entire job is to make it busy. It never left
 210 MHz, the plateau came back as the idle clock, and [`bench`](@ref)'s gate then
 compared idle against idle and kept every sample — a 15 us copy reported as

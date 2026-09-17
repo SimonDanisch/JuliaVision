@@ -50,8 +50,8 @@
 #
 # `kokorotext` is NOT in the loop below and cannot be: its weights live in the
 # `kokoro-ckpt` artifact, which is not installed here, and `KokoroRunner.ready()`
-# is false without it. It was verified the same way with STUB weights (zeros and
-# small normals of each declared shape, identical on both arms) over 199 ops at
+# is false without it. Verified the same way with STUB weights (zeros and small
+# normals of each declared shape, identical on both arms) over 199 ops at
 # t = 9, 17, 23, 30 and 41, worst rel 8.6e-4 and nothing over 1e-2. Stub weights
 # are enough for what this tool looks for, since both arms read the same ones;
 # what they cannot check is a value-dependent path, and kokorotext has one

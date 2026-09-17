@@ -87,15 +87,13 @@ tensors out of a model's own tarball, because someone matting a clip should not
 download the test fixtures.
 
 **Bound, and downloadable** — `matanyone-refs` in this package's
-`Artifacts.toml`, from the `assets-v1` release. This paragraph used to say "not
-bound yet"; it was, and the stale sentence cost an afternoon of treating the
-parity gate as unrunnable.
+`Artifacts.toml`, from the `assets-v1` release.
 
-The parity test used to reach these through a walk up the filesystem for a
-`gen/` tree, which meant it ran on the machine that generated them and silently
-skipped everywhere else — so the one check that catches a kernel which is fast
-and subtly wrong was invisible on every machine that could have disagreed.
-Throwing here names the missing artifact instead.
+Reached as an artifact and not by walking the filesystem for a `gen/` tree: that
+runs on the machine that generated them and silently skips everywhere else, so
+the one check that catches a kernel which is fast and subtly wrong is invisible
+on every machine that could disagree. Throwing here names the missing artifact
+instead.
 
 If `matanyoneprecisions()` comes back empty, the artifact is bound but not yet
 *installed*: the download is one call away and it is worth retrying, because a
@@ -183,9 +181,9 @@ this session demonstrated twice: `pipeline_exec_stats` hid a genuine
 `ConstructionBase` failure behind `catch ex; @debug; return nothing` and it read
 as "the AMD driver reports no statistics" for hours.
 
-The specific harm of the version this replaces: an unbound artifact and a
-*corrupt* one were indistinguishable, and so was a typo in this file. Testing the
-two conditions directly means the only way to get `nothing` is the one intended.
+Under a `catch`, an unbound artifact, a *corrupt* one and a typo in this file
+are indistinguishable. Testing the two conditions directly means the only way to
+get `nothing` is the one intended.
 """
 function refsdir_or_nothing()
     toml = joinpath(dirname(@__DIR__), "Artifacts.toml")
@@ -252,9 +250,8 @@ ready() = isfile(joinpath(assetdir(), "encode_image.json"))
 """
     GRAPHS
 
-The eight graphs `step!` drives. This list used to live in `DNNKernels` as the
-default of `Model`'s `names` kwarg — MatAnyone's graph names sitting in the
-generic runtime, only because `Model` did the loading. It belongs here.
+The eight graphs `step!` drives. Here and not as a default in `DNNKernels`,
+which would put this model's graph names in the generic runtime.
 """
 const GRAPHS = ("encode_image", "transform_key", "encode_mask_deep",
                 "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",

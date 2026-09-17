@@ -168,11 +168,11 @@ end
 Weights of `addmm`/`mm` ops in one parsed graph whose extents do not land on
 `tile` — i.e. what `mm_coopmat_plan` will refuse with `Decline(:extent)`.
 
-THE SELF-CHECK THIS NEEDS. Three earlier versions of this census were wrong in
-three different ways (scoped to one model's directory layout; read the
-ACTIVATION instead of the weight, so 1500 — a sequence length `gemm_padn`
-already pads — looked like 667 declines; could not see through views). Each
-produced a confident, well-formatted, wrong table.
+THE SELF-CHECK THIS NEEDS. A census like this is wrong in ways that still
+produce a confident, well-formatted table: scoped to one model's directory
+layout, reading the ACTIVATION instead of the weight (so 1500 — a sequence
+length `gemm_padn` already pads — looks like 667 declines), or unable to see
+through views.
 
 What separates a right answer from those: **Whisper's ENCODER must come back
 empty.** Its `addmm` measures ~27 TF/s in situ, so it is demonstrably on the

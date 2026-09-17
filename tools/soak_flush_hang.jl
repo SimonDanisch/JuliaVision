@@ -11,8 +11,8 @@ on `vkWaitSemaphores` with batches holding timeline values nothing signals.
 
 The same note qualifies the fix: **the hang was seen once more afterwards**,
 under `with_dispatch_timing`, against roughly 90 clean trials across every
-reproduction that used to fail in ten or fewer. So this is a trials problem, not
-an attention problem, and the only useful thing to do with it is run it a lot.
+reproduction that fails in ten or fewer. So this is a trials problem, not an
+attention problem, and the only useful thing to do with it is run it a lot.
 
 **Why not SAM 2 decode.** That is the recorded reproduction (60 probe-decodes
 with the collector live hung within 15), but SAM 2 is not in `tools/models.py`'s

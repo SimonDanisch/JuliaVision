@@ -34,8 +34,8 @@ predicts.
 `Mantle.trim_gpu_pool!()` between models, which is what makes a sweep of several
 1B-parameter graphs fit in one session at all. A finished graph's pool blocks are
 held by the batch that recorded them until something flushes, so without it the
-second model allocated on top of the first's high-water mark and a 20 GB card ran
-out — see `trim_gpu_pool!`, which used to decline to do this.
+second model allocates on top of the first's high-water mark and a 20 GB card
+runs out.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics, Lava
