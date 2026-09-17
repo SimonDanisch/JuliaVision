@@ -37,6 +37,31 @@
 
 using Printf, Statistics
 
+# ── where the machine's state comes from ─────────────────────────────────────
+#
+# This file was written against `nvidia-smi` and the card it runs on now is a
+# `Radeon 8060S (RADV STRIX_HALO)`, so every measurement in it threw ENOENT at
+# the first clock read: `bench_all.jl`, the one harness for every model's forward
+# pass, could not take a single sample.
+#
+# The source is chosen ONCE, below, and answered by dispatch — not asked per call
+# site. Which machine this is cannot be a branch scattered through the
+# measurement code, and it is a fact about the machine rather than about any
+# shader, so it is nothing like the vendor-conditional code the project bans.
+#
+# **The amdgpu path is the better instrument, not a fallback.** Everything here
+# is one `read` of a sysfs file, tens of microseconds against `nvidia-smi`'s 26
+# ms — and that 26 ms is the defect three docstrings below this one describe: a
+# probe that takes long enough for the queue to drain reports the hole it dug.
+# The overlap trick those comments explain exists to work around a cost this path
+# does not have.
+
+"""The seven fields every source answers, plus the host's load."""
+loadavg1() = parse(Float64, first(split(read("/proc/loadavg", String))))
+
+"""`nvidia-smi`, one CSV row."""
+struct NvidiaSmi end
+
 const SMIQUERY = "clocks.sm,clocks.max.sm,utilization.gpu,memory.used,memory.total," *
                  "temperature.gpu,power.draw"
 
@@ -44,10 +69,82 @@ smiproc() = open(`nvidia-smi --query-gpu=$SMIQUERY --format=csv,noheader,nounits
 
 function smiparse(out::AbstractString)
     v = parse.(Float64, strip.(split(strip(out), ',')))
-    load1 = parse(Float64, first(split(read("/proc/loadavg", String))))
     (; sm = v[1], smmax = v[2], util = v[3], mem = v[4], memtotal = v[5],
-       temp = v[6], power = v[7], load1)
+       temp = v[6], power = v[7], load1 = loadavg1())
 end
+
+sample(::NvidiaSmi) = smiparse(read(smiproc(), String))
+
+"""
+The amdgpu kernel driver, through sysfs.
+
+`dev` is the card's device directory and `hwmon` the sensor directory under it.
+`smax` is read once at construction: the DPM table does not change while the
+machine is up, and it is the only field here that needs parsing rather than a
+single number.
+"""
+struct AmdSysfs
+    dev::String
+    hwmon::String
+    smax::Float64
+end
+
+"""The top entry of `pp_dpm_sclk`, in MHz. The file is one level per line,
+`\"2: 2900Mhz\"`, with a `*` on whichever is current."""
+function dpmmax(dev::AbstractString)
+    best = 0.0
+    for line in eachline(joinpath(dev, "pp_dpm_sclk"))
+        m = match(r"([0-9]+)\s*[MmGg][Hh]z", line)
+        m === nothing && continue
+        best = max(best, parse(Float64, m.captures[1]))
+    end
+    best > 0 || error("measure.jl: $(dev)/pp_dpm_sclk named no clock level.")
+    return best
+end
+
+num(path) = parse(Float64, strip(read(path, String)))
+
+function sample(a::AmdSysfs)
+    (; sm = num(joinpath(a.hwmon, "freq1_input")) / 1e6,      # Hz -> MHz
+       smmax = a.smax,
+       util = num(joinpath(a.dev, "gpu_busy_percent")),
+       mem = num(joinpath(a.dev, "mem_info_vram_used")) / 2^20,
+       memtotal = num(joinpath(a.dev, "mem_info_vram_total")) / 2^20,
+       temp = num(joinpath(a.hwmon, "temp1_input")) / 1000,   # milli-C
+       power = num(joinpath(a.hwmon, "power1_average")) / 1e6, # uW -> W
+       load1 = loadavg1())
+end
+
+"""
+    telemetry() -> NvidiaSmi | AmdSysfs
+
+The source this machine has, refused rather than guessed when it has neither.
+
+A card is identified by the files it exposes and not by a name: `freq1_input`
+under the device's `hwmon` is what this needs, and a card whose driver does not
+publish it cannot be gated on however it is labelled.
+"""
+function telemetry()
+    for dev in sort(Base.Filesystem.readdir("/sys/class/drm"; join = true))
+        d = joinpath(dev, "device")
+        isfile(joinpath(d, "gpu_busy_percent")) || continue
+        hw = joinpath(d, "hwmon")
+        isdir(hw) || continue
+        for h in readdir(hw; join = true)
+            isfile(joinpath(h, "freq1_input")) || continue
+            return AmdSysfs(d, h, dpmmax(d))
+        end
+    end
+    Sys.which("nvidia-smi") === nothing && error(
+        "measure.jl: this machine publishes neither an amdgpu `freq1_input` " *
+        "under /sys/class/drm/*/device/hwmon nor an `nvidia-smi`, so the SM " *
+        "clock cannot be read. Every number here is gated on that clock — see " *
+        "`plateau` — so there is nothing to fall back to that would still mean " *
+        "what these rows claim to mean.")
+    return NvidiaSmi()
+end
+
+const TELEMETRY = telemetry()
 
 """
     gpustate() -> NamedTuple
@@ -70,7 +167,7 @@ question means anything.
 
 Use [`gpustate(f)`](@ref) for a reading that means something under load.
 """
-gpustate() = smiparse(read(smiproc(), String))
+gpustate() = sample(TELEMETRY)
 
 """
     gpustate(f; window = 0.2) -> NamedTuple
@@ -82,10 +179,33 @@ so the sample it takes internally lands on a card that is doing the work being
 measured, not on the hole its own 26 ms dug. `f` runs untimed here — this changes
 how often the workload runs, not what is measured.
 """
-function gpustate(f; window::Real = 0.2)
-    p = smiproc()
-    busy(f, window)
-    smiparse(read(p, String))
+gpustate(f; window::Real = 0.2) = clockunder(f, window)
+
+"""
+    clockunder(f, seconds) -> NamedTuple
+
+The machine's state at the HIGHEST clock `f` drove it to over `seconds`.
+
+One reading per call of `f`, taken between calls, which is what "sampled while
+`f` runs" can mean when the probe costs microseconds. The `nvidia-smi` path
+could not do this — its 26 ms probe had to be overlapped with the workload and
+answered with whatever moment the driver happened to pick inside it — so this is
+the same intent measured directly rather than inferred.
+
+The MAXIMUM and not the mean: the question every caller asks is what clock this
+workload reaches, and a mean over a window that begins before the card has ramped
+answers a different one. `plateau` then medians these across windows, so a single
+spike cannot carry a run.
+"""
+function clockunder(f, seconds::Real)
+    best = gpustate()
+    t0 = time()
+    while time() - t0 < seconds
+        f()
+        st = gpustate()
+        st.sm > best.sm && (best = st)
+    end
+    return best
 end
 
 """
@@ -98,7 +218,9 @@ context. They matter here because they are also *scheduling* work: a browser
 repainting during a sample is contention this harness cannot subtract, only
 notice.
 """
-function otherprocs()
+otherprocs() = otherprocs(TELEMETRY)
+
+function otherprocs(::NvidiaSmi)
     out = read(`nvidia-smi --query-compute-apps=pid,process_name,used_memory
                 --format=csv,noheader,nounits`, String)
     me = getpid()
@@ -110,6 +232,41 @@ function otherprocs()
         pid = parse(Int, strip(f[1]))
         pid == me && continue
         push!(rows, (pid, first(split(strip(f[2]), ' ')), parse(Int, strip(f[3]))))
+    end
+    rows
+end
+
+"""
+Whoever else holds the render node.
+
+amdgpu publishes no per-process memory the way `nvidia-smi` does, so the third
+field is **0 here and that is a gap, not a zero**. `report` prints the count,
+which is the part that matters: a compositor repainting during a sample is
+contention this harness can notice and cannot subtract.
+
+`fuser` and `ps` rather than a walk over `/proc/*/fd`, because a process list
+read entry by entry changes underneath the reader — a pid that exits between the
+`isdir` and the `readdir` throws, and "a process exited" is not a condition worth
+a `catch` that would also hide a real one. Each of these is one call that
+answers about the set as it was.
+"""
+function otherprocs(::AmdSysfs)
+    nodes = filter(startswith("render"), readdir("/dev/dri"))
+    isempty(nodes) && return Tuple{Int,String,Int}[]
+    out = read(pipeline(`fuser $(["/dev/dri/" * n for n in nodes])`;
+                        stderr = devnull), String)
+    me = getpid()
+    pids = [p for p in parse.(Int, split(strip(out))) if p != me]
+    isempty(pids) && return Tuple{Int,String,Int}[]
+    # `ps` omits a pid that has since exited, which is the answer and not a
+    # failure; `-o comm=` gives the name without a header to strip.
+    names = read(pipeline(`ps -o pid=,comm= -p $(join(pids, ','))`;
+                          stderr = devnull), String)
+    rows = Tuple{Int,String,Int}[]
+    for line in split(strip(names), '\n')
+        f = split(strip(line); limit = 2)
+        length(f) == 2 || continue
+        push!(rows, (parse(Int, f[1]), f[2], 0))
     end
     rows
 end
@@ -382,15 +539,17 @@ function bench(f; samples::Int = 15, floor::Real = 0.90, warm::Bool = true,
         # timed. Without it, whether a sample contains a GC is a coin flip:
         # `depthanything` read 73.20 ms ±216% and is 47 ms ±3%.
         GC.gc(false)
-        # `b` covers the timed region itself: start `nvidia-smi` before it and
-        # keep the card busy after it until the read returns, so whichever moment
-        # the driver samples, it samples a card doing this work.
-        p = smiproc()
+        # `b` covers the timed region itself. A sysfs read costs microseconds, so
+        # it goes IMMEDIATELY after the timed region — before the card can drop —
+        # and is then maxed against the following hold. The `nvidia-smi` form of
+        # this had to start the probe before `@elapsed` and keep the card busy
+        # until it answered, because the probe was slower than the thing being
+        # measured; reading straight after is the same statement without the
+        # inference.
         g0 = Base.gc_num().total_time
         t = @elapsed g()
         gc = (Base.gc_num().total_time - g0) / 1e9
-        busy(g, hold)
-        b = smiparse(read(p, String)).sm
+        b = max(gpustate().sm, clockunder(g, hold).sm)
         push!(out, Sample(t, gc, a, b, a >= lo && b >= lo))
     end
     keep = [s for s in out if s.ok]
@@ -471,12 +630,10 @@ function compare(fs::Tuple; samples::Int = 15, floor::Real = 0.90,
     for _ in 1:samples, (i, g) in enumerate(gs)
         x = gpustate(g; window = hold).sm
         GC.gc(false)
-        p = smiproc()
         g0 = Base.gc_num().total_time
         t = @elapsed g()
         gc = (Base.gc_num().total_time - g0) / 1e9
-        busy(g, hold)
-        y = smiparse(read(p, String)).sm
+        y = max(gpustate().sm, clockunder(g, hold).sm)
         push!(acc[i], Sample(t, gc, x, y, x >= lo && y >= lo))
     end
     map(zip(acc, labels)) do (s, l)
