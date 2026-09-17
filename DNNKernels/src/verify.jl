@@ -119,6 +119,10 @@ function declaredvalues(g::Graph, inputs::AbstractDict, weights::AbstractDict;
         values[id] = tohost(M.storage(r))
     end
     M.free!(plan)
+    # And the buffers the EMIT owns, which `free!(plan)` does not cover: under
+    # `keepall` every buffer in the graph is one. Every value above is already a
+    # host array, so nothing here still needs them.
+    freeowned!(emitctx)
     return values
 end
 

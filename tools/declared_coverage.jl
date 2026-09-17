@@ -22,8 +22,8 @@ const DK = DNNKernels
 """
 Is this JSON an exported graph?
 
-The artifacts hold others beside them — `op_histogram.json`, Kokoro's `vocab`
-and `lexicon`, SAM 2's refs — and they are not failures to be skipped. This was
+The artifacts hold others beside them (`op_histogram.json`, Kokoro's `vocab`
+and `lexicon`, SAM 2's refs) and they are not failures to be skipped. This was
 `try loadgraph catch; continue; end`, which also swallowed a graph that failed to
 load for a real reason: a schema change would have read as "no graphs here" and
 the sweep would have reported full coverage of nothing.

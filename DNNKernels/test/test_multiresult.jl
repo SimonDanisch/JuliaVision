@@ -2,8 +2,8 @@
 #
 # A composite op declares `shapes`/`dtypes` on its output buffer, one entry per
 # element of torch's schema, and each element is read through a `getitem` view.
-# The two describe the same bytes, so they are one fact written twice — and in
-# Kokoro's exports they disagree, 119 buffers between kokorotext and kokorovoc
+# The two describe the same bytes, so they are one fact written twice, and in
+# Kokoro's exports they disagree: 119 buffers between kokorotext and kokorovoc
 # against 1317 that agree across every other model installed here. The VIEW is
 # symbolic and the metadata holds that symbol evaluated at the trace:
 # `[1, "t", 512]` against `[1, 30, 512]`, `[1, 128, "120*f + 1"]` against
@@ -14,7 +14,7 @@
 # What made it worth a rule rather than a per-op check is that the metadata is
 # CONCRETE. Declared from it, a graph plans the traced length for whatever
 # length it was called with, and nothing downstream has a symbol left to
-# disagree with — `_scaled_dot_product_efficient_attention` happens to compare
+# disagree with. `_scaled_dot_product_efficient_attention` happens to compare
 # its result against its operands and refuse, but an op that trusts its
 # destination would simply write 30 columns of a 17-column answer.
 #
@@ -65,15 +65,8 @@ end
     g = multigraph(parent,
                    view0("y1", "ls", 0, Any[1, "t", 512]),
                    view0("y2", "ls", 0, Any[1, "t", 256]))
-    err = try
-        DK.resultshapes(g)
-        nothing
-    catch e
-        e
-    end
-    @test err !== nothing
-    @test occursin("ls#0", sprint(showerror, err))
-    # Two readers that AGREE are ordinary — a result with several consumers is
+    @test_throws "ls#0" DK.resultshapes(g)
+    # Two readers that AGREE are ordinary. A result with several consumers is
     # the common case, and it must not be refused.
     g2 = multigraph(parent,
                     view0("y1", "ls", 0, Any[1, "t", 512]),
@@ -83,22 +76,15 @@ end
 
 @testset "a reader of a different rank is refused" begin
     shapes = Dict{String,Any}("ls#0" => Any[1, "t", 512])
-    err = try
-        DK.resultshape(shapes, "ls#0", Any[30, 512])
-        nothing
-    catch e
-        e
-    end
-    @test err !== nothing
-    msg = sprint(showerror, err)
-    @test occursin("ls#0", msg)
-    @test occursin("rank", msg)
+    # Both substrings, so the refusal has to name the element AND say what is
+    # wrong with it.
+    @test_throws ["ls#0", "rank"] DK.resultshape(shapes, "ls#0", Any[30, 512])
 end
 
 # The same statement over the real exports this package binds: all ten of them
 # agree with their metadata, so the rule is INERT for them. Asserted because a
 # rule that quietly changed what the working graphs declare would be the wrong
-# fix — the two Kokoro graphs it does change belong to `KokoroRunner`'s
+# fix. The two Kokoro graphs it does change belong to `KokoroRunner`'s
 # artifact, and `tools/declared_coverage.jl` is what sweeps those.
 @testset "the rule is inert for the exports that agree" begin
     graphs = [Fixtures.matanyone(n) for n in Fixtures.matanyonenames()]

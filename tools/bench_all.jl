@@ -23,10 +23,11 @@ compile are not what this measures.
 
 ## Measured 2026-09-17, `Radeon 8060S (RADV STRIX_HALO)`
 
-The first rows this file has ever produced on this machine. It could not load —
-a bare `LavaBackend()` has been an `UndefVarError` since the name moved to
-Mantle — and `measure.jl` underneath it read the clock through `nvidia-smi` on
-an AMD card, so `report()` threw ENOENT before the first sample. Both are fixed;
+The first rows this file has ever produced on this machine. It could not load,
+for two reasons: a bare `LavaBackend()` has been an `UndefVarError` since the
+name moved to Mantle, and `measure.jl` underneath it read the clock through
+`nvidia-smi` on an AMD card, so `report()` threw ENOENT before the first
+sample. Both are fixed;
 see `measure.jl`'s telemetry section for the second.
 
     sam2-encode      1035.26 ms  ± 2.6%   clock 99%   11/11   1024x1024
@@ -37,12 +38,12 @@ see `measure.jl`'s telemetry section for the second.
     rife              838.35 ms  ± 2.4%   clock 97%   11/11   1920x1152
 
 Every row gated: 11 of 11 samples kept, at 93-99% of the plateau. `neurallut` is
-the exception its own comment predicts — 6 ms of mostly host work, so the card
+the exception its own comment predicts: 6 ms of mostly host work, so the card
 idles inside the sample, the clock holds at 77% and the spread is 26%. Its number
 is worth less than the others and it is not a broken row.
 
 These are a BASELINE and not a comparison: there was nothing to compare against,
-because the harness has not run here before. They were taken after `folddims!`
+because this file has not run here before. They were taken after `folddims!`
 gained a `post` map and `_to_copy` gained `castfn`, both of which every model
 reads, so a future run has a number to be measured against.
 """
@@ -54,9 +55,8 @@ using Lava, DNNKernels, KernelAbstractions
 using DNNKernels: readsafetensors, toback
 # `LavaBackend` from MANTLE, which owns it. It used to be Lava's and Lava does
 # not re-export it, so a bare `LavaBackend()` here has been an `UndefVarError`
-# since the move — this file, the one harness for every model's forward pass,
-# could not load at all. RayDemo had the same break and 35 of the one-off tools
-# beside this one still do.
+# since the move, and this file could not load at all. RayDemo had the same
+# break and 35 of the one-off tools beside this one still do.
 import Mantle
 using Mantle: LavaBackend
 # All at top level: `using` inside a function body is a syntax error, so the

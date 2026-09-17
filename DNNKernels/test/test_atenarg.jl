@@ -118,6 +118,28 @@ end
         @test !DKA.keepdim(mk(Dict{String,Any}()))
     end
 
+    # The other thing read off an op: WHICH AXIS it names.
+    #
+    # `jdim` maps a torch dim (0-based, `-n:n-1`) onto the reversed Julia shape.
+    # The arithmetic alone answers 0 for `d == n` and `n + 1` for `d == -(n+1)`,
+    # an axis that does not exist, returned as confidently as one that does, and
+    # it goes straight into `colstrides` indexing from there. Five of its
+    # thirty-five call sites had grown their own range check, each worded
+    # differently; the ops that needed one were not the ops whose author thought
+    # of it. torch raises `IndexError` here, so refusing matches the producer.
+    @testset "jdim refuses an axis that does not exist" begin
+        for n in 1:4, d in 0:(n - 1)
+            @test DKA.jdim(d, n) == n - d              # 0-based from the front
+            @test DKA.jdim(d - n, n) == n - d          # and the negative form
+            @test 1 <= DKA.jdim(d, n) <= n
+        end
+        for (d, n) in ((1, 1), (3, 3), (4, 3), (-2, 1), (-4, 3))
+            @test_throws "out of range" DKA.jdim(d, n)
+        end
+        # The message names both numbers, since neither alone says what is wrong.
+        @test_throws ["3", "2-d"] DKA.jdim(3, 2)
+    end
+
     @testset "foldrelu folds the exact form only" begin
         _, n = DKA.foldrelu(foldgraph(Dict{String,Any}()))
         @test n == 1

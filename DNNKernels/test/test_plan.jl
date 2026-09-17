@@ -214,6 +214,12 @@ function declaredplan(dev, label)
             @test MP.peakbytes(plan) < MP.naivebytes(plan)
 
         MP.free!(plan)
+        # And the buffers the EMIT owns. `free!(plan)` returns the transients
+        # and the argument memory; an escaping buffer belongs to nobody, and
+        # nothing finalises one. Ten graphs' worth per run, SAM 2's encoder
+        # included, is what made this file the one that ran the machine out of
+        # memory.
+        DNNKernels.freeowned!(emitctx)
         weights = nothing
         GC.gc(true)
     end
@@ -233,8 +239,8 @@ function declaredplan(dev, label)
     @testset "nothing declares a transient it does not use" begin
         g = prepared(Fixtures.sam2("sam2_decoder"))
         dims = (res = 1024,)
-        mantlegraph, _ = emitgraph(dev, g, stubweights(dev, g, dims), dims;
-                                   keepall = true)
+        mantlegraph, emitctx = emitgraph(dev, g, stubweights(dev, g, dims), dims;
+                                         keepall = true)
         used = Set{Any}()
         for p in mantlegraph.passes, (rid, _) in MP.usages(p)
             push!(used, rid)
@@ -244,6 +250,9 @@ function declaredplan(dev, label)
         # The same statement from the other side: a scratch that reached no
         # `dispatch!` never gets an id at all, so the two collections agree.
         @test length(mantlegraph.transients) == length(mantlegraph.transient_by_id)
+        # `keepall` makes EVERY buffer owned, so this one testset leaks the whole
+        # decoder at 1024x1024 without it.
+        DNNKernels.freeowned!(emitctx)
         GC.gc(true)
     end
 end

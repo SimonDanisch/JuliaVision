@@ -48,7 +48,7 @@ end
 # The third conversion rule, and the one that had a throw path in a KERNEL.
 #
 # `Bool <: Integer` in Julia, so an `Int64 -> Bool` cast fell through to
-# `convert`, which raises `InexactError` for anything but 0 and 1 — and torch's
+# `convert`, which raises `InexactError` for anything but 0 and 1. torch's
 # `.to(torch.bool)` is `v != 0` for every source type, so `convert` was both the
 # wrong answer and a `gpu_gc_pool_alloc` in the shader. Lava's
 # `replace_unreachable!` warned about exactly that on kokorotext, whose BERT half

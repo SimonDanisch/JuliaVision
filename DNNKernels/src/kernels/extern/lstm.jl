@@ -136,7 +136,7 @@ them has a caller yet, and a graph that wants one gets a refusal naming which.
 function lstmconfig(op::Op, x, ps)
     Bool(something(get(op.attrs, "arg3", nothing), true)) || error(
         "DNNKernels: `lstm` (op $(op.id)) has has_biases = false, and both " *
-        "biases are read unconditionally — `b_ih` in the input projection, " *
+        "biases are read unconditionally: `b_ih` in the input projection, " *
         "`b_hh` in the loop.")
     nlayers = Int(something(get(op.attrs, "arg4", nothing), 1))
     nlayers == 1 || error(

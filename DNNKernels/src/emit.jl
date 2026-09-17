@@ -51,6 +51,15 @@ struct EmitCtx{G,D}
     esc::Set{String}
     # Which op is emitting, so `dest` can answer without being passed the op.
     outid::Base.RefValue{String}
+    # Every `Mantle.Buffer` `make` allocated here, so `freeowned!` can give them
+    # back. A transient belongs to the plan and `Mantle.free!(plan)` returns it;
+    # an OWNED buffer belongs to nobody, and `Mantle.free!(::Buffer)` is
+    # "explicit, and still never called for you: skipping it is a leak the pool
+    # can report" — which is exactly what this was doing, once per escaping
+    # buffer per emit. Recorded rather than recovered by scanning `res` for the
+    # type: `res` also holds the caller's resident weights and host scalars, and
+    # the emit knows what it allocated.
+    owned::Vector{Any}
 end
 
 """
@@ -76,15 +85,26 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
-    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""))
+    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[])
     shapes = resultshapes(aten)
-    for id in aten.order
-        declare!(emitctx, aten.buffers[id], weights, live, shapes)
-    end
-    for op in aten.ops
-        op.out in skip && continue
-        emitctx.outid[] = op.out
-        emitop!(emitctx, op, op.tag)
+    # A REFUSAL must not leak what it had already allocated. `declare!` gives
+    # every escaping buffer storage before the first op is emitted, so an op
+    # without an `emitop!` -- the refusal this path exists to give -- throws with
+    # the whole graph's owned buffers already allocated and no context in the
+    # caller's hands to free them from. Rethrown unchanged: the error is the
+    # answer, and only the cleanup is added.
+    try
+        for id in aten.order
+            declare!(emitctx, aten.buffers[id], weights, live, shapes)
+        end
+        for op in aten.ops
+            op.out in skip && continue
+            emitctx.outid[] = op.out
+            emitop!(emitctx, op, op.tag)
+        end
+    catch
+        freeowned!(emitctx)
+        rethrow()
     end
     # An OUTPUT that is a view is resolved by nobody else.
     #
@@ -94,8 +114,13 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     # touches, so `planfor` looked them up in `res` and got a `KeyError`.
     # Resolved here, a shape-only output view costs a descriptor and a
     # materialised one gets its fill pass like any other.
-    for id in aten.outputs
-        operand(emitctx, id)
+    try
+        for id in aten.outputs
+            operand(emitctx, id)
+        end
+    catch
+        freeowned!(emitctx)
+        rethrow()
     end
     return g, emitctx
 end
@@ -108,8 +133,8 @@ view that reads it.
 
 A `getitem` is the identity on the bytes it names, so a view and the element it
 names are the same tensor and their two shapes are one fact written twice. They
-disagree in one direction only, and both Kokoro exports do it — 119 buffers
-between them, against 1317 that agree across every other model: the VIEW is
+disagree in one direction only, and both Kokoro exports do it in 119 buffers
+between them, against 1317 that agree across every other model. The VIEW is
 symbolic and the op's `shapes` metadata holds that symbol evaluated at the trace.
 `[1, "t", 512]` against `[1, 30, 512]`, `[1, 128, "120*f + 1"]` against
 `[1, 128, 11761]`. It is not one op's quirk either: in those two graphs it is
@@ -117,7 +142,7 @@ every `native_layer_norm`, every `_native_batch_norm_legit`, every sdpa and
 every `lstm.input`.
 
 The view is the shape that survives because it is the more general statement and
-because it is what every consumer indexes with — `viewfor` answers a `getitem`
+because it is what every consumer indexes with: `viewfor` answers a `getitem`
 with the PARENT's resource, so a resource that does not match the view is one
 nothing can read correctly. Declared from the metadata instead, kokorotext plans
 30 columns for whatever `t` it is called with, and silently: the extents are
@@ -317,9 +342,43 @@ declaration still has to answer something: a zero-byte buffer of its own.
 """
 function make(emitctx::EmitCtx, id::AbstractString, ::Type{T}, dims::Dims) where {T}
     b = emitctx.aten.buffers[id]
-    owned = prod(dims) == 0 || b.kind === :external ||
-            id in emitctx.esc || id in emitctx.aten.outputs
-    return owned ? M.Buffer(emitctx.dev, T, dims) : M.Transient.Buffer(emitctx.g, T, dims)
+    isowned = prod(dims) == 0 || b.kind === :external ||
+              id in emitctx.esc || id in emitctx.aten.outputs
+    isowned || return M.Transient.Buffer(emitctx.g, T, dims)
+    buf = M.Buffer(emitctx.dev, T, dims)
+    push!(emitctx.owned, buf)
+    return buf
+end
+
+"""
+    freeowned!(emitctx) -> Int
+
+Give every buffer this emit allocated back to the pool, and return how many.
+
+`Mantle.free!(::Buffer)` is explicit by design and nothing finalises a `Buffer`,
+so a caller that emits a graph and drops it leaks one region per escaping
+buffer. Under `keepall` that is EVERY buffer in the graph, which is what
+`declaredvalues` asks for: measured on a churn of 256 MB per round, a pool that
+is freed grows 258 MB over twelve rounds and one that is not grows 6.2 GB over
+twenty-four, every byte of it unreachable and unreclaimable. Repeated over a
+parity sweep it reached 114 GB of system memory and the kernel killed the
+desktop.
+
+Idempotent by emptying the list, because a caller that frees and is then freed
+again by a `finally` must not retire a region twice: `retire!` appends to the
+pool's pending list and a second append releases bytes that already belong to
+somebody else.
+
+The transients are NOT here; they belong to the plan and `Mantle.free!(plan)`
+returns them.
+"""
+function freeowned!(emitctx::EmitCtx)
+    n = length(emitctx.owned)
+    for b in emitctx.owned
+        M.free!(b)
+    end
+    empty!(emitctx.owned)
+    return n
 end
 
 """
@@ -1026,8 +1085,8 @@ depends on it.
 `pre` and `post` are the op's OWN map steps, the one on each side of the fold: a
 p-norm is `sum(abs2)` followed by a `sqrt`, and `mean` is a sum followed by a
 division. Both happen inside the reduction kernel, so neither costs a pass.
-`pre` composes with whatever `foldpremap` folded in, and in that order — the
-folded map is a step of the value the graph fed this op, so it runs first. No
+`pre` composes with whatever `foldpremap` folded in, and in that order,
+because the folded map is a step of the value the graph fed this op. No
 graph reaches that composition today, because `PREMAPPABLE` lists the three
 plain reductions and not the norm; the rule is here rather than there because
 which ops a pass folds into is not something this function may assume.
@@ -1102,8 +1161,8 @@ of it.
 
 Order 2 is `sqrt(sum(abs2))` and the general one is `sum(abs(x)^p)^(1/p)`, so
 both are `folddims` with a `pre` and a `post` and neither is a reduction of its
-own. `ord == 2` is spelled separately because `sqrt` is not `^(1/2)` on a GPU —
-it is one instruction against a `log`/`exp` pair — and every graph here asks for
+own. `ord == 2` is spelled separately because `sqrt` is not `^(1/2)` on a GPU:
+it is one instruction against a `log`/`exp` pair, and every graph here asks for
 2.
 
 A non-finite or non-positive order is REFUSED rather than run. `p = Inf` is the
@@ -1259,8 +1318,8 @@ end
 `aten::gather(dim, index)`: `out[c] = a[c with c[dim] = index[c]]`.
 
 The index has the result's shape and names the coordinate on ONE axis. That is
-a different gather from `index.Tensor`'s — there an index array is a coordinate
-list for a whole axis and several of them form an outer product — so it is
+a different gather from `index.Tensor`'s, where an index array is a coordinate
+list for a whole axis and several of them form an outer product. So it is
 `gatherdim!` and not `indexgather!`, and the distinction is in those two
 docstrings.
 
@@ -1902,8 +1961,8 @@ end
 
 Does the GRAPH read element `i` of the op being emitted?
 
-`maybedest` answers a different question — whether a resource was declared for
-it — and under `keepall` every element has one whether or not anything reads it.
+`maybedest` answers a different question, whether a resource was declared for
+it, and under `keepall` every element has one whether or not anything reads it.
 An emit that produces some of a torch schema's results and not others has to ask
 about the graph, so it asks the graph.
 """
@@ -1914,13 +1973,13 @@ resultread(emitctx::EmitCtx, i::Integer) =
     end
 
 """
-`aten::lstm.input` — a whole recurrent layer as one op, declared.
+`aten::lstm.input`: a whole recurrent layer as one op, declared.
 
 Three passes per direction and one of them is the recurrence:
 
   * `w_ih` transposed to `(4H, D)`, so the input projection is a GEMM in the
     layout `gemm!` reads;
-  * that projection over the WHOLE sequence at once, with `b_ih` in its store —
+  * that projection over the WHOLE sequence at once, with `b_ih` in its store.
     `W_ih x_t` does not depend on `h`, which is what leaves a sequential loop
     small enough to fit in one workgroup;
   * `w_hh` transposed to `(4H, H)`, which is worth 6x inside the loop;
@@ -1934,7 +1993,7 @@ reused by anything else; declared, the placer aliases them against the whole
 graph.
 
 The transposes are per REPLAY, not per model, because a weight's layout is not
-something an emit may rewrite — `hoistpermutes` is the pass that does that, and
+something an emit may rewrite; `hoistpermutes` is the pass that does that, and
 it works on `permute` ops the export produced rather than on the inside of a
 composite op. 3.6 MB of copies per layer against a recurrence that reads `WhhT`
 once per timestep.
@@ -1964,8 +2023,9 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("lstm.input")})
         "step and its result is declared $(size(out)).")
     size(out, 2) == nsteps || error(
         "DNNKernels: `lstm` (op $(op.id)) reads $(nsteps) steps and its result " *
-        "is declared $(size(out)) — $(size(out, 2)) of them. The export writes " *
-        "a composite op's result shapes from the TRACE; see `resultshapes`.")
+        "is declared $(size(out)), which holds $(size(out, 2)) of them. The " *
+        "export writes a composite op's result shapes from the TRACE; see " *
+        "`resultshapes`.")
     outm = M.viewof(out, (ndir * H, nsteps))
     x2 = M.viewof(x, (D, nsteps))
     h0, c0 = hx[1], hx[2]

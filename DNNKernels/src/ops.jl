@@ -116,7 +116,7 @@ path makes Lava emit `gpu_gc_pool_alloc` and warn that lowering its
 `unreachable` leaves an undef POINTER for the caller to dereference. That
 warning is what found this, on kokorotext's BERT half, which casts an `Int64`
 mask to `Bool`. Its mask is all ones, so the path was never taken and no
-number was ever wrong — which is the whole reason it needed finding.
+number was ever wrong, which is the whole reason it needed finding.
 """
 struct ToBool end
 @inline (::ToBool)(v) = !iszero(v)
@@ -127,8 +127,8 @@ struct ToBool end
 What `_to_copy` applies for an `S` source and a `T` destination, as a singleton
 a kernel can take.
 
-Three rules, in one place because there were two copies of them — this file's
-`runop!` and `emit.jl`'s emit each carried the same `if` — and the pair had
+Three rules, in one place because there were two copies of them: this file's
+`runop!` and `emit.jl`'s emit each carried the same `if`, and the pair had
 already drifted in one case. Every one of them is torch's definition and not
 Julia's:
 

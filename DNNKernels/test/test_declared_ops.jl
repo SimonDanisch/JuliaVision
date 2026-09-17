@@ -131,7 +131,7 @@ function declaredops(dev, label)
         # `index.Tensor` index is a coordinate list for a whole axis.
         #
         # Both a leading and a MIDDLE axis, because the leading case cannot show
-        # a wrong decomposition — the coordinate of axis 1 is the fastest
+        # a wrong decomposition: the coordinate of axis 1 is the fastest
         # varying, so `k == d` lands on the term a mistake would leave alone.
         # The index is also SMALLER than the source on an axis it does not
         # gather, which is what torch permits and what makes the source's

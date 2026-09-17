@@ -67,7 +67,7 @@ into it, so `prod.dim_int` and `any.dim` had no declared form at all.
 `post` is the accumulator's last step, applied once per output element inside
 this kernel rather than as a pass over the result. It was a `scale` value, which
 is `mean`'s division by the count, and a norm wants a `sqrt` in exactly the same
-place — two mechanisms for one step, so the function is the one that stays and
+place. Two mechanisms for one step, so the function is the one that stays and
 `mean` passes the multiply. `identity` is every reduction that has no such step,
 and it costs nothing: it is a type, so the store specialises on it.
 """
@@ -213,14 +213,14 @@ end
 The index has the OUTPUT's shape and supplies the coordinate on axis `d` only;
 every other axis takes its own coordinate straight through. That is what
 separates this from [`indexgather!`](@ref), where an index array is one
-coordinate list for a whole axis and the indexed axes form an outer product —
+coordinate list for a whole axis and the indexed axes form an outer product:
 there the index varies along its own axis, here it varies along all of them.
 
 `idx` holds torch's 0-based values, so it goes into the offset unshifted and the
 one `+ 1` is on the final linear index, as everywhere else here.
 
 The interpreted path only ever did the case where every axis but `d` is a
-singleton, which makes the whole thing `a[idx]` and needs no kernel — it
+singleton, which makes the whole thing `a[idx]` and needs no kernel. It
 `collect`ed both operands to the host and indexed there, so it could not be
 recorded. The general form is the same index arithmetic as the rest of this file
 and no harder to write than the restriction was to state.

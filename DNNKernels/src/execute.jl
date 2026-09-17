@@ -219,8 +219,26 @@ end
 
 Torch dimension index (0-based, possibly negative) to Julia dimension for an
 `n`-dimensional array whose shape is reversed.
+
+**Refuses a dim outside torch's own range**, which is `-n:n-1`. The arithmetic
+alone answers 0 for `d == n` and `n + 1` for `d == -(n + 1)`, an axis that does
+not exist, returned as confidently as one that does, and it goes straight into
+`colstrides` indexing from there. Five call sites out of thirty-five had grown
+their own version of this check, each in its own words: that is the same fact in
+six places, and the five that had it were the ops whose author happened to think
+of it rather than the ops that needed it.
+
+torch raises `IndexError` here, so refusing is also what the graph's producer
+does.
 """
-jdim(d::Integer, n::Integer) = d >= 0 ? n - Int(d) : -Int(d)
+function jdim(d::Integer, n::Integer)
+    j = d >= 0 ? n - Int(d) : -Int(d)
+    1 <= j <= n || error(
+        "DNNKernels: torch dim $(d) is out of range for a $(n)-d tensor, whose " *
+        "dims are $(-n):$(n - 1). Reversed that would be Julia axis $(j), which " *
+        "is not an axis.")
+    return j
+end
 
 attr(op::Op, k, default=nothing) = get(op.attrs, k, default)
 # `Vector{Int}` is what `plainattr` already produced at load time, so return it

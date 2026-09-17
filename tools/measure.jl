@@ -41,17 +41,17 @@ using Printf, Statistics
 #
 # This file was written against `nvidia-smi` and the card it runs on now is a
 # `Radeon 8060S (RADV STRIX_HALO)`, so every measurement in it threw ENOENT at
-# the first clock read: `bench_all.jl`, the one harness for every model's forward
-# pass, could not take a single sample.
+# the first clock read. `bench_all.jl`, which times every model's forward pass,
+# could not take a single sample.
 #
-# The source is chosen ONCE, below, and answered by dispatch — not asked per call
+# The source is chosen ONCE, below, and answered by dispatch, not asked per call
 # site. Which machine this is cannot be a branch scattered through the
 # measurement code, and it is a fact about the machine rather than about any
 # shader, so it is nothing like the vendor-conditional code the project bans.
 #
 # **The amdgpu path is the better instrument, not a fallback.** Everything here
 # is one `read` of a sysfs file, tens of microseconds against `nvidia-smi`'s 26
-# ms — and that 26 ms is the defect three docstrings below this one describe: a
+# ms, and that 26 ms is the defect three docstrings below this one describe: a
 # probe that takes long enough for the queue to drain reports the hole it dug.
 # The overlap trick those comments explain exists to work around a cost this path
 # does not have.
@@ -138,8 +138,8 @@ function telemetry()
     Sys.which("nvidia-smi") === nothing && error(
         "measure.jl: this machine publishes neither an amdgpu `freq1_input` " *
         "under /sys/class/drm/*/device/hwmon nor an `nvidia-smi`, so the SM " *
-        "clock cannot be read. Every number here is gated on that clock — see " *
-        "`plateau` — so there is nothing to fall back to that would still mean " *
+        "clock cannot be read. Every number here is gated on that clock (see " *
+        "`plateau`), so there is nothing to fall back to that would still mean " *
         "what these rows claim to mean.")
     return NvidiaSmi()
 end
@@ -188,8 +188,8 @@ The machine's state at the HIGHEST clock `f` drove it to over `seconds`.
 
 One reading per call of `f`, taken between calls, which is what "sampled while
 `f` runs" can mean when the probe costs microseconds. The `nvidia-smi` path
-could not do this — its 26 ms probe had to be overlapped with the workload and
-answered with whatever moment the driver happened to pick inside it — so this is
+could not do this: its 26 ms probe had to be overlapped with the workload and
+answered with whatever moment the driver happened to pick inside it. So this is
 the same intent measured directly rather than inferred.
 
 The MAXIMUM and not the mean: the question every caller asks is what clock this
@@ -242,10 +242,10 @@ Whoever else holds the render node.
 amdgpu publishes no per-process memory the way `nvidia-smi` does, so the third
 field is **0 here and that is a gap, not a zero**. `report` prints the count,
 which is the part that matters: a compositor repainting during a sample is
-contention this harness can notice and cannot subtract.
+contention these measurements can notice and cannot subtract.
 
 `fuser` and `ps` rather than a walk over `/proc/*/fd`, because a process list
-read entry by entry changes underneath the reader — a pid that exits between the
+read entry by entry changes underneath the reader. A pid that exits between the
 `isdir` and the `readdir` throws, and "a process exited" is not a condition worth
 a `catch` that would also hide a real one. Each of these is one call that
 answers about the set as it was.
@@ -540,7 +540,7 @@ function bench(f; samples::Int = 15, floor::Real = 0.90, warm::Bool = true,
         # `depthanything` read 73.20 ms ±216% and is 47 ms ±3%.
         GC.gc(false)
         # `b` covers the timed region itself. A sysfs read costs microseconds, so
-        # it goes IMMEDIATELY after the timed region — before the card can drop —
+        # it goes IMMEDIATELY after the timed region, before the card can drop,
         # and is then maxed against the following hold. The `nvidia-smi` form of
         # this had to start the probe before `@elapsed` and keep the card busy
         # until it answered, because the probe was slower than the thing being

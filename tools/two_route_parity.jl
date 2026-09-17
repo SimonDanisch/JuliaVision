@@ -31,7 +31,7 @@
 # After both, every model the declared path covers:
 #
 #   neurallut       22 ops   5.9e-5   clean
-#   basicvsrpp    2282 ops   1.2e-4   clean — and it exercises `deform_conv2d`,
+#   basicvsrpp    2282 ops   1.2e-4   clean, and it exercises `deform_conv2d`,
 #                                     `flip`, `avg_pool2d` and `grid_sampler_2d`
 #   whispercross    10 ops   3.1e-6   clean
 #   whisperdec      74 ops   1.0e-6   clean — and it exercises `index_put`
@@ -42,14 +42,14 @@
 # `castfn`, both of which every model reads: the four clean models are clean to
 # the same figures and the three residuals below are unchanged. MatAnyone's
 # eight graphs on SYNTHETIC inputs read 9, 87, 59, 266, 82, 65, 25 and 7 ops,
-# all clean but `readout_query`, whose `_softmax_2` is 1.03e-2 — which is the
-# case the first limit below names, not a change: that graph consumes a memory
+# all clean but `readout_query`, whose `_softmax_2` is 1.03e-2. That is the
+# case the first limit below names, not a change: the graph consumes a memory
 # bank readout and synthetic inputs are not a legitimate one for it.
 #
 # `kokorotext` is NOT in the loop below and cannot be: its weights live in the
 # `kokoro-ckpt` artifact, which is not installed here, and `KokoroRunner.ready()`
-# is false without it. It was verified the same way with STUB weights — zeros and
-# small normals of each declared shape, identical on both arms — over 199 ops at
+# is false without it. It was verified the same way with STUB weights (zeros and
+# small normals of each declared shape, identical on both arms) over 199 ops at
 # t = 9, 17, 23, 30 and 41, worst rel 8.6e-4 and nothing over 1e-2. Stub weights
 # are enough for what this tool looks for, since both arms read the same ones;
 # what they cannot check is a value-dependent path, and kokorotext has one

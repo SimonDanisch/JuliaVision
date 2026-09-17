@@ -59,7 +59,10 @@ function transposedplan(dev, route::Symbol, x, w, bias, od, stride)
                                   Dict{String,DK.Buffer}(), String[], DK.Op[],
                                   Vector{Vector{String}}()),
                          g, dev, NamedTuple(), Dict{String,Any}("t" => out),
-                         Set{String}(), Ref("t"))
+                         Set{String}(), Ref("t"),
+                         # `make` is never reached here, so nothing is owned;
+                         # the buffers above are this function's own.
+                         Any[])
     if route === :shuffle
         DK.emitconvtransposeshuffle!(emitctx, op, xr, wr, br, out, stride)
     else

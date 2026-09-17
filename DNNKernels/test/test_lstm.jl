@@ -1,7 +1,7 @@
 # `aten::lstm.input`, declared, against torch's definition written out by hand.
 #
 # The kernel is shared with the interpreted path, so comparing the two routes
-# cannot check the RECURRENCE — it checks the plumbing around it and both arms
+# cannot check the RECURRENCE. It checks the plumbing around it, and both arms
 # would be wrong together. What is checked here is the arithmetic itself, from
 # the definition in torch's docs: gate order `i, f, g, o`, the reverse direction
 # reading the sequence backwards but writing each result at its own timestep.
@@ -12,9 +12,9 @@
 # weights below are scaled so the outputs land in `±0.4`; the assertion at the
 # end pins that, so a future edit cannot quietly make the test vacuous again.
 #
-# Declared, this op is four passes per direction — `w_ih` transposed, the input
+# Declared, this op is four passes per direction: `w_ih` transposed, the input
 # projection as one GEMM over the whole sequence, `w_hh` transposed, then the
-# recurrence — and any of them landing in the wrong buffer shows up here.
+# recurrence. Any of them landing in the wrong buffer shows up here.
 
 using Test, Random
 import DNNKernels
@@ -141,16 +141,9 @@ function lstmstate(be)
                            Dict{String,Any}("arg1" => 1))
     g2 = DK.Graph(g.name, g.symbols, g.inputs, ["y", "hn"], bufs,
                   vcat(g.order, ["hn"]), g.ops)
-    err = try
-        DK.declaredvalues(g2, Dict{String,Any}("x" => zeros(Float32, D, T, 1)),
-                          lstmweights(D, H); dims = (;),
-                          backend = be)
-        nothing
-    catch e
-        e
-    end
-    @test err !== nothing
-    @test occursin("final h", sprint(showerror, err))
+    @test_throws "final h" DK.declaredvalues(g2,
+        Dict{String,Any}("x" => zeros(Float32, D, T, 1)), lstmweights(D, H);
+        dims = (;), backend = be)
 end
 end
 

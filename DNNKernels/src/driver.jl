@@ -477,8 +477,31 @@ struct RecordedPlan{P,I,O}
     plan::P
     inputs::I
     outputs::O
-    RecordedPlan(plan::P, inputs::I, outputs::O) where {P,I,O} =
-        new{P,I,O}(plan, inputs, outputs)
+    # The emit's owned buffers, which `inputs` and `outputs` are storage views
+    # into. They have to outlive the plan and nothing finalises them, so the
+    # plan is what owns them and `Mantle.free!` below is what returns them.
+    owned::Vector{Any}
+    RecordedPlan(plan::P, inputs::I, outputs::O, owned::Vector{Any}) where {P,I,O} =
+        new{P,I,O}(plan, inputs, outputs, owned)
+end
+
+"""
+Release a recorded plan: its Mantle regions and the buffers the emit owns.
+
+A `Model` caches one of these per `(name, dims)` and keeps it for the process,
+which is the point of recording. A caller that builds plans it does not keep --
+a test over every exported graph, a tool that sweeps resolutions -- has to
+release them, and before this there was no way to: `Mantle.free!(plan)` returns
+the transients and the argument memory, and the escaping buffers belonged to
+nobody. Idempotent through `freeowned!`'s own emptying.
+"""
+function M.free!(mp::RecordedPlan)
+    M.free!(mp.plan)
+    for b in mp.owned
+        M.free!(b)
+    end
+    empty!(mp.owned)
+    return nothing
 end
 
 """Run one graph and return its outputs in declaration order."""
@@ -564,7 +587,11 @@ function planfor(dev, g::Graph, weights::AbstractDict, dims; maxpasses::Int = 0)
     Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
     outs = Tuple(Mantle.storage(emitctx.res[id]) for id in g.outputs)
-    return RecordedPlan(plan, ins, outs)
+    # Handed over, not copied: the plan owns them from here and the context is
+    # emptied so a later `freeowned!(emitctx)` cannot retire them a second time.
+    owned = copy(emitctx.owned)
+    empty!(emitctx.owned)
+    return RecordedPlan(plan, ins, outs, owned)
 end
 
 """
