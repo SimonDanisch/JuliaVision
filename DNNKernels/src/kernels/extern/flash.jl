@@ -66,13 +66,12 @@ Kept because the analysis points somewhere specific, and so does what blocks it:
   * **`BK` cannot simply shrink.** `BK*E` must divide the workgroup, and with
     `E = 72`, `NT = 256` that forces `BK` to a multiple of 32. `BK = 16` does not
     tile.
-  * ~~**`BQ = 32` is wrong and unexplained.**~~ **Explained and fixed.** It was
-    `OpUDiv` in the staging index — `E = 72` is not a power of two, so
-    `idx % E` emitted a real division into a shared-store address, which drops
+  * **`BQ = 32` works.** What blocked it was `OpUDiv` in the staging index:
+    `E = 72` is not a power of two, so `idx % E` emits a real division into a
+    shared-store address, which drops
     stores on this driver. `Mantle.splitidx` removes it and every configuration is
     exact; `flashfits` no longer refuses odd slot counts. See the note there.
-    **This was the gate, and it is open**, so the `BQ = 32` route to two
-    workgroups is available to try.
+    So the `BQ = 32` route to two workgroups is available to try.
 
 **The conclusion, having worked the numbers: this shape cannot win here.**
 Occupancy is `NT * floor(48 KB / shared)`, and no valid tiling beats the 256
@@ -137,18 +136,15 @@ rather than used: the three-pass path is always available and always right.
     # as an attention that returns zeros. `BQ = BK = 64` at `E = 72` wants 70 KB
     # and does exactly that.
     flashshared(E, BQ, BK) <= sharedbudget || return false
-    # There used to be an `iseven(div(BQ * E, NT))` refusal here, because
-    # `BQ = 32, NT = 256` computed wrong results from query row 4 on (9.4e-02)
-    # while every even slot count was exact — including `BQ = 32` at `NT = 128`,
-    # which is why it was recorded as "the odd slot count" rather than as `BQ`.
-    #
-    # **It was `OpUDiv`.** The staging loops decomposed a flat index with
+    # No `iseven(div(BQ * E, NT))` refusal: an odd slot count is not the
+    # condition. `BQ = 32, NT = 256` computes wrong results from query row 4 on
+    # (9.4e-02) while every even count is exact, including `BQ = 32` at
+    # `NT = 128` — and the cause is `OpUDiv`. The staging loops decompose a flat index with
     # `idx % E` / `idx ÷ E`, and `E = 72` is not a power of two, so a real
     # division landed in a shared-memory store address — which drops stores on
     # this driver (`Mantle.splitidx`, and `test_shared_index_division.jl` for the
-    # isolated case). The tell was in the old note without being recognised: it
-    # was "exact for *constant* inputs", and that is precisely the condition
-    # under which the division bug does not bite, because a constant store needs
+    # isolated case). It is exact for *constant* inputs, which is precisely the
+    # condition under which the division bug does not bite, because a constant store needs
     # no global load to feed it. Same session, same inputs, only the arithmetic:
     #
     #   BQ/NT    BQ*E/NT      OpUDiv    splitidx
@@ -482,9 +478,9 @@ end
         onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
                                             BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT,
                                             EPAD,RPAD,SG}
-    # `SG` is `dev.coopmatsubgroup`, not the literal 32 this used to be. The
-    # launcher already sized the workgroup as `NW * dev.coopmatsubgroup`, so the
-    # two disagreed on any device where Lava cannot pin a 32-lane subgroup: the
+    # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
+    # workgroup as `NW * dev.coopmatsubgroup`, so a literal disagrees with it on
+    # any device where Lava cannot pin a 32-lane subgroup, and then the
     # launch asked for `NW * 64` threads while the kernel strided by `NW * 32`
     # and every subgroup past the first read another's fragment. Nothing would
     # have crashed. `kernel-library-review.md` step 1 names this leftover.
@@ -975,9 +971,9 @@ end
                 #
                 # The row is loop-INVARIANT whenever `NT` is a multiple of `BR`,
                 # which every shipped tiling is: `idx = tid + (s-1)*NT`, so
-                # `idx % BR == tid % BR` for all `s`. This used to call
-                # `splitidx` once per element, and that per-element call is what
-                # the 26% this branch lost was attributed to — an attribution
+                # `idx % BR == tid % BR` for all `s`, so `splitidx` is hoisted
+                # out rather than called per element. The per-element call cost
+                # 26% on this branch — an attribution
                 # that was never tested. Hoisting it is free; see `FLASHCM_REGO`
                 # for what the measurement then said.
                 lqfixed = tid % BR
@@ -1053,9 +1049,7 @@ end
 #=
 ── `lazyrescale`: skip the rescale on blocks where no row's maximum moved ──────
 
-A settled decision, on. It was a global (`FLASHCM_LAZYRESCALE`) supplying
-`sdpaflashcm!`'s keyword default and is now the literal default there
-(`kernel-library-review.md` finding 3, tier two). The keyword survives, so the
+On by default, as `sdpaflashcm!`'s literal keyword default. The keyword survives, so the
 A/B is still one call away — which is how `test_flash.jl` compares the two.
 
 Skip the `O *= exp(m_old - m_new)` pass on key blocks where no row's running
@@ -1122,8 +1116,8 @@ is what runs — so the switch is gone and this asks the device only (review
 finding 3, tier two).
 
 This is the missing piece [`FLASHCM_HELD`](@ref) documents: the 31% is real, and
-what stopped it was that the portable component access costs +69 registers (123
--> 192), halving resident workgroups per SM. `VK_NV_cooperative_matrix2` gives
+the portable component access that would buy it costs +69 registers (123 -> 192),
+halving resident workgroups per SM. `VK_NV_cooperative_matrix2` gives
 the driver the job instead — it walks its own layout, hands the callback the
 element's `(row, col)`, and materialises nothing.
 
@@ -1155,9 +1149,9 @@ const FLASH_EXP_HEADROOM = 10.0f0
 
 Measured on SAM 2's two dominant attention shapes, clock warmed, interleaved,
 against the two-GEMM cooperative-matrix path. **Re-swept after the lazy rescale
-and the one-pass softmax**, because a measured constant is invalidated by the
-thing it was measured against and this project has already been caught by that
-once (`COOPMAT_MINL`, 512 -> 256, when the GEMM under it got 1.68x faster):
+and the one-pass softmax**: a measured constant is invalidated by a change to
+the thing it was measured against, as `COOPMAT_MINL` was (512 -> 256, when the
+GEMM under it got 1.68x faster):
 
     tiling        4096x4096      256x256
     coopmat        9.50 ms       0.883 ms     (the path this replaces)
@@ -1263,9 +1257,9 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
     nbatch <= 0 && return fits[1]
     grid(c) = cld(Lq, c[1]) * nbatch
     # One workgroup per shader core is the floor for "this launch fills the
-    # device". It was the literal 48 — this card's SM count — which is the number
-    # every encoder shape is far above (the windowed blocks launch 512) and only
-    # the decoder's `Lq = 23` cross-attentions fall under, at 8.
+    # device", queried rather than written as this card's 48: every encoder shape
+    # is far above it (the windowed blocks launch 512) and only the decoder's
+    # `Lq = 23` cross-attentions fall under, at 8.
     grid(fits[1]) >= max(1, dev.cores) && return fits[1]
     best = fits[1]
     for c in fits
@@ -1374,7 +1368,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # every staged element, and avoiding that by materialising k and v first cost
     # **646.4 MB of copies per encode, 96 of them, not one operand already dense**.
     # A dense array's strides are `(1, E, E*L, E*L*H)`, so this is the same
-    # arithmetic it was doing, minus the divisions and minus the copy.
+    # arithmetic, minus the divisions and minus the copy.
     #
     # An operand stack `stridedroot` cannot account for is the one refusal the
     # caller can recover from, hence its own reason.
@@ -1450,11 +1444,10 @@ end
 # 
 # Run the cooperative-matrix fused kernel. `q`, `k`, `v` are `(E, L, H, B)`.
 # 
-# **This cannot decline.** Every condition it used to re-test is settled by
-# [`flashcm_plan`](@ref), which is the whole point of holding a plan: the six
-# `return false`s that used to live here ran *after* the caller had allocated `out`
-# and committed to the fused path, and they had to agree with a separate predicate
-# that had already said yes.
+# **This cannot decline.** Every condition is settled by
+# [`flashcm_plan`](@ref), which is the point of holding a plan: a `return false`
+# here would run *after* the caller has allocated `out` and committed to the
+# fused path, and would have to agree with a predicate that already said yes.
 # 
 # `ballast`, `shpad`, `nrsc`, `preonly` and `rscbar` are the diagnostics from the
 # held-`O` investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords
