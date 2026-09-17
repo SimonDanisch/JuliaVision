@@ -104,6 +104,49 @@ struct ToType{T} end
 @inline (::ToType{T})(v) where {T} = convert(T, v)
 
 """
+torch's cast to `Bool`, which is `v != 0` and NOT Julia's `convert`.
+
+`convert(Bool, 2)` throws `InexactError` and `trunc(Bool, 0.5)` is `false`;
+`.to(torch.bool)` answers `true` to both, because it is defined as a comparison
+against zero for every source type. So a `Bool` destination is neither of the
+other two rules and has its own.
+
+It was `convert`, which inside a KERNEL is worse than merely wrong: the throw
+path makes Lava emit `gpu_gc_pool_alloc` and warn that lowering its
+`unreachable` leaves an undef POINTER for the caller to dereference. That
+warning is what found this, on kokorotext's BERT half, which casts an `Int64`
+mask to `Bool`. Its mask is all ones, so the path was never taken and no
+number was ever wrong — which is the whole reason it needed finding.
+"""
+struct ToBool end
+@inline (::ToBool)(v) = !iszero(v)
+
+"""
+    castfn(::Type{T}, ::Type{S}) -> callable
+
+What `_to_copy` applies for an `S` source and a `T` destination, as a singleton
+a kernel can take.
+
+Three rules, in one place because there were two copies of them — this file's
+`runop!` and `emit.jl`'s emit each carried the same `if` — and the pair had
+already drifted in one case. Every one of them is torch's definition and not
+Julia's:
+
+  * a `Bool` destination is a comparison against zero;
+  * a float truncated to an integer saturates, rather than throwing;
+  * everything else is `convert`, which for a float narrowing rounds once.
+
+Written as four methods rather than a chain of `if`s so a new rule is a method.
+The `Bool` case is spelled for both source families because that is what keeps
+it strictly more specific than the float-to-integer one instead of ambiguous
+with it.
+"""
+castfn(::Type{Bool}, ::Type{S}) where {S<:AbstractFloat} = ToBool()
+castfn(::Type{Bool}, ::Type{S}) where {S<:Integer} = ToBool()
+castfn(::Type{T}, ::Type{S}) where {T<:Integer,S<:AbstractFloat} = SafeTrunc{T}()
+castfn(::Type{T}, ::Type{S}) where {T,S} = ToType{T}()
+
+"""
     pycomplex(s) -> ComplexF32 | nothing
 
 Parse a Python complex literal — `"1j"`, `"-2j"`, `"(1+2j)"`, `"(-1.5-0.5j)"`.
@@ -759,18 +802,10 @@ end
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_to_copy.default")})
     a = lhs(ctx, op)
     d = opdest(ctx, a)
-    # torch's float -> integer cast truncates toward zero; Julia's `convert`
-    # throws `InexactError` on anything with a fractional part. The Wan VAE hits
-    # this casting attention index arithmetic, where 0.25 is a legitimate input
-    # that torch turns into 0.
-    if eltype(d) <: Integer && !(eltype(a) <: Integer)
-        # Saturating, not just truncating: torch turns +/-Inf into the integer
-        # extremes and NaN into 0, while Julia's `trunc` throws `InexactError`.
-        # T5's attention mask carries -Inf into exactly this cast.
-        d .= SafeTrunc{eltype(d)}().(a)
-    else
-        d .= a
-    end
+    # `castfn` is the rule, and it is the same object the emit dispatches, so
+    # the two routes cannot cast differently. Each of its three cases is torch's
+    # definition rather than Julia's -- see its docstring.
+    d .= castfn(eltype(d), eltype(a)).(a)
     d
 end
 
@@ -1605,10 +1640,9 @@ count grows with the sequence.
 
 The reversed layout puts the sequence in the middle: torch `(N, T, D)` with
 `batch_first` is Julia `(D, T, N)`, and the `(2, N, H)` initial state is
-`(H, N, 2)`. Only the shapes Kokoro produces are accepted — one layer, batch 1,
-`batch_first`, inference — and anything else errors rather than quietly running a
-different recurrence. Multi-layer is a loop over this; batching is a wider GEMM
-and a batch axis in the kernel; neither has a caller yet.
+`(H, N, 2)`. Which configurations are accepted is `lstmconfig`, beside the
+kernel, because it is the kernel's contract and the declared route reads the
+same one.
 
 Returns only `(output,)`. `aten::lstm` also returns the final `h` and `c`, which
 `getitem` would pick out — no graph here reads them, and returning a placeholder
@@ -1618,20 +1652,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("lstm.input")})
     x = lhs(ctx, op)                                  # (D, T, N)
     hx = [value(ctx, String(e)[2:end]) for e in op.attrs["arg1"]]
     ps = [value(ctx, String(e)[2:end]) for e in op.attrs["arg2"]]
-    hasbias = Bool(something(get(op.attrs, "arg3", nothing), true))
-    nlayers = Int(something(get(op.attrs, "arg4", nothing), 1))
-    bidir = Bool(something(get(op.attrs, "arg7", nothing), false))
-    batchfirst = Bool(something(get(op.attrs, "arg8", nothing), false))
-    hasbias || error("lstm: has_biases = false is not implemented (op $(op.id))")
-    nlayers == 1 || error("lstm: num_layers = $nlayers is not implemented (op $(op.id))")
-    batchfirst || error("lstm: batch_first = false is not implemented (op $(op.id))")
-    size(x, 3) == 1 || error("lstm: batch $(size(x, 3)) is not implemented (op $(op.id))")
-
-    D, T = size(x, 1), size(x, 2)
-    H = size(ps[2], 1)                                # w_hh is (H, 4H)
-    ndir = bidir ? 2 : 1
-    length(ps) == 4 * ndir || error("lstm: $(length(ps)) parameters for " *
-                                    "$(ndir) direction(s) (op $(op.id))")
+    D, T, H, ndir = lstmconfig(op, x, ps)
     out = alloc(ctx, op.out, ndir * H, T, 1)
     x2 = reshape(x, D, T)
     h0, c0 = hx[1], hx[2]

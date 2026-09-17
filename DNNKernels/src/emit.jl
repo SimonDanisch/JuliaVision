@@ -77,8 +77,9 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
     emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""))
+    shapes = resultshapes(aten)
     for id in aten.order
-        declare!(emitctx, aten.buffers[id], weights, live)
+        declare!(emitctx, aten.buffers[id], weights, live, shapes)
     end
     for op in aten.ops
         op.out in skip && continue
@@ -100,6 +101,60 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
 end
 
 """
+    resultshapes(aten) -> Dict{String,Any}
+
+The shape of each element of a multi-output result, taken from the `getitem`
+view that reads it.
+
+A `getitem` is the identity on the bytes it names, so a view and the element it
+names are the same tensor and their two shapes are one fact written twice. They
+disagree in one direction only, and both Kokoro exports do it — 119 buffers
+between them, against 1317 that agree across every other model: the VIEW is
+symbolic and the op's `shapes` metadata holds that symbol evaluated at the trace.
+`[1, "t", 512]` against `[1, 30, 512]`, `[1, 128, "120*f + 1"]` against
+`[1, 128, 11761]`. It is not one op's quirk either: in those two graphs it is
+every `native_layer_norm`, every `_native_batch_norm_legit`, every sdpa and
+every `lstm.input`.
+
+The view is the shape that survives because it is the more general statement and
+because it is what every consumer indexes with — `viewfor` answers a `getitem`
+with the PARENT's resource, so a resource that does not match the view is one
+nothing can read correctly. Declared from the metadata instead, kokorotext plans
+30 columns for whatever `t` it is called with, and silently: the extents are
+concrete, so nothing downstream has a symbol left to disagree with.
+
+Two views of one element that disagree are refused rather than ordered. So is a
+view whose RANK differs from the metadata's, which is a disagreement about what
+the tensor IS rather than about how long one axis is.
+"""
+function resultshapes(aten::Graph)
+    out = Dict{String,Any}()
+    for (_, b) in aten.buffers
+        (b.kind === :view && occursin("getitem", b.viewop)) || continue
+        key = "$(b.of)#$(Int(b.attrs["arg1"]))"
+        prev = get(out, key, nothing)
+        prev === nothing || collect(prev) == collect(b.shape) || error(
+            "DNNKernels: two `getitem` views of `$key` give it different " *
+            "shapes, $(prev) and $(b.shape). They name the same bytes, so one " *
+            "is wrong and nothing here can tell which.")
+        out[key] = b.shape
+    end
+    return out
+end
+
+"""The shape to declare element `key` with: its reader's, checked against the
+export's own metadata for rank."""
+function resultshape(shapes::Dict{String,Any}, key::AbstractString, meta)
+    s = get(shapes, key, nothing)
+    s === nothing && return meta
+    length(s) == length(meta) || error(
+        "DNNKernels: `$key` is declared $(collect(meta)) by the op that " *
+        "produces it and read as $(collect(s)) by its `getitem`. Those are " *
+        "different ranks, so they are not the same tensor described twice.")
+    return s
+end
+
+"""
 One buffer's resource.
 
 The kinds are the export's, and the decision each one makes is Mantle's:
@@ -113,7 +168,8 @@ The kinds are the export's, and the decision each one makes is Mantle's:
     graph, or by the caller reading an output — so it cannot be memory the placer
     may hand to something else at its last use.
 """
-function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{String})
+function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict,
+                  live::Set{String}, shapes::Dict{String,Any})
     b.kind === :view && return                      # `viewfor`, on demand
     if b.kind === :weight
         haskey(weights, b.key) || error("missing weight $(b.key)")
@@ -132,7 +188,9 @@ function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict, live::Set{
             (shape === nothing || T === nothing) && continue
             key = "$(b.id)#$(i - 1)"
             key in live || continue
-            emitctx.res[key] = make(emitctx, b.id, T, evalshape(shape, emitctx.dims))
+            emitctx.res[key] = make(emitctx, b.id, T,
+                                    evalshape(resultshape(shapes, key, shape),
+                                              emitctx.dims))
         end
         return
     end
@@ -791,20 +849,13 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("logical_and.default")}) =
 """
 `aten::_to_copy`, a dtype conversion as one elementwise pass.
 
-torch's float-to-integer cast truncates toward zero and saturates: `+/-Inf`
-become the integer extremes and `NaN` becomes 0, where Julia's `convert` throws
-`InexactError`. `SafeTrunc` is that rule, and it matters on real graphs -- T5's
-attention mask carries `-Inf` into exactly this cast, and the Wan VAE casts
-index arithmetic where 0.25 is a legitimate input torch turns into 0.
-
-Everything else is `convert`, which for a float-to-float narrowing is the single
-store rounding once.
+Which conversion is `castfn`'s, and this used to carry its own copy of the same
+`if`. Both routes ask that one function, so neither can round, truncate or
+saturate differently from the other.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_to_copy.default")})
     a = operand(emitctx, op, 1)
-    T = eltype(dest(emitctx))
-    f = (T <: Integer && !(eltype(a) <: Integer)) ? SafeTrunc{T}() : ToType{T}()
-    return elementwise!(emitctx, op, f, a)
+    return elementwise!(emitctx, op, castfn(eltype(dest(emitctx)), eltype(a)), a)
 end
 
 """
@@ -956,7 +1007,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("repeat.default")})
 end
 
 """
-    folddims(emitctx, op, dims, combine, init; scale = nothing) -> out
+    folddims(emitctx, op, dims, combine, init; pre = identity, post = identity) -> out
 
 One reduction over `dims`, as one dispatch over the output.
 
@@ -971,8 +1022,15 @@ is the whole of what those ops have in common and all of what they do.
 **`init` decides the accumulator's type** — see `folddims!`. For a float
 reduction that is `accum(eltype(a))` and not `eltype(a)`, and `foldincasts`
 depends on it.
+
+`pre` and `post` are the op's OWN map steps, the one on each side of the fold: a
+p-norm is `sum(abs2)` followed by a `sqrt`, and `mean` is a sum followed by a
+division. Both happen inside the reduction kernel, so neither costs a pass.
+`pre` composes with whatever `foldpremap` folded in, and in that order — the
+folded map is a step of the value the graph fed this op, so it runs first.
 """
-function folddims(emitctx::EmitCtx, op::Op, dims, combine, init; scale = nothing)
+function folddims(emitctx::EmitCtx, op::Op, dims, combine, init;
+                  pre = identity, post = identity)
     a = operand(emitctx, op.ins[1])
     out = dest(emitctx)
     id = size(a)
@@ -983,8 +1041,9 @@ function folddims(emitctx::EmitCtx, op::Op, dims, combine, init; scale = nothing
               "$(length(out)).")
     # `foldpremap` folds a map step into the reduction; `identity` is the
     # unfolded case, so there is one kernel rather than two.
-    f = something(premap(op), identity)
-    M.dispatch!(emitctx.g, folddims!, (out, od, a, id, f, combine, init, scale),
+    folded = something(premap(op), identity)
+    f = folded === identity ? pre : pre === identity ? folded : pre ∘ folded
+    M.dispatch!(emitctx.g, folddims!, (out, od, a, id, f, combine, init, post),
                 prod(od); name = op.id)
     return out
 end
@@ -1032,6 +1091,42 @@ end
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("all.dim")})
     a = operand(emitctx, op.ins[1])
     return folddims(emitctx, op, (jdim(Int(op.attrs["arg1"]), ndims(a)),), &, true)
+end
+
+"""
+`aten::linalg_vector_norm(ord, dims, keepdim)`: the fold with a map on each side
+of it.
+
+Order 2 is `sqrt(sum(abs2))` and the general one is `sum(abs(x)^p)^(1/p)`, so
+both are `folddims` with a `pre` and a `post` and neither is a reduction of its
+own. `ord == 2` is spelled separately because `sqrt` is not `^(1/2)` on a GPU —
+it is one instruction against a `log`/`exp` pair — and every graph here asks for
+2.
+
+A non-finite or non-positive order is REFUSED rather than run. `p = Inf` is the
+maximum absolute value and `p = 0` counts the nonzeros; both are different
+reductions, and `acc^(1/Inf)` is `acc^0`, which is 1 for every input. The
+interpreted path computes exactly that and returns ones.
+
+The dims are `nothing` for torch's "over everything", which is every axis.
+"""
+function emitop!(emitctx::EmitCtx, op::Op,
+                 ::Val{Symbol("linalg_vector_norm.default")})
+    a = operand(emitctx, op.ins[1])
+    A = accum(eltype(a))
+    ord = Float64(something(get(op.attrs, "arg1", nothing), 2))
+    isfinite(ord) && ord > 0 || error(
+        "DNNKernels: `linalg_vector_norm` (op $(op.id)) asks for order $(ord). " *
+        "Only a finite positive order is a sum of powers; `Inf` is a maximum " *
+        "and `0` is a count, and each is its own reduction.")
+    spec = get(op.attrs, "arg2", nothing)
+    dims = spec === nothing ? ntuple(identity, ndims(a)) :
+           Tuple(jdim(d, ndims(a)) for d in ints(spec))
+    ord == 2 && return folddims(emitctx, op, dims, +, zero(A);
+                                pre = abs2, post = sqrt)
+    p, invp = A(ord), A(1 / ord)
+    return folddims(emitctx, op, dims, +, zero(A);
+                    pre = x -> abs(x)^p, post = acc -> acc^invp)
 end
 
 """
@@ -1154,6 +1249,51 @@ function mapbody!(emitctx::EmitCtx, op::Op, body, out, args...; name = op.id)
     n == 0 && return out
     M.dispatch!(emitctx.g, ndmap_flat!,
                 (body, out, map(M.FastDiv32, size(out)), n, args...), n; name)
+    return out
+end
+
+"""
+`aten::gather(dim, index)`: `out[c] = a[c with c[dim] = index[c]]`.
+
+The index has the result's shape and names the coordinate on ONE axis. That is
+a different gather from `index.Tensor`'s — there an index array is a coordinate
+list for a whole axis and several of them form an outer product — so it is
+`gatherdim!` and not `indexgather!`, and the distinction is in those two
+docstrings.
+
+Torch requires the index to be no larger than the source on every axis it does
+not name; checked, because reading past the source is the failure the check
+exists to stop and the two extents come from different buffers.
+
+`runop!` restricted this to the case where every axis but `dim` is a singleton,
+which is Kokoro's, and ran it on the HOST. The general form is one dispatch.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("gather.default")})
+    # `ins`, not positions: torch's schema is `gather(self, dim, index)`, so the
+    # index is the second TENSOR and the third argument, and `dim` is the scalar
+    # in `attrs["arg1"]` below.
+    a = operand(emitctx, op.ins[1])
+    idx = operand(emitctx, op.ins[2])
+    out = dest(emitctx)
+    n = ndims(a)
+    ndims(idx) == n || error(
+        "DNNKernels: `gather` (op $(op.id)) indexes a $(n)-d source with a " *
+        "$(ndims(idx))-d index. torch gives the index the source's rank.")
+    d = jdim(Int(op.attrs["arg1"]), n)
+    1 <= d <= n || error(
+        "DNNKernels: `gather` (op $(op.id)) names torch dim " *
+        "$(Int(op.attrs["arg1"])) of a $(n)-d source.")
+    od = size(idx)
+    all(k -> k == d || od[k] <= size(a, k), 1:n) || error(
+        "DNNKernels: `gather` (op $(op.id)) has an index of $(od) over a " *
+        "source of $(size(a)), which is larger than the source on an axis it " *
+        "does not gather. Every such axis passes its coordinate straight " *
+        "through, so the read would leave the source.")
+    prod(od) == length(out) || error(
+        "DNNKernels: `gather` (op $(op.id)) gathers $(prod(od)) elements and " *
+        "its output buffer holds $(length(out)).")
+    M.dispatch!(emitctx.g, gatherdim!, (out, od, a, size(a), idx, d), prod(od);
+                name = op.id)
     return out
 end
 
@@ -1388,16 +1528,17 @@ end
 store.
 
 Not a second pass to divide: the count is a host scalar the emit already knows,
-so `folddims!` takes a `scale` and multiplies once, inside the accumulator's
-type. A pass to scale by a constant is a whole round trip of the result through
-memory.
+so it goes in as `folddims!`'s `post` and multiplies once, inside the
+accumulator's type. A pass to scale by a constant is a whole round trip of the
+result through memory.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mean.dim")})
     a = operand(emitctx, op, 1)
     dims = reduceddims(op, ndims(a))
     n = prod(size(a, k) for k in dims)
     A = accum(eltype(dest(emitctx)))
-    return folddims(emitctx, op, dims, +, zero(A); scale = A(1 // n))
+    s = A(1 // n)
+    return folddims(emitctx, op, dims, +, zero(A); post = acc -> acc * s)
 end
 
 """
@@ -1751,6 +1892,102 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_fused_rms_norm.default
                  Val(γ !== nothing)),
                 groups * LN_WG; group = LN_WG, name = op.id)
     return (out, rstd)
+end
+
+"""
+    resultread(emitctx, i) -> Bool
+
+Does the GRAPH read element `i` of the op being emitted?
+
+`maybedest` answers a different question — whether a resource was declared for
+it — and under `keepall` every element has one whether or not anything reads it.
+An emit that produces some of a torch schema's results and not others has to ask
+about the graph, so it asks the graph.
+"""
+resultread(emitctx::EmitCtx, i::Integer) =
+    any(values(emitctx.aten.buffers)) do b
+        b.kind === :view && occursin("getitem", b.viewop) &&
+            b.of == emitctx.outid[] && Int(b.attrs["arg1"]) == i
+    end
+
+"""
+`aten::lstm.input` — a whole recurrent layer as one op, declared.
+
+Three passes per direction and one of them is the recurrence:
+
+  * `w_ih` transposed to `(4H, D)`, so the input projection is a GEMM in the
+    layout `gemm!` reads;
+  * that projection over the WHOLE sequence at once, with `b_ih` in its store —
+    `W_ih x_t` does not depend on `h`, which is what leaves a sequential loop
+    small enough to fit in one workgroup;
+  * `w_hh` transposed to `(4H, H)`, which is worth 6x inside the loop;
+  * `lstm_kernel!`, one workgroup of `4H` threads carrying `h` and `c` in shared
+    memory across every timestep.
+
+`kernels/extern/lstm.jl` has the arithmetic and the measurements. What changes
+here is only where the intermediates live: `Gx` and the two transposed copies
+were `scratch!` from an arena that reset per op, so their bytes could never be
+reused by anything else; declared, the placer aliases them against the whole
+graph.
+
+The transposes are per REPLAY, not per model, because a weight's layout is not
+something an emit may rewrite — `hoistpermutes` is the pass that does that, and
+it works on `permute` ops the export produced rather than on the inside of a
+composite op. 3.6 MB of copies per layer against a recurrence that reads `WhhT`
+once per timestep.
+
+Which shapes are accepted is `lstmconfig`'s, shared with the interpreted route.
+The state is NOT returned:
+`lstm_kernel!` keeps `h` and `c` in shared memory and never writes them out, so
+a graph that reads them is refused instead of being handed memory nothing wrote.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("lstm.input")})
+    x = operand(emitctx, op.ins[1])                       # (D, T, N)
+    hx = [operand(emitctx, String(e)[2:end]) for e in op.attrs["arg1"]]
+    ps = [operand(emitctx, String(e)[2:end]) for e in op.attrs["arg2"]]
+    # Which configurations are this recurrence is the KERNEL's contract, so it
+    # is stated once beside the kernel and both routes read it.
+    D, nsteps, H, ndir = lstmconfig(op, x, ps)
+    for i in 1:2
+        resultread(emitctx, i) || continue
+        error("DNNKernels: `lstm` (op $(op.id)) is read for element $(i), its " *
+              "final $(i == 1 ? "h" : "c"). `lstm_kernel!` keeps the state in " *
+              "shared memory and writes out only the per-step output, so there " *
+              "is nothing to return for it.")
+    end
+    out = dest(emitctx, 0)
+    size(out, 1) == ndir * H || error(
+        "DNNKernels: `lstm` (op $(op.id)) produces $(ndir * H) features per " *
+        "step and its result is declared $(size(out)).")
+    size(out, 2) == nsteps || error(
+        "DNNKernels: `lstm` (op $(op.id)) reads $(nsteps) steps and its result " *
+        "is declared $(size(out)) — $(size(out, 2)) of them. The export writes " *
+        "a composite op's result shapes from the TRACE; see `resultshapes`.")
+    outm = M.viewof(out, (ndir * H, nsteps))
+    x2 = M.viewof(x, (D, nsteps))
+    h0, c0 = hx[1], hx[2]
+    for d in 0:(ndir - 1)
+        w_ih, w_hh, b_ih, b_hh = ps[4d + 1], ps[4d + 2], ps[4d + 3], ps[4d + 4]
+        # `(D, 4H)` -> `(4H, D)` and `(H, 4H)` -> `(4H, H)`: one parent stride
+        # per axis of the copy, which is what a transpose is to `stridedcopy!`.
+        w_ihT = scratch(emitctx, Float32, 4H, D)
+        M.dispatch!(emitctx.g, stridedcopy!, (w_ihT, (4H, D), w_ih, (D, 1), 0),
+                    4H * D; name = "$(op.id).ihT$(d)")
+        Gx = scratch(emitctx, Float32, 4H, nsteps)
+        gemm!(emitctx, op, Gx, w_ihT, x2; bias = b_ih)
+        WhhT = scratch(emitctx, Float32, 4H, H)
+        M.dispatch!(emitctx.g, stridedcopy!, (WhhT, (4H, H), w_hh, (H, 1), 0),
+                    4H * H; name = "$(op.id).hhT$(d)")
+        # The initial state is `(H, N, ndir)`, so a direction's is one plane.
+        plane = d * size(h0, 1) * size(h0, 2)
+        M.dispatch!(emitctx.g, lstm_kernel!,
+                    (outm, Gx, WhhT, b_hh,
+                     M.viewof(h0, (H,); offset = plane),
+                     M.viewof(c0, (H,); offset = plane),
+                     nsteps, d * H, Val(H), Val(d == 1)),
+                    4H; group = 4H, name = "$(op.id).dir$(d)")
+    end
+    return (out,)
 end
 
 """

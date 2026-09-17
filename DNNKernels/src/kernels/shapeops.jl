@@ -38,9 +38,9 @@ function tilecopy!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}) where {N}
 end
 
 """
-    folddims!(out, od, a, id, f, combine, init, scale = nothing)
+    folddims!(out, od, a, id, f, combine, init, post = identity)
 
-`out = reduce(combine, map(f, a); dims)`, one thread per OUTPUT element.
+`out = post(reduce(combine, map(f, a); dims))`, one thread per OUTPUT element.
 
 `od` is the input's shape with a `1` on every reduced axis, so the reduced
 extents are exactly the axes the output holds as one, and the kernel needs no
@@ -63,9 +63,16 @@ still one dispatch and one pass.
 `any` differ in the operator and its identity and in nothing else — same index
 arithmetic, same loop, same store — and this was `sumdims!` with `+` written
 into it, so `prod.dim_int` and `any.dim` had no declared form at all.
+
+`post` is the accumulator's last step, applied once per output element inside
+this kernel rather than as a pass over the result. It was a `scale` value, which
+is `mean`'s division by the count, and a norm wants a `sqrt` in exactly the same
+place — two mechanisms for one step, so the function is the one that stays and
+`mean` passes the multiply. `identity` is every reduction that has no such step,
+and it costs nothing: it is a type, so the store specialises on it.
 """
 function folddims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, combine, init,
-                   scale = nothing) where {N}
+                   post = identity) where {N}
     i = KI.get_global_id().x
     i <= prod(od) || return
     ist = colstrides(id)
@@ -88,14 +95,11 @@ function folddims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, combine, ini
         end
         acc = combine(acc, f(a[off + 1]))
     end
-    # `scale` is `mean.dim`: the reduction divided by how many elements it
-    # summed. In the SAME kernel, and folded into the accumulator's type rather
-    # than a second elementwise pass, because the count is a host scalar the
-    # emit already knows — a pass to multiply by a constant is a whole extra
-    # round-trip of the result through memory. `nothing` is every other
-    # reduction, and the branch is on a type, so neither form pays for the
-    # other.
-    @inbounds out[i] = scale === nothing ? acc : acc * scale
+    # In the SAME kernel, and in the accumulator's type rather than a second
+    # elementwise pass: `mean`'s count and a norm's order are host scalars the
+    # emit already knows, and a pass to apply one is a whole extra round-trip of
+    # the result through memory.
+    @inbounds out[i] = post(acc)
     return
 end
 
@@ -198,6 +202,42 @@ function indexpaired!(out, od::NTuple{N,Int}, x, xd::Tuple, idxs::Tuple,
     i <= prod(od) || return
     off = pairedoffset(idxs, sts, colstrides(xd), i - 1, od, 1)
     @inbounds out[i] = x[off + 1]
+    return
+end
+
+"""
+    gatherdim!(out, od, a, ad, idx, d)
+
+`aten::gather` along one axis: `out[c] = a[c with c[d] = idx[c]]`.
+
+The index has the OUTPUT's shape and supplies the coordinate on axis `d` only;
+every other axis takes its own coordinate straight through. That is what
+separates this from [`indexgather!`](@ref), where an index array is one
+coordinate list for a whole axis and the indexed axes form an outer product —
+there the index varies along its own axis, here it varies along all of them.
+
+`idx` holds torch's 0-based values, so it goes into the offset unshifted and the
+one `+ 1` is on the final linear index, as everywhere else here.
+
+The interpreted path only ever did the case where every axis but `d` is a
+singleton, which makes the whole thing `a[idx]` and needs no kernel — it
+`collect`ed both operands to the host and indexed there, so it could not be
+recorded. The general form is the same index arithmetic as the rest of this file
+and no harder to write than the restriction was to state.
+"""
+function gatherdim!(out, od::NTuple{N,Int}, a, ad::NTuple{N,Int}, idx,
+                    d::Int) where {N}
+    i = KI.get_global_id().x
+    i <= prod(od) || return
+    ast = colstrides(ad)
+    off = 0
+    r = i - 1
+    @inbounds for k in 1:N
+        c = r % od[k]
+        r = r ÷ od[k]
+        off += (k == d ? Int(idx[i]) : c) * ast[k]
+    end
+    @inbounds out[i] = a[off + 1]
     return
 end
 

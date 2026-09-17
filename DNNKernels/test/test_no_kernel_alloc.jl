@@ -45,6 +45,57 @@ const ST = DNNKernels.safetrunc
     @test sizeof(DNNKernels.SafeTrunc{Int32}()) == 0
 end
 
+# The third conversion rule, and the one that had a throw path in a KERNEL.
+#
+# `Bool <: Integer` in Julia, so an `Int64 -> Bool` cast fell through to
+# `convert`, which raises `InexactError` for anything but 0 and 1 — and torch's
+# `.to(torch.bool)` is `v != 0` for every source type, so `convert` was both the
+# wrong answer and a `gpu_gc_pool_alloc` in the shader. Lava's
+# `replace_unreachable!` warned about exactly that on kokorotext, whose BERT half
+# casts an all-ones `Int64` mask: the path was never taken, so no number was
+# ever wrong and nothing failed.
+#
+# Asserted on `castfn`'s CHOICE as well as on the values, because the defect was
+# a rule selecting the wrong callable and not a callable computing the wrong
+# thing. And on both routes reading the same rule: `runop!` and the emit each
+# carried a copy of the `if`.
+@testset "castfn is torch's cast for each destination" begin
+    cf = DNNKernels.castfn
+    # A Bool destination is a comparison against zero, from either family.
+    @test cf(Bool, Int64) === DNNKernels.ToBool()
+    @test cf(Bool, Float32) === DNNKernels.ToBool()
+    @test cf(Bool, Bool) === DNNKernels.ToBool()
+    @test cf(Bool, Int64)(2) === true            # `convert` throws here
+    @test cf(Bool, Int64)(-1) === true
+    @test cf(Bool, Int64)(0) === false
+    @test cf(Bool, Float32)(0.5f0) === true      # `trunc` answers `false` here
+    @test cf(Bool, Float32)(-3.7f0) === true
+    @test cf(Bool, Float32)(0.0f0) === false
+    # A float truncated to an integer saturates.
+    @test cf(Int32, Float32) === DNNKernels.SafeTrunc{Int32}()
+    @test cf(Int32, Float32)(Inf32) === typemax(Int32)
+    # Everything else converts, including integer to integer.
+    @test cf(Float16, Float32) === DNNKernels.ToType{Float16}()
+    @test cf(Int64, Int32) === DNNKernels.ToType{Int64}()
+    @test cf(ComplexF32, Float32) === DNNKernels.ToType{ComplexF32}()
+    # Four methods over two axes: the pair that overlaps has to resolve rather
+    # than be ambiguous, and an ambiguity inside a kernel reads as "method
+    # lookup failure" with nothing about dispatch in it.
+    @test length(methods(cf)) == 4
+    for T in (Bool, Int32, Int64, Float16, Float32), S in (Bool, Int32, Float32)
+        # Resolves to exactly one method, and the callable it picks lands in the
+        # destination type. An ambiguity throws at the `cf` call.
+        @test length(Base.methods(cf, Tuple{Type{T},Type{S}})) == 1
+        @test cf(T, S)(one(S)) isa T
+    end
+    # Every one of them still costs no kernel slot.
+    for f in (DNNKernels.ToBool(), DNNKernels.ToType{Float16}(),
+              DNNKernels.SafeTrunc{Int32}())
+        @test isbitstype(typeof(f))
+        @test sizeof(f) == 0
+    end
+end
+
 @testset "fastfloor agrees with floor where the caller has bounded it" begin
     for v in Float32.(-8:0.25:8)
         @test DNNKernels.fastfloor(v) == floor(Int, v)

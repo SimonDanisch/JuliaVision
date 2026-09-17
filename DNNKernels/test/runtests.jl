@@ -113,3 +113,15 @@ include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # including the one its own docstring calls "the whole test". It covers the tiled
 # transpose, which is now also how every transposed weight reaches the device.
 include(joinpath(@__DIR__, "test_transposeLE.jl"))
+# And so did this one, which is the third time: 165 lines over `tilecopy!`,
+# `folddims!`, `bnstats!`, `blockcopy!` and the `gather` walk, self-driving over
+# `Mantle.eachbackend()` and reached by nothing. Its own header says "a test
+# nothing runs is not a test".
+include(joinpath(@__DIR__, "test_declared_ops.jl"))
+# `aten::lstm` against torch's definition rather than against the other route:
+# both routes share the kernel, so only an independent reference can check the
+# recurrence.
+include(joinpath(@__DIR__, "test_lstm.jl"))
+# Where a composite op's result shapes come from when the export gives two
+# answers. Host-only.
+include(joinpath(@__DIR__, "test_multiresult.jl"))

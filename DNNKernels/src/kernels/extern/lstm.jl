@@ -116,6 +116,57 @@ the `4H` axis.
 end
 
 """
+    lstmconfig(op, x, ps) -> (D, nsteps, H, ndir)
+
+The shapes one `aten::lstm.input` is, with every configuration that would be a
+DIFFERENT recurrence refused.
+
+Both routes read this. Each carried its own copy of the same refusals, which is
+one fact in two places and exactly the kind that drifts: the element-type check
+belongs to `lstm_kernel!`'s `@localmem Float32` and so to both of them, and only
+one had it.
+
+Refused rather than approximated, because each of these is another recurrence
+and not a slower path to this one. Multi-layer feeds its own output back in;
+`batch_first = false` puts the sequence on a different axis of every operand;
+`train = true` means the dropout between layers applies, and dropout is not the
+identity there; a batch needs a wider GEMM and an index in the kernel. None of
+them has a caller yet, and a graph that wants one gets a refusal naming which.
+"""
+function lstmconfig(op::Op, x, ps)
+    Bool(something(get(op.attrs, "arg3", nothing), true)) || error(
+        "DNNKernels: `lstm` (op $(op.id)) has has_biases = false, and both " *
+        "biases are read unconditionally — `b_ih` in the input projection, " *
+        "`b_hh` in the loop.")
+    nlayers = Int(something(get(op.attrs, "arg4", nothing), 1))
+    nlayers == 1 || error(
+        "DNNKernels: `lstm` (op $(op.id)) has num_layers = $(nlayers). A layer " *
+        "feeds the next, so this is a loop over the whole of the below with an " *
+        "intermediate per layer.")
+    Bool(something(get(op.attrs, "arg6", nothing), false)) && error(
+        "DNNKernels: `lstm` (op $(op.id)) has train = true, so its dropout of " *
+        "$(get(op.attrs, "arg5", 0)) applies between layers. Inference is what " *
+        "is implemented, and dropout is not the identity in training.")
+    Bool(something(get(op.attrs, "arg8", nothing), false)) || error(
+        "DNNKernels: `lstm` (op $(op.id)) has batch_first = false, which puts " *
+        "the sequence on a different axis of every operand.")
+    ndir = Bool(something(get(op.attrs, "arg7", nothing), false)) ? 2 : 1
+    length(ps) == 4 * ndir || error(
+        "DNNKernels: `lstm` (op $(op.id)) has $(length(ps)) parameters for " *
+        "$(ndir) direction(s), and each direction takes four.")
+    eltype(x) === Float32 || error(
+        "DNNKernels: `lstm` (op $(op.id)) has a $(eltype(x)) input. " *
+        "`lstm_kernel!` carries `h` and `c` in `@localmem Float32`, so a " *
+        "narrower input would be accumulated wider than it was stored and a " *
+        "wider one truncated.")
+    size(x, 3) == 1 || error(
+        "DNNKernels: `lstm` (op $(op.id)) has batch $(size(x, 3)). The " *
+        "recurrence is one workgroup per direction with no batch axis.")
+    # `w_hh` is `(H, 4H)` in the reversed layout, so its first extent is `H`.
+    return (size(x, 1), size(x, 2), size(ps[2], 1), ndir)
+end
+
+"""
     lstm!(ctx, out, x, weights, T, H; bidirectional) -> out
 
 `x` is `(D, T)`, `out` is `((1 + bidirectional) * H, T)`.

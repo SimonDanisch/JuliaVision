@@ -47,20 +47,36 @@ function declaredops(dev, label)
         @testset "sum reduces the axes the output holds as one" begin
             xh = reshape(collect(Float32, 1:(4 * 3 * 2 * 5 * 3)), 4, 3, 2, 5, 3)
             id = size(xh)
-            for (kd, dims, f, ref) in
-                (((4, 3, 2, 5, 1), 5, identity, sum(xh; dims = 5)),
-                 ((4, 1, 2, 5, 3), 2, abs2, sum(abs2, xh; dims = 2)),
-                 ((1, 3, 1, 5, 3), (1, 3), identity, sum(xh; dims = (1, 3))))
+            # `post` is the accumulator's last step and the reason `mean` and a
+            # p-norm are this kernel rather than two more: a `scale` value and a
+            # `sqrt` are the same place in the same store.
+            for (kd, dims, f, post, ref) in
+                (((4, 3, 2, 5, 1), 5, identity, identity, sum(xh; dims = 5)),
+                 ((4, 1, 2, 5, 3), 2, abs2, identity, sum(abs2, xh; dims = 2)),
+                 ((1, 3, 1, 5, 3), (1, 3), identity, identity, sum(xh; dims = (1, 3))),
+                 ((4, 1, 2, 5, 3), 2, identity, a -> a * (1.0f0 / 3),
+                  sum(xh; dims = 2) ./ 3),
+                 ((1, 3, 1, 5, 3), (1, 3), abs2, sqrt,
+                  sqrt.(sum(abs2, xh; dims = (1, 3)))),
+                 ((4, 3, 2, 5, 1), 5, x -> abs(x)^3.0f0, a -> a^(1.0f0 / 3),
+                  sum(abs.(xh) .^ 3; dims = 5) .^ (1 / 3)))
                 g = MM.Graph(dev)
                 out = MM.Transient.Buffer(g, Float32, dropdims(ref; dims = dims) |> size)
                 x = MM.Buffer(dev, xh)
                 MM.dispatch!(g, DK.folddims!,
-                             (out, kd, x, id, f, +, zero(DK.accum(eltype(xh))), nothing),
+                             (out, kd, x, id, f, +, zero(DK.accum(eltype(xh))), post),
                              prod(kd);
                              name = "sum")
                 pl = MM.Plan(g)
                 MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
-                @test Array(MM.storage(out)) == dropdims(ref; dims = dims)
+                got = Array(MM.storage(out))
+                want = dropdims(ref; dims = dims)
+                # `==` for the exact cases, a tolerance for the two that end in
+                # a transcendental: `a^(1/3)` on the device is not the host's
+                # `cbrt` bit for bit.
+                @test (post === identity && f !== abs2) ? got == want :
+                      maximum(abs.(Float64.(got) .- Float64.(want))) <=
+                          1e-5 * max(maximum(abs, want), 1e-6)
                 MM.free!(pl)
             end
         end
@@ -108,6 +124,39 @@ function declaredops(dev, label)
             MM.run!(pl); MM.waitidle(dev)
             @test Array(MM.storage(o)) ≈ want
             MM.free!(pl)
+        end
+
+        # `aten::gather`, which is NOT `index.Tensor`'s gather: the index has
+        # the output's shape and supplies one coordinate per element, where an
+        # `index.Tensor` index is a coordinate list for a whole axis.
+        #
+        # Both a leading and a MIDDLE axis, because the leading case cannot show
+        # a wrong decomposition — the coordinate of axis 1 is the fastest
+        # varying, so `k == d` lands on the term a mistake would leave alone.
+        # The index is also SMALLER than the source on an axis it does not
+        # gather, which is what torch permits and what makes the source's
+        # strides the ones to walk rather than the output's.
+        @testset "gather takes one coordinate per element" begin
+            ah = reshape(collect(Float32, 1:(5 * 4 * 3)), 5, 4, 3)
+            for (d, ih) in ((1, [Int64(mod(i + 2j + k, 5))
+                                 for i in 1:3, j in 1:4, k in 1:3]),
+                            (2, [Int64(mod(i + j + 2k, 4))
+                                 for i in 1:5, j in 1:2, k in 1:3]))
+                # The definition, with torch's 0-based index made 1-based once.
+                want = [ah[ntuple(q -> q == d ? ih[c] + 1 : c[q], 3)...]
+                        for c in CartesianIndices(ih)]
+                g = MM.Graph(dev)
+                out = MM.Transient.Buffer(g, Float32, size(ih))
+                a = MM.Buffer(dev, ah)
+                idx = MM.Buffer(dev, ih)
+                MM.dispatch!(g, DK.gatherdim!,
+                             (out, size(ih), a, size(ah), idx, d), length(ih);
+                             name = "gather$d")
+                pl = MM.Plan(g)
+                MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
+                @test reshape(Array(MM.storage(out)), size(ih)) == want
+                MM.free!(pl)
+            end
         end
 
         # ── one `ew!` at every arity ─────────────────────────────────────────
