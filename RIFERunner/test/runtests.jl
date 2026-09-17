@@ -51,7 +51,7 @@ using RIFERunner, KernelAbstractions, Lava, ColorTypes
 import Mantle
 const KA = KernelAbstractions
 
-backend = LavaBackend()
+backend = Mantle.LavaBackend()   # not `Lava.LavaBackend`: the runtime moved to Mantle
 model = rife(; backend)
 w, h = framesize(model)
 a = KA.allocate(backend, RGB{Float32}, w, max(h - 72, 1))

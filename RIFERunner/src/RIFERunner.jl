@@ -36,8 +36,7 @@ using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors, toback,
-                  Model, planslab, fusableset, Workspace
+using DNNKernels: loadgraph, readsafetensors, toback, Model, planfor, replay!
 using GPUFiltering: tofloat, topixel
 using ColorTypes: AbstractRGB, RGB
 
@@ -175,14 +174,15 @@ the padded input buffer.
 Built through `DNNKernels.Model`, which runs the host-side preparation passes
 the editor's own path gets.
 """
-struct RIFE{B,G,W,S,P,I,T}
+# `plan` is a `DNNKernels.RecordedPlan`: one Mantle plan, declared and recorded
+# at load, replayed per frame. It replaced four fields — a `planslab` slab, a
+# `Workspace` arena, the lazy-broadcast set and the graph's own values table —
+# each of which was recovering something the graph had already stated.
+struct RIFE{B,G,W,P,I,T}
     backend::B
     graph::G
     weights::W
-    slab::S
     plan::P
-    ws::Workspace
-    lazy::Set{String}
     input::I
     timestep::T
     padded::Tuple{Int,Int}
@@ -213,12 +213,14 @@ function rife(; backend = Mantle.LavaBackend())
     # a `--height/--width` export is picked up without editing this file.
     shape = graph.buffers["imgs"].shape          # torch (1, 6, H, W)
     w, h = Int(shape[4]), Int(shape[3])
-    plan = planslab(graph, (;))
-    slab = KA.allocate(backend, UInt8, max(plan.bytes, 1))
+    # `emitgraph` DECLARES the ops and runs nothing; `Plan` then runs all seven
+    # of Mantle's phases over the whole graph, so placement, aliasing and
+    # barriers are decided before a byte is touched. `planfor` is the same one
+    # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
+    plan = planfor(Mantle.Device(backend), graph, model.weights, (;))
     input = KA.allocate(backend, Float32, w, h, 6, 1)
     timestep = KA.allocate(backend, Float32, 1, 1, 1, 1)
-    return RIFE(backend, graph, model.weights, slab, plan, Workspace(backend),
-                fusableset(graph), input, timestep, (w, h))
+    return RIFE(backend, graph, model.weights, plan, input, timestep, (w, h))
 end
 
 """
@@ -265,19 +267,21 @@ function interpolate!(out::AbstractMatrix{<:AbstractRGB}, model::RIFE,
     ga, gb = todevice(model.backend, a), todevice(model.backend, b)
     frames_kernel!(model.backend)(model.input, ga, gb, Int32(w), Int32(h);
                                   ndrange = (pw, ph))
-    vals = execute!(model.graph,
-                    Dict{String,Any}("imgs" => model.input, "timestep" => model.timestep),
-                    model.weights; dims = (;), backend = model.backend,
-                    slab = model.slab, plan = model.plan,
-                    ws = model.ws, lazy = model.lazy)
+    # A replay: the plan was recorded at load, so this writes the two inputs
+    # into the buffers it was declared against and submits one recording.
+    # `g.inputs` order, which is what `replay!` zips against.
+    outs = replay!(model.plan, "rife",
+                   (id == "timestep" ? model.timestep : model.input
+                    for id in model.graph.inputs))
+    result = first(outs)
     # Same story on the way OUT: `unpack_kernel!` writes `out` on the device, and
     # `out` is declared `AbstractMatrix{<:AbstractRGB}`. Unpack into a device
     # buffer and copy back, unless the caller already gave us a device one.
     if KA.get_backend(out) == model.backend
-        unpack_kernel!(model.backend)(out, vals[only(model.graph.outputs)]; ndrange = (w, h))
+        unpack_kernel!(model.backend)(out, result; ndrange = (w, h))
     else
         gout = KA.allocate(model.backend, eltype(out), w, h)
-        unpack_kernel!(model.backend)(gout, vals[only(model.graph.outputs)]; ndrange = (w, h))
+        unpack_kernel!(model.backend)(gout, result; ndrange = (w, h))
         KA.synchronize(model.backend)
         copyto!(out, gout)
     end

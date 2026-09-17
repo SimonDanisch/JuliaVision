@@ -51,7 +51,7 @@ using DepthAnythingRunner, KernelAbstractions, Lava, ColorTypes
 import Mantle
 const KA = KernelAbstractions
 
-backend = LavaBackend()
+backend = Mantle.LavaBackend()   # not `Lava.LavaBackend`: the runtime moved to Mantle
 model = depthanything(; backend)
 img = KA.allocate(backend, RGB{Float32}, 256, 256)
 fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))

@@ -1799,19 +1799,27 @@ next person which one to port.
 torch returns four results and only the first is read; the export declares the
 other three empty, and they are handed back so the tuple's shape is honest.
 """
-function emitsdpa!(emitctx::EmitCtx, op::Op)
+function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
+                   defaultscale = nothing)
     q = operand(emitctx, op, 1)
     k = operand(emitctx, op, 2)
     v = operand(emitctx, op, 3)
     bias = length(op.ins) >= 4 ? operand(emitctx, op.ins[4]) : nothing
     sc = get(op.attrs, "scale", nothing)
-    scale = sc === nothing ? inv(sqrt(size(q, 1))) : Float64(sc)
-    out = dest(emitctx, 0)
+    scale = sc !== nothing ? Float64(sc) :
+            defaultscale !== nothing ? Float64(defaultscale) :
+            inv(sqrt(size(q, 1)))
     caps = M.caps(M.backend(emitctx.dev))
     E, Lq, H, B = size(q)
-    size(out) == (size(v, 1), Lq, H, B) || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(out)) result " *
-        "where its operands give $((size(v, 1), Lq, H, B)).")
+    want = (size(v, 1), Lq, H, B)
+    # The kernels read `out` at its rank-4 extents. `fused.sdpa` declares a
+    # rank-3 buffer -- `fuseattention` folds the head axis away, which is the
+    # same elements in the same order -- so a `viewof` puts the rank back rather
+    # than a second launch shape.
+    out = size(dst) == want ? dst :
+          length(dst) == prod(want) ? M.viewof(dst, want) :
+          error("DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(dst)) " *
+                "result where its operands give $(want).")
     cm2 = flashcm2_plan(caps, q, k, v, bias)
     cm2 isa Decline || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
@@ -1825,7 +1833,8 @@ function emitsdpa!(emitctx::EmitCtx, op::Op)
             "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm), whose launch is " *
             "not split from `sdpa_coopmat!` yet, so it has no declared form. " *
             "See `flash_launches` for the shape a port takes.")
-        return threepass!(emitctx, op, out, q, k, v, bias, scale)
+        threepass!(emitctx, op, out, q, k, v, bias, scale)
+        return sdparesults(emitctx, dst)
     end
     ns = plan.nsplit
     # Flash-decoding scratch, declared rather than bump-allocated: only when the
@@ -1833,8 +1842,21 @@ function emitsdpa!(emitctx::EmitCtx, op::Op)
     partial = ns == 1 ? out : scratch(emitctx, Float32, size(v, 1), Lq, H, B, ns)
     ml      = ns == 1 ? out : scratch(emitctx, Float32, Lq, H, B, ns, 2)
     flash_dispatch!(emitctx.g, caps, out, plan, q, k, v, scale, partial, ml; name = op.id)
-    return (out, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
+    return sdparesults(emitctx, dst)
 end
+
+"""
+What an sdpa op hands back: `dst` alone, or torch's four-tuple.
+
+`_scaled_dot_product_*` returns four values and the graph reads only the first;
+the export declares the other three and `maybedest` answers `nothing` for any it
+left out, so the tuple's shape stays honest. `fused.sdpa` is one value — the
+fusion pass that built it collapsed the rest — and is told apart by whether the
+export gave this op a `"#0"` result at all.
+"""
+sdparesults(emitctx::EmitCtx, dst) =
+    maybedest(emitctx, 0) === nothing ? dst :
+    (dst, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
 
 """
 The three-pass path: always available, always right, and the slowest.
@@ -1890,6 +1912,16 @@ emitop!(emitctx::EmitCtx, op::Op,
 emitop!(emitctx::EmitCtx, op::Op,
         ::Val{Symbol("_scaled_dot_product_efficient_attention.default")}) =
     emitsdpa!(emitctx, op)
+
+"""
+`fused.sdpa`, which `fuseattention` builds from a bmm/softmax/bmm chain.
+
+The same computation and the same `emitsdpa!`, with two things the fusion pass
+decided: the SCALE is already folded into `q`, so it defaults to 1 rather than
+`1/sqrt(E)`, and there is ONE result rather than torch's four.
+"""
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.sdpa")}) =
+    emitsdpa!(emitctx, op; dst = dest(emitctx), defaultscale = 1.0)
 
 # ── matrix products ──────────────────────────────────────────────────────────
 
@@ -1986,11 +2018,18 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         M.coopmat_gemm_dispatch!(emitctx.g, dst, A, Bp, Mm, NP, K;
                                  blk_split, bias, epilogue = epi, name = op.id)
         # Columns 1..N of the padded buffer ARE its first `Mm*N` elements, so
-        # the discard is a whole-resource copy between two views of that shape
-        # rather than a gather: `copy!` is a pass of the graph and needs no
-        # kernel of ours.
-        NP == N || M.copy!(emitctx.g, "$(op.id).unpad", out,
-                           M.viewof(dst, size(out)))
+        # the discard is a linear copy between two views of that shape rather
+        # than a gather. `ew!` with `identity` and not `Mantle.copy!`: that pass
+        # records `vkCmdCopyImageToBuffer` and wants an image attachment, and a
+        # transfer command is not something the access walk can read off a
+        # kernel body. A dispatch is.
+        if NP != N
+            od = size(out)
+            src = M.viewof(dst, od)
+            M.dispatch!(emitctx.g, ew!,
+                        (out, od, (src,), (bcstrides(od, od),), identity),
+                        prod(od); name = "$(op.id).unpad")
+        end
         return out
     end
     C = scratch(emitctx, Float32, Mm, NP, max(splitk, 1))

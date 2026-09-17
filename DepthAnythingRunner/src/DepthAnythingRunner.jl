@@ -55,8 +55,7 @@ using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors, toback,
-                  Model, planslab, fusableset, Workspace, Ctx, value
+using DNNKernels: loadgraph, readsafetensors, toback, Model, planfor, replay!
 using GPUFiltering: resizeplanar!
 using ColorTypes: AbstractRGB, RGB
 
@@ -165,14 +164,15 @@ and nearly 2x in wall clock, so skipping them is not a detail. The planned slab 
 the other half: 956 buffers left unplanned would each stay live for the whole
 graph.
 """
-struct DepthAnything{B,G,W,S,P,I}
+# `plan` is a `DNNKernels.RecordedPlan`: one Mantle plan, declared and recorded
+# at load, replayed per frame. It replaced four fields — a `planslab` slab, a
+# `Workspace` arena, the lazy-broadcast set and the values table — each of which
+# was recovering something the graph had already stated.
+struct DepthAnything{B,G,W,P,I}
     backend::B
     graph::G
     weights::W
-    slab::S
     plan::P
-    ws::Workspace
-    lazy::Set{String}
     input::I
 end
 
@@ -189,11 +189,13 @@ function depthanything(; backend = Mantle.LavaBackend())
     model = Model(Dict("depthanything" => depthanythinggraph()),
                   depthanythingweights(); backend)
     graph = model.graphs["depthanything"]
-    plan = planslab(graph, (;))
-    slab = KA.allocate(backend, UInt8, max(plan.bytes, 1))
+    # `emitgraph` DECLARES the ops and runs nothing; `Plan` then runs all seven
+    # of Mantle's phases over the whole graph, so placement, aliasing and
+    # barriers are decided before a byte is touched. `planfor` is the same one
+    # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
+    plan = planfor(Mantle.Device(backend), graph, model.weights, (;))
     input = KA.allocate(backend, Float32, INPUT_RES, INPUT_RES, 3, 1)
-    return DepthAnything(backend, graph, model.weights, slab, plan,
-                         Workspace(backend), fusableset(graph), input)
+    return DepthAnything(backend, graph, model.weights, plan, input)
 end
 
 """
@@ -222,14 +224,14 @@ short of `≥ PyTorch`, and what is left is convolution rather than matrix multi
 """
 function depthmap!(model::DepthAnything, img::AbstractMatrix{<:AbstractRGB})
     resizeplanar!(model.input, img; mean = IMAGENET_MEAN, std = IMAGENET_STD)
-    vals = execute!(model.graph, Dict{String,Any}("x" => model.input), model.weights;
-                    dims = (;), backend = model.backend,
-                    slab = model.slab, plan = model.plan,
-                    ws = model.ws, lazy = model.lazy)
-    # The output is `unsqueeze`, a view rather than an op result, so it has no
-    # entry of its own in the value table. `value` resolves it against the buffer
-    # it is a view of — the same thing `wan.jl`'s `rungraph` does.
-    return value(Ctx(vals, model.graph, (;), model.backend), only(model.graph.outputs))
+    # A replay: the plan was recorded at load, so this writes the input into the
+    # buffer it was declared against and submits one recording.
+    #
+    # The output is an `unsqueeze`, a view rather than an op result — which used
+    # to mean it had no entry of its own and `value` had to resolve it against
+    # its parent. Declared, `emitgraph` resolves every output before it returns,
+    # so the plan's own output IS that view and there is nothing to chase.
+    return first(replay!(model.plan, "depthanything", (model.input,)))
 end
 
 # ---------------------------------------------------------------- the workload
