@@ -86,8 +86,8 @@ a hostcall: AMDGPU.jl reports "Global hostcalls detected" and keeps a host
 thread servicing `malloc` for the rest of the session.
 
 A zero-size singleton carries the type with nothing to marshal, so the kernel is
-fully typed on every backend. Lava happens to keep the `Type{}` and get the
-static call, which is why this only showed up on the second backend.
+fully typed on every backend. Lava keeps the `Type{}` and gets the static call,
+so a closure over the type works there and not elsewhere.
 """
 struct SafeTrunc{T} end
 @inline (::SafeTrunc{T})(v) where {T<:Integer} = safetrunc(T, v)
@@ -111,9 +111,9 @@ torch's cast to `Bool`, which is `v != 0` and NOT Julia's `convert`.
 against zero for every source type. So a `Bool` destination is neither of the
 other two rules and has its own.
 
-It was `convert`, which inside a KERNEL is worse than merely wrong: the throw
-path makes Lava emit `gpu_gc_pool_alloc` and warn that lowering its
-`unreachable` leaves an undef POINTER for the caller to dereference. That
+`convert` inside a KERNEL is worse than merely wrong: the throw path makes Lava
+emit `gpu_gc_pool_alloc` and warn that lowering its `unreachable` leaves an
+undef POINTER for the caller to dereference. That
 warning is what found this, on kokorotext's BERT half, which casts an `Int64`
 mask to `Bool`. Its mask is all ones, so the path was never taken and no
 number was ever wrong, which is the whole reason it needed finding.
@@ -127,9 +127,8 @@ struct ToBool end
 What `_to_copy` applies for an `S` source and a `T` destination, as a singleton
 a kernel can take.
 
-Three rules, in one place because there were two copies of them: this file's
-`runop!` and `emit.jl`'s emit each carried the same `if`, and the pair had
-already drifted in one case. Every one of them is torch's definition and not
+Three rules, in one place: this file's `runop!` and `emit.jl`'s emit both need
+them, and two copies of a rule drift. Every one is torch's definition and not
 Julia's:
 
   * a `Bool` destination is a comparison against zero;
@@ -367,9 +366,8 @@ The exponent is known **here**, on the host, so the kernel does not carry a loop
 for it: the exponents models actually use get their expression directly and
 `intpow` stays as the general fallback. Every one of Kokoro's 48 is `2`.
 
-**This is not a speed fix, and the measurement that suggested it was one is worth
-recording.** Per-op serialised timing put `pow.Tensor_Scalar` at 157 ms of
-Kokoro's vocoder — above its 70 batch-norms — which reads as a runtime
+**Not a speed fix.** Per-op serialised timing puts `pow.Tensor_Scalar` at 157 ms
+of Kokoro's vocoder — above its 70 batch-norms — which reads as a runtime
 square-and-multiply loop being expensive. Timed directly on the two shapes it
 runs at, interleaved and both orders:
 
@@ -400,9 +398,8 @@ end
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Tensor")}) = lhs(ctx, op) .>= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("ge.Scalar")}) = lhs(ctx, op) .>= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("eq.Scalar")}) = lhs(ctx, op) .== rhs(ctx, op)
-# `le` is `ge`'s mirror and arrived with Whisper's DECODER: it builds the causal
-# mask over the KV cache, `(1,1,1,449)` for a 448-slot cache. It was the only op
-# of that graph's 162 we did not already have.
+# `le` is `ge`'s mirror. Whisper's decoder builds its causal mask over the KV
+# cache with it, `(1,1,1,449)` for a 448-slot cache.
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("le.Tensor")}) = lhs(ctx, op) .<= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("le.Scalar")}) = lhs(ctx, op) .<= rhs(ctx, op)
 runop!(ctx::Ctx, op::Op, ::Val{Symbol("bitwise_and.Tensor")}) = lhs(ctx, op) .& rhs(ctx, op)
@@ -447,9 +444,8 @@ intermediates in fp32 registers where the reference rounds to fp16 at every step
 `emit` materialises whenever the id is not in `ctx.lazy`, and clamp's never is,
 so the store still rounds to the declared dtype exactly as the reference does.
 
-This is the same bug `_to_copy.default` carries a comment about having already
-fixed — an op that allocates its own output instead of taking the planned one is
-worth grepping for, not just fixing where it was noticed.
+An op that allocates its own output instead of taking the planned one is worth
+grepping for: `_to_copy.default` carries the same note.
 """
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("clamp.default")})
     lo = get(op.attrs, "arg1", nothing)
@@ -1252,8 +1248,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("native_layer_norm.default")})
     # silently to zero (see `_native_batch_norm_legit.no_stats`); this path
     # reduces over far fewer elements, so it is a narrower window, not a closed
     # one.
-    # This was a switch (`LN_FUSED`) so the two could be compared end to end in
-    # one session; the fused form won and the switch is gone (review finding 3).
+    # The fused form wins, so there is no switch to compare the two.
     if a isa GPUArrays.AbstractGPUArray && d == Tuple(1:length(d)) && length(a) % n == 0
         out = tupledest(ctx, 0, tupledtype(ctx, 0, eltype(a)), size(a)...)
         groups = length(a) ÷ n
@@ -1302,7 +1297,7 @@ end
 over the trailing torch dims, i.e. the leading Julia ones.
 
 `nn.RMSNorm` survives `run_decompositions()` whole rather than breaking into
-`pow`/`mean`/`rsqrt`/`mul` the way it used to, so this is one op and not four.
+`pow`/`mean`/`rsqrt`/`mul`, so this is one op and not four.
 There is no `β`: RMS norm has a scale and no shift, and no mean to subtract.
 
 `eps` is optional in torch's schema, and when the module was built without one
@@ -1389,8 +1384,8 @@ end
 
 # One gather into the planned slot. `repeat(a; inner=all-ones, outer=reps)` is
 # two allocations and two passes: Julia runs the inner phase first, which with
-# every `inner` at 1 copies the array to produce exactly the array it was given,
-# and then allocates the outer result. Both land outside the plan — 88 MB and
+# every `inner` at 1 copies the array to produce exactly the array it was
+# handed, and then allocates the outer result. Both land outside the plan — 88 MB and
 # 126 MB per call on SAM 2's encoder — for an op that reads each source element
 # and writes it `prod(reps)` times.
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("repeat.default")})
@@ -1728,14 +1723,14 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
     inplace || (dst .= a)
     n = ndims(a)
     accum = Bool(something(get(op.attrs, "arg3", nothing), false))
-    # Hold the index operands as they came — ON THE DEVICE. They used to be
-    # `collect`ed here for every dim, unconditionally, to decide the
-    # contiguity test that only the `view` path at the bottom consumes. On
+    # Hold the index operands as they came — ON THE DEVICE, and not `collect`ed
+    # here for every dim to decide a contiguity test only the `view` path at the
+    # bottom consumes. On
     # Kokoro that cost **17.5 MB of host allocation per utterance** (measured,
     # `--track-allocation`): the iSTFT overlap-add scatters 235220 entries, so
-    # the index alone is 1.9 MB of Int64 and it was downloaded twice — once
-    # here and again as `Int32.(collect(ivals))` below. Each download also
-    # drags a queue sync with it, which is the part that shows up as time.
+    # the index alone is 1.9 MB of Int64, downloaded here and again as
+    # `Int32.(collect(ivals))` below. Each download drags a queue sync with it,
+    # which is the part that shows up as time.
     raw = Vector{Any}(undef, n)
     fill!(raw, nothing)
     nz = Int[]
@@ -1761,9 +1756,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         # envelope: three of every four windows vanished, the envelope had 1451
         # zeros, and the division by it produced NaN and Inf in the audio.
         #
-        # **On the device, through `OpAtomicFAdd`.** This used to be a host loop,
-        # on the grounds that every use was a constant subgraph folded at load —
-        # "a runtime use would want a kernel with atomics". Kokoro's iSTFT is that
+        # **On the device, through `OpAtomicFAdd`.** A host loop would do for a
+        # use that is always a constant subgraph folded at load. Kokoro's iSTFT is that
         # runtime use: two calls per utterance, and an OPDOUBLE ablation put them
         # at **+204 ms of an 845 ms vocoder**, because the host path downloads the
         # whole tensor, loops on one core and uploads it again, synchronising the
@@ -2356,9 +2350,8 @@ separable half of it is handled before this is reached (see
 [`indexseparable`](@ref)), and what is left errors rather than picking one of the
 two conventions and being right half the time.
 
-The claim this docstring used to make — that no graph here produces the mixed
-case — was false, and cost SAM 2: its encoder has sixteen of them, and requiring
-every axis to be indexed made `Model` throw while folding them as constants.
+The mixed case DOES occur: SAM 2's encoder has sixteen, so requiring every axis
+to be indexed makes `Model` throw while folding them as constants.
 
 The gather runs on the **host**. Every use of this form so far is attention-mask
 or position metadata — tens to thousands of elements, produced by
