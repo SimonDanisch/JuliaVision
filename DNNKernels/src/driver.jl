@@ -427,10 +427,10 @@ against llama.cpp's Vulkan coopmat backend at 154.8 ms for the same model on the
 same device. The step moves 33.5 GB, so 153.1 ms is 219 GB/s of the 229 GB/s this
 device reads at, and the logits are bit-identical to the immediate path.
 
-`Mantle.record_into(graph, name)` captures every KA launch as a pass of its own,
-with the usage keyed to the STORAGE so views of one slab order against each
-other, and a device-to-device `copyto!` as a copy kernel so that it is part of
-the recording rather than something that happened once while it was made.
+`emitgraph` declares one pass per dependent stage and one dispatch per launch,
+with each argument's usage read off the kernel body, so two ops that only read
+the same weight do not order against each other and a device-to-device copy is a
+pass like any other.
 
 # What a model has to satisfy
 

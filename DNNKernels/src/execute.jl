@@ -269,10 +269,9 @@ copies; Julia's `reshape` instead stacks a second lazy wrapper, so a
 `ReshapedArray{PermutedDimsArray{...}}` forms. Collapsing it here, once, with a
 real device-side `permutedims` keeps that nesting from reaching a kernel.
 
-**The original reason is gone; the measured one replaces it.** This used to say
-the nest "is not recognised as a GPU array by either backend — `Adapt`'s wrapper
-union is one level deep". That was true and is not: Lava's `AnyLavaArray` covers
-`ReshapedArray` over a `PermutedDimsArray`, the nest gets `LavaArrayStyle`, and
+**The reason is measured, not structural.** Lava's `AnyLavaArray` covers
+`ReshapedArray` over a `PermutedDimsArray`, so the nest gets `LavaArrayStyle`
+and
 `d .= reshape(permutedimsarray, dims) .+ x` runs on the device and is correct.
 It is simply **slow**, and that is why the collapse stays. On a 4.5 MB tensor,
 one broadcast reading the same data three ways:
@@ -323,10 +322,10 @@ const SHAPEONLY = ("view.default", "_unsafe_view.default", "unsqueeze.default",
 `reshape` of an unevaluated elementwise expression, without evaluating it: the
 same expression over reshaped operands.
 
-Shape-only views are where fusion used to stop. 82 of the 344 elementwise ops
-here are read through a `view`/`unsqueeze` and nothing else, so leaving them
-lazy was pointless — `makeview` would hand the `Broadcasted` to `reshape`, which
-has no method for it. Reshaping the operands instead is exact whenever every
+Shape-only views are where fusion would otherwise stop: 82 of the 344
+elementwise ops here are read through a `view`/`unsqueeze` and nothing else, and
+a lazy one hands the `Broadcasted` to `reshape`, which has no method for it.
+Reshaping the operands instead is exact whenever every
 operand already has the result's shape, because then the expression is a plain
 elementwise map and reshaping cannot disturb which elements meet.
 
@@ -532,7 +531,7 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
                   overrides::AbstractDict=Dict{String,Any}(),
                   slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing,
                   diag::Diagnostics=Diagnostics(), clampattn::Bool=false,
-                  noise::NoiseSource=RandomNoise(), mgraph=nothing)
+                  noise::NoiseSource=RandomNoise())
     ctx = Ctx(Dict{String,Any}(), graph, dims, backend;
               slab, plan, ws, lazy, rec, diag, clampattn, noise)
     for id in graph.order
@@ -556,26 +555,10 @@ function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
         try
             ctx.outid[] = op.out          # tells `dest` which slab slot to hand out
             reset!(ctx.ws)                # kernel scratch does not outlive its op
-            # RECORDING. With a Mantle graph open, each LAUNCH this op makes
-            # becomes a pass of the graph and is captured rather than submitted,
-            # so the whole step is one command buffer with the barriers the graph
-            # derives instead of a queue submit per dispatch. Same `runop!` and
-            # the same host work — it just happens once, at record time.
-            #
-            # A pass per launch, not a pass per op: an op is several dependent
-            # launches (a split-K matmul is partials then a reduce over them) and
-            # a pass is the unit the barrier phase works in, so one pass per op
-            # leaves the launches inside it unordered. See `Mantle.LaunchPasses`.
-            r = if mgraph === nothing
-                coerce(timeop!(ctx, op), graph.buffers[op.out])
-            else
-                Mantle.record_into(mgraph, op.id) do
-                    # Dtype conversion can launch a kernel too. It belongs to
-                    # this operation's recording, just like its main kernel.
-                    coerce(doubleop!(ctx, op), graph.buffers[op.out])
-                end
-            end
-            ctx.values[op.out] = r
+            # Every launch goes out immediately: this is the interpreted path,
+            # and the recorded one is `emitgraph` in `emit.jl`, which declares
+            # the whole graph instead of running it.
+            ctx.values[op.out] = coerce(timeop!(ctx, op), graph.buffers[op.out])
         catch e
             e isa MethodError && e.f === runop! &&
                 error("op $(i)/$(length(graph.ops)) `$(op.aten)` (id $(op.id)) has no method")
@@ -622,12 +605,11 @@ end
 """
 Run `op`, twice if `opdouble` asks for it.
 
-Also the op path of a *recording*, which is why this is not folded into
-[`timeop!`](@ref): `optimes` cannot work there — there is no device time to
-synchronise on while dispatches are only being captured — but `opdouble` can,
-and has to. A recorded model that dropped it reported every aten in a 974-op
-Horizon prefill as costing between -2.1% and +3.7%, which is the replay's own
-run-to-run spread and not a measurement of anything.
+Separate from [`timeop!`](@ref) because the two diagnostics have different
+preconditions: `optimes` needs device time to synchronise on, and `opdouble`
+only needs the op run again. Timing a model that only replays reports every
+aten in a 974-op Horizon prefill as costing between -2.1% and +3.7%, which is
+the replay's own run-to-run spread and not a measurement of anything.
 """
 @inline function doubleop!(ctx::Ctx, op::Op)
     # `isempty` first: the string compare is not free 640 times a step.

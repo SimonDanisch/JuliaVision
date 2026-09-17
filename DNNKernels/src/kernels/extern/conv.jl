@@ -75,10 +75,8 @@ Whether this convolution is the 1x1 case that is a plain GEMM: unit kernel, unit
 stride, no padding, no dilation, one group. `convolution!` routes those straight
 to `matmul!`, with no `im2col` and no scatter.
 
-A question about the *problem*, and nothing else. It used to begin with
-`CONV_1X1_GEMM[] &&`, so with the switch off a 1x1 convolution reported that it
-was not one (`kernel-library-review.md` finding 7); the switch was settled and is
-gone (finding 3, tier two).
+A question about the *problem*, and nothing else: a 1x1 convolution is one
+whatever a kernel-selection flag says.
 
 A 1x1 kernel at stride 1 with no padding is a matrix multiply and nothing else.
 `im2col` exists to gather each output pixel's receptive field into a row; when
@@ -235,10 +233,8 @@ interleave — the pixel-shuffle identity. SAM 2's mask decoder upsamples with t
 of these, and they were **3.73 ms of an 8.44 ms decode**, 44%, because the
 gather kernel below computes each output element from scratch with no reuse.
 
-Like [`onebyone`](@ref) this asks about the problem only. It used to begin with
-`CONVT_GEMM[] &&` — and, because the `const` sat between this docstring and the
-function, the prose was attached to the *switch*, so `?shufflecase` answered
-nothing. Deleting the settled switch (review finding 3) put the docstring back on
+Like [`onebyone`](@ref) this asks about the problem only, so the docstring is
+on
 the function it describes.
 """
 @inline shufflecase(w, stride, padding, dilation, outpad, groups) =
@@ -346,10 +342,9 @@ function convolutiontranspose!(ctx, out, x, w, bias, stride, padding, dilation, 
     # takes it. Only the GEMM+shuffle path cannot: it assumes the receptive
     # fields tile the output exactly, and `shufflecase` already tests for that.
     #
-    # This used to refuse outright. Kokoro's iSTFTNet upsampler uses
-    # `output_padding = 1`, and the refusal was the last thing between the port
-    # and audio.
-    # The non-overlapping case is a GEMM; everything else is the gather below.
+    # `output_padding` is admitted, not refused: Kokoro's iSTFTNet upsampler
+    # uses `output_padding = 1`. The non-overlapping case is a GEMM; everything
+    # else is the gather below.
     # `size(x, 4) == 1` because the flatten fuses `W` and `H`, which are only
     # adjacent in memory within one batch element.
     # The overlapping 1-D case: one ordinary convolution over `S` stacked phases,
@@ -396,8 +391,8 @@ compares against the gather kernel elementwise rather than by ear.
 
 The weight is rebuilt per call. It is a graph constant and belongs at load time
 (`hoistpermutes` territory), exactly as the note on `shufflecase`'s `wm` says;
-`S*J` slice copies of `(C_out, C_in)` is 5.2 MB on Kokoro's largest, against the
-72 ms the old path spent.
+`S*J` slice copies of `(C_out, C_in)` is 5.2 MB on Kokoro's largest, against
+the 72 ms the gather path spends.
 """
 function convolutiontranspose_phase!(ctx, out, x, w, bias, stride, padding)
     SX, SY = stride[1], stride[2]

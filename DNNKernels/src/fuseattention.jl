@@ -31,14 +31,13 @@ the **last buffer whose shape is `(1, H, S, D)`** picks all three correctly:
     k   view_5 -> expand_2 -> permute_3     those are (1,H,D,S) and do NOT match,
                               -> select_1   so the transposed pre-image is taken
 
-**This was verified numerically before it was written**, because a mis-traced
-transpose here produces a plausible wrong image rather than an error: against the
-unfused chain on this model's own tensors, `rel 2.4e-3` — fp16 attention accuracy.
+**Verify this numerically**, because a mis-traced transpose here produces a
+plausible wrong image rather than an error: against the unfused chain on this
+model's own tensors, `rel 2.4e-3`, which is fp16 attention accuracy.
 
-The first attempt at that check compared against a graph run WITH the slab plan,
-where transient buffers are reused, so `mul` no longer held layer 1's values by
-the time it was read: it reported `rel 1.1` and looked like a broken fusion. Run
-the comparison with `plan = nothing` or the operands are not what they are named.
+Run that comparison with `plan = nothing`. Against a graph run WITH a plan the
+transients are reused, so `mul` no longer holds layer 1's values by the time it
+is read, and the check reports `rel 1.1` for a correct fusion.
 """
 
 """

@@ -156,12 +156,8 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
 
     # THE DECLARED PATH, which is the only path there is.
     #
-    # This called `execute!` with a `Workspace`, and the note here said the
-    # workspace was the point: op bodies branched on `ctx.ws === nothing` and
-    # verifying the allocating branch left the shipped one unchecked. Both are
-    # gone — `Workspace` was deleted with the interpreted run on 2026-09-15 — so
-    # what the note was guarding against cannot happen, and the tool verifies
-    # what `Model` actually submits.
+    # `declaredvalues`, so the tool verifies what `Model` actually submits and
+    # not a second path with its own allocation.
     values = declaredvalues(g, inputs, weights; dims, backend)
 
     # A flipped predicate changes the graph's behaviour discontinuously, so
@@ -219,11 +215,10 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
     # surfaces ops later, as a GEMM "creating" rel-1.0 error. Resolve each
     # reffed view through the same machinery execution uses and record its
     # error, so attribution starts at the view instead of its consumer.
-    # Declared, a view is a resource like any other and `declaredvalues` already
-    # downloaded it, so this is a lookup. It used to need a whole `Ctx` and
-    # `value(vctx, id)` to rebuild the Julia wrapper the interpreted run would
-    # have made, plus a `resolvable` walk for the views a rewrite pass had
-    # orphaned — an orphan is simply absent from `res` now, because nothing
+    # Declared, a view is a resource like any other and `declaredvalues` has
+    # already downloaded it, so this is a lookup and not a rebuild of a Julia
+    # wrapper. A view a rewrite pass orphaned is simply absent from `res`,
+    # because nothing
     # asked for it.
     for (id, b) in g.buffers
         b.kind === :view || continue
