@@ -27,12 +27,9 @@ a device, so a second device must get its own answers.
 
 ## The type is Lava's
 
-This was a `DNNKernels.Device` struct assembled here out of eight separate Lava
-lookups. Every one of them was a question about the device, so the device is what
-answers them: `M.DeviceCaps` is now the record, and the version that lived
-here was a second copy of it that could drift — and did, holding
-`Lava.WORKGROUP_LIMIT[]`, a module-level `Ref(1024)` on Lava's side that claimed
-to be a query and was not.
+Every one of these is a question about the device, so the device is what answers
+them: `M.DeviceCaps` is the record, and a copy of it here would be a second
+record that can drift.
 
 What stays here is the one number that is *not* a device fact:
 [`launchgroup`](@ref), which is this library's measured default for `launch!`.
@@ -40,17 +37,8 @@ What stays here is the one number that is *not* a device fact:
 ## Where the device comes from
 
 `Lava.caps(backend)` resolves a pinned backend to the context it was built with
-and an unpinned one to whichever is current.
-
-That path did not exist when this was written. `LavaBackend(ctx)` kept
-`ctx.default_bq` and **discarded `ctx`**, and a `BatchQueue` holds a
-`Vulkan.Device` rather than the `VkContext` that owns it — so there was no route
-at all from a backend to its device, and both project briefs asserted there was
-("the carrier already exists"). Adding the field was one line; finding that it
-was missing took running on a second vendor.
-
-So the caps read from a pinned backend describe **that** device, and two of them
-can be alive at once.
+and an unpinned one to whichever is current, so the caps read from a pinned
+backend describe **that** device and two of them can be alive at once.
 """
 # Through Mantle, not `Lava.caps` directly: the backend's extension converts its
 # own record into the portable one, so this stays right when a second backend
@@ -143,16 +131,10 @@ Per-run instrumentation. Every field is off by default and free when off: the
 cost of an inactive diagnostic is one `=== nothing` on a field of a struct the
 caller already holds.
 
-This was five module-level `Ref`s — `OPTIMES`, `OPDOUBLE`, `OPDOUBLEFILTER`,
-`PLAN_MISSES`, `LAUNCH_PROBE`. The defence for a global was that they must be
-reachable from a call stack that does not thread them, which described the old
-signatures rather than constraining anything: `Ctx` already reached all 62
-`runop!` methods, and the kernel entry points now take it in place of their
-`(backend, ws)` pair — one argument where there were two.
-
-What that buys, beyond the count: **two differently instrumented runs can exist
-in one process**, which is the whole point of a measurement object, and the tests
-no longer save and restore module state that a failure would leave flipped.
+Fields and not module-level `Ref`s: `Ctx` reaches all 62 `runop!` methods and
+every kernel entry point, so nothing has to be threaded through by hand. What
+that buys is **two differently instrumented runs in one process**, and tests
+that never save and restore module state a failure could leave flipped.
 
     d = Diagnostics(optimes = Dict{String,Tuple{Int,Float64}}())
     execute!(g, inputs, weights; dims, backend, diag = d)
@@ -261,12 +243,9 @@ struct Ctx{B,N,S,P,W,L,R}
     # Ada; the Radeon 8060S APU runs the same encode in ~270 ms — 2.3x is the
     # card, not a regression.)
     #
-    # This was a `Ref` that `sam2.jl` set around the decode and restored in a
-    # `finally`, defended on the grounds that "`flashcm_tiling` reads it six
-    # frames down, inside `runop!`". That is the same defence the five diagnostics
-    # `Ref`s made, and it has the same answer: `Ctx` already reaches every
-    # `runop!`. Being a field also removes the hazard the `finally` existed for —
-    # there is no longer any state that a decoder error could leave switched on
+    # A field and not a `Ref` a caller sets around the decode: `flashcm_tiling`
+    # reads it six frames down, inside `runop!`, and `Ctx` reaches every
+    # `runop!`. It also leaves no state a decoder error could leave switched on
     # for the next encode.
     clampattn::Bool
 
@@ -336,9 +315,8 @@ scratch!(::Nothing, backend, ::Type{T}, dims::Integer...) where {T} =
 @inline scratch!(ctx::Ctx, ::Type{T}, dims::Integer...) where {T} =
     scratch!(ctx.ws, ctx.backend, T, dims...)
 
-# Nothing to reset when there is no arena. Kept as a method rather than as a
-# `ws === nothing` test at each of the call sites, which is where it was before
-# `Workspace` existed.
+# Nothing to reset when there is no arena. A method rather than a
+# `ws === nothing` test at each call site.
 reset!(::Nothing) = nothing
 
 # `dev` is derived from `backend` and never passed in. It costs one query per

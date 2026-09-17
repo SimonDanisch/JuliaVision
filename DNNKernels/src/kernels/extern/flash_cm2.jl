@@ -93,11 +93,9 @@ it: FUSED's binary was *larger* than the three-pass kernel's (207872 against
 193664) when four passes replacing eight must produce less code. After the fix
 it is 180608, and `both` is 165760 — the smallest of every variant.
 
-**A technique that should win and does not is a bug until proven otherwise.**
-Every explanation in the first version of this table — "one op over two matrices
-is dearer than three over one", "the passes are not the cost" — was a
-rationalisation of my own miscompile, and it was consistent across two shapes,
-seven tilings and two runs, because a systematic bug is systematic.
+**A technique that should win and does not is a bug until proven otherwise.** A
+systematic miscompile reproduces across shapes, tilings and runs, so consistency
+is no evidence that the numbers mean what they appear to.
 
 **`OSUM` is the fix the ablation points at, and it is the shipped default.**
 `EP` is `E` rounded up to the operand granularity, so at SAM 2's `E = 72` the
@@ -487,9 +485,9 @@ the strides go into the tensor layouts rather than into hand-written indexing.
     # Element offsets of this (head, batch) slab, then byte addresses.
     #
     # `out` gets the same treatment as the operands — base, strides, element size
-    # — and that is not symmetry for its own sake. It was written as a dense fp32
-    # buffer at `size(out,3)` stride, which is what `sdpaout` allocates and NOT
-    # what a graph passes in: SAM 2's planner hands attention an **fp16** slot, so
+    # — and that is not symmetry for its own sake. A dense fp32 buffer at
+    # `size(out,3)` stride is what `sdpaout` allocates and NOT what a graph
+    # passes in: SAM 2's planner hands attention an **fp16** slot, so
     # the kernel wrote fp32 bytes into it and the whole encoder came back NaN.
     # Neither the MWEs nor the A/B could see it — every one of them allocates its
     # own output.
@@ -734,24 +732,21 @@ medians; spread(med/min) 1.01-1.05):
 
 Two rules come out of it, and neither is a curve fit.
 
-**`BC = 32` everywhere. The switch is GONE, and its removal is a lesson about
-tuning on a broken compiler.** The rule used to be `BC = 32` on a long key axis
-and `64` on a short one, because every key block pays a fixed cost — two tensor
-loads, two reductions, four per-element passes — that a larger `BC` amortises.
-That was measured, reproducible, and an artifact: the per-block cost it was
-amortising was inflated by the `DontInline` miscompile above, which charged a
-real function call for every element of every per-element pass and every step of
-every reduction. **Make the fixed cost real and the amortisation argument
-evaporates.** Re-measured with the callbacks inlined, `both`, interleaved,
-spread 1.01x:
+**`BC = 32` everywhere, and no switch.** Every key block pays a fixed cost — two
+tensor loads, two reductions, four per-element passes — which argues for a larger
+`BC` on a short key axis. That argument is an artifact of the `DontInline`
+miscompile above, which charged a real function call for every element of every
+per-element pass and every step of every reduction: **make the fixed cost real
+and the amortisation argument evaporates.** With the callbacks inlined, `both`,
+interleaved, spread 1.01x:
 
     shape                  BC=16    BC=32    BC=64
     E72 L4096x4096 H8 B1   1.457    1.223    2.697
     E72 L256x256  H8 B16   0.135    0.123    0.160
     E72 L23x4096  H8 B1    0.227    0.186    0.353
 
-`BC = 32` now wins at `Lk = 256` by 23%, where the old rule had `64` winning by
-13%. Keeping it would have cost 30% on SAM 2's windowed blocks — a tuning
+`BC = 32` wins at `Lk = 256` by 23%, where `64` wins by 13% under the
+miscompile, and taking `64` costs 30% on SAM 2's windowed blocks. A tuning
 constant that survives the bug it was fitted to is a slow regression, not a
 stale comment.
 
@@ -779,17 +774,15 @@ const FLASHCM2_MINGRID = 1
 Measured at BOTH head dimensions in the tree, and it is not a consequence of
 padding: 128 beats 256 by **2.27x** at Whisper's `E = 64` where nothing pads at
 either size, and beats 64 by 62% at SAM 2's `EP = 80`. See
-[`flashcm2_workgroup`](@ref), whose tie-break used to be "widest" and therefore
-picked 256 for Whisper."""
+[`flashcm2_workgroup`](@ref), whose tie-break is not "widest", which would pick
+256 for Whisper."""
 const FLASHCM2_NT = 128
 
 """Queries a workgroup owns: **128**, paired with `BC = 16`.
 
-It was 64 until 2026-08-12, on the strength of "`128x64` lost by 13% at
-`L = 4096`" — a measurement of a DIFFERENT tile. `128 x 16` had never been run,
-because every sweep in this file's history varied one of `BR`/`BC` while holding
-the other at a power-of-two default. Interleaved, clock reported per shape,
-reproduced across two runs and both orderings:
+`128 x 16` and not `64 x 32`, which a sweep varying one of `BR`/`BC` while
+holding the other at a power-of-two default never reaches. Interleaved, clock
+reported per shape, reproduced across two runs and both orderings:
 
     shape                     64x32    128x16
     E72 L4096x4096 H8 B1      1.238     0.974   -21.4%   (repeat -21.0%)
@@ -817,7 +810,7 @@ This is the measured rule rather than the measured answer. `NT = 128` beat
 cause is that 256 invocations force `N` to a multiple of 32, so `E = 72` pads to
 96 instead of 80 and a quarter of both products becomes padding.
 
-**The tie-break used to be "then the WIDEST", and that was wrong by 2.27x.**
+**The tie-break is not "then the WIDEST", which is wrong by 2.27x.**
 Padding explains the choice only where padding differs. At Whisper's `E = 64`
 nothing pads at any workgroup size, so the tie-break decided alone, picked 256,
 and produced the third-worst of the fourteen legal configurations:

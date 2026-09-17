@@ -479,8 +479,8 @@ end
 # That threshold is a property of the GEMM underneath it, and the GEMM changed:
 # staged cooperative-matrix tiling with `vec2` staging buffers took it from 20.6
 # to 35.3 TFLOP/s, 1.68x. So the length at which tensor cores repay the padding
-# and the doubled score matrix moved down, and it was re-measured rather than
-# assumed — interleaved, clock warmed:
+# and the doubled score matrix moves down, re-measured rather than assumed,
+# interleaved and clock warmed:
 #
 #     L=64  H16 B16   0.198 -> 0.280 ms   0.71x   <- still loses
 #     L=128 H8  B32   0.700 -> 0.749 ms   0.93x   } a wash
@@ -493,13 +493,12 @@ end
 # **32 of SAM 2's 48 attention calls** — every windowed block — onto the tensor
 # cores; only the L=64 and L=16 tails stay on the three-pass path.
 #
-# Worth noticing as a pattern: this constant was correct when it was written and
-# silently went stale when something it depended on got faster. Any threshold
-# separating two implementations has that property.
+# A threshold separating two implementations goes stale whenever either side
+# changes speed, silently and without a wrong answer to notice.
 
 # The shortest sequence for which this path beats the three-pass kernels is 256
-# as of the re-measurement above; it was 512 when the GEMM under it ran at 20.6
-# TFLOP/s rather than 35.3. It is `coopmat_sdpa_plan`'s `minl`.
+# against a GEMM at 35.3 TFLOP/s, and 512 against one at 20.6. It is
+# `coopmat_sdpa_plan`'s `minl`.
 
 """`(E,L,H,B)` read as `(L,EP,H,B)`, zero past `E`."""
 @inline function toLEpad(I, a, E)
@@ -651,8 +650,7 @@ the tiling has no masking for.
 function attnsoftmax!(ctx, sums, p, s, scale)
     backend = ctx.backend
     Lq, Lk, H, B = size(s)
-    # The chunked form always wins where it applies (review finding 3, tier two:
-    # the switch that selected between them is gone). It has no masking for a
+    # The chunked form always wins where it applies. It has no masking for a
     # partial tile, so a query count the tiling does not divide still takes the
     # one-thread-per-row kernel below — which is also how to A/B the two now that
     # the switch is not there: call `attn_softmax16` directly. They differ only in
@@ -770,10 +768,8 @@ end
 `bias` may be `nothing` (flash) or an additive mask (mem-efficient).
 """
 function sdpa(ctx, q, k, v, bias, scale; out=nothing)
-    # Decide once, then dispatch. This used to be `flashcm_applicable` (which ran
-    # `flashcm_tiling` and threw the answer away), then `flashcm_tiling` again for
-    # the tiling, then six more checks inside `sdpaflashcm!` that could still
-    # decline — after `out` had been allocated. See `FlashCMPlan`.
+    # Decide once, then dispatch: deciding in pieces puts the last refusals
+    # inside `sdpaflashcm!`, after `out` has been allocated. See `FlashCMPlan`.
     plan, k, v = sdpaplan(ctx, q, k, v, bias)
     return sdpa!(ctx, plan, out, q, k, v, bias, scale)
 end
@@ -802,10 +798,9 @@ function sdpaplan(ctx, q, k, v, bias)
 
     plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
 
-    # The one refusal that is recoverable, and now it actually recovers. An
-    # operand stack `stridedroot` cannot account for used to need someone to set
-    # `FLASHCM_DENSIFY` by hand, which is to say it never happened and the call
-    # silently took a slower path instead.
+    # The one refusal that is recoverable, and it recovers here: an operand
+    # stack `stridedroot` cannot account for is densified and the plan retried,
+    # rather than falling to a slower path nobody asked for.
     #
     # `k` and `v` are the ones worth densifying and `q` is not, which is not an
     # oversight. Flash re-reads the whole of `k` and `v` once per query block — 64

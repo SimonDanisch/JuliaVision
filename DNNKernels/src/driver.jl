@@ -61,13 +61,6 @@ Model(graphs, weights, backend, memevery, memframes, topk, scratch;
     Model(graphs, weights, backend, memevery, memframes, topk, scratch,
           Diagnostics(), Dict{String,Int}(record_maxpasses))
 
-# `scratchfor` was here: one slab per resolution from `planslab`, a `Workspace`
-# arena, and a `Recycler` per graph. All three recovered something the ATen
-# graph had already stated, and Mantle's `Liveness`/`Place`/`Aliasing` see the
-# whole of it before a byte is touched -- see `planfor`. `planslab`, `Slab` and
-# `Workspace` were deleted from this package on 2026-09-15; this is the caller
-# that still named them.
-
 """
     toback(backend, a) -> array
 
@@ -86,8 +79,8 @@ function toback(backend, a::AbstractArray)
     KernelAbstractions.get_backend(a) isa typeof(backend) && return a
     d = KernelAbstractions.allocate(backend, eltype(a), size(a)...)
     # `copyto!(d, a)`, NOT `copyto!(d, collect(a))`. `collect` on an `Array`
-    # returns a COPY, so the old form allocated a full anonymous duplicate of
-    # every tensor on its way to the device. Invisible at SAM 2's 943 MB;
+    # returns a COPY, so that form allocates a full anonymous duplicate of every
+    # tensor on its way to the device. Invisible at SAM 2's 943 MB;
     # at K2 Horizon 32B's 64.78 GiB it is a second 64.78 GiB of host memory on
     # a unified-memory APU where host and device share one 122 GiB pool, and
     # the process is OOM-killed with no frame naming the cause.
@@ -181,12 +174,12 @@ weights, then upload what survives.
 **Takes loaded objects, not paths.** Reading the JSONs and the safetensors is the
 owning package's job — `SAM2Runner.sam2graphs()` / `sam2weights()` and the
 equivalents beside them — because that package is the only thing that knows
-which artifact holds them and which graphs it wants. This used to take
-`(graphdir, weightpath)` plus a `names` list that selected the JSONs to open,
-and that list defaulted to MatAnyone's eight: model-specific knowledge sitting
-in the generic runtime, purely because the constructor did the loading.
+which artifact holds them and which graphs it wants. Taking `(graphdir,
+weightpath)` plus a list of JSON names to open would put model-specific
+knowledge in the generic runtime, purely because the constructor did the
+loading.
 
-Two things follow, and both were the point. A model whose weights arrive as
+Two things follow. A model whose weights arrive as
 several files — Hunyuan3D's denoiser is 6.1 GB, past what one GitHub release
 asset can hold — merges them in its own `*weights()` and nothing here changes.
 And there is exactly one way to hand a model its weights, rather than a path
@@ -273,9 +266,9 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     live = livekeys(graphs)
     dropped = length(host) - count(k -> k in live, keys(host))
     host = Dict{String,Any}(k => v for (k, v) in host if k in live)
-    # Upload one tensor at a time, dropping each host copy as it lands. The
-    # comprehension this replaces held BOTH dicts alive at once, so peak was
-    # twice the weights: fine at SAM 2's 943 MB, fatal at K2 Horizon 32B's
+    # Upload one tensor at a time, dropping each host copy as it lands. A
+    # comprehension holds BOTH dicts alive at once, so peak is twice the
+    # weights: fine at SAM 2's 943 MB, fatal at K2 Horizon 32B's
     # 64.78 GiB, which needs 129.6 GiB against a 103.9 GiB cgroup cap and is
     # killed by the OOM reaper with no Julia frame naming the cause.
     #
@@ -441,9 +434,9 @@ the recording rather than something that happened once while it was made.
 
 # What a model has to satisfy
 
-These were the reasons it was off by default. They are now REFUSALS: a host read
-during a recording cannot be papered over, so what used to be "check your
-outputs against the immediate path" is the graph failing to declare.
+These are REFUSALS: a host read during a recording cannot be papered over, so a
+graph that cannot be declared says so instead of quietly differing from the
+immediate path.
 
   * Nothing between the graph's first op and its last may read device memory on
     the HOST. A recording defers every launch, so a host read during it sees a
@@ -491,9 +484,9 @@ Release a recorded plan: its Mantle regions and the buffers the emit owns.
 A `Model` caches one of these per `(name, dims)` and keeps it for the process,
 which is the point of recording. A caller that builds plans it does not keep --
 a test over every exported graph, a tool that sweeps resolutions -- has to
-release them, and before this there was no way to: `Mantle.free!(plan)` returns
-the transients and the argument memory, and the escaping buffers belonged to
-nobody. Idempotent through `freeowned!`'s own emptying.
+release them: `Mantle.free!(plan)` returns the transients and the argument
+memory, and the escaping buffers belong to nobody else. Idempotent through
+`freeowned!`'s own emptying.
 """
 function M.free!(mp::RecordedPlan)
     M.free!(mp.plan)
@@ -535,12 +528,9 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
     # the graph dispatches, and `noise` because ZeroNoise and RandomNoise are
     # different computations.
     #
-    # There used to be TWO runs before a plan existed: an interpreted one for
-    # the values, then the whole graph again with a capture scope open so the
-    # backend's launch path could intercept each kernel. `emitgraph` declares
-    # instead of running, so there are none -- and `Plan` sees the whole graph
-    # before a byte is touched, which is what `scratchfor`'s slab, `Workspace`'s
-    # arena and the `Recycler` were each recovering a piece of.
+    # No run precedes the plan: `emitgraph` declares instead of running, so
+    # `Plan` sees the whole graph before a byte is touched and places every
+    # intermediate itself.
     key = (:plan, name, dims, clampattn, typeof(noise))
     mp = get!(m.scratch, key) do
         planfor(m, g, name, dims, clampattn, noise)

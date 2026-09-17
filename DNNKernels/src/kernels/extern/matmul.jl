@@ -267,16 +267,15 @@ function mm_coopmat_plan(dev::M.DeviceCaps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb}
     # to the staged kernel's block, so the cooperative-matrix path does the whole
     # product at the block's width and throws away all but one column.
     #
-    # This is the entire autoregressive decode path, and it was silently taking
-    # the tile: under fp16 the operands satisfy every test above, while
-    # `mm_gemv_plan` below asks for fp32 and so never caught them. On K2 Horizon
+    # This is the entire autoregressive decode path: under fp16 the operands
+    # satisfy every test above, and `mm_gemv_plan` below asks for fp32, so
+    # nothing else catches them. On K2 Horizon
     # 32B's 449 decode GEMVs it cost **733 ms per token against 380** for
     # `mul!`'s split-K GEMV, which is bandwidth-bound and the right kernel here.
     sb[2] == 1 && return Decline(:notmatrix)
     # BEFORE the extent test, which divides by `dev.tile`. A device with no
     # matrix hardware reports no tile, and the extent test would then throw a
-    # DivideError instead of declining. It only ever ran in the other order
-    # because `tile` used to be a module constant that was 16 everywhere.
+    # DivideError instead of declining.
     dev.coopmat || return Decline(:nocoopmat)
     sa[1] % dev.tile == 0 && sa[2] % dev.tile == 0 || return Decline(:extent)
     MMCoopMatPlan(Mantle.gemm_padn(sa[1], sb[2], sa[2]; tile = dev.tile), dev.tile)
@@ -323,13 +322,9 @@ end
 # ── Why the GEMM writes `out` directly ───────────────────────────────────────
 #
 # Bias in the accumulator's initial value, fp32→fp16 conversion in registers,
-# instead of an fp32 scratch plus `mm_epilogue_kernel!`. This was a switch
-# (`MATMUL_FUSED`), on by default; the winner is inlined below and the switch is
-# gone (`kernel-library-review.md` finding 3, tier two). It was a switch because
-# that is the only way to compare the two **inside one session**, and
-# cross-session encode numbers on this machine have disagreed by 40 ms in both
-# directions — so any re-measurement has to A/B the two branches in one process,
-# not two runs.
+# instead of an fp32 scratch plus `mm_epilogue_kernel!`. Re-measuring that has
+# to A/B the two **inside one session**: cross-session encode numbers on this
+# machine have disagreed by 40 ms in both directions.
 #
 # The two are not bit-identical and are not meant to be: the bias joins the fp32
 # accumulation chain rather than being added after it, so 31 elements of a 2.36 M
@@ -409,7 +404,7 @@ and land on `mul!`, which is where the 2-D path already sends them.
 #
 # so 94% of the cost sat in one of the two, and profiling by kernel *name* hid it
 # completely: both launch as `gpu_ndmap_flat!`, which reads like an elementwise
-# kernel and is how this was once written up as "83.2% elementwise".
+# kernel.
 #
 # Routing the planes through `matmul!` instead:
 #
@@ -460,10 +455,9 @@ this predicate):
     MatAnyone 512x512   with this clause                within noise of `mm3`
     Depth Anything      with this clause                7.8x, undiminished
 
-The unguarded version shipped in an earlier revision of this file and cost
-MatAnyone 14.5%. It was found by benchmarking the model rather than by reading
-the code: a static count of dispatch overhead had put it at ~0.5%, which was
-wrong by a factor of thirty.
+Without the clause MatAnyone costs 14.5% more. A static count of dispatch
+overhead puts that at ~0.5%, wrong by a factor of thirty, so this is a question
+for a model run and not for the dispatch count.
 """
 @inline function planewise_worth(ctx, out, A, B)
     size(out, 3) == 1 && return true
@@ -480,11 +474,10 @@ wrong by a factor of thirty.
     end
     # ── The tile-count clause applies to BOTH dtypes.
     #
-    # This used to be `eltype(out) === Float32 || return false`, i.e. "fp16's only
-    # real kernel is the cooperative-matrix one, so an fp16 plane that missed the
-    # branch above has nothing to go per-plane FOR". That was true when it was
-    # written and is not any more: `matmul!` pads a plane onto a real kernel, and
-    # the flat `mm3` it fell back to instead is roughly a 1 TF/s path.
+    # NOT `eltype(out) === Float32 || return false`: an fp16 plane that misses
+    # the branch above still has somewhere to go per-plane, because `matmul!`
+    # pads a plane onto a real kernel, where the flat `mm3` it falls back to
+    # instead is roughly a 1 TF/s path.
     #
     # It cost Depth Anything's autocast export a factor of **3.75 end to end**,
     # invisibly, because every extent it has is 1370 (37x37 patches + cls) and

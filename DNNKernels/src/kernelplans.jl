@@ -39,9 +39,9 @@ end
 
 Everything the cooperative-matrix flash kernel needs to launch, decided once.
 
-`kernel-library-review.md` finding 2. What this replaces was two predicates that
-had to agree and could not be made to: `sdpa` asked `flashcm_applicable`, which
-ran [`flashcm_tiling`](@ref) and threw the answer away to return a `Bool`; `sdpa`
+One plan, and not two predicates that have to agree: a `Bool` that runs
+[`flashcm_tiling`](@ref) and throws the answer away can disagree with the tiling
+the launch then computes. `sdpa`
 then ran `flashcm_tiling` **again** for the tiling; and `sdpaflashcm!` re-checked
 six more conditions and returned `false` from six places to mean "declined" —
 *after* the caller had already allocated `out`. The symptom of the two drifting
@@ -57,9 +57,8 @@ struct FlashCMPlan
     NW::Int
     # NW * dev.coopmatsubgroup — the width a cooperative-matrix module actually
     # runs at, which Lava pins to 32, NOT `dev.subgroup` (the device default, 64
-    # on RDNA 3.5). Derived rather than the old hardcoded `NW * 32`; this comment
-    # previously said `dev.subgroup`, and two assertions in test_flash.jl were
-    # written from it and failed on wave64 hardware.
+    # on RDNA 3.5). Derived and never hardcoded to `NW * 32`: on wave64 hardware
+    # the two disagree.
     NT::Int
     E::Int
     EP::Int          # E rounded up to the cooperative-matrix tile
@@ -127,8 +126,8 @@ struct FlashCMPlan
     # form and 122 for the register form, stack size 0 in both** — the register form
     # uses *fewer* registers and neither spills.
     #
-    # ~~What it actually costs is the `splitidx` per element in the sweep.~~ **Tested
-    # on 2026-08-02, and that was wrong.** The row index is loop-*invariant* whenever
+    # The `splitidx` per element in the sweep is not the cost: the row index is
+    # loop-*invariant* whenever
     # `NT` is a multiple of `BR`, which every shipped tiling is — `idx = tid + (s-1)*NT`
     # gives `idx % BR == tid % BR` for every `s` — and `BR` is a power of two, so the
     # call was a mask, not a division, and the compiler was recomputing a constant.
@@ -178,32 +177,21 @@ struct FlashCMPlan
     #     4096x4096    4.386 ms   4.950     123 -> 192
     #     256x256      0.423      0.506
     #
-    # **The cause is register pressure, and two earlier explanations of it were
-    # wrong.** Both are recorded here because they were confident and cost time:
+    # **The cause is register pressure**, from `Mantle.pipeline_exec_stats`: the
+    # rescale costs **+69 registers**, 123 to 192. At 256 threads that is 49 152
+    # of the SM's 65 536, so **one workgroup per SM instead of two**. Stack size
+    # is 0 and local memory 16 bytes in both, so nothing spills — the component
+    # access materialises a second copy of each held tile, and register
+    # allocation is static.
     #
-    #   * *"it is the flush, the reload and the two extra barriers on a block that
-    #     grows."* Reaching a component of a cooperative matrix used to be impossible,
-    #     so rescaling a held tile meant storing it to `pvs`, sweeping, and loading it
-    #     back. `Lava.coopmat_setcomp` (built for the GEMM's gelu epilogue) removes all
-    #     of that — the tile is scaled where it lives, no barrier. **The number did not
-    #     move**: 4.950 against the flush-and-reload form's 5.183, the same loss.
-    #   * *"`getcomp`/`setcomp` each spill the whole tile, so an eight-component
-    #     rescale spills eight times."* True of the emitted SPIR-V, and Lava now emits
-    #     one store for a chain of accesses instead of one per access. **The number did
-    #     not move either**: 4.955 before, 4.950 after.
-    #
-    # What it actually is, from `Mantle.pipeline_exec_stats`: the rescale costs **+69
-    # registers**, 123 to 192. At 256 threads that is 49 152 of the SM's 65 536, so
-    # **one workgroup per SM instead of two**. Stack size is 0 and local memory 16
-    # bytes in both, so nothing spills — the component access simply materialises a
-    # second copy of each held tile, and register allocation is static, so a path taken
-    # on two thirds of blocks and a path taken on none cost the same occupancy.
-    #
-    # That also retires the `grew` frequency table this docstring used to lead with. It
-    # is still true that `grew` fires on 67.3% of blocks at `BR = 64` and 31.7% at
-    # `BR = 16`, and it is still irrelevant: a rarely-taken expensive path halves
-    # occupancy exactly as much as a always-taken one. A per-row-tile flag would not
-    # have helped, which settles the "obvious next move" this used to recommend.
+    # Neither the barriers nor the spills explain it. Scaling the tile where it
+    # lives with `Lava.coopmat_setcomp`, no flush and no barrier, measures 4.950
+    # against the flush-and-reload form's 5.183, and emitting one store for a
+    # chain of component accesses instead of one per access reads 4.950 against
+    # 4.955. How OFTEN the rescale fires does not explain it either (67.3% of
+    # blocks at `BR = 64`, 31.7% at `BR = 16`): allocation being static, a
+    # rarely-taken expensive path halves occupancy exactly as much as an
+    # always-taken one, and a per-row-tile flag would not help.
     #
     # Swept over every tiling `flashcmfits` admits, held only wins where the tiling is
     # itself slow — `32x16x8` at -2.8% and `32x32x4` at -11.9%, both against a shared-O

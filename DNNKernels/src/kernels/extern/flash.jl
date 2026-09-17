@@ -70,7 +70,7 @@ Kept because the analysis points somewhere specific, and so does what blocks it:
     `E = 72` is not a power of two, so `idx % E` emits a real division into a
     shared-store address, which drops
     stores on this driver. `Mantle.splitidx` removes it and every configuration is
-    exact; `flashfits` no longer refuses odd slot counts. See the note there.
+    exact, so `flashfits` accepts odd slot counts. See the note there.
     So the `BQ = 32` route to two workgroups is available to try.
 
 **The conclusion, having worked the numbers: this shape cannot win here.**
@@ -153,9 +153,9 @@ rather than used: the three-pass path is always available and always right.
     #   32/128   18 even     8.4e-07     7.0e-07
     #   64/128   36 even     7.8e-07     6.8e-07
     #
-    # The slot count was never the variable. With `splitidx` every configuration
-    # is exact, so the refusal is gone and `BQ = 32` is available again — which
-    # matters because it is one of the two routes to two workgroups per SM.
+    # The slot count is not the variable: with `splitidx` every configuration is
+    # exact, so `BQ = 32` is available, which matters because it is one of the
+    # two routes to two workgroups per SM.
     return true
 end
 
@@ -480,10 +480,9 @@ end
                                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
     # workgroup as `NW * dev.coopmatsubgroup`, so a literal disagrees with it on
-    # any device where Lava cannot pin a 32-lane subgroup, and then the
-    # launch asked for `NW * 64` threads while the kernel strided by `NW * 32`
-    # and every subgroup past the first read another's fragment. Nothing would
-    # have crashed. `kernel-library-review.md` step 1 names this leftover.
+    # any device where Lava cannot pin a 32-lane subgroup: the launch would ask
+    # for `NW * 64` threads while the kernel strided by `NW * 32`, and every
+    # subgroup past the first would read another's fragment without crashing.
     NT = NW * SG
     # `EPS` and `BRS`, not `EP` and `BR`, are the STRIDES of the shared arrays: the
     # tensor cores read them by column, and an unpadded stride puts every column in
@@ -1109,11 +1108,10 @@ Exact either way: the tests compare the two settings with `==`.
 Whether the device can rescale a held `O` in place — `VK_NV_cooperative_matrix2`
 with `cooperativeMatrixPerElementOperations`.
 
-Rescaling with `OpCooperativeMatrixPerElementOpNV` instead of a chain of
-`coopmat_getcomp`/`coopmat_setcomp` was a switch (`FLASHCM_PERELEM`) on top of
-the device query. It is settled — where the extension exists the per-element form
-is what runs — so the switch is gone and this asks the device only (review
-finding 3, tier two).
+Where the extension exists, rescaling goes through
+`OpCooperativeMatrixPerElementOpNV` rather than a chain of
+`coopmat_getcomp`/`coopmat_setcomp`, so this asks the device and has no switch
+of its own.
 
 This is the missing piece [`FLASHCM_HELD`](@ref) documents: the 31% is real, and
 the portable component access that would buy it costs +69 registers (123 -> 192),
@@ -1150,11 +1148,11 @@ const FLASH_EXP_HEADROOM = 10.0f0
 Measured on SAM 2's two dominant attention shapes, clock warmed, interleaved,
 against the two-GEMM cooperative-matrix path. **Re-swept after the lazy rescale
 and the one-pass softmax**: a measured constant is invalidated by a change to
-the thing it was measured against, as `COOPMAT_MINL` was (512 -> 256, when the
-GEMM under it got 1.68x faster):
+the thing it was measured against, which is how `COOPMAT_MINL` went 512 -> 256
+when the GEMM under it got 1.68x faster:
 
     tiling        4096x4096      256x256
-    coopmat        9.50 ms       0.883 ms     (the path this replaces)
+    coopmat        9.50 ms       0.883 ms     (two-GEMM coopmat)
     64x32/8w       4.39          0.450        <- shipped default
     64x16/8w       5.49          0.504
     32x32/8w       6.21          0.557
