@@ -1,3 +1,12 @@
+# SUPERSEDED, and it does not load. It runs the interpreted path over a
+# `planslab` slab, and `planslab`/`Workspace`/`scratchfor`/`recordplan` went with
+# the declared path. The slab is not droppable here -- see the note below on why
+# the graph needs it -- so the replacement is not a smaller edit but the DECLARED
+# path, where `Mantle.Place` does the placement `planslab` did:
+# `tools/two_route_parity.jl` and `DNNKernels.verifygraph` for the verification,
+# `tools/bench_all.jl` for the timing. It also reads a local `gen/` export tree
+# rather than the artifact, so it cannot run on a machine that has not run the
+# exporter. Kept for the measurements in its header.
 """
 RIFE 4.26: does an interpolated frame fit the editor's budget?
 
@@ -22,8 +31,8 @@ than a baked constant — the three calls differ only in one scalar buffer.
 """
 
 using DNNKernels, KernelAbstractions, Lava, Printf, Statistics
-using DNNKernels: loadgraph, execute!, readsafetensors, toback,
-                  planslab, fusableset, Workspace
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+using DNNKernels: loadgraph, execute!, readsafetensors, toback, fusableset, Workspace
 const KA = KernelAbstractions
 
 const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "rife"))
@@ -85,7 +94,7 @@ inputs = Dict{String,Any}("imgs" => imgs, "timestep" => tstep)
 
 plan = planslab(graph, (;))
 slab = KA.allocate(backend, UInt8, max(plan.bytes, 1))
-ws = Workspace(backend)
+ws = nothing
 lazy = fusableset(graph)
 
 wbytes = sum(length(v) * sizeof(eltype(v)) for v in values(hw))

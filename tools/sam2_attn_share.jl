@@ -19,6 +19,7 @@
 # columns against each other; never a total against the encode.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using DNNKernels, KernelAbstractions, Printf, Lava
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using SAM2Runner: SAM2
 using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions

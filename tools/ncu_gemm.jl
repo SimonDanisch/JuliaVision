@@ -31,6 +31,7 @@ either.
 """
 
 using Lava, KernelAbstractions, DNNKernels
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 const M, N, K = 2304, 4096, 576
@@ -42,8 +43,7 @@ A = KA.allocate(be, Float16, M, K); copyto!(A, rand(Float16, M, K) .- Float16(0.
 B = KA.allocate(be, Float16, K, N); copyto!(B, rand(Float16, K, N) .- Float16(0.5))
 bias = KA.allocate(be, Float16, M); copyto!(bias, rand(Float16, M) .- Float16(0.5))
 out = KA.allocate(be, Float16, M, N)
-ws = DNNKernels.Workspace(be)
-
+ws = nothing
 # Warm up outside the profiled window: the first launch compiles the SPIR-V and
 # builds the pipeline, and a profiler replaying *that* measures the compiler.
 for _ in 1:3

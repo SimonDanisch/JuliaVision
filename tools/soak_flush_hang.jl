@@ -32,6 +32,7 @@ A clean run just prints a heartbeat per trial, so a stalled log is itself signal
 """
 
 using Lava, KernelAbstractions, Printf, Dates
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 const TRIALS = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : typemax(Int)

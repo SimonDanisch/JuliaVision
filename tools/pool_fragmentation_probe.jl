@@ -60,6 +60,7 @@ to check are the large ones: SAM 2, MatAnyone, Whisper's 2.55 GB fp32 encoder.
 """
 
 using KernelAbstractions, Lava, Printf
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 const MIB = 1024 * 1024

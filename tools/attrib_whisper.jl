@@ -23,6 +23,7 @@
 #     include("tools/attrib_whisper.jl")
 
 using WhisperRunner, DNNKernels, Lava, KernelAbstractions, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 backend = LavaBackend()

@@ -31,6 +31,7 @@ and `heat` runs between rounds.
 """
 
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 # (M, N, K, calls per encode, share of the encoder's GEMM arithmetic)
@@ -122,7 +123,7 @@ function main()
         # measurement, which is right: it is 25.3 ms of the encode, exists only
         # because our GEMM cannot fold bias and split-K itself, and the port is
         # supposed to delete it.
-        ws = DNNKernels.Workspace(backend)
+        ws = nothing
         run(staged) = r -> begin
             Lava.GEMM_STAGED[] = staged
             # Per op, as the graph executor does. `scratch!` is a bump allocator

@@ -8,6 +8,7 @@
 # causes. What is left needs a hardware profiler.
 
 using Lava, KernelAbstractions, DNNKernels
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 be = LavaBackend()

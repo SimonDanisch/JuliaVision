@@ -11,13 +11,14 @@
 # exists, so this file must not be `include`d after anything has made a device.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 Mantle.enable_pipeline_executable_properties!()
 using DNNKernels, KernelAbstractions, Printf
 const KA = KernelAbstractions
 const DK = DNNKernels
 
 const BACKEND = LavaBackend()
-const WS = DK.Workspace(BACKEND)
+const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 const CTX = DK.Ctx(BACKEND; ws = WS)
 
 const SHAPES = [(2304, 4096,  576, 24.4),

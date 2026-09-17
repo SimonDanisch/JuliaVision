@@ -1,3 +1,12 @@
+# SUPERSEDED, and it does not load. It runs the interpreted path over a
+# `planslab` slab, and `planslab`/`Workspace`/`scratchfor`/`recordplan` went with
+# the declared path. The slab is not droppable here -- see the note below on why
+# the graph needs it -- so the replacement is not a smaller edit but the DECLARED
+# path, where `Mantle.Place` does the placement `planslab` did:
+# `tools/two_route_parity.jl` and `DNNKernels.verifygraph` for the verification,
+# `tools/bench_all.jl` for the timing. It also reads a local `gen/` export tree
+# rather than the artifact, so it cannot run on a machine that has not run the
+# exporter. Kept for the measurements in its header.
 # Run with the workspace Julia project. The caller may supply an already loaded
 # `prefill_model` to avoid loading the 32B weights twice.
 using HorizonRunner, DNNKernels, Mantle, KernelAbstractions, SHA

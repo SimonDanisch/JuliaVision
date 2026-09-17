@@ -23,6 +23,7 @@ launch whose grid cannot fill the device — the launches worth fixing first.
 """
 
 using SAM2Runner, DNNKernels, Lava, KernelAbstractions, Printf
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 # 48 SMs on the RTX 4000 Ada. A grid below this cannot occupy the card at all,

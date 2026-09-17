@@ -26,6 +26,7 @@ Four checks, in the order that a failure is cheapest to read:
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics, JSON3
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using DNNKernels: readsafetensors, verifygraph, coverage, Model, call, loadgraph
 const KA = KernelAbstractions
 

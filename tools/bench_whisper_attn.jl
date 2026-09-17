@@ -40,6 +40,7 @@
 # 16 us and 116 us in consecutive runs".
 
 using DNNKernels, Lava, KernelAbstractions, Printf
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const DK = DNNKernels
 const KA = KernelAbstractions
 include("measure.jl")
@@ -63,7 +64,7 @@ end
 flops(L) = 2 * 2 * L * L * E * H * B      # QK' and PV, 2 flops per MAC
 
 function arm(L, clampattn)
-    ctx = DK.Ctx(back; ws = DK.Workspace(back), clampattn)
+    ctx = DK.Ctx(back; clampattn)
     q, k, v = operands(L)
     plan, k2, v2 = DK.sdpaplan(ctx, q, k, v, nothing)
     out = KA.allocate(back, Float32, E, L, H, B)

@@ -1,6 +1,7 @@
 # Bench harness for the DNNKernels inference loop. Reload after a restart with
 #   include("tools/lavadnn_bench.jl")
 using DNNKernels, KernelAbstractions, Lava, Statistics, LinearAlgebra, Logging
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 const GENDIR = joinpath(@__DIR__, "..", "gen")
 

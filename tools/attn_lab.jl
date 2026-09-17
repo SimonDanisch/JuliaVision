@@ -24,6 +24,7 @@ reset the `Workspace` per call or the bump allocator OOMs in the loop.
 """
 
 using Lava, DNNKernels, KernelAbstractions, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 const DK = DNNKernels
 
@@ -37,8 +38,7 @@ gflop(E, Lq, Lk, H, B) = 2 * 2 * Lq * Lk * E * H * B / 1e9
 const BACKEND = LavaBackend()
 const HEATW = KA.allocate(BACKEND, Float32, 1 << 22)
 const HEATV = KA.allocate(BACKEND, Float32, 1 << 22)
-const WS = DK.Workspace(BACKEND)
-
+const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 heat(k = 200) = (for _ in 1:k; HEATW .= HEATV .* 1.0001f0 .+ 0.5f0; end)
 smclock() = parse(Int, first(split(read(`nvidia-smi --query-gpu=clocks.sm --format=csv,noheader`,
                                         String))))

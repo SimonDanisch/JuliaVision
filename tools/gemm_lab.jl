@@ -24,6 +24,7 @@ session rather than evaluated into a running one.
 """
 
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 Mantle.enable_pipeline_executable_properties!()
 
@@ -71,7 +72,7 @@ smclock() = parse(Int, first(split(read(`nvidia-smi --query-gpu=clocks.sm --form
 const BACKEND = LavaBackend()
 const HEATW = KA.allocate(BACKEND, Float32, 1 << 22)
 const HEATV = KA.allocate(BACKEND, Float32, 1 << 22)
-const WS = DNNKernels.Workspace(BACKEND)
+const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 # The kernel entry points take a context; `Ctx(backend; ws)` is the no-graph form
 # a direct caller uses, and it carries the workspace these benchmarks reset.
 const CTX = DNNKernels.Ctx(BACKEND; ws = WS)

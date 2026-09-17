@@ -29,6 +29,7 @@ allocator's state. And the SM clock is printed, because this card idles at
 """
 
 using Lava, KernelAbstractions, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 # The two permutations the encoder actually runs, from the note above

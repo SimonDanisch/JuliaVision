@@ -43,6 +43,7 @@ Attribute there; use this only once it agrees.
 """
 
 using DNNKernels, Lava, KernelAbstractions, Printf
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 "Shapes as they occur in the autocast graphs at 240x128 — (W, H, Cin, Cout, K, count)."
@@ -98,7 +99,7 @@ function main(; backend = LavaBackend())
         # Measuring one shape in a tight self-dependent loop measures the hazard.
         nbuf = 8
         outs = [KA.allocate(backend, Float16, W, H, Cout, 1) for _ in 1:nbuf]
-        wss  = [DNNKernels.Workspace(backend) for _ in 1:nbuf]
+        wss  = [nothing for _ in 1:nbuf]
         slot = Ref(0)
         function f()
             i = (slot[] = slot[] % nbuf + 1)

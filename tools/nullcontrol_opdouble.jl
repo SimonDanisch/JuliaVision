@@ -18,6 +18,7 @@
 # measure.jl: a block per arm gives each its own stretch of the clock ramp.
 
 using WhisperRunner, DNNKernels, Lava, KernelAbstractions, Statistics, Printf
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 backend = LavaBackend()

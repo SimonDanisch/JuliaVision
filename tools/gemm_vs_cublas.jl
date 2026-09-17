@@ -25,6 +25,7 @@
 # which would be faster and is not what either side is doing here.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using CUDA
 const KA = KernelAbstractions
 const DK = DNNKernels
@@ -40,7 +41,7 @@ const SHAPES = [(2304, 4096,  576, 24.4),
                 (1152, 16384,  288, 4.1)]
 
 const BACKEND = LavaBackend()
-const WS = DK.Workspace(BACKEND)
+const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 const CTX = DK.Ctx(BACKEND; ws = WS)
 
 smclock() = parse(Int, first(split(read(`nvidia-smi --query-gpu=clocks.sm --format=csv,noheader`,

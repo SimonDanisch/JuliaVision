@@ -25,6 +25,7 @@ comparable and the result means nothing.
 """
 
 using Lava, KernelAbstractions
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 const KA = KernelAbstractions
 
 @kernel function narrow_index!(dest, bc, cis, n)

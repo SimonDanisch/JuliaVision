@@ -29,6 +29,7 @@ and permuting it here would move the data twice and compare the wrong axes.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics, Lava
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using DNNKernels: loadgraph, execute!, readsafetensors, toback
 const KA = KernelAbstractions
 

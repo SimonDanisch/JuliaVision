@@ -28,6 +28,7 @@ worth no more than a single timing was.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using DNNKernels: readsafetensors, SAM2, encode, decode, toback
 using Lava
 const KA = KernelAbstractions

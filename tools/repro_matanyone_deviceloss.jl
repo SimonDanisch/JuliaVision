@@ -20,6 +20,7 @@
 # 2-D operands or 4-D ones reshaped as the route builds them.
 
 using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using DNNKernels: toback
 const KA = KernelAbstractions
 backend = LavaBackend()

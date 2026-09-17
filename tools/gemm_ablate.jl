@@ -20,6 +20,7 @@
 # collapse is visible rather than assumed.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 Mantle.enable_pipeline_executable_properties!()
 using DNNKernels, KernelAbstractions, LinearAlgebra, Printf
 using CUDA
@@ -27,8 +28,7 @@ const KA = KernelAbstractions
 const DK = DNNKernels
 
 const BACKEND = LavaBackend()
-const WS = DK.Workspace(BACKEND)
-
+const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 const SHAPES = [(2304, 4096,  576, 24.4),
                 ( 576, 4096, 2304, 24.4),
                 (1728, 4096,  576, 17.8),

@@ -1,3 +1,12 @@
+# SUPERSEDED, and it does not load. It runs the interpreted path over a
+# `planslab` slab, and `planslab`/`Workspace`/`scratchfor`/`recordplan` went with
+# the declared path. The slab is not droppable here -- see the note below on why
+# the graph needs it -- so the replacement is not a smaller edit but the DECLARED
+# path, where `Mantle.Place` does the placement `planslab` did:
+# `tools/two_route_parity.jl` and `DNNKernels.verifygraph` for the verification,
+# `tools/bench_all.jl` for the timing. It also reads a local `gen/` export tree
+# rather than the artifact, so it cannot run on a machine that has not run the
+# exporter. Kept for the measurements in its header.
 """
 Whisper large-v3-turbo's encoder on Lava, against the PyTorch reference.
 
@@ -44,9 +53,9 @@ by more than either differs from fp32 — see the block of comment at the gate.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using LinearAlgebra: dot
-using DNNKernels: readsafetensors, verifygraph, coverage, toback, Model, call, loadgraph,
-                  Workspace
+using DNNKernels: readsafetensors, verifygraph, coverage, toback, Model, call, loadgraph
 const KA = KernelAbstractions
 
 mode = "gpu"
@@ -192,7 +201,7 @@ prec == "fp32" && relrms > 1e-3 && push!(bad, "e2e")
 # their attention decompositions differ, so the graph's own output node exists in
 # only one of them.
 if prec == "fp16"
-    ws = Workspace(backend)
+    ws = nothing
     gg = m.graphs["whisper"]
     vals = DNNKernels.execute!(gg, Dict{String,Any}(gg.inputs[1] => mel), m.weights;
                                dims = (;), backend, ws)

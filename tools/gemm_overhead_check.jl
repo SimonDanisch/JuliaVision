@@ -17,12 +17,13 @@
 # flat from reps=4 on, the 64% is the kernel and nothing here is a confound.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf
+using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using CUDA
 const KA = KernelAbstractions
 const DK = DNNKernels
 
 const BACKEND = LavaBackend()
-const WS = DK.Workspace(BACKEND)
+const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 const CTX = DK.Ctx(BACKEND; ws = WS)
 
 # The dominant shape, and one small one where per-launch cost matters most.
