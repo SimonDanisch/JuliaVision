@@ -127,14 +127,21 @@ end
 # are checked. Teaching a pass to emit a new `fused.*` op fails this test until
 # its `emitop!` exists, which is the one thing no graph can tell you.
 
-"""Every `fused.*` aten a pass in this package can put into a graph."""
+"""
+Every aten a pass in this package can put into a graph, and which pass.
+
+Not just the `fused.*` ones: `foldcacheupdate` rewrites the `cat` that rebuilds
+a KV cache into an `alias.default` OP, which no export contains either and which
+cost a second round of the same surprise after `fused.sdpa`.
+"""
 const FUSION_CREATES = ("fused.elementwise" => "fusepass.jl / fusemaskedattention.jl",
                         "fused.sdpa"        => "fuseattention.jl",
                         "fused.groupedrms"  => "fusegroupedrms.jl",
                         "fused.maskedattention" => "fusemaskedattention.jl",
                         "fused.rope"        => "fuserope.jl",
                         "fused.ropecache"   => "fuserope.jl",
-                        "fused.swiglu"      => "fuseswiglu.jl")
+                        "fused.swiglu"      => "fuseswiglu.jl",
+                        "alias.default"     => "foldcache.jl")
 
 """
 The created ops with no `emitop!` yet, and what each is for.
@@ -153,6 +160,30 @@ happens to hit one.
 """
 const FUSION_UNPORTED = ("fused.groupedrms", "fused.maskedattention",
                          "fused.rope", "fused.ropecache", "fused.swiglu")
+
+"""
+Attributes a pass SETS on an existing op, and the emit that has to read each.
+
+`attrs["act"]` and `attrs["epilogue"]` are checked below, against the graphs.
+`attrs["inplace"]` cannot be: `foldcacheupdate` sets it and no export carries
+it, so only the pass and the emit know it exists. Getting it wrong is silent in
+the worst way — a KV cache that is never written, with plausible numbers
+everywhere the graph looks.
+"""
+const PASS_SETS = ("act"      => "foldrelu.jl",
+                   "epilogue" => "fusepass.jl",
+                   "inplace"  => "foldcache.jl")
+
+@testset "every attribute a pass sets is read by some emit" begin
+    src = read(joinpath(@__DIR__, "..", "src", "emit.jl"), String)
+    for (attr, where) in PASS_SETS
+        # The pass still sets it...
+        @test occursin("\"$attr\"", read(joinpath(@__DIR__, "..", "src", where), String))
+        # ...and `emit.jl` still reads it. A `get(op.attrs, "inplace", …)` that
+        # went away would leave the pass marking ops nothing honours.
+        @test occursin("\"$attr\"", src)
+    end
+end
 
 @testset "every op a fusion pass creates is accounted for" begin
     ported = Set{String}()

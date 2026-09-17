@@ -184,8 +184,36 @@ function consumedids(g::Graph; all::Bool = false)
         occursin("getitem", b.viewop) &&
             push!(live, "$(b.of)#$(Int(b.attrs["arg1"]))")
     end
+    # An op whose RESULT IS ONE OF ITS INPUTS declares no storage of its own —
+    # the emit registers the input under the output's id. Declaring a buffer as
+    # well would leave it unread, which `Liveness` refuses, and copying into it
+    # would leave the caller's bytes unwritten.
+    for o in g.ops
+        isaliasing(o) && delete!(live, o.out)
+    end
     return live
 end
+
+"""
+    isaliasing(op) -> Bool
+
+Whether this op's result IS one of its inputs rather than a new value.
+
+Two shapes, both from `foldcacheupdate`, which rewrites a KV cache update once
+it has proved the cache slice is a view of a graph input nothing reads first:
+
+  * an `index_put` marked `inplace`, which writes THROUGH its `self`;
+  * an `alias.default` OP, which is what the `cat` it folded becomes — the
+    stack is the identity on the tensor the puts wrote.
+
+`alias.default` is also a VIEW op (`SHAPEONLY_VIEWS`), and that is the same
+statement from the buffer side rather than a second rule: a view of a buffer and
+an op that returns its input both name bytes someone else owns.
+"""
+isaliasing(op::Op) =
+    op.aten == "alias.default" ||
+    (op.aten == "index_put.default" &&
+     get(op.attrs, "inplace", false) === true)
 
 """
     residentweights(dev, aten, weights) -> Dict{String,Any}
@@ -285,6 +313,27 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
         v = M.viewof(parent, evalshape(b.shape, emitctx.dims))
         emitctx.res[id] = v
         return v
+    end
+    # A `select.int` on the TRAILING Julia axis is a window too. Consecutive
+    # slices of the last axis are consecutive bytes, so the dropped axis is a
+    # constant OFFSET and nothing moves — `viewof` answers it for a descriptor
+    # and no pass.
+    #
+    # This is what makes an in-place `index_put` possible: the KV cache reaches
+    # it as `select.int(self_k, 0, i)` and torch's dim 0 is Julia's LAST, so a
+    # write through this descriptor lands in the caller's cache. Materialised, it
+    # would land in a copy. It also removes a full copy from every other
+    # trailing-axis select, which is how a stack of per-layer caches is indexed.
+    if b.viewop == "select.int"
+        pn = ndims(parent)
+        if jdim(Int(b.attrs["arg1"]), pn) == pn
+            i = fromend(Int(b.attrs["arg2"]), size(parent, pn), b.id, b.viewop)
+            od = evalshape(b.shape, emitctx.dims)
+            v = M.viewof(parent, od;
+                         offset = i * prod(ntuple(k -> size(parent, k), pn - 1)))
+            emitctx.res[id] = v
+            return v
+        end
     end
     # Anything else MOVES its elements, so it needs storage of its own and one
     # pass that fills it. `contiguous` did the permute case with `permutedims!`
@@ -1778,6 +1827,132 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("topk.default")})
              name = "$(op.id).indices")
     return (vals, inds)
 end
+
+"""
+    viewowner(r) -> resource
+
+The resource whose bytes `r` names: a view's parent, transitively.
+
+`Mantle.rootresource` answers this for a `BufferRange` and an `Attr` and NOT for
+a `ResourceView`, deliberately — it decides which resource a USAGE names, and
+folding views into their parent there would change what orders against what for
+every graph. The question here is narrower: does writing through `r` reach the
+caller's storage, or a copy of it. A `Buffer` is the caller's; a
+`TransientBuffer` is the placer's.
+"""
+viewowner(r) = r
+viewowner(r::M.ResourceView) = viewowner(r.parent)
+
+"""
+`aten::index_put(self, indices, values)` with ONE index tensor: `self` with the
+rows `indices` names along that axis replaced.
+
+This is how a KV cache is written — Whisper's decoder does it eight times a step,
+and K2 Horizon 32B sixty-four times a token.
+
+**The index never comes to the host.** `hostidx` in `runop!` downloads it to
+build a Julia `view`, and a download is a `flush!` plus `vkWaitSemaphores`: on
+Horizon that drained the queue 128 times per token, 1232 of 1458 profile samples
+inside `execute!`. A recorded plan could not do it at all — a host read during a
+recording sees a buffer that has not been written. Declared, the index is an
+ordinary read operand and `indexput_kernel!` does the arithmetic.
+
+Two shapes are refused rather than guessed:
+
+  * `inplace`, which `foldcacheupdate` sets once it has proved that `self` is a
+    view of a graph input nothing else reads first. The write then has to land in
+    THAT buffer and `op.out` has to be it — not a copy — and a declaration that
+    quietly copied instead would leave the caller's cache unwritten with the
+    right numbers everywhere this graph looks. `declare!` gives `op.out` storage
+    of its own, so making this work means teaching it that an in-place op
+    declares none; that is a change to the declaration rule, not to this emit.
+  * `accumulate`, and more than one index tensor: `runop!` reaches the host for
+    both — a loop for the non-fp32 accumulate, a `view` for advanced indexing.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index_put.default")})
+    a = operand(emitctx, op, 1)
+    src = operand(emitctx, op.ins[end])
+    n = ndims(a)
+    inplace = Bool(something(get(op.attrs, "inplace", nothing), false))
+    # IN PLACE: the result IS `self`, so there is no copy and no buffer of its
+    # own — `consumedids` gave it none. The write has to land in the caller's
+    # bytes, which means `self` must be a DESCRIPTOR over them and not a
+    # materialised copy of them; a trailing-axis `select.int` is (see
+    # `viewfor`), and anything else is refused rather than written to a copy
+    # nobody reads.
+    out = if inplace
+        viewowner(a) isa M.Buffer || error(
+            "DNNKernels: `index_put` (op $(op.id)) is `inplace`, so it writes " *
+            "through its `self` — but `self` resolved to a " *
+            "$(typeof(viewowner(a))), which is storage of its own rather than a " *
+            "window onto the caller's. `viewfor` materialises any view that " *
+            "moves its elements, and a write into that copy would leave the " *
+            "caller's cache unwritten.")
+        emitctx.res[op.out] = a
+        a
+    else
+        dest(emitctx)
+    end
+    Bool(something(get(op.attrs, "arg3", nothing), false)) && error(
+        "DNNKernels: `index_put` (op $(op.id)) accumulates. That is a " *
+        "scatter-ADD, which `runop!` does on the device only for fp32 " *
+        "(`scatteradd_kernel!`, through `OpAtomicFAdd`) and on the HOST " *
+        "otherwise — and a host loop is not something a plan can hold.")
+    # The index tensors, by Julia axis. torch lists them from the last dim.
+    ids = Tuple{Int,Any}[]
+    for (k, e) in enumerate(op.attrs["arg1"])
+        e === nothing && continue
+        jd = n - k + 1
+        1 <= jd <= n || error(
+            "DNNKernels: `index_put` (op $(op.id)) indexes torch dim $(k - 1) of " *
+            "a $(n)-d input.")
+        push!(ids, (jd, operand(emitctx, String(e)[2:end])))
+    end
+    length(ids) == 1 || error(
+        "DNNKernels: `index_put` (op $(op.id)) has $(length(ids)) index tensors, " *
+        "which is advanced indexing — `runop!` builds a host `view` for it and " *
+        "has never seen one in a profile.")
+    d, idx = ids[1]
+    ndims(src) == n || error(
+        "DNNKernels: `index_put` (op $(op.id)) writes a $(ndims(src))-d source " *
+        "into a $(n)-d input; `indexput_kernel!` walks the source's own " *
+        "coordinates, so they have the same rank.")
+    # `self` into the result first, when there IS a separate result: out of
+    # place, so `self` survives for whatever else reads it. `Aliasing` is what
+    # notices when nothing does.
+    if !inplace
+        od = size(out)
+        M.dispatch!(emitctx.g, ew!,
+                    (out, od, (a,), (bcstrides(od, size(a)),), identity),
+                    prod(od); name = "$(op.id).self")
+    end
+    length(src) == 0 && return out
+    M.dispatch!(emitctx.g, indexput_kernel!,
+                (out, src, M.viewof(idx, (length(idx),)), Val(d), Val(n),
+                 Val(size(src)), Int64(length(src))),
+                length(src); group = 256, name = op.id)
+    return out
+end
+
+"""
+`aten::alias.default` as an OP: the result is the operand, and nothing runs.
+
+`foldcacheupdate` produces these — the `cat` that rebuilt a KV cache from its
+slices becomes the identity on the tensor the in-place `index_put`s already
+wrote. `runop!` returns `value(ctx, op.ins[1])` and this registers the same
+resource under the output's id, which `consumedids` left without storage of its
+own (see `isaliasing`).
+
+`detach.default` is the same statement about autograd and reaches the emit the
+same way.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("alias.default")})
+    a = operand(emitctx, op, 1)
+    emitctx.res[op.out] = a
+    return a
+end
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("detach.default")}) =
+    emitop!(emitctx, op, Val(Symbol("alias.default")))
 
 # ── attention ────────────────────────────────────────────────────────────────
 

@@ -31,9 +31,11 @@
 # After both, every model the declared path covers:
 #
 #   neurallut       22 ops   5.9e-5   clean
-#   basicvsrpp    2282 ops   1.5e-4   clean — and it exercises `deform_conv2d`,
+#   basicvsrpp    2282 ops   2.8e-4   clean — and it exercises `deform_conv2d`,
 #                                     `flip`, `avg_pool2d` and `grid_sampler_2d`
-#   matanyone      600 ops   5.9e-3   clean, on the inputs a real step produced
+#   whispercross    10 ops   3.1e-6   clean
+#   whisperdec      74 ops   1.0e-6   clean — and it exercises `index_put`
+#   matanyone      600 ops   9.8e-3   clean, on the inputs a real step produced
 #   sam2                              covered better, by `verifygraph`
 #
 # Three models sit above 1e-2 and NONE of them is a defect this tool can pin on
@@ -187,6 +189,22 @@ for (pkg, gf, wf) in (("NeuralLUTRunner", :neurallutgraph, :neurallutweights),
     catch e
         println(rpad(pkg, 26), " no assets: ", first(sprint(showerror, e), 90))
     end
+end
+
+# Whisper's DECODER graphs, which sit in their own artifact as JSON beside the
+# weights rather than behind a `<model>graph` accessor.
+try
+    WR = Base.require(Main, :WhisperRunner)
+    dir = Base.invokelatest(WR.decoderdir)
+    w = Base.invokelatest(DK.readsafetensors, joinpath(dir, "weights.safetensors"))
+    for n in ("whispercross", "whisperdec")
+        p = joinpath(dir, n * ".json")
+        isfile(p) || continue
+        bothways(n, DK.loadgraph(p), w)
+    end
+catch e
+    println("whisper-decoder", " " ^ 11, " skipped: ",
+            first(sprint(showerror, e), 90))
 end
 
 # MatAnyone, on the inputs a real step produced — see `synthinputs`.
