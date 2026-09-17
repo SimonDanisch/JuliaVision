@@ -621,11 +621,6 @@ function replay!(mp::RecordedPlan, name::AbstractString, args)
     return mp.outputs
 end
 
-# `recordplan` was here, and it was the second interpreted run: the whole graph
-# again with `record_into` open so the backend's launch path captured each
-# kernel into a Mantle graph. `planfor` above declares the graph instead, so
-# there is no run to capture. `Mantle.record_into` is gone too.
-
 mutable struct State
     bank::MemoryBank
     sensory::Any            # (w, h, S, NOBJ, B)
