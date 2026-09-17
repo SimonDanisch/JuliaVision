@@ -158,6 +158,12 @@ function stubweights(dev, g, dims)
     return w
 end
 
+"""Give a stub weight set back. `Mantle.Buffer` has no finalizer and is not
+supposed to: its lifetime is declared, not collected. So `weights = nothing`
+frees nothing, and ten graphs' worth -- SAM 2's encoder at 1.8 GiB among them --
+is what this file used to keep for the whole run."""
+freestubs!(w) = (for v in values(w); MP.free!(v); end; empty!(w); nothing)
+
 """The resource that owns `r`'s bytes: a view's parent, transitively."""
 ownerof(r) = r
 ownerof(r::MP.ResourceView) = ownerof(r.parent)
@@ -181,7 +187,7 @@ function declaredplan(dev, label)
             msg = sprint(showerror, err)
             @test any(a -> occursin(a, msg), gaps) ||
                   occursin(get(UNPORTED_SHAPES, name, "\0"), msg)
-            weights = nothing
+            freestubs!(weights)
             GC.gc(true)
             continue
         end
@@ -215,12 +221,10 @@ function declaredplan(dev, label)
 
         MP.free!(plan)
         # And the buffers the EMIT owns. `free!(plan)` returns the transients
-        # and the argument memory; an escaping buffer belongs to nobody, and
-        # nothing finalises one. Ten graphs' worth per run, SAM 2's encoder
-        # included, is what made this file the one that ran the machine out of
-        # memory.
+        # and the argument memory; an escaping buffer is declared by the graph
+        # and owned by whoever emitted it, which here is this loop.
         DNNKernels.freeowned!(emitctx)
-        weights = nothing
+        freestubs!(weights)
         GC.gc(true)
     end
 
@@ -239,8 +243,8 @@ function declaredplan(dev, label)
     @testset "nothing declares a transient it does not use" begin
         g = prepared(Fixtures.sam2("sam2_decoder"))
         dims = (res = 1024,)
-        mantlegraph, emitctx = emitgraph(dev, g, stubweights(dev, g, dims), dims;
-                                         keepall = true)
+        stubs = stubweights(dev, g, dims)
+        mantlegraph, emitctx = emitgraph(dev, g, stubs, dims; keepall = true)
         used = Set{Any}()
         for p in mantlegraph.passes, (rid, _) in MP.usages(p)
             push!(used, rid)
@@ -250,9 +254,10 @@ function declaredplan(dev, label)
         # The same statement from the other side: a scratch that reached no
         # `dispatch!` never gets an id at all, so the two collections agree.
         @test length(mantlegraph.transients) == length(mantlegraph.transient_by_id)
-        # `keepall` makes EVERY buffer owned, so this one testset leaks the whole
+        # `keepall` makes EVERY buffer owned, so this one testset keeps the whole
         # decoder at 1024x1024 without it.
         DNNKernels.freeowned!(emitctx)
+        freestubs!(stubs)
         GC.gc(true)
     end
 end
