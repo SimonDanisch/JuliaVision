@@ -42,8 +42,10 @@
 # `castfn`, both of which every model reads: the four clean models are clean to
 # the same figures and the three residuals below are unchanged. MatAnyone's
 # eight graphs on SYNTHETIC inputs read 9, 87, 59, 266, 82, 65, 25 and 7 ops,
-# all clean but `readout_query`, whose `_softmax_2` is 1.03e-2. That is the
-# case the first limit below names, not a change: the graph consumes a memory
+# ALL of them clean once the emit stopped leaking its owned buffers (worst
+# 6.35e-3, at `readout_query`). Before that fix the same sweep read 1.03e-2
+# there, which is the case the first limit below names: the graph consumes a
+# memory
 # bank readout and synthetic inputs are not a legitimate one for it.
 #
 # `kokorotext` is NOT in the loop below and cannot be: its weights live in the
