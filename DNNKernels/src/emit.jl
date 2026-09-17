@@ -5,33 +5,26 @@ The exported graph is at torch's granularity: one op per `aten::` call, tensors
 with shapes, views declared as buffers naming their parent. A Mantle graph is at
 KERNEL granularity: one pass per dependent stage, a dispatch per launch, and
 every byte a resource the placer owns. This file is the lowering between them,
-and it is the reason none of the three allocators this package used to carry
-exist any more.
+and it is why this package has no allocator of its own.
 
 Nothing here executes. `emitgraph` walks the ops declaring what each one will do,
 `Plan` then runs all seven of Mantle's phases — `Dag`, `Schedule`, `Liveness`,
 `Place`, `Aliasing`, `Barriers`, `Pipelines` — and `run!` walks or replays the
-result. An op's body says `dispatch!(p, kernel, args, ndrange)` where it used to
-say `kernel(backend, wg)(args...; ndrange)`, which is a one-line change per
-launch and is the whole of what the 88 `emitop!` methods are.
+result. An op's body says `dispatch!(p, kernel, args, ndrange)` rather than
+launching a kernel itself, which is the whole of what the 88 `emitop!` methods
+are.
 
-**What this replaces, and why each one existed.** All three were mechanisms for
-recovering something the graph had already stated:
+Three things follow from declaring rather than allocating:
 
-  * `planslab` laid the intermediates out itself, because passes used to be
-    discovered by CAPTURE and placement therefore could not run before the ops
-    had run. Declared, `Liveness`/`Place`/`Aliasing` see the whole graph before
-    a single byte is touched.
-  * `Workspace` was a bump arena for op-internal scratch, reset per op with a
-    retirement list, because that scratch appears in no ATen graph — the export
-    is at torch granularity and a transposed copy of `q` is our kernel's
-    business, not the model's. Lowering is exactly where it becomes a
-    declaration, so scratch is a transient like any other and the placer aliases
-    it against the rest of the graph rather than only within one op.
-  * `makeview` rebuilt each declared view as a Julia wrapper over its parent's
-    storage, so `stridedroot` then had to walk back down the stack to recover the
-    parent, the offset and the strides. A view is a `Mantle.ResourceView` here,
-    which is that descriptor and nothing else.
+  * the intermediates are laid out by `Liveness`/`Place`/`Aliasing`, which see
+    the whole graph before a single byte is touched.
+  * op-internal scratch appears in no ATen graph (the export is at torch
+    granularity and a transposed copy of `q` is our kernel's business, not the
+    model's), so lowering is where it becomes a declaration: a transient like
+    any other, aliased against the rest of the graph and not only within its op.
+  * a declared view is a `Mantle.ResourceView`, the descriptor of parent, offset
+    and strides, and not a Julia wrapper something has to walk back down to
+    recover them from.
 """
 
 """
@@ -55,9 +48,9 @@ struct EmitCtx{G,D}
     # back. A transient belongs to the plan and `Mantle.free!(plan)` returns it;
     # an OWNED buffer belongs to nobody, and `Mantle.free!(::Buffer)` is
     # "explicit, and still never called for you: skipping it is a leak the pool
-    # can report" — which is exactly what this was doing, once per escaping
-    # buffer per emit. Recorded rather than recovered by scanning `res` for the
-    # type: `res` also holds the caller's resident weights and host scalars, and
+    # can report" — one escaping buffer per emit. Recorded rather than recovered
+    # by scanning `res` for the type: `res` also holds the caller's resident
+    # weights and host scalars, and
     # the emit knows what it allocated.
     owned::Vector{Any}
 end
@@ -621,10 +614,9 @@ positional slot and `ins` holds only the tensors, consumed in order. Either side
 can be the scalar: `1 - sigmoid(x)` exports as
 `sub.Tensor(ins = [sigmoid], arg0 = 1)`.
 
-`binary!` used to index `op.ins` directly, which works for as long as every op
-reaching it has tensors on both sides — `mul`, `div` and `add` did — and is a
-`BoundsError` the first time one does not. Same rule as `runop!`'s
-`operand(ctx, op, pos)`, and `ARGKEY` is shared with it.
+Indexing `op.ins` directly works only while every op reaching it has tensors on
+both sides, and is a `BoundsError` the first time one does not. Same rule as
+`runop!`'s `operand(ctx, op, pos)`, and `ARGKEY` is shared with it.
 """
 function operand(emitctx::EmitCtx, op::Op, pos::Int)
     key = argkey(pos)
@@ -704,12 +696,11 @@ end
 
 An op's own working buffer, declared into the graph.
 
-This is `Workspace`'s replacement and it is smaller in every way. Scratch appears
-in no ATen graph — the export is at torch granularity, and a split-K
-accumulator or a transposed copy of `q` is a property of our kernels — so it was
-bump-allocated from an arena that reset per op, which meant its bytes could only
-ever be reused by the SAME op. Declared, its liveness is whatever its uses say,
-so the placer aliases it against the whole graph like any other transient.
+Scratch appears in no ATen graph: the export is at torch granularity, and a
+split-K accumulator or a transposed copy of `q` is a property of our kernels.
+Declared here, its liveness is whatever its uses say, so the placer aliases it
+against the whole graph like any other transient rather than only within the op
+that asked for it.
 """
 scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
     M.Transient.Buffer(emitctx.g, T, map(Int, dims))
@@ -718,8 +709,8 @@ scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
 frames down in `dispatch!`."""
 emitop!(emitctx::EmitCtx, op::Op, ::Val{A}) where {A} = error(
     "DNNKernels.emitop!: no emit method for `$(op.aten)` (op $(op.id)). The op " *
-    "declares its dispatches now instead of launching them; see `emit.jl` for " *
-    "the patterns and `runop!` for what this one used to do.")
+    "declares its dispatches instead of launching them; see `emit.jl` for the " *
+    "patterns and `runop!` for the host-side reference.")
 
 # ── elementwise, as a dispatch ────────────────────────────────────────────────
 #
@@ -735,8 +726,8 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{A}) where {A} = error(
 #
 # The kernel is `ew!` from `kernels/elementwise.jl`: macro-free, ONE method over
 # a tuple of operands, taking the output shape and each operand's effective
-# strides as plain arguments. So broadcast is no longer GPUArrays'
-# either. It is `bcindex` over strides computed at emit time from shapes the
+# strides as plain arguments. So broadcast is not GPUArrays' either: it is
+# `bcindex` over strides computed at emit time from shapes the
 # graph already states, which is what lets NeuralLUT's `(1, 1, 1, 1, 3)` factor
 # meet its `(33, 33, 33, 3, 3)` LUT with no materialised copy and no second
 # dispatch.
@@ -753,7 +744,6 @@ Nothing here says what it touches. `ew!` stores through its first argument and
 reads through the operand tuple, and that is read off the kernel body by
 `Mantle.argument_usage` — so the destination is written, the operands are only
 read, and two ops that read the same weight do not serialise against each other.
-It was two `use` calls at this site, which is the same fact stated twice.
 """
 function elementwise!(emitctx::EmitCtx, op::Op, f, ins...)
     out = dest(emitctx)
@@ -768,19 +758,11 @@ end
 The operands and their effective strides, as the two tuples [`ew!`](@ref) walks
 in step.
 
-`ewkernel(Val(n))` was here, picking `ew1!`, `ew2!` or `ew3!`, and it refused a
-fourth operand by name. The reason given was that `Mantle.resolve` is applied per
-ELEMENT of a dispatch's argument tuple, so a nested tuple of resources arrived in
-the kernel as unresolved handles. That was a one-line gap in core rather than a
-reason for three kernels: `resolve` and `storage` take a `::Tuple` method now,
-and `devicepointeroffsets` stopped counting a tuple as a level of nesting, which
-is what a `resize!` under a recorded plan needs in order to find the operands'
-addresses (`Mantle.nestinglevels`).
-
-The second reason given was that each operand had to be a top-level argument so
-that `use(p, x; read = true)` could name it. That was wrong when it was written
-and is moot now: there is no `use`, and what the kernel reads is read off the
-kernel.
+One kernel over any number of operands, rather than one per arity. What that
+needs from core is a `::Tuple` method on `resolve` and `storage`, so a nested
+tuple of resources reaches the kernel resolved, and `devicepointeroffsets` not
+counting a tuple as a level of nesting, so a `resize!` under a recorded plan
+finds the operands' addresses (`Mantle.nestinglevels`).
 """
 operandtuples(od::Dims, ::Tuple{}) = ((), ())
 function operandtuples(od::Dims, ins::Tuple)
@@ -908,9 +890,8 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("logical_and.default")}) =
 """
 `aten::_to_copy`, a dtype conversion as one elementwise pass.
 
-Which conversion is `castfn`'s, and this used to carry its own copy of the same
-`if`. Both routes ask that one function, so neither can round, truncate or
-saturate differently from the other.
+Which conversion is `castfn`'s. Both routes ask that one function, so neither
+can round, truncate or saturate differently from the other.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_to_copy.default")})
     a = operand(emitctx, op, 1)
@@ -1241,9 +1222,8 @@ vectors selects `length(i) * length(j)` elements; torch broadcasts `i` against
 the two agree — each index tensor varying along its own broadcast axis — which is
 SAM 2's position-embedding interpolation, sixteen times.
 
-Declared, both are a gather and both keep their index on the device. The paired
-form used to run on the HOST (`collect(vec(x))[vec(lin)]`), which is why it could
-never be recorded; there is no round trip now.
+Both are a gather and both keep their index on the device, so neither needs a
+host round trip (`collect(vec(x))[vec(lin)]`), which could not be recorded.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
     x = operand(emitctx, op, 1)
@@ -1695,8 +1675,7 @@ Two dispatches, and a dispatch is a pass: the second reads what the first writes
 and a pass is the unit that may run concurrently, so the dependency between them
 is a dependency between passes. Nothing here orders it — `bnstats!` writes `mean`
 and `invstd`, `bnapply!` reads them, `argument_usage` reads that off both bodies
-and `Barriers` derives the wait. That is the whole of what used to be an implicit
-ordering inside a sequence of broadcasts.
+and `Barriers` derives the wait.
 
 All three of torch's results are declared: the normalised output, the mean and
 the inverse standard deviation. The last two are what the backward pass reads,
@@ -2587,7 +2566,7 @@ planeof(emitctx::EmitCtx, x, i::Integer) =
 `aten::convolution`, forward and dense, as the implicit GEMM plus whatever
 split-K needs.
 
-**Everything the run used to decide is decided here, from shapes.** `convtiles`
+**Everything is decided here, from shapes.** `convtiles`
 and `convsplit` read `Cout`, `NPQ`, `CRS` and the shader-core count, all of which
 the graph states or the device reports, so the tiling and the split factor are
 `Val` parameters of one dispatch rather than a choice made per launch.

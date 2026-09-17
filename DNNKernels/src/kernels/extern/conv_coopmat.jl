@@ -70,15 +70,13 @@ end
 Whether the tensor-core path can take this convolution.
 
 `NPQ` is padded internally (the im2col kernel simply writes zeros past the last
-pixel), but `CRS` and `Cout` are the weight's own extents and padding those would
-mean rewriting the weight, so a convolution whose channel counts do not land on
-the tile falls back to the implicit-GEMM kernel. In this model that is the
-stem (`7x7x3`), the 1x1 layers with a concatenated scalar channel (`Cin` 17,
-257, 769) and the single-channel alpha heads — all of them small.
-
-`CRS` is no longer among those refusals: it is padded when the waste is small
-enough, which `conv_coopmat_plan`'s `crspad` decides. `Cout` still is — padding it would
-widen the *output*, not just the reduction.
+pixel) and `CRS` is padded when the waste is small enough, which `crspad`
+decides. `Cout` is refused off the tile: it is the weight's own extent and
+padding it would widen the *output*, not just the reduction, so a convolution
+whose output channels do not land on the tile falls back to the implicit-GEMM
+kernel. In this model that is the stem (`7x7x3`), the 1x1 layers with a
+concatenated scalar channel (`Cin` 17, 257, 769) and the single-channel alpha
+heads, all of them small.
 """
 function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
                            im2colcap::Int = im2colbudget(x))
@@ -91,21 +89,18 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     eltype(x) === Float16 && eltype(w) === Float16 || return Decline(:eltype)
     KW, KH, Cin, Cout = size(w)
     CRS = Cin * KH * KW
-    # Hoisted from further down, where it used to sit below three tests that
-    # divide by `dev.tile`. A device with no matrix hardware reports no tile, so
-    # those threw instead of declining; the order was only safe while `tile` was
-    # a module constant that read 16 on every device.
+    # Before any test that divides by `dev.tile`: a device with no matrix
+    # hardware reports no tile, and those would throw instead of declining.
     dev.coopmat || return Decline(:nocoopmat)
     Cout % dev.tile == 0 || return Decline(:cout)
     #
     # How much padding of the reduction axis a convolution may buy its way onto the
     # tensor cores with.
     #
-    # `CRS` off the tile used to be a flat refusal, because it is the *weight's* extent
-    # and padding it means padding the weight. It is paddable — `convolution_coopmat!`
-    # zero-fills both halves — but the padding is paid for: every padded column is
-    # written by im2col, read by the GEMM, and multiplied by a zero, so the cost is
-    # proportional to the waste.
+    # `CRS` is the *weight's* extent, so padding it means padding the weight.
+    # `convolution_coopmat!` zero-fills both halves, and the padding is paid
+    # for: every padded column is written by im2col, read by the GEMM and
+    # multiplied by a zero, so the cost is proportional to the waste.
     #
     # At `1.25` the line falls between the two cases this repo has:
     #
@@ -114,17 +109,13 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     #     MatAnyone       1x1x257    CRS 257 -> 288   +12.1%    admitted   (padbk)
     #     MatAnyone       1x1x769    CRS 769 -> 800    +4.0%    admitted   (padbk)
     #
-    # The 257 and 769 rows used to read `-> 272 +5.8%` and `-> 784 +2.0%`, which
-    # are `padtile` results — the numbers from BEFORE `crsextent` grew its
-    # adaptive `padbk` branch, left behind when it did. They understated the real
-    # padding by about 2x, and this table is what a reader uses to set `crspad`.
-    # Verdicts were unaffected (both still fit the budget), so nothing behaved
-    # wrongly; the documentation simply described the old rule.
+    # The rows are `crsextent` results, `padbk` or `padtile` as it chooses, and
+    # this table is what a reader uses to set `crspad`.
     #
-    # The stem is what motivated it: **2.800 -> 1.147 ms, 2.44x**, 0.99 to 2.42
-    # TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A `Ref` rather than a constant so
-    # the two sides can be measured in one session, which is the only comparison this
-    # project trusts — set it to `1.0` to get the old refusal exactly.
+    # The stem is what the budget buys: **2.800 -> 1.147 ms, 2.44x**, 0.99 to
+    # 2.42 TFLOP/s, and SAM 2's encode 102.65 -> 100.91. A keyword rather than a
+    # constant so the two sides can be measured in one session, which is the
+    # only comparison this project trusts; `1.0` refuses any padding.
     CRSP = crsextent(CRS, crspad)
     CRSP <= CRS * crspad || return Decline(:crswaste)
 
@@ -137,19 +128,15 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     #
     # The size cap is the same judgement from the other side: that 35 MB is also
     # what makes the workspace OOM when anything else is on the card.
-    # Both bounds used to exclude the full-resolution layers, on the estimate that
-    # the implicit-GEMM fallback was cheaper for them than im2col's 35 MB of
-    # traffic. Measured in situ (`Diagnostics.opdoublefilter` + capture/replay) that estimate
-    # was inverted: `3x3 64->16 @240x128` alone cost **1.411 ms at 0.40 TFLOP/s**,
-    # 21% of the step's entire convolution budget, while coopmat reaches 5.1-5.6
-    # TFLOP/s on `@120x64` shapes that have 4x LESS tile parallelism.
-    #
-    # Admitting them: that convolution drops to **0.442 ms** (3.2x) and the step
-    # goes **11.08 -> 9.78 ms, 90.2 -> 102.3 steps/s**. Cout=16 is a legal single
-    # N-tile; the cap only needed to clear the 35 MB those layers ask for.
-    #
-    # The lesson worth keeping is that the old bounds were never wrong in
-    # reasoning, only in their input — nobody had measured the fallback.
+    # `Cout = dev.tile` is admitted, not excluded, because the fallback is the
+    # more expensive side for the full-resolution layers. Measured in situ
+    # (`Diagnostics.opdoublefilter` + capture/replay): `3x3 64->16 @240x128` on
+    # implicit GEMM costs **1.411 ms at 0.40 TFLOP/s**, 21% of the step's entire
+    # convolution budget, while coopmat reaches 5.1-5.6 TFLOP/s on `@120x64`
+    # shapes with 4x LESS tile parallelism. On the tensor cores that
+    # convolution is **0.442 ms** (3.2x) and the step goes **11.08 -> 9.78 ms,
+    # 90.2 -> 102.3 steps/s**. Cout=16 is a legal single N-tile, and the cap has
+    # to clear the 35 MB those layers ask for.
     Cout >= dev.tile || return Decline(:reuse)
     NPQ = size(out, 4) * size(out, 2) * size(out, 1)
     # `CRSP`, not `padtile(CRS)` — the scratch is allocated at the extent the plan
@@ -172,28 +159,28 @@ pool OOM when anything else is on the card — so asking the driver is strictly
 better than guessing a number that has to be right on an empty card and on a busy
 one at the same time.
 
-**Measured, and this overturned an earlier reading.** Kokoro's vocoder convolves
-sequences up to 34576 positions with `CRS = 1408`, so im2col would be 92.9 MiB:
-18 convolutions carrying 53% of the graph's convolution arithmetic sat on the
-direct scalar kernel. Admitting them is worth **1.24x end to end**, 8.42 -> 10.41x
-realtime, interleaved against one shared clock plateau. (A first attempt read
-1.04x and was wrong — it used two separate `bench` calls, so the arms ran at
-different clocks. See `tools/measure.jl`.)
+**Measured.** Kokoro's vocoder convolves sequences up to 34576 positions with
+`CRS = 1408`, so im2col is 92.9 MiB: 18 convolutions carrying 53% of the graph's
+convolution arithmetic, which a tighter cap leaves on the direct scalar kernel.
+Admitting them is worth **1.24x end to end**, 8.42 -> 10.41x realtime,
+interleaved against one shared clock plateau. Two separate `bench` calls read
+1.04x instead, because the arms then run at different clocks; see
+`tools/measure.jl`.
 
 The share is deliberately a *quarter* of what is free. The im2col is not the only
 thing the call needs — the GEMM's `MP x Cout` fp32 destination and the model's own
 slab are live at the same time — and leaving three quarters is what makes the
 fallback a slower convolution rather than an allocation failure.
 
-When the driver has no `VK_EXT_memory_budget` (`budget == 0`), this falls back to
-`IM2COL_CAP` unchanged, which is the old behaviour exactly.
-**512 MiB, raised from 128 — because 128 was the binding constraint on a 20 GB
-card, which is the wrong knob doing the work.** `free ÷ 4` is meant to be the real
-guard and this the backstop; with 17 GB free that quarter-share is ~4.3 GB, so the
-backstop was deciding every case instead. RIFE's flow encoder has five
-convolutions whose im2col is 159 MB to 1.11 GB and they declined to the
-implicit-GEMM kernel: **28.0 ms of a 110 ms interpolation for 10% of its
-arithmetic** — 0.52 TF/s where the 51 that fit run at 6.1.
+When the driver has no `VK_EXT_memory_budget` (`budget == 0`), this falls back
+to `IM2COL_CAP`.
+
+**512 MiB**, because `free ÷ 4` is the real guard and this only the backstop:
+with 17 GB free that quarter-share is ~4.3 GB, so a smaller ceiling decides
+every case instead. At 128 MiB, RIFE's flow encoder declines five convolutions
+whose im2col is 159 MB to 1.11 GB to the implicit-GEMM kernel: **28.0 ms of a
+110 ms interpolation for 10% of its arithmetic**, 0.52 TF/s where the 51 that
+fit run at 6.1.
 
 Swept on RIFE, all else equal:
 
@@ -204,9 +191,10 @@ Swept on RIFE, all else equal:
     384      56/56     96.90
     1536     56/56     96.96      <- saturated; the extra ceiling buys nothing
 
-384 captures all of it, so 512 is that with margin rather than a number fitted to
-one model. Above it there is nothing to gain and only a larger transient to lose,
-and `free ÷ 4` still binds first on a busy card — the case this ceiling is for.
+384 captures all of it, so 512 is that with margin rather than a number fitted
+to one model. Above it there is nothing to gain and only a larger transient to
+lose, and `free ÷ 4` still binds first on a busy card, which is the case this
+ceiling is for.
 """
 const IM2COL_CAP = Ref(512 << 20)
 
@@ -321,8 +309,8 @@ reshape — the rows past `NPQ` are dropped here.
 #
 # Launched flat rather than over `(OW, OH, Cout, N)`. A 4-D `ndrange` makes
 # KernelAbstractions partition the index space into 4-D workgroups, and
-# consecutive lanes then no longer write consecutive memory — the same defect
-# that cost Lava's broadcast a factor of six. Measured by running the phase twice
+# consecutive lanes then do not write consecutive memory, the same defect that
+# costs Lava's broadcast a factor of six. Measured by running the phase twice
 # and differencing: this kernel cost 2.9 ms a step, more than the tensor-core
 # GEMM it follows (1.9 ms).
 #
@@ -371,9 +359,9 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     NPQ = plan.NPQ
     MP = padgemm(NPQ)
     # The reduction axis is padded to the tile the same way `NPQ` already is.
-    # `CRS` is the weight's own extent, so this used to be a refusal rather than
-    # a padding — and it kept SAM 2's stem (`7x7x3`, `CRS = 147`) on the
-    # implicit-GEMM kernel at **1.01 TFLOP/s**. The two halves of the pad:
+    # `CRS` is the weight's own extent, so refusing to pad it keeps SAM 2's stem
+    # (`7x7x3`, `CRS = 147`) on the implicit-GEMM kernel at **1.01 TFLOP/s**.
+    # The two halves of the pad:
     # `im2col` writes zeros for the columns with no input channel behind them,
     # and the weight gets a zeroed copy that is `CRSP` rows tall. Zero times
     # anything is zero, so the padded product is the real one — but the weight's
