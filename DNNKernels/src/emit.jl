@@ -1027,7 +1027,10 @@ depends on it.
 p-norm is `sum(abs2)` followed by a `sqrt`, and `mean` is a sum followed by a
 division. Both happen inside the reduction kernel, so neither costs a pass.
 `pre` composes with whatever `foldpremap` folded in, and in that order — the
-folded map is a step of the value the graph fed this op, so it runs first.
+folded map is a step of the value the graph fed this op, so it runs first. No
+graph reaches that composition today, because `PREMAPPABLE` lists the three
+plain reductions and not the norm; the rule is here rather than there because
+which ops a pass folds into is not something this function may assume.
 """
 function folddims(emitctx::EmitCtx, op::Op, dims, combine, init;
                   pre = identity, post = identity)
@@ -1936,10 +1939,10 @@ it works on `permute` ops the export produced rather than on the inside of a
 composite op. 3.6 MB of copies per layer against a recurrence that reads `WhhT`
 once per timestep.
 
-Which shapes are accepted is `lstmconfig`'s, shared with the interpreted route.
-The state is NOT returned:
-`lstm_kernel!` keeps `h` and `c` in shared memory and never writes them out, so
-a graph that reads them is refused instead of being handed memory nothing wrote.
+Which configurations are accepted is `lstmconfig`'s, shared with the interpreted
+route. The state is NOT returned: `lstm_kernel!` keeps `h` and `c` in shared
+memory and never writes them out, so a graph that reads them is refused rather
+than handed memory nothing wrote.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("lstm.input")})
     x = operand(emitctx, op.ins[1])                       # (D, T, N)

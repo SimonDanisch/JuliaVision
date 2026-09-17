@@ -8,9 +8,27 @@
 # ops after `dropdead`, since a dead op is not a requirement.
 #
 # Only artifacts already in the store are read, so nothing downloads.
+#
+# **"ALL DECLARED" is about op KINDS and not about shapes.** An op with an
+# `emitop!` may still refuse the shape it is given: `convolution.default` covers
+# 1-D and 2-D, dense and split-K, and refuses the 1-D TRANSPOSED form that 5 of
+# kokorovoc's 90 convolutions are. So this sweep is a lower bound on what is
+# missing, and `KokoroRunner`'s suite is what found that one. The same blind spot
+# hid `fused.sdpa`, which a fusion pass creates and which no raw graph names.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":0")
 using DNNKernels, Artifacts, Printf
 const DK = DNNKernels
+
+"""
+Is this JSON an exported graph?
+
+The artifacts hold others beside them — `op_histogram.json`, Kokoro's `vocab`
+and `lexicon`, SAM 2's refs — and they are not failures to be skipped. This was
+`try loadgraph catch; continue; end`, which also swallowed a graph that failed to
+load for a real reason: a schema change would have read as "no graphs here" and
+the sweep would have reported full coverage of nothing.
+"""
+isatengraph(path) = haskey(DK.JSON3.read(read(path, String)), :buffers)
 
 ported = Set{String}()
 for m in methods(DK.emitop!)
@@ -41,12 +59,10 @@ for r in runners
         for sub in (dir, joinpath(dir, "graphs"))
             isdir(sub) || continue
             for f in sort(readdir(sub))
-                endswith(f, ".json") && f != "op_histogram.json" || continue
-                g = try
-                    DK.loadgraph(joinpath(sub, f))
-                catch
-                    continue
-                end
+                endswith(f, ".json") || continue
+                path = joinpath(sub, f)
+                isatengraph(path) || continue
+                g = DK.loadgraph(path)
                 need = sort(unique(o.aten for o in first(DK.dropdead(g)).ops))
                 isempty(need) && continue
                 gaps = filter(a -> !(a in ported), need)
