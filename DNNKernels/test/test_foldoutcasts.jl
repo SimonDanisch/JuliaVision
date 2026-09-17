@@ -22,8 +22,8 @@ const DK = DNNKernels
 # artifact is bound here too (content-addressed, same directory); the layout is not this
 # file's business, and a re-export that moves one must not break this test.
 #
-# This used to walk up the filesystem for a `gen/` tree, and when the walk missed
-# BOTH testsets here reported `Total 0` and read as green — 4172 assertions that
+# Walking up the filesystem for a `gen/` tree is what makes BOTH testsets here
+# report `Total 0` and read as green when the walk misses: 4172 assertions that
 # were not running.
 const HAVE_SAM2 = true   # bound in DNNKernels/Artifacts.toml
 

@@ -316,7 +316,7 @@ const H = Hunyuan3DRunner
         @test size(v, 2) == 3                    # welded to three distinct points
         v, f = H.removedegenerate(V, F)
         # both faces become (1,2,w) after welding, so one survives as a triangle
-        # and the duplicate is gone rather than leaving a torn edge
+        # and the duplicate is dropped rather than leaving a torn edge
         @test size(f, 2) == 2
         @test size(v, 2) == 3
     end

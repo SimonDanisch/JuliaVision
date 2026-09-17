@@ -7,15 +7,14 @@
 # through `getitem`, a chain of reshape views, and an implicit-GEMM convolution
 # with split-K scratch.
 #
-# Against `test/hostref.jl` and not against the runtime this replaces, because
-# there is no longer one to run: `planslab`, `Workspace` and the lazy-broadcast
-# path were the three allocators the declaration refactor deleted. The reference
-# is the DEFINITION — four nested loops for the convolution, `sum(a; dims)` for
-# the reduction — so it cannot share an index or tiling bug with the kernels.
+# Against `test/hostref.jl` and not against the interpreted path, which shares
+# the kernels. The reference is the DEFINITION — four nested loops for the
+# convolution, `sum(a; dims)` for the reduction — so it cannot share an index or
+# tiling bug with them.
 #
 # Per-op and not only end to end, and `alias = false` for it. A transient's bytes
 # are reused the moment it dies, so reading one after the plan has run compares
-# against whatever took its place: the first attempt at this reported the first
+# against whatever took its place: with aliasing on, that reads as the first
 # convolution off by 37 and four `repeat`s of a WEIGHT off by 1.5, all of which
 # were the placer doing its job. With aliasing off every buffer keeps its own
 # bytes and the first divergence is the real one.

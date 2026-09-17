@@ -7,10 +7,9 @@ shares no code with the kernels — a convolution written as four nested loops
 cannot have the same tiling bug as an implicit GEMM, and a `sum(a; dims)` cannot
 have the same index bug as `sumdims!`.
 
-The alternative would be an A/B against `runop!`, and there is no longer one to
-run: `planslab`, `Workspace` and the lazy-broadcast path were the three
-allocators the declaration refactor deleted. A reference that is the DEFINITION
-also outlives the thing it was written to check, which an A/B does not.
+The alternative is an A/B against `runop!`, which shares the kernels it is
+meant to check. A reference that is the DEFINITION outlives the thing it was
+written to check, which an A/B does not.
 
 Shapes are the reversed ones the graph carries: `x` is `(W, H, Cin, N)`, `w` is
 `(KW, KH, Cin, Cout)`, `out` is `(OW, OH, Cout, N)`.

@@ -12,8 +12,8 @@ it.
 Fixing that exposed a second, latent fault in the same three lines: the element
 count was `length(start:step:stop-step)`, which agrees with aten only when the
 step is 1. `arange(0, 5, 2)` is `[0, 2, 4]` and that formula gives two elements.
-Nothing exported so far has a non-unit integer step, so it had never been wrong
-in practice — it was wrong in waiting.
+Nothing exported so far has a non-unit integer step, so it is wrong in waiting
+rather than wrong in practice.
 
 ## The assertions
 

@@ -42,12 +42,12 @@ end
 """
 Run the cooperative-matrix path **by name** and compare it to the reference.
 
-This used to call `sdpa` twice with `COOPMAT_MINL` flipped, which is how a test
-stops testing anything: `sdpa` tries the **fused** path first, and the fused path
+Calling `sdpa` twice with `COOPMAT_MINL` flipped is how a test like this stops
+testing anything: `sdpa` tries the **fused** path first, and the fused path
 takes all four shapes below, so both halves of the A/B ran the same kernel and
 the comparison was of a result with itself. Vacuous since flash landed, and it
-could not have failed. Calling `sdpa_coopmat!` with a plan asserts the routing as
-well as the arithmetic — the same lesson as the two toggles deleted in step 1.
+cannot fail. Calling `sdpa_coopmat!` with a plan asserts the routing as well as
+the arithmetic.
 """
 function coopmatpath(E, L, H, B)
     back = LavaBackend()
@@ -58,8 +58,8 @@ function coopmatpath(E, L, H, B)
     q, k, v = mk(qh), mk(kh), mk(vh)
     scale = 1 / sqrt(E)
 
-    # `minl = 1` is what `COOPMAT_MINL[] = 1` used to mean: these shapes are
-    # shorter than the gate, and the point here is the arithmetic, not the gate.
+    # `minl = 1` admits everything: these shapes are shorter than the gate, and
+    # the point here is the arithmetic, not the gate.
     plan = coopmat_sdpa_plan(ctx.dev, q, k, v, nothing; minl = 1)
     plan isa CoopMatSDPAPlan || return (nothing, plan)
     out = KA.allocate(back, Float32, E, L, H, B); fill!(out, 0f0)
@@ -97,9 +97,9 @@ bothpaths(E, L, H, B) = coopmatpath(E, L, H, B)[1]
             f16(dims...) = KA.allocate(back, Float16, dims...)
             f32(dims...) = KA.allocate(back, Float32, dims...)
             q = f16(72, 1024, 4, 1)
-            # The lengths come off the operands now instead of being passed
-            # alongside them, so a caller can no longer describe a shape the
-            # arrays do not have — which is the same class of drift the plan
+            # The lengths come off the operands rather than being passed
+            # alongside them, so a caller cannot describe a shape the arrays do
+            # not have — the same class of drift the plan
             # objects exist to remove.
             #
             # A bias has to be added inside the score pass, and a GEMM has no

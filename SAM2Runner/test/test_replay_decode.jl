@@ -10,10 +10,10 @@ writes the frame and the dtype-converted features into the plan's own buffers
 in place, and `prompt` writes each click into one persistent pair instead of
 allocating a fresh one.
 
-The failure this guards against is silent. A plan whose buffers had been
+The failure this guards against is silent. A plan whose buffers were
 reallocated does not crash — it re-runs over whatever now lives at those
 addresses and returns a *plausible* mask, which for a segmentation model is
-indistinguishable from a slightly different click. So the load-bearing test is
+indistinguishable from a slightly different click. So the test that matters is
 not "the same click replays identically"; it is **a different click through the
 same buffers gives the same answer the eager path gives**, where the eager path
 is `DNNKernels.call` on the same graphs with the same inputs.

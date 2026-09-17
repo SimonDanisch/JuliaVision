@@ -101,8 +101,8 @@ end
 
         @test run(Dict{String,Any}()) == DKA.geluexact.(x)
         @test run(Dict{String,Any}("arg1" => "tanh")) == DKA.gelutanh.(x)
-        # The spelling every tanh gelu in the tree actually uses, and the one
-        # that used to fall through to the exact form.
+        # The spelling every tanh gelu in the tree actually uses, and the one a
+        # missing case falls through to the exact form on.
         @test run(Dict{String,Any}("approximate" => "tanh")) == DKA.gelutanh.(x)
         @test run(Dict{String,Any}("approximate" => "none")) == DKA.geluexact.(x)
     end

@@ -145,8 +145,8 @@ end
     end
 
     # The routing gate. Per-plane costs `nbatch - 1` extra dispatches, so a batch
-    # of small planes must NOT take it: routing every `bmm` per plane cost
-    # MatAnyone 14.5% (173.8 ms against 151.8) before this existed. The shapes
+    # of small planes must NOT take it: routing every `bmm` per plane costs
+    # MatAnyone 14.5% (173.8 ms against 151.8). The shapes
     # below are the real ones, and the fp16 pair is the trap — `mm_coopmat_plan`
     # accepts a 16x32 fp16 plane happily, so "can use a good kernel" is not a
     # sufficient test and the tile-fill clause is what actually decides it.

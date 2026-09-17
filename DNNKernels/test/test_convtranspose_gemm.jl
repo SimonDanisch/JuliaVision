@@ -168,7 +168,7 @@ end
         @test DK.conv_coopmat_plan(dev, o, x, w).reason === :crswaste   # 17 -> 32
         @test DK.conv_coopmat_plan(dev, o, x, w; crspad = 2.0) isa
               DK.ConvCoopMatPlan                            # ...only by policy
-        # 1.0 is the old behaviour exactly: nothing off the tile gets in. SAM 2's
+        # 1.0 admits nothing off the tile at all. SAM 2's
         # stem is `7x7x3`, `CRS = 147`, and padding it to 160 took it from 2.800
         # to 1.147 ms.
         w2 = KA.allocate(back, Float16, 7, 7, 3, 144); fill!(w2, Float16(0.1))

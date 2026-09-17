@@ -155,8 +155,8 @@ const TINY = get(ENV, "HORIZON_TINY_DIR",
                     kvc = HorizonRunner.chunkkv(m, occ)
                     @test min(occ, m.maxlen) <= kvc <= m.maxlen
                 end
-                # A prompt longer than the largest bucket. It used to be refused
-                # outright; it runs as consecutive chunks against the growing
+                # A prompt longer than the largest bucket, which is admitted
+                # rather than refused: it runs as consecutive chunks against the growing
                 # cache, and the recorded path has to agree with the immediate
                 # one about the positions, the masks and which logit column is
                 # the last prompt token's.

@@ -6,14 +6,12 @@ offset that overlaps a buffer still being read produces a *plausible* tensor, no
 a crash, and it surfaces as a slightly wrong mask several graphs later. So the
 invariant is asserted here rather than trusted.
 
-This file used to test `planslab`/`checkslab`/`lifetimes` — a static slab this
-package planned itself, per resolution — and those went with the interpreted run.
-Mantle's `Place` does the placement now and Mantle tests that it does not
-overlap, so what is left here is what only this package can say: WHICH buffers
-may be placed at all. Two of its three assertions are still exactly the ones
-worth making, and the third one — an escaping buffer must never be a transient —
-is the bug `viewfor` shipped: two of SAM 2's decoder outputs were materialised
-views, both transients, and the placer correctly put one on the other.
+Mantle's `Place` does the placement and Mantle tests that it does not overlap,
+so what this file says is what only this package can: WHICH buffers may be
+placed at all. The third assertion — an escaping buffer must never be a
+transient — is the one `viewfor` gets wrong: two of SAM 2's decoder outputs are
+materialised views, both transients, and the placer correctly puts one on the
+other.
 
 Over every exported graph, because it is shape-driven and one model would not
 exercise it — after `dropdead`, which is what the driver plans. An op writing a
@@ -161,7 +159,7 @@ end
 """Give a stub weight set back. `Mantle.Buffer` has no finalizer and is not
 supposed to: its lifetime is declared, not collected. So `weights = nothing`
 frees nothing, and ten graphs' worth -- SAM 2's encoder at 1.8 GiB among them --
-is what this file used to keep for the whole run."""
+would stay resident for the whole run."""
 freestubs!(w) = (for v in values(w); MP.free!(v); end; empty!(w); nothing)
 
 """The resource that owns `r`'s bytes: a view's parent, transitively."""
@@ -272,9 +270,9 @@ end
 
 # ── Every generated block size is reachable ──────────────────────────────────
 #
-# `kernel-library-review.md` finding 5: `ATTN_BLOCKS` generates one kernel per
-# entry, and the dispatchers used to be two hand-written `tk == 32 && return …`
-# chains beside it. Adding a block size generated a kernel and silently did not
+# `ATTN_BLOCKS` generates one kernel per entry, so the dispatchers are generated
+# too and not two hand-written `tk == 32 && return …` chains beside it. Adding a
+# block size to such a chain generates a kernel and silently does not
 # dispatch to it — dead code that read as live, and nothing failed.
 #
 # The dispatchers are now folded out of the same tuple, so the two cannot
@@ -292,8 +290,8 @@ end
     # `tk`, so calling it can never reveal that one size fell through to the
     # wrong kernel.
     #
-    # The SELECTOR, not the launcher. `scoresblocked!` used to hold the `tk ==
-    # 32 && return …` chain itself; the declared path needs to know which kernel
+    # The SELECTOR, not the launcher: the declared path needs to know which
+    # kernel
     # a shape takes without launching it, so the chain moved into
     # `scoresblocked!kernel` and the launcher now lowers to one call to that.
     # Reading the launcher found none of the eight names and said so ten times.

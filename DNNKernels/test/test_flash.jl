@@ -53,8 +53,8 @@ end
     end
 
     @testset "exact at every tiling, including the odd slot count" begin
-        # `BQ = 32, NT = 256` gives 9 accumulator slots per thread and was wrong
-        # from query row 4 on (7.1e-02) until the staging index stopped going
+        # `BQ = 32, NT = 256` gives 9 accumulator slots per thread and is wrong
+        # from query row 4 on (7.1e-02) if the staging index goes
         # through `OpUDiv` — `E = 72` is not a power of two. Varied inputs
         # matter: the broken version was **exact for constant inputs**, which is
         # what disguised it as an accumulator problem for so long.
@@ -87,8 +87,8 @@ end
         # The validated one fits, in both senses.
         @test DNNKernels.flashfits(72, 64, 32, 256)
         @test DNNKernels.flashshared(72, 64, 32) <= DNNKernels.PORTABLE_SHARED_FLOOR
-        # An odd accumulator-slot count used to be refused, because
-        # `BQ = 32, NT = 256` computed wrong results. That was `OpUDiv` in the
+        # An odd accumulator-slot count is admitted: `BQ = 32, NT = 256`
+        # computing wrong results is `OpUDiv` in the
         # staging index, not the slot count — see `flashfits` — and `splitidx`
         # fixed it, so both are accepted now and both must be exact.
         @test DNNKernels.flashfits(72, 32, 32, 256)       # BQ*E/NT = 9, odd
@@ -105,7 +105,7 @@ end
 
     # ── the cooperative-matrix form, which IS on the `sdpa` path ─────────────
     # The context, not a global: `coopmat_gemm_available` asks a DEVICE, and
-    # the no-argument convenience that reached for the default one is gone.
+    # there is no no-argument form reaching for the default one.
     if !Mantle.coopmat_gemm_available(Mantle.vk_context())
         @info "no cooperative-matrix support on this device; skipping the fused path"
     else
@@ -261,8 +261,8 @@ end
         @testset "cooperative-matrix flash agrees with the path it replaces" begin
             # This guards the ROUTING, not the kernel: `sdpa` must recognise the
             # shape and fuse it, and the fused answer must match the two-GEMM
-            # path it displaced. It used to flip `FLASHCM` to get the second
-            # answer; that switch was settled and deleted, so the alternative
+            # path it displaced. Flipping a `FLASHCM` switch is not how the
+            # second answer is obtained, since there is none, so the alternative
             # path is now called by name — which also makes the comparison
             # independent of what `sdpa` would fall through to next.
             E, L, H, B = 72, 256, 2, 2

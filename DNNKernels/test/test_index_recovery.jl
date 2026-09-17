@@ -4,8 +4,8 @@ using Adapt: adapt
 using KernelAbstractions: @kernel, @index
 const KA = KernelAbstractions
 
-# `@index(Global, NTuple)` used to be recovered by dividing a flattened block
-# index back apart — `2(N-1)` integer divisions by runtime extents — even though
+# `@index(Global, NTuple)` recovered by dividing a flattened block index back
+# apart is `2(N-1)` integer divisions by runtime extents, even though
 # `pad_to_3d` had dispatched the block grid on the three hardware axes and the
 # workgroup builtins already held the answer. `Lava.directdispatch` now takes it
 # straight off the builtins when the dispatch permits, which on a plain 70.8 MB

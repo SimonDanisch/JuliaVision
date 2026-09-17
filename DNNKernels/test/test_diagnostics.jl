@@ -1,12 +1,11 @@
 """
 Diagnostics ride on the context, not on the module.
 
-Five module-level `Ref`s used to hold this state — `OPTIMES`, `OPDOUBLE`,
-`OPDOUBLEFILTER`, `PLAN_MISSES`, `LAUNCH_PROBE` — and the tests that used them
-had to save and restore, which a failing test would skip. What this file asserts
-is the property that replaced them: **two runs in one process can be instrumented
-differently and neither sees the other's measurements.** A global cannot do that,
-so this is the test a regression to one would fail.
+Module-level `Ref`s holding this state make every test that touches them save
+and restore, which a failing test skips. What this file asserts is the property
+that makes that unnecessary: **two runs in one process can be instrumented
+differently and neither sees the other's measurements.** A global cannot do
+that, so this is the test a regression to one would fail.
 
 Host-only, on the CPU backend: nothing here is about what a kernel computes.
 
@@ -23,8 +22,8 @@ const DK = DNNKernels
 const KA = KernelAbstractions
 
 # The graph comes from this package's own `matanyone` binding, not from a runner
-# and not from `matanyone-refs`. It used to ask for `transform_key` at **fp32**,
-# which lives only in the refs artifact — unbound on every machine — so the
+# and not from `matanyone-refs`. Asking for `transform_key` at **fp32** reaches
+# only into the refs artifact, unbound on every machine, so the
 # `execute!` half of this file silently skipped: 25 tests became 13. Nothing here
 # depends on the precision; it counts launches.
 
@@ -47,7 +46,7 @@ const KA = KernelAbstractions
         out = zeros(Float32, 64)
         # A 1-D destination on purpose: `launch!` flattens every multi-dimensional
         # linearly-indexable output, and the probe records the shape of the N-D
-        # form — the same condition it recorded before this moved off a global.
+        # form, which is the condition the probe is for.
         launch!(ctx, (I, v) -> v, out, 2.0f0)
         launch!(ctx, (I, v) -> v, out, 3.0f0)
         @test all(==(3.0f0), out)
@@ -66,22 +65,14 @@ const KA = KernelAbstractions
         @test sum(first, values(d.launches)) == 2
     end
 
-    # ── the `execute!` half is gone, with the path it instrumented ───────────
+    # ── what the DECLARED path can be asked ─────────────────────────────────
     #
-    # Three testsets lived here: per-op timings accumulating into a
-    # `Diagnostics`, two instruments not crosstalking, and `opdouble` running a
-    # named op twice for the differential-ablation measurement. All three drove
-    # `execute!`, which is the interpreted run — and `execute!` cannot run: it
-    # calls `reset!(ctx.ws)` per op and `ctx.ws` is a `Workspace`, which went
-    # with that path on 2026-09-15.
+    # `optimes` and `opdouble` instrument the interpreted run, and neither has a
+    # declared counterpart: a declared graph has PASSES, not ops, and Mantle
+    # times them from the device's own query pool (`Mantle.timings`, tested
+    # there), while running one op twice inside a recorded plan is not something
+    # a plan can be asked to do.
     #
-    # `optimes` is not a facility the declared path has, and not because it was
-    # dropped: a declared graph has PASSES, not ops, and Mantle times them from
-    # the device's own query pool (`Mantle.timings`, tested there). An op is a
-    # host-side notion here and several of them become one pass. `opdouble` has
-    # no declared meaning either — running one op twice inside a recorded plan
-    # is not a thing a plan can be asked to do.
-    #
-    # What survives is above: the launch probe on the context, which is what
-    # `Diagnostics` still instruments.
+    # So what is asserted above is the launch probe on the context, which is
+    # what `Diagnostics` instruments on both paths.
 end

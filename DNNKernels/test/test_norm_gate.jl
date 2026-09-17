@@ -7,8 +7,8 @@
 # permuted view has to go the other way, and so does a host `Array`, because the
 # kernel is `cpu=false`.
 #
-# It was spelled `a isa Mantle.LavaArray` until 2026-09-14, which is that
-# predicate with one backend's concrete type standing in for it. The cost was
+# NOT `a isa Mantle.LavaArray`, which is that predicate with one backend's
+# concrete type standing in for it. The cost is
 # invisible on the backend it named and large everywhere else: on AMDGPU a
 # `ROCArray` failed the test, so SAM 2.1's encoder replayed its 96 layer norms as
 # 854 graph passes instead of 96 — 8.9 launches apiece for a form whose whole

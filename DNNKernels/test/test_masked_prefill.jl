@@ -39,7 +39,7 @@ end
 
 # The query floor is a measured routing decision (see `maskedprefill.jl`), so it
 # is worth pinning: a grouped-query 128-token prompt folds to `nq = 1024`, where
-# the staged route was no faster and drifted further from the unfused graph.
+# the staged route is no faster and drifts further from the unfused graph.
 @testset "staged masked prefill query floor" begin
     be=Mantle.LavaBackend(); caps=DNNKernels.caps(be)
     if caps.coopmat && caps.coopmatsubgroup==32 && caps.tile==16

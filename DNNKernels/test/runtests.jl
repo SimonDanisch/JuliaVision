@@ -39,14 +39,14 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 #
 # It had also been silently skipping, and the diagnosis in this comment was
 # wrong: `matanyone-refs` IS bound, in `MatAnyoneRunner/Artifacts.toml`, with a
-# download URL. It was bound but not *installed*, and one transient download
-# failure is indistinguishable from an unbound artifact at the call site — so it
+# download URL. Bound but not *installed*, one transient download failure is
+# indistinguishable from an unbound artifact at the call site — so it
 # read as "no fixtures" and went from 61 assertions to 1, still green.
 # `ensure_artifact_installed` succeeds on retry; the gate then runs and passes.
 
 # Which buffers a declared plan may place at all, over every exported graph.
-# Needs a device now — it used to plan a static slab this package owned, and
-# `Mantle.Place` does the placement. Two silent faults from running SAM 2 end to
+# Needs a device, because `Mantle.Place` does the placement. Two silent faults
+# from running SAM 2 end to
 # end are in there: two output views placed on one another's bytes, and an
 # eagerly-evaluated scratch belonging to no pass.
 include(joinpath(@__DIR__, "test_plan.jl"))
@@ -73,12 +73,10 @@ include(joinpath(@__DIR__, "test_fusepass.jl"))
 
 # ── The three attention paths, and the plan that chooses between them.
 #
-# These three files existed and `runtests.jl` did not include any of them, so
-# nothing ran them: `test_flash.jl` and `test_coopmat_attention.jl` had been
-# calling `Lava.DeviceCaps(dev; …)` since `caps` started returning MANTLE's
-# struct, which is a `MethodError` on the first line that reaches it. Found
-# 2026-08-11 by running them by hand while routing `attn_flash_cm2!`. A test
-# nothing runs is not a test — the same lesson the fuzz suite taught.
+# All three are registered here. Unregistered, `test_flash.jl` and
+# `test_coopmat_attention.jl` sat on `Lava.DeviceCaps(dev; …)` after `caps`
+# started returning Mantle's struct, which is a `MethodError` on the first line
+# that reaches it. A test nothing runs is not a test.
 #
 # GPU-only, and they skip themselves without one.
 include(joinpath(@__DIR__, "test_flash.jl"))

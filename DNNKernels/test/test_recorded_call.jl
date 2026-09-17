@@ -48,8 +48,8 @@ using Test, DNNKernels, Mantle, KernelAbstractions
     # and converting into it is what the graph asked for. Two graphs chained
     # through a step disagree about it legitimately — under autocast MatAnyone's
     # `encode_image` hands back `f16` as `Float16` where `transform_key` declares
-    # its input `Float32` — and this used to throw, which stopped that model at
-    # its second graph. Asserted on the VALUE and not just on the absence of a
+    # its input `Float32`, and throwing there stops that model at its second
+    # graph. Asserted on the VALUE and not just on the absence of a
     # throw, because a conversion that dropped the input would also not throw.
     @test Array(only(DK.call(m, "cast",
         DK.toback(backend, fill(Float16(7), 128)); dims=(;)))) == fill(Float16(7), 128)
@@ -57,8 +57,8 @@ using Test, DNNKernels, Mantle, KernelAbstractions
     @test count(v -> v isa DK.RecordedPlan, values(m.scratch)) == 1
 end
 
-# A wrong-shaped input used to RUN. The graph is built around its own
-# declaration, so it produced a declaration-shaped result, recorded a plan
+# A wrong-shaped input must not RUN. The graph is built around its own
+# declaration, so it produces a declaration-shaped result, records a plan
 # around the mistake, and then rejected the CORRECT shape with "replay input
 # shape or dtype changed" — one bad call poisoning the entry for everyone after
 # it. The order here is that scenario: bad, then good.
@@ -129,8 +129,8 @@ end
     op = DK.Op("noise", "rand.default", String[], "y", Dict{String,Any}())
     g = DK.Graph("noise", String[], String[], ["y"], Dict("y"=>b), ["y"], [op])
     m = DK.Model(Dict("noise"=>g), Dict{String,Any}(), back, 1, 1, 1)
-    # A host draw cannot be replayed, and this used to be a recording-time
-    # refusal with `ZeroNoise` as the escape hatch — captured as a device fill.
+    # A host draw cannot be replayed. Refused at record time, `ZeroNoise` is
+    # the way to ask for one: captured as a device fill.
     # Declared, there is no capture and no escape hatch: `rand.default` has no
     # `emitop!`, so the graph is refused whichever `NoiseSource` it was given.
     # The declared form would be a device RNG, which is a kernel.

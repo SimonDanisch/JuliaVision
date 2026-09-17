@@ -5,8 +5,8 @@ and which are genuinely paired.
 ## The regression this exists to stop
 
 Torch pairs index tensors by broadcasting them against each other; Julia's
-`x[i, j]` crosses them. Those are different functions, and `runop!` used to spell
-the torch one as the Julia one — right for a single index, wrong for two, and it
+`x[i, j]` crosses them. Those are different functions, and spelling the torch
+one as the Julia one is right for a single index, wrong for two, and
 surfaced as a `BoundsError` in Kokoro's ALBERT mask rather than as a wrong
 answer.
 
@@ -77,8 +77,8 @@ end
         @test DK.indexseparable([2, 3], [rand(1:4, 5), rand(1:4, 1, 6)])
         # `dims` MUST arrive ascending. Reversing the axes of a torch spec walks
         # the Julia dims backwards, so `runop!` sorts before calling this — and
-        # unsorted the pairing is transposed and this reads false, which is
-        # exactly how SAM 2 failed on the first attempt at the fix.
+        # unsorted the pairing is transposed and this reads false, which is how
+        # SAM 2 fails if the predicate sorts.
         @test !DK.indexseparable([2, 1], [rand(1:7, 1, 256), rand(1:7, 256)])
     end
 
@@ -100,9 +100,9 @@ end
         @test size(x[a, b, :, :]) == (8, 8, 5, 2)
     end
 
-    # Against the REAL graphs, because the regression was not that the predicate
-    # was wrong — it was that nobody asked whether a shipped model produced the
-    # form being refused. This is the assertion that would have caught it, and it
+    # Against the REAL graphs, because the question is not only whether the
+    # predicate is right but whether a shipped model produces the form being
+    # refused. This is the assertion that catches that, and it
     # costs no device: every shape it needs is declared in the graph.
     @testset "every index.Tensor in a shipped graph is handled" begin
         checked = 0

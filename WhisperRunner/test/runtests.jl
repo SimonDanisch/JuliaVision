@@ -38,9 +38,9 @@ const KA = KernelAbstractions
         # `WhisperEncoderLayer.forward`'s half-precision guard and
         # `_scaled_dot_product_flash_attention` where fp32 gets `_efficient_`.
         #
-        # This assertion is why it is here rather than a shape check: it read 617
-        # for as long as fp32 shipped, and the day the binding moved it was the
-        # one thing that noticed. Bind a different export and this fails first.
+        # This assertion is why it is here rather than a shape check: 617 is
+        # what the fp32 export reads, so binding a different export fails here
+        # first.
         @test length(g.ops) == 681
 
         # A device is not guaranteed on every machine that runs this suite, and
@@ -76,16 +76,13 @@ const KA = KernelAbstractions
             # ran at all, which is the other way this can look green and be dead.
             @test any(!iszero, got)
 
-            # ── the decoder half, which nothing here used to touch ────────────
+            # ── the decoder half ─────────────────────────────────────────────
             #
-            # This exists because of a bug it would have caught immediately and
-            # did not: `whisper-decoder.tar.gz` was bound, committed, and NEVER
-            # UPLOADED. `decoderdir()` resolved to a release asset that did not
-            # exist, so `whisper()` and `transcribe` — the package's headline
-            # feature — worked only on the machine that had built the tree, and
-            # 404'd for everyone else. It went unnoticed from the day the decoder
-            # was bound until 2026-08-05, because every assertion above stops at
-            # the encoder and every measurement was taken here.
+            # Every assertion above stops at the encoder, which is how a bound
+            # but never UPLOADED `whisper-decoder.tar.gz` goes unnoticed:
+            # `decoderdir()` resolves to a release asset that does not exist, so
+            # `whisper()` and `transcribe` work only on the machine that built
+            # the tree and 404 everywhere else.
             #
             # Resolving the artifact IS the test. It downloads 386 MiB on a cold
             # machine, which is the cost of asserting that the download works.
