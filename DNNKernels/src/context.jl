@@ -240,9 +240,8 @@ struct Ctx{B,N,S,P,W,L,R}
     # Measured interleaved in one process on the autocast export, which is the
     # only form that means anything for a 4 ms call on a shared card: decode
     # 8.24 -> 4.22 ms with the clamp, encode 118.63 -> 120.75. (On an RTX 4000
-    # Ada. The same encode on the Radeon 8060S APU is 1029 ms, clock-gated at
-    # 96% of peak — a card difference, and not one this pair of numbers can be
-    # scaled by.)
+    # Ada; the Radeon 8060S APU runs the same encode in ~270 ms — 2.3x is the
+    # card, not a regression.)
     #
     # A field and not a `Ref` a caller sets around the decode: `flashcm_tiling`
     # reads it six frames down, inside `runop!`, and `Ctx` reaches every
