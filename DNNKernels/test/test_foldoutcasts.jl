@@ -115,6 +115,69 @@ end
 # So the two sides are stated once each and checked against each other. Adding a
 # producer to `foldrelu` now fails here until its emit reads the attribute.
 
+# ── Ops a fusion pass CREATES, and whether the emit has one ──────────────────
+#
+# A coverage sweep over exported graphs cannot see these: they are not in any
+# export, a pass puts them there. `fused.sdpa` is the one that cost a day —
+# `fuseattention` builds it from a bmm/softmax/bmm chain, the driver runs that
+# pass by default, and DepthAnything then failed with "no emit method for
+# `fused.sdpa`" after the coverage table said its graph was fully declared.
+#
+# So the created set is stated here, beside which of them are ported, and both
+# are checked. Teaching a pass to emit a new `fused.*` op fails this test until
+# its `emitop!` exists, which is the one thing no graph can tell you.
+
+"""Every `fused.*` aten a pass in this package can put into a graph."""
+const FUSION_CREATES = ("fused.elementwise" => "fusepass.jl / fusemaskedattention.jl",
+                        "fused.sdpa"        => "fuseattention.jl",
+                        "fused.groupedrms"  => "fusegroupedrms.jl",
+                        "fused.maskedattention" => "fusemaskedattention.jl",
+                        "fused.rope"        => "fuserope.jl",
+                        "fused.ropecache"   => "fuserope.jl",
+                        "fused.swiglu"      => "fuseswiglu.jl")
+
+"""
+The created ops with no `emitop!` yet, and what each is for.
+
+A graph that trips one of these is refused by name, which is right — what was
+wrong was having no way to know which they are without running a model that
+happens to hit one.
+
+  * `fused.groupedrms`, `fused.swiglu` — Kokoro and the Horizon decoder, whose
+    graphs also want the FFT pair and an LSTM, so they are blocked on more than
+    this.
+  * `fused.rope`, `fused.ropecache` — the rotary embedding, and `ropecache`
+    writes the KV cache in place, which is `index_put`'s territory.
+  * `fused.maskedattention` — the prefill path, whose plan
+    (`maskedprefill.jl`) has its own launch shape to split.
+"""
+const FUSION_UNPORTED = ("fused.groupedrms", "fused.maskedattention",
+                         "fused.rope", "fused.ropecache", "fused.swiglu")
+
+@testset "every op a fusion pass creates is accounted for" begin
+    ported = Set{String}()
+    for m in methods(DK.emitop!)
+        p = Base.unwrap_unionall(m.sig).parameters
+        length(p) >= 4 || continue
+        T = p[4]
+        T isa DataType && T <: Val || continue
+        isempty(T.parameters) && continue
+        T.parameters[1] isa Symbol || continue
+        push!(ported, String(T.parameters[1]))
+    end
+    # The names are real: a typo here would make this test vacuous, and a pass
+    # renaming its op would leave a dead entry that still "passed".
+    for (aten, where) in FUSION_CREATES
+        @test any(f -> occursin("\"$aten\"", read(joinpath(@__DIR__, "..", "src", f), String)),
+                  split(where, " / "))
+    end
+    # And each is either emitted or recorded as not.
+    for (aten, _) in FUSION_CREATES
+        @test (aten in ported) == !(aten in FUSION_UNPORTED)
+    end
+    @test issubset(FUSION_UNPORTED, first.(FUSION_CREATES))
+end
+
 """ATen ops whose `emitop!` applies `attrs["act"]`."""
 const READS_ACT = ("convolution.default", "add.Tensor", "addmm.default",
                    "mul.Tensor", "div.Tensor", "sub.Tensor", "eq.Scalar",
