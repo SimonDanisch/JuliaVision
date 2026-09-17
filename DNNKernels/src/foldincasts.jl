@@ -39,9 +39,9 @@ swamps. Take that number again on a quiet box before quoting it. It is the same
 trap `foldoutcasts` records: the serialised per-op table predicted ~10 ms here,
 and per-op tables over-attribute copies.
 
-**It does not save memory, which was the prediction and it was wrong.** The 91
-fp32 temporaries disappear and `planslab`'s buffer count drops 981 -> 890, but
-the peak is 261.25 MB either way: those temporaries were never what set it.
+**It does not save memory.** The 91 fp32 temporaries disappear and the buffer
+count drops 981 -> 890, but the peak is 261.25 MB either way: those temporaries
+are not what sets it.
 
 The norm's *output* dtype is unaffected: it comes from the graph's declaration
 via `tupledtype`, which is `Float32` for all 91, not from `eltype(a)`. That
@@ -113,9 +113,9 @@ function foldincasts(g::Graph; enabled::Bool = true)
         length(rs) == 1 || continue
         only(rs).aten in WIDECAST_READERS || continue
 
-        # The cast's result becomes an alias of what it used to read, declared
-        # at the narrow dtype — the reader resolves through it and gets the
-        # buffer the producer already wrote.
+        # The cast's result becomes an alias of its own operand, declared at
+        # the narrow dtype: the reader resolves through it and gets the buffer
+        # the producer already wrote.
         buffers[cast.out] = Buffer(cast.out, :view, ib.shape, ib.dtype, "", (0, 0),
                                    cast.ins[1], "alias.default", ob.attrs)
         push!(drop, cast.id)

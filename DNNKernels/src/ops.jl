@@ -317,8 +317,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("add.Tensor")})
     a, b, k = lhs(ctx, op), rhs(ctx, op), alpha(op)
     sum_ = k == 1 ? Base.broadcasted(+, a, b) :
                     Base.broadcasted(+, a, Base.broadcasted(*, k, b))
-    # `act` comes from `foldrelu`; the relu op it replaced is gone and its buffer
-    # aliases this one. Folded into the same broadcast, so it is free.
+    # `act` comes from `foldrelu`: the relu op it folded in is dropped and its
+    # buffer aliases this one. Same broadcast, so it is free.
     if Symbol(get(op.attrs, "act", "none")) === :relu
         T = dtypeof(ctx, op.out)
         return emit(ctx, Base.broadcasted(max, sum_, zero(T)))
@@ -592,10 +592,10 @@ Recompute one head of the attention on the CPU **from inside `runop!`** and
 compare it with what `sdpa` returned.
 
 It has to happen here. Reading the operands after `execute!` returns tells you
-nothing — transients are slab-reused, so `mul` and `select` no longer hold what
-this op saw, and a ratio computed from them reports a missing scale that is not
-missing. Both wrong turns in debugging this pass came from reading operands too
-late; inside the op is the only place they are certainly the right bytes.
+nothing: transients are reused, so `mul` and `select` no longer hold what this
+op saw, and a ratio computed from them reports a missing scale that is not
+missing. Inside the op is the only place the operands are certainly the right
+bytes.
 """
 const FUSEATTENTIONCHECK = Ref(false)
 

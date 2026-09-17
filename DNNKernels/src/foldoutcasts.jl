@@ -141,7 +141,7 @@ function foldoutcasts(g::Graph; enabled::Bool = true)
             end
         end
 
-        # The cast's own result becomes an alias of what it used to read.
+        # The cast's own result becomes an alias of its operand.
         buffers[cast.out] = Buffer(cast.out, :view, ob.shape, ob.dtype, "", (0, 0),
                                    cast.ins[1], "alias.default", ob.attrs)
         push!(drop, cast.id)

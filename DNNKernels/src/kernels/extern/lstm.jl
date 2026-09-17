@@ -59,15 +59,13 @@ compiles, runs, and writes **nothing** (`lava-localmem-silent-miscompile`).
 `reverse` being static makes the loop's direction a folded branch rather than a
 per-step select.
 
-This was an `@eval`-generated kernel cached in a module-level `Dict`, which had
-two faults beyond the global. It could not be **precompiled**: `@eval` into a
-closed module during a downstream package's `@compile_workload` raises
-*"Evaluation into the closed module `DNNKernels` breaks incremental
-compilation"*, so `KokoroRunner`'s workload silently skipped and every first call
-in a fresh process paid the compile the workload exists to remove. And it needed
-`invokelatest` at both the constructor and the launch to get past the world age
-the `@eval` created. `Val` gives the same specialisation through ordinary
-dispatch.
+`Val` and not an `@eval`-generated kernel per `(H, reverse)`, which cannot be
+**precompiled**: `@eval` into a closed module during a downstream package's
+`@compile_workload` raises *"Evaluation into the closed module `DNNKernels`
+breaks incremental compilation"*, so the workload silently skips and every first
+call in a fresh process pays the compile it exists to remove. It would also need
+`invokelatest` at the constructor and the launch to get past the world age the
+`@eval` creates.
 
 Gate order is torch's: `i, f, g, o`, each `H` wide, stacked in that order down
 the `4H` axis.

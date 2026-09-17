@@ -206,11 +206,9 @@ The recorded plan for one graph, built once.
 
 Placement is the reason this exists at all: the VAE decoder is 1326 ops at
 256x256x9 and its intermediates sum to far more than this machine has, so they
-have to share bytes. That used to be `planslab`, a slab this package laid out
-itself and passed to `execute!` alongside a `Workspace` and a lazy set — and all
-three went with the interpreted run. `planfor` is `driver.jl`'s, which is the
-same declaration and the same seven Mantle phases; asking it is what keeps the
-two pipelines from planning differently.
+have to share bytes. `planfor` is `driver.jl`'s, the same declaration and the
+same seven Mantle phases, and asking it is what keeps the two pipelines from
+planning differently.
 
 Keyed by graph NAME and not by `dims`, because Wan's graphs take none: the shapes
 are fixed at export. `driver.jl`'s `call` keys on `dims` too and is otherwise

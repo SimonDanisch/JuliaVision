@@ -40,12 +40,13 @@ function dropdead(g::Graph)
     # A view that is itself live keeps its parent live; a view of a dead buffer
     # is dead too, and `order` still mentions it, so filter both lists.
     ops = [o for o in g.ops if o.out in live]
-    # Filter `order` by LIVENESS, not by "has a producer". A weight buffer has no
-    # producer, so the old test kept every one of them — including the fp32
+    # Filter `order` by LIVENESS, not by "has a producer": a weight buffer has
+    # no producer, so that test keeps every one of them, including the fp32
     # masters that `hoistcasts` orphans when it turns their `_to_copy` into a
     # plain fp16 weight. `execute!` walks `order` and materialises every
-    # `:weight` it sees, so those got uploaded and held for the life of the
-    # model: 1852 MB of weights resident on SAM 2 against 1003 MB of parameters.
+    # `:weight` it sees, so those get uploaded and held for the life of the
+    # model: 1852 MB of weights resident on SAM 2 against 1003 MB of
+    # parameters.
     # Inputs and outputs stay regardless — they are the graph's interface.
     keep = union(live, Set(g.inputs), Set(g.outputs))
     order = [id for id in g.order if id in keep]

@@ -70,7 +70,7 @@ function foldrelu(g::Graph)
         # convolution: the GEMM's store already reads every element of the
         # result, so the activation is free there and a full read-modify-write
         # pass otherwise. SAM 2's encoder has 48 of them and every one has a
-        # single reader — 1094.7 MB of output that no longer round-trips.
+        # single reader: 1094.7 MB of output that does not round-trip.
         #
         # `gelu.default` with `approximate = "tanh"` is a *different function*,
         # not a faster one, so only the default (exact) form folds; the other

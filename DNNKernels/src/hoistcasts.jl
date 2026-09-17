@@ -126,11 +126,10 @@ end
 Evaluate ops whose result is a compile-time constant at load time.
 
 `scalar_tensor` and `full` read no tensor at all — the value and the shape are
-both in their attrs — yet `runop!` rebuilt them on every step. For the 0-d
-`scalar_tensor` that is worse than a wasted dispatch: `planslab` reserves
-nothing for a shapeless buffer, so each one also did a real `vkAllocateMemory`
-and a matching free every step, churning the allocator for a number that never
-changes. It was the only `vkAllocateMemory` left in the steady-state profile.
+both in their attrs — so rebuilding them per step is a dispatch for a number
+that never changes. For the 0-d `scalar_tensor` it is worse than that: nothing
+is reserved for a shapeless buffer, so each one is a real `vkAllocateMemory` and
+a matching free every step, the only one left in the steady-state profile.
 
 Only fires when the shape is fully static; `full` with a symbolic extent depends
 on `dims` and cannot be known before the first call.
@@ -428,8 +427,7 @@ function hoistconstants(g::Graph, weights::Dict{String,Any}, backend)
 
     # The one pass that has to RUN what it folds, and it runs it the declared
     # way: emit the constant subgraph into a Mantle graph, plan it, submit it
-    # once. It used to call `execute!`, which is the interpreted path and which
-    # needed a `Workspace` this package no longer has.
+    # once, rather than running it through the interpreted path.
     #
     # `copy` and not the storage itself: what comes back is the plan's own
     # buffer, and the plan is dropped at the end of this function while the value

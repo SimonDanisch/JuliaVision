@@ -1212,8 +1212,8 @@ end
 
 Torch indexes the UN-REVERSED shape, so entry `k` of `arg1` addresses Julia
 dimension `ndims - k + 1`, and the values are 0-based. They stay 0-based: a
-0-based value is the source coordinate the kernel adds to an offset, so the
-`.+ 1` pass the interpreted path ran is gone with it.
+0-based value is the source coordinate the kernel adds to an offset, so no
+`.+ 1` pass over the index is needed.
 
 Two shapes, and telling them apart is the part that is easy to get silently
 wrong, because Julia spells the other thing the same way. `x[i, j]` with two

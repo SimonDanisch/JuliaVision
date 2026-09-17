@@ -30,10 +30,10 @@ argument list grouped:
 
   * `resolve` and `storage` take a `::Tuple` method, so the operands reach the
     kernel as device arrays instead of `Buffer` handles.
-  * `devicepointeroffsets` stopped counting a tuple as a level of nesting
-    (`Mantle.nestinglevels`). It had counted it, and stopped one short of the
-    addresses inside: a recorded plan noted only its output, so a `resize!` of
-    an operand left it reading the old storage with nothing to see anywhere.
+  * `devicepointeroffsets` does not count a tuple as a level of nesting
+    (`Mantle.nestinglevels`). Counting it stops one short of the addresses
+    inside, so a recorded plan notes only its output and a `resize!` of an
+    operand leaves it reading freed storage with nothing to see anywhere.
   * `find_tlas_in_args` walks into one, so an accel passed in a tuple still
     enables ray query.
 

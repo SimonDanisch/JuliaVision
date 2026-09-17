@@ -156,11 +156,11 @@ result leaves the group.
 
 A group grows backwards from its final op: an operand joins when it is fusable,
 is produced inside this graph, has exactly one reader, and shares the group's
-declared dtype. The dtype rule is the one from `fuse.jl` and it is load-bearing —
-under autocast the graph's dtypes *are* the reference's precision policy, and a
-chain fused across a boundary keeps intermediates in registers where the
-reference rounds. That is measurable: widening the old pass moved SAM 2's IoU
-from 1.00000/0.99972/0.97727 to 0.98750/0.99978/0.95556.
+declared dtype. The dtype rule is what keeps the result numerically the
+reference's: under autocast the graph's dtypes *are* the reference's precision
+policy, and a chain fused across a boundary keeps intermediates in registers
+where the reference rounds. Fusing across one moves SAM 2's IoU from
+1.00000/0.99972/0.97727 to 0.98750/0.99978/0.95556.
 """
 function fusegroups(g::Graph)
     producer = Dict(o.out => o for o in g.ops)

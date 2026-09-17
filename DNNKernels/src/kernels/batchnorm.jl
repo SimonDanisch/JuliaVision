@@ -8,9 +8,9 @@ first writes the statistics and the second reads them, and `Barriers` derives
 the wait. `runop!` wrote it as five fused broadcasts over `sum(x; dims = rd)`,
 which allocated the mean, the centred copy and the variance outside any plan.
 
-Two-pass and not Welford, because the op this replaces was two-pass: it took the
-mean, then the variance of `x .- μ`. Staying with that keeps the rounding the
-same where it can be the same.
+Two-pass and not Welford, because torch's own form is two-pass: the mean, then
+the variance of `x .- μ`. Matching it keeps the rounding the same where it can
+be the same.
 """
 
 """
@@ -31,8 +31,8 @@ half precision. `invstd` is then `1/sqrt(Inf) = 0` and every output is silently
 zero, for long inputs only.
 
 C threads is a poor shape for a GPU and is the shape the arithmetic has: one
-sequential sum per channel is what keeps the rounding comparable to the
-broadcast this replaces. It is the thing to tile if a profile ever names it.
+sequential sum per channel is what keeps the rounding comparable to a broadcast
+over `sum(x; dims = rd)`. It is the thing to tile if a profile ever names it.
 """
 function bnstats!(mean, invstd, a, cstride::Int, C::Int, nouter::Int, eps)
     ch = KI.get_global_id().x

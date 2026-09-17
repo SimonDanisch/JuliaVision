@@ -6,10 +6,9 @@ that broadcasting cannot express: one reads its source modulo the source extent,
 the other reads a whole axis per output element. Both are one kernel over the
 OUTPUT, so the destination is the planned buffer and there is no intermediate.
 
-What this replaces is not a kernel but an allocation. `runop!`'s `repeat` was a
-`launch!` into `dest`, which was already right; its `sum` was `Base.sum(a;
-dims)`, which GPUArrays answers by allocating the result and, for a non-trivial
-`dims`, a mapreduce workspace as well. Neither is in any plan.
+What these replace is not a kernel but an allocation: `Base.sum(a; dims)` is
+answered by GPUArrays allocating the result and, for a non-trivial `dims`, a
+mapreduce workspace as well. Neither is in any plan.
 """
 
 """
@@ -61,14 +60,13 @@ still one dispatch and one pass.
 
 `combine` is why this is ONE kernel and not four. `sum`, `mean`, `prod` and
 `any` differ in the operator and its identity and in nothing else — same index
-arithmetic, same loop, same store — and this was `sumdims!` with `+` written
-into it, so `prod.dim_int` and `any.dim` had no declared form at all.
+arithmetic, same loop, same store — so writing `+` into it leaves
+`prod.dim_int` and `any.dim` with no declared form at all.
 
 `post` is the accumulator's last step, applied once per output element inside
-this kernel rather than as a pass over the result. It was a `scale` value, which
-is `mean`'s division by the count, and a norm wants a `sqrt` in exactly the same
-place. Two mechanisms for one step, so the function is the one that stays and
-`mean` passes the multiply. `identity` is every reduction that has no such step,
+this kernel rather than as a pass over the result. A `scale` value covers
+`mean`'s division by the count and not a norm's `sqrt`, which wants the same
+place, so the function is the one mechanism and `mean` passes the multiply. `identity` is every reduction that has no such step,
 and it costs nothing: it is a type, so the store specialises on it.
 """
 function folddims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, combine, init,

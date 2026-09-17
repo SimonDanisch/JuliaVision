@@ -24,11 +24,11 @@ struct Op
     ins::Vector{String}
     out::String
     attrs::Dict{String,Any}
-    # `runop!` dispatches on `Val(Symbol(aten))`. Building that per call meant
-    # interning a Symbol — a hash and a global-table lookup — for every op on
-    # every step, which showed up in the profile as `_Symbol` + `hash`. The name
-    # is fixed when the graph is loaded, so the tag is too. Dispatch on it is
-    # still dynamic, exactly as before; only the interning is gone.
+    # `runop!` dispatches on `Val(Symbol(aten))`. Building that per call
+    # interns a Symbol — a hash and a global-table lookup — for every op on
+    # every step, which shows up in the profile as `_Symbol` + `hash`. The name
+    # is fixed when the graph is loaded, so the tag is too; dispatch on it is
+    # dynamic either way.
     tag::Val
     Op(id, aten, ins, out, attrs) = new(id, aten, ins, out, attrs, Val(Symbol(aten)))
 end
@@ -98,10 +98,10 @@ jget(o, k, default) = haskey(o, k) ? o[k] : default
 
 Convert a JSON3 value to a plain Julia one, once, at load time.
 
-Attributes are constant for the life of the graph, but `ints()` used to walk the
-lazy `JSON3.Array` and allocate a fresh `Vector` *on every execution of every
-op*. That measured 154 of ~430 profiler samples inside `execute!` — 36% of the
-whole host-side dispatch cost — for re-deriving values that never change.
+Attributes are constant for the life of the graph, so walking the lazy
+`JSON3.Array` per call would allocate a fresh `Vector` *on every execution of
+every op*: 154 of ~430 profiler samples inside `execute!`, 36% of the whole
+host-side dispatch cost, for values that never change.
 """
 plainattr(v::JSON3.Array) = [plainattr(x) for x in v]
 plainattr(v::JSON3.Object) = Dict{String,Any}(String(k) => plainattr(x) for (k, x) in pairs(v))
