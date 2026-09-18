@@ -415,35 +415,38 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
             "and an entry the export left as `nothing` gets none.")
         return (emitctx.res[id] = emitctx.res[key])
     end
+    b.viewop == "split_with_sizes.default" &&
+        return splitview!(emitctx, id, b, operand(emitctx, b.of))
+    # The whole chain as one descriptor, asked BEFORE the parent is resolved,
+    # because resolving it is what materialises every level in between.
+    #
+    # Two answers come out of it and they are the same question. A chain whose
+    # composed strides are the CONTIGUOUS ones names a run of its root's memory,
+    # so it is a `ResourceView` and costs nothing — that covers a shape-only
+    # view, a trailing-axis `select.int` and anything else that happens to land
+    # dense. This is what makes an in-place `index_put` possible: the KV cache
+    # reaches it as `select.int(self_k, 0, i)`, torch's dim 0 is Julia's LAST, so
+    # the window is a run and a write through it lands in the caller's cache.
+    #
+    # Anything else MOVES its elements and needs storage of its own, filled in
+    # ONE pass off that root.
+    s = stridedoperand(emitctx, id)
+    if s !== nothing
+        if s.strides == colstrides(s.dims)
+            v = M.viewof(s.parent, s.dims; offset = s.offset)
+            emitctx.res[id] = v
+            return v
+        end
+        return materialise(emitctx, id, b, s)
+    end
     parent = operand(emitctx, b.of)
-    b.viewop == "split_with_sizes.default" && return splitview!(emitctx, id, b, parent)
-    # A SHAPE-ONLY view is a descriptor: same elements, same order, so it is a
-    # `ResourceView` and costs nothing.
+    # A SHAPE-ONLY view of a parent whose own chain could not be described: the
+    # parent is dense storage by the time it is resolved, so this is a
+    # descriptor over it.
     if b.viewop in SHAPEONLY_VIEWS
         v = M.viewof(parent, evalshape(b.shape, emitctx.dims))
         emitctx.res[id] = v
         return v
-    end
-    # A `select.int` on the TRAILING Julia axis is a window too. Consecutive
-    # slices of the last axis are consecutive bytes, so the dropped axis is a
-    # constant OFFSET and nothing moves — `viewof` answers it for a descriptor
-    # and no pass.
-    #
-    # This is what makes an in-place `index_put` possible: the KV cache reaches
-    # it as `select.int(self_k, 0, i)` and torch's dim 0 is Julia's LAST, so a
-    # write through this descriptor lands in the caller's cache. Materialised, it
-    # would land in a copy. It also removes a full copy from every other
-    # trailing-axis select, which is how a stack of per-layer caches is indexed.
-    if b.viewop == "select.int"
-        pn = ndims(parent)
-        if jdim(Int(b.attrs["arg1"]), pn) == pn
-            i = fromend(Int(b.attrs["arg2"]), size(parent, pn), b.id, b.viewop)
-            od = evalshape(b.shape, emitctx.dims)
-            v = M.viewof(parent, od;
-                         offset = i * prod(ntuple(k -> size(parent, k), pn - 1)))
-            emitctx.res[id] = v
-            return v
-        end
     end
     # Anything else MOVES its elements, so it needs storage of its own and one
     # pass that fills it. `contiguous` did the permute case with `permutedims!`
@@ -462,6 +465,27 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
     ast, off = viewstrides(emitctx, b, parent, od)
     out = make(emitctx, id, eltype(parent), od)
     M.dispatch!(emitctx.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
+                name = "$(id).$(first(split(b.viewop, '.')))")
+    emitctx.res[id] = out
+    return out
+end
+
+"""
+    materialise(ctx, id) -> resource
+
+View `id` with storage of its own, in ONE pass wherever the chain allows it.
+
+`viewstrides` reads a view against its PARENT, so materialising a chain that way
+materialises every level of it: `permute(permute(x))` is two copies of the same
+elements. `s` is the chain composed into one descriptor by
+[`stridedoperand`](@ref), and this is one pass off its root. 161 of SAM 2's
+encoder copies were intermediate levels of a chain whose top could not be
+described.
+"""
+function materialise(emitctx::EmitCtx, id::AbstractString, b, s::StridedOperand)
+    out = make(emitctx, id, eltype(s.parent), s.dims)
+    M.dispatch!(emitctx.g, stridedcopy!,
+                (out, s.dims, s.parent, s.strides, s.offset), prod(s.dims);
                 name = "$(id).$(first(split(b.viewop, '.')))")
     emitctx.res[id] = out
     return out
