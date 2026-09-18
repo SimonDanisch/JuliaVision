@@ -340,6 +340,11 @@ is what it said until 2026-09-14: "root DENSE array" is the question, a host
 stridedroot(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) = (x, 0)
 declstrides(x) = map(Int32, colstrides(size(x)))
 
+# A declared operand that is NOT dense: a view the kernel reads in place, which
+# carries its own root and offset. `Base.strides` gives the rest, so the generic
+# `flashstrides` covers it. See [`StridedOperand`](@ref).
+stridedroot(s::StridedOperand) = (s.parent, s.offset)
+
 function stridedroot(a)
     off = 0
     p = a

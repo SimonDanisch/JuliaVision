@@ -405,3 +405,39 @@ struct ConvCoopMatPlan
     Cout::Int
     NPQ::Int
 end
+
+"""
+    StridedOperand{T,N,P}
+
+A declared view as `(root, offset, strides)` rather than as storage of its own.
+
+A kernel that takes each operand as a base plus per-axis strides reads a permuted
+or sliced view IN PLACE. `attn_flash_cm!` is written that way — see the operand
+paragraph in [`flashcm_plan`](@ref), which records what materialising k and v
+instead cost — and so is `coopmat_gemm!` through `gemmstrides`.
+
+`Mantle.ResourceView` cannot express this: it is `(parent, dims, offset)`, so it
+names a contiguous window and nothing else. This is the strided form, and it is
+DNNKernels' rather than Mantle's because only the kernels here consume it; a
+resource still reaches every other dispatch dense.
+
+`stridedroot` answers `(root, offset)` and `Base.strides` the strides, which is
+exactly what `flashstrides` already asks of an array operand.
+"""
+struct StridedOperand{T,N,P}
+    parent::P
+    dims::NTuple{N,Int}
+    strides::NTuple{N,Int}
+    offset::Int                 # in ELEMENTS, from the root's first
+end
+
+StridedOperand(parent, dims::NTuple{N,Int}, strides::NTuple{N,Int},
+               offset::Integer) where {N} =
+    StridedOperand{eltype(parent),N,typeof(parent)}(parent, dims, strides, Int(offset))
+
+Base.size(s::StridedOperand) = s.dims
+Base.size(s::StridedOperand, d::Integer) = d <= length(s.dims) ? s.dims[d] : 1
+Base.eltype(::StridedOperand{T}) where {T} = T
+Base.ndims(::StridedOperand{T,N}) where {T,N} = N
+Base.length(s::StridedOperand) = prod(s.dims)
+Base.strides(s::StridedOperand) = s.strides

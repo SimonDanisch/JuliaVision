@@ -549,6 +549,7 @@ end
 
 """
     viewstrides(emitctx, b, parent, od) -> (strides, offset)
+    viewstrides(emitctx, b, ps, pst, od) -> (strides, offset)
 
 How view `b` reads its parent: one parent stride per axis of the view's own
 shape, and where the view starts.
@@ -557,11 +558,17 @@ Torch indexes the UN-REVERSED shape, so its axis `d` is Julia axis `n - d`
 (`jdim`) and its indices are 0-based. Every conversion below is that one fact
 applied to a different attribute, which is why they are together rather than one
 per op.
+
+`pst` is the parent's own strides. A materialising view reads a dense parent and
+passes `colstrides(size(parent))`; [`stridedoperand`](@ref) composes a chain of
+views by passing the strides it has already accumulated, which is the same
+arithmetic over a parent that is itself strided.
 """
-function viewstrides(emitctx::EmitCtx, b, parent, od::Dims)
-    ps = size(parent)
+viewstrides(emitctx::EmitCtx, b, parent, od::Dims) =
+    viewstrides(emitctx, b, size(parent), colstrides(size(parent)), od)
+
+function viewstrides(emitctx::EmitCtx, b, ps::Dims, pst::Dims, od::Dims)
     n = length(ps)
-    pst = colstrides(ps)
     op = b.viewop
     if op == "permute.default"
         perm = ints(b.attrs["arg1"])
@@ -573,6 +580,10 @@ function viewstrides(emitctx::EmitCtx, b, parent, od::Dims)
         return (ntuple(jo -> pst[n - perm[n - jo + 1]], n), 0)
     elseif op == "expand.default"
         # A repeated axis has stride 0, which is exactly what a broadcast is.
+        # Read off the SHAPES, so this one form needs the parent dense.
+        pst == colstrides(ps) || error(
+            "DNNKernels: view $(b.id) expands a parent that is itself strided, " *
+            "which `bcstrides` cannot describe. Materialise the parent first.")
         return (bcstrides(od, ps), 0)
     elseif op == "slice.Tensor"
         jd = jdim(Int(b.attrs["arg1"]), n)
@@ -591,6 +602,96 @@ function viewstrides(emitctx::EmitCtx, b, parent, od::Dims)
           "A view that moves its elements needs its parent strides and offset " *
           "in `viewstrides`; a view that only reinterprets the shape belongs in " *
           "`SHAPEONLY_VIEWS`.")
+end
+
+"""
+    unitaxisstrides(ps, pst, od) -> strides or nothing
+
+`od`'s strides when it is `ps` with extent-1 axes dropped or inserted, which is
+what `squeeze` and `unsqueeze` are.
+
+An axis of extent 1 contributes nothing to an address, so those two move no
+elements whatever the parent's strides are. `nothing` for any other reshape: a
+genuine one is the same elements in the same order only over a dense parent.
+
+Matched on the SHAPES rather than on the attribute, so `squeeze.dim`,
+`squeeze.dims` and the argument-free spelling are one case.
+"""
+function unitaxisstrides(ps::Dims, pst::Dims, od::Dims)
+    st = Int[]
+    i = 1
+    for j in eachindex(od)
+        while i <= length(ps) && ps[i] != od[j] && ps[i] == 1
+            i += 1
+        end
+        if i <= length(ps) && ps[i] == od[j]
+            push!(st, pst[i])
+            i += 1
+        elseif od[j] == 1
+            # An axis the output INSERTS: never indexed past 0, so the stride is
+            # free and the next axis's keeps the descriptor readable.
+            push!(st, i <= length(pst) ? pst[i] : 1)
+        else
+            return nothing
+        end
+    end
+    while i <= length(ps)
+        ps[i] == 1 || return nothing
+        i += 1
+    end
+    return Tuple(st)
+end
+
+"""
+The views whose mapping is an offset and a per-axis stride, so a kernel that
+takes strides can read them in place. Anything else moves elements and is
+materialised — see [`viewfor`](@ref).
+"""
+const STRIDEDVIEWS = ("permute.default", "slice.Tensor", "select.int")
+
+"""
+    stridedoperand(ctx, id) -> StridedOperand or nothing
+
+`id` as a strided read of a resource, or `nothing` when some level of its view
+chain cannot be described that way.
+
+Composed level by level, each one through [`viewstrides`](@ref) over the strides
+the level below already accumulated, so `permute(slice(qkv))` is one descriptor
+and no pass. A SHAPE-ONLY level re-derives its strides from the new shape, which
+is only the same elements in the same order when what it reshapes is dense.
+
+`nothing` for a view already materialised (`res` has it, so that resource is the
+answer) and for a parent this cannot describe — materialising the PARENT to
+stride over it could copy more than the level being saved, so that decision
+stays with `viewfor`.
+"""
+function stridedoperand(emitctx::EmitCtx, id::AbstractString)
+    haskey(emitctx.res, id) && return nothing
+    b = get(emitctx.aten.buffers, id, nothing)
+    (b === nothing || b.kind !== :view) && return nothing
+    (b.viewop in STRIDEDVIEWS || b.viewop in SHAPEONLY_VIEWS) || return nothing
+    pb = get(emitctx.aten.buffers, b.of, nothing)
+    pb === nothing && return nothing
+    od = evalshape(b.shape, emitctx.dims)
+    pd = pb.kind === :view ? stridedoperand(emitctx, b.of) : nothing
+    if pd === nothing
+        # A parent that is a view this cannot describe, and is not already
+        # materialised, is where the chain stops.
+        (pb.kind === :view && !haskey(emitctx.res, b.of)) && return nothing
+        parent = operand(emitctx, b.of)
+        isresource(parent) || return nothing
+        root, ps, pst, poff = parent, size(parent), colstrides(size(parent)), 0
+    else
+        root, ps, pst, poff = pd.parent, pd.dims, pd.strides, pd.offset
+    end
+    if b.viewop in SHAPEONLY_VIEWS
+        st = unitaxisstrides(ps, pst, od)
+        st === nothing || return StridedOperand(root, od, st, poff)
+        pst == colstrides(ps) || return nothing
+        return StridedOperand(root, od, colstrides(od), poff)
+    end
+    st, off = viewstrides(emitctx, b, ps, pst, od)
+    return StridedOperand(root, od, st, poff + off)
 end
 
 """
@@ -2236,6 +2337,26 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("detach.default")}) =
 # ── attention ────────────────────────────────────────────────────────────────
 
 """
+    sdpaoperand(ctx, op, pos)
+
+Operand `pos` of an attention op, strided where it can be.
+
+`attn_flash_cm!` takes each of q, k and v as a root, a base offset and four
+strides, so a permuted or sliced view is something it reads rather than a copy it
+is handed. Asked for here and not in `operand` because every other emit takes its
+operands dense.
+"""
+function sdpaoperand(emitctx::EmitCtx, op::Op, pos::Int)
+    key = argkey(pos)
+    haskey(op.attrs, key) && return numattr(emitctx.dims, op.attrs[key])
+    idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
+    idx <= length(op.ins) || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) has no operand at position $pos")
+    s = stridedoperand(emitctx, op.ins[idx])
+    return s === nothing ? operand(emitctx, op.ins[idx]) : s
+end
+
+"""
 `aten::_scaled_dot_product_{flash,efficient}_attention`, as declared flash
 attention.
 
@@ -2255,9 +2376,9 @@ other three empty, and they are handed back so the tuple's shape is honest.
 """
 function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
                    defaultscale = nothing)
-    q = operand(emitctx, op, 1)
-    k = operand(emitctx, op, 2)
-    v = operand(emitctx, op, 3)
+    q = sdpaoperand(emitctx, op, 1)
+    k = sdpaoperand(emitctx, op, 2)
+    v = sdpaoperand(emitctx, op, 3)
     bias = length(op.ins) >= 4 ? operand(emitctx, op.ins[4]) : nothing
     sc = get(op.attrs, "scale", nothing)
     scale = sc !== nothing ? Float64(sc) :
@@ -2287,7 +2408,13 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
             "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm), whose launch is " *
             "not split from `sdpa_coopmat!` yet, so it has no declared form. " *
             "See `flash_launches` for the shape a port takes.")
-        threepass!(emitctx, op, out, q, k, v, bias, scale)
+        # `threepass!` stages its operands and reads them densely, so a
+        # descriptor is materialised here rather than inside it.
+        threepass!(emitctx, op, out,
+                   q isa StridedOperand ? operand(emitctx, op, 1) : q,
+                   k isa StridedOperand ? operand(emitctx, op, 2) : k,
+                   v isa StridedOperand ? operand(emitctx, op, 3) : v,
+                   bias, scale)
         return sdparesults(emitctx, dst)
     end
     ns = plan.nsplit
