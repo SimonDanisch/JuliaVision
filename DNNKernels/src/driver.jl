@@ -240,6 +240,11 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # `foldoutcasts`, because narrowing a producer's result can turn a cast that
     # was a no-op into a widening one this pass can then remove.
     graphs, nincast = foldincasts(graphs)
+    # After both cast folds, because a clone is only an alias when its input and
+    # its output declare the same dtype and `foldoutcasts` is what narrows the
+    # output of the other half of them.
+    graphs, nclone = dropclones(graphs)
+    nclone > 0 && @info "dropclones: $nclone clone(s) -> alias"
     # Before `fuseops`, which would collapse the norm's `add`+`rsqrt` into a
     # `FusedOp` and hide the epsilon this needs to read.
     graphs, nswi = fuseswiglu(graphs)

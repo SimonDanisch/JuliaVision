@@ -676,8 +676,12 @@ function stridedoperand(emitctx::EmitCtx, id::AbstractString)
     pd = pb.kind === :view ? stridedoperand(emitctx, b.of) : nothing
     if pd === nothing
         # A parent that is a view this cannot describe, and is not already
-        # materialised, is where the chain stops.
-        (pb.kind === :view && !haskey(emitctx.res, b.of)) && return nothing
+        # materialised, is where the chain stops. A `getitem` is not that: it
+        # LOOKS UP one element of a multi-output result, so it answers with a
+        # resource that is already there and dense, and is a root like an op's
+        # own output. 99 of SAM 2's encoder copies are a permute over one.
+        (pb.kind === :view && !haskey(emitctx.res, b.of) &&
+         !occursin("getitem", pb.viewop)) && return nothing
         parent = operand(emitctx, b.of)
         isresource(parent) || return nothing
         root, ps, pst, poff = parent, size(parent), colstrides(size(parent)), 0
@@ -873,7 +877,41 @@ function operandtuples(od::Dims, ins::Tuple)
         "index. A host scalar belongs in the function, as `Base.Fix2(f, x)`, " *
         "rather than in the operand list; `binary!` is where that is decided.")
     ops, sts = operandtuples(od, Base.tail(ins))
+    if x isa StridedOperand
+        w = stridedwindow(x, od)
+        w === nothing || return ((w[1], ops...), (w[2], sts...))
+        error("DNNKernels: a strided operand of $(x.dims) cannot be read at an " *
+              "output shape of $(od). `binary!` asks `strideview` for one only " *
+              "where the ranks agree, so this is a caller that did not.")
+    end
     return ((x, ops...), (bcstrides(od, size(x)), sts...))
+end
+
+"""
+    stridedwindow(s, od) -> (resource, strides) or nothing
+
+`s` as something [`ew!`](@ref) can index, and the strides to read it with.
+
+`ew!` addresses each operand as `operand[bcindex(lin, od, strides)]` — a linear
+index built from the OUTPUT coordinates — so an operand needs no shape of its
+own, only a base and one stride per output axis. The base is a ONE-DIMENSIONAL
+window over the root, which is what folds the descriptor's offset in without the
+kernel taking an offset at all.
+
+An axis of extent 1 against a wider output gets stride 0, the same as
+`bcstrides` gives a dense operand. `nothing` where the ranks disagree or the
+window would reach past the root, which is where the caller materialises
+instead.
+"""
+function stridedwindow(s::StridedOperand, od::Dims)
+    length(od) == length(s.dims) || return nothing
+    st = ntuple(length(od)) do k
+        s.dims[k] == od[k] ? s.strides[k] : s.dims[k] == 1 ? 0 : -1
+    end
+    any(<(0), st) && return nothing
+    span = 1 + sum((od[k] - 1) * st[k] for k in eachindex(od); init = 0)
+    s.offset + span <= length(s.parent) || return nothing
+    return (M.viewof(s.parent, (span,); offset = s.offset), st)
 end
 
 """
@@ -892,6 +930,9 @@ with `unsupported call to jl_alloc_genericmemory_unchecked` — a broadcast insi
 the kernel, four frames from anything naming a weight.
 """
 isresource(x) = x isa M.Resource || x isa M.ResourceView || x isa AbstractArray
+# A [`StridedOperand`](@ref) is memory too: a root, an offset into it and a
+# stride per axis. `operandtuples` turns it into the window `ew!` indexes.
+isresource(::StridedOperand) = true
 
 """
     binary!(ctx, op, f) -> resource
@@ -904,7 +945,13 @@ operand list. `Fix1`/`Fix2` put it in the closure's TYPE, so it costs no
 argument and no memory.
 """
 function binary!(emitctx::EmitCtx, op::Op, f0)
-    a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
+    # Strided where the operand is a view `ew!` can index in place: a residual
+    # add reads a permute of its producer, and materialising that is a pass over
+    # every element to read every element once.
+    sa = strideview(emitctx, op, 1)
+    sb = strideview(emitctx, op, 2)
+    a = sa === nothing ? operand(emitctx, op, 1) : sa
+    b = sb === nothing ? operand(emitctx, op, 2) : sb
     # The FOLDED ACTIVATION, composed into the same closure so it stays one pass.
     #
     # `foldrelu` folds a relu into `convolution.default` **or `add.Tensor`**, and
@@ -965,6 +1012,14 @@ end
 
 # ── one function of one operand ──────────────────────────────────────────────
 #
+"""
+The one operand of a unary op, strided where [`ew!`](@ref) can index it in place.
+"""
+function unaryoperand(emitctx::EmitCtx, op::Op)
+    s = strideview(emitctx, op, 1)
+    return s === nothing ? operand(emitctx, op, 1) : s
+end
+
 # From `UNARY_FUSED`, the same table `runop!` generated its methods from and
 # `fusedfunc` reads to build a `FusedOp`. Read a third time here rather than
 # listed again: two lists for one fact took about an hour to diverge the first
@@ -972,7 +1027,7 @@ end
 # anybody had tested.
 for (name, f) in UNARY_FUSED
     @eval emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol($name)}) =
-        elementwise!(emitctx, op, $f, operand(emitctx, op, 1))
+        elementwise!(emitctx, op, $f, unaryoperand(emitctx, op))
 end
 
 """
