@@ -432,7 +432,7 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
     # ONE pass off that root.
     s = stridedoperand(emitctx, id)
     if s !== nothing
-        if s.strides == colstrides(s.dims)
+        if isdenserun(s.dims, s.strides)
             v = M.viewof(s.parent, s.dims; offset = s.offset)
             emitctx.res[id] = v
             return v
@@ -629,36 +629,86 @@ function viewstrides(emitctx::EmitCtx, b, ps::Dims, pst::Dims, od::Dims)
 end
 
 """
-    unitaxisstrides(ps, pst, od) -> strides or nothing
+    isdenserun(dims, st) -> Bool
 
-`od`'s strides when it is `ps` with extent-1 axes dropped or inserted, which is
-what `squeeze` and `unsqueeze` are.
+Whether `dims` at strides `st` names one CONTIGUOUS run of memory.
 
-An axis of extent 1 contributes nothing to an address, so those two move no
-elements whatever the parent's strides are. `nothing` for any other reshape: a
-genuine one is the same elements in the same order only over a dense parent.
-
-Matched on the SHAPES rather than on the attribute, so `squeeze.dim`,
-`squeeze.dims` and the argument-free spelling are one case.
+Not `st == colstrides(dims)`: an axis of extent 1 is never indexed past 0, so
+its stride is free and a reshape is entitled to answer anything for it. What
+makes a view a descriptor rather than a copy is the run, which is this.
 """
-function unitaxisstrides(ps::Dims, pst::Dims, od::Dims)
+function isdenserun(dims::Dims, st::Dims)
+    e = 1
+    for k in eachindex(dims)
+        dims[k] == 1 && continue
+        st[k] == e || return false
+        e *= dims[k]
+    end
+    return true
+end
+
+"""
+    reshapestrides(ps, pst, od) -> strides or nothing
+
+`od`'s strides when it is `ps` reshaped, or `nothing` when that reshape moves
+elements.
+
+A reshape is free exactly when every output axis is a run of the parent's memory:
+an axis of extent 1 anywhere (which is what `squeeze` and `unsqueeze` are, and
+contributes nothing to an address), a parent axis SPLIT into several whose
+extents multiply back, or several parent axes MERGED — and merging needs their
+strides to be contiguous, `pst[k+1] == pst[k] * ps[k]`, or the merged axis has no
+single stride. A dense parent satisfies that for every reshape, which is why
+this answers `colstrides(od)` there.
+
+The rank-4 and rank-6 permutes SAM 2's encoder feeds its `addmm`s are the case
+this exists for: without it a reshape of a permuted view is the copy, and with
+it the chain composes to the matrix the GEMM reads.
+"""
+function reshapestrides(ps::Dims, pst::Dims, od::Dims)
+    prod(ps) == prod(od) || return nothing
     st = Int[]
-    i = 1
+    i = 1                       # parent axis
+    n, sp = 0, 0                # the parent axis being consumed, and its stride
+    taken = true                # whether `n`/`sp` need refilling
     for j in eachindex(od)
-        while i <= length(ps) && ps[i] != od[j] && ps[i] == 1
+        if od[j] == 1
+            # Never indexed past 0, so the stride is free.
+            push!(st, taken ? (i <= length(pst) ? pst[i] : 1) : sp)
+            continue
+        end
+        if taken
+            while i <= length(ps) && ps[i] == 1
+                i += 1
+            end
+            i <= length(ps) || return nothing
+            n, sp = ps[i], pst[i]
+            i += 1
+            taken = false
+        end
+        # MERGE: pull in the next parent axis when this one is too short, which
+        # is only the same elements in the same order if the two are contiguous.
+        while n < od[j]
+            while i <= length(ps) && ps[i] == 1
+                i += 1
+            end
+            i <= length(ps) || return nothing
+            pst[i] == sp * n || return nothing
+            n *= ps[i]
             i += 1
         end
-        if i <= length(ps) && ps[i] == od[j]
-            push!(st, pst[i])
-            i += 1
-        elseif od[j] == 1
-            # An axis the output INSERTS: never indexed past 0, so the stride is
-            # free and the next axis's keeps the descriptor readable.
-            push!(st, i <= length(pst) ? pst[i] : 1)
+        push!(st, sp)
+        if n == od[j]
+            taken = true
         else
-            return nothing
+            # SPLIT: the rest of this parent axis feeds the output axes above.
+            n % od[j] == 0 || return nothing
+            n ÷= od[j]
+            sp *= od[j]
         end
     end
+    # Whatever is left has to be extent 1, or the shapes do not line up this way.
+    taken || n == 1 || return nothing
     while i <= length(ps)
         ps[i] == 1 || return nothing
         i += 1
@@ -713,10 +763,9 @@ function stridedoperand(emitctx::EmitCtx, id::AbstractString)
         root, ps, pst, poff = pd.parent, pd.dims, pd.strides, pd.offset
     end
     if b.viewop in SHAPEONLY_VIEWS
-        st = unitaxisstrides(ps, pst, od)
-        st === nothing || return StridedOperand(root, od, st, poff)
-        pst == colstrides(ps) || return nothing
-        return StridedOperand(root, od, colstrides(od), poff)
+        st = reshapestrides(ps, pst, od)
+        st === nothing && return nothing
+        return StridedOperand(root, od, st, poff)
     end
     st, off = viewstrides(emitctx, b, ps, pst, od)
     return StridedOperand(root, od, st, poff + off)
