@@ -471,6 +471,24 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
 end
 
 """
+    biasact(f) -> function of (accumulator, bias)
+
+Add the bias and apply `f`, as ONE closure with a concretely typed capture.
+
+`actfn`'s answer is a small union of function types, and a closure that captures
+a union-typed local gets a `Core.Box`. A boxed capture is a `Core.isdefined` on
+the box inside the kernel, which `Mantle`'s usage walk refuses by name — it
+cannot say what the kernel does to its arguments through one — and the refusal
+lands at `record!`, on whichever model first folds an activation into a 1x1
+convolution's bias. MatAnyone does; SAM 2 has none, so it passed.
+
+`f` as an ARGUMENT is concrete in each specialisation, which is what makes the
+capture a value rather than a box.
+"""
+biasact(::typeof(identity)) = +
+biasact(f) = (c, b) -> f(c + b)
+
+"""
     stridedcopydispatch!(ctx, out, od, src, ast, off; name)
 
 Declare the copy that fills `out` from a strided read of `src`.
@@ -2988,7 +3006,55 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     NPQ = N * OH * OW
     T = eltype(out)
     ACC = accum(eltype(x))
-    cores = M.caps(M.backend(emitctx.dev)).cores
+    caps = M.caps(M.backend(emitctx.dev))
+    cores = caps.cores
+
+    # A 1x1 convolution at unit stride is a GEMM on the input as it already lies
+    # — [`onebyone`](@ref) has the argument and the measurement, and the
+    # immediate path has routed these since before the declared one existed.
+    # SAM 2's encoder has six of them and they were costing 19.0 ms of a 239 ms
+    # encode on the implicit-GEMM kernel below; `convolution_4` alone, 144 -> 256
+    # channels over 256x256, was 11.05 ms against the 0.86 that route measures.
+    #
+    # Gated on the product reaching the tensor cores, which is what makes it a
+    # win: `mmplan` is asked about the reshaped operands exactly as `gemm!` will
+    # ask, so this cannot route a shape the GEMM then declines back to a scalar
+    # kernel that has no reuse. (The immediate path asks `conv_coopmat_plan`,
+    # which wants a `LavaArray` and refuses every declared resource.)
+    #
+    # ONE PLANE AT A TIME. `(W, H, Cout, N)` puts the batch outermost, so
+    # `reshape(out, OW*OH*N, Cout)` interleaves planes; a view per plane is the
+    # same product and is right for any `N`. Every graph here has `N = 1`.
+    if onebyone(w, stride, pad, dil, groups)
+        pix = OW * OH
+        cm = mmplan(caps, M.ResourceView{T,2,typeof(out)},
+                    M.ResourceView{eltype(x),2,typeof(x)},
+                    M.ResourceView{eltype(w),2,typeof(w)},
+                    (pix, Cout), (pix, Cin), (Cin, Cout), false)
+        if cm isa MMCoopMatPlan
+            wm = M.viewof(w, (Cin, Cout))
+            for n in 1:N
+                gemm!(emitctx, op,
+                      M.viewof(out, (pix, Cout); offset = (n - 1) * pix * Cout),
+                      M.viewof(x, (pix, Cin); offset = (n - 1) * pix * Cin), wm)
+            end
+            # The bias is per output CHANNEL, which is per column of `C`, and the
+            # GEMM's own folded bias is per row — see `onebyone`. So it is a pass,
+            # and the activation rides along in the same closure.
+            f = actfn(act)
+            od = size(out)
+            if bias !== nothing
+                bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
+                ewdispatch!(emitctx, out, od, (out, bias),
+                            (bcstrides(od, od), bcstrides(od, bd)), biasact(f);
+                            name = "$(op.id).bias")
+            elseif f !== identity
+                ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),), f;
+                            name = "$(op.id).act")
+            end
+            return out
+        end
+    end
     BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ = convtiles(Cout, NPQ; cores)
     nbk = cld(Cout, BS_K)
     nbn = cld(NPQ, BS_NPQ)

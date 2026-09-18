@@ -137,6 +137,82 @@ end
     end
 end
 
+"""
+One 1x1 convolution as a declared plan, through the real `emitop!`.
+
+Through the emit and not through `gemm!` directly, because what is at stake is
+the ROUTE: which of the two lowerings `emitop!` picks, and whether the bias and
+the folded activation survive it. `kernels` comes back so the test can say the
+implicit-GEMM kernel was not the one that ran.
+"""
+function onebyoneplan(dev, x, w, bias, od; act::Symbol = :none)
+    g = MC.Graph(dev)
+    T = eltype(x)
+    res = Dict{String,Any}("x" => MC.Buffer(dev, x), "w" => MC.Buffer(dev, w),
+                           "b" => MC.Buffer(dev, bias),
+                           "c" => MC.Buffer(dev, T, od))
+    attrs = Dict{String,Any}("arg3" => [1, 1], "arg4" => [0, 0], "arg5" => [1, 1],
+                             "arg6" => false, "arg7" => [0, 0], "arg8" => 1)
+    act === :none || (attrs["act"] = string(act))
+    op = DK.Op("c", "convolution.default", ["x", "w", "b"], "c", attrs)
+    emitctx = DK.EmitCtx(DK.Graph("c", String[], String[], String[],
+                                  Dict{String,DK.Buffer}(), String[], DK.Op[],
+                                  Vector{Vector{String}}()),
+                         g, dev, NamedTuple(), res, Set{String}(), Ref("c"), Any[])
+    DK.emitop!(emitctx, op, Val(Symbol("convolution.default")))
+    plan = MC.Plan(g)
+    MC.record!(plan)
+    kernels = String[string(nameof(d.kernel)) for pp in plan.passes
+                     for d in pp.pass.dispatches if d.kernel isa Function]
+    MC.run!(plan)
+    MC.waitidle(dev)
+    got = Array(MC.storage(res["c"]))
+    MC.free!(plan)
+    return got, kernels
+end
+
+# `(W, H, Cin, N)` times `(1, 1, Cin, Cout)`, on the host, with the bias and the
+# activation the graph folded in.
+function onebyoneref(x, w, bias, act::Symbol)
+    Wi, Hi, Cin, N = size(x)
+    Cout = size(w, 4)
+    out = zeros(Float32, Wi, Hi, Cout, N)
+    for n in 1:N, co in 1:Cout, h in 1:Hi, wi in 1:Wi
+        v = Float32(bias[co])
+        for ci in 1:Cin
+            v += Float32(x[wi, h, ci, n]) * Float32(w[1, 1, ci, co])
+        end
+        out[wi, h, co, n] = act === :relu ? max(v, 0f0) : v
+    end
+    return out
+end
+
+@testset "a 1x1 convolution is declared as a GEMM" begin
+    back = LavaBackend()
+    dev = MC.Device(back)
+    # `N = 2` is here for the per-plane loop: `(W, H, Cout, N)` puts the batch
+    # outermost, so one reshape over all of it would interleave the planes.
+    #
+    # The RELU is the regression. `actfn`'s answer is union-typed, and the first
+    # form of the bias pass closed over it — which boxes the capture, and
+    # `Mantle`'s usage walk refuses a kernel it cannot follow through a box. It
+    # refused at `record!`, on MatAnyone's 28 relu-folded 1x1 convolutions;
+    # SAM 2 has none and passed. See `biasact`.
+    for (Wi, Cin, Cout, N, act) in ((8, 32, 16, 1, :none), (8, 32, 16, 1, :relu),
+                                    (8, 32, 16, 2, :relu), (16, 48, 32, 1, :relu))
+        hx = Float16.(randn(Float32, Wi, Wi, Cin, N) .* 0.2f0)
+        hw = Float16.(randn(Float32, 1, 1, Cin, Cout) .* 0.2f0)
+        hb = Float16.(randn(Float32, Cout) .* 0.2f0)
+        got, kernels = onebyoneplan(dev, hx, hw, hb, (Wi, Wi, Cout, N); act)
+        ref = onebyoneref(hx, hw, hb, act)
+        @test !any(==("conv2d_igemm_ki!"), kernels)
+        @test any(k -> occursin("coopmat_gemm", k), kernels)
+        @test maximum(abs, Float32.(got) .- ref) / maximum(abs, ref) < 5e-3
+        act === :relu && @test minimum(Float32.(got)) >= 0f0
+        GC.gc()
+    end
+end
+
 @testset "the convolution routing predicates" begin
     back = LavaBackend()
 
