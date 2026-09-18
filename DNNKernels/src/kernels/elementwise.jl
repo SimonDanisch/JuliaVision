@@ -112,6 +112,50 @@ function ew!(out, od::NTuple{N,Int}, ops::Tuple, sts::Tuple, f) where {N}
 end
 
 """
+The same walk, from a coordinate that is already decomposed.
+
+`stridedot` and not `bcindex`, because the divisions have happened: an operand's
+index is a dot of the output coordinate with its own strides.
+"""
+@inline gather32(c::Tuple, ::Tuple{}, ::Tuple{}) = ()
+@inline gather32(c::Tuple, ops::Tuple, sts::Tuple) =
+    (@inbounds(first(ops)[stridedot(c, first(sts))]),
+     gather32(c, Base.tail(ops), Base.tail(sts))...)
+
+"The 1-based index of output coordinate `c` in an operand with strides `st`."
+@inline function stridedot(c::NTuple{N,Int}, st::NTuple{N,Int32}) where {N}
+    o = Int32(1)
+    @inbounds for k in 1:N
+        o += Int32(c[k] - 1) * st[k]
+    end
+    return o
+end
+
+"""
+    ew32!(out, exts, ops, sts, f, n)
+
+[`ew!`](@ref) with ONE decomposition of the output coordinate, in 32 bits.
+
+`ew!` reaches every operand through `bcindex`, which decomposes the linear index
+again per operand: a rank-4 two-operand add is eight 64-bit divisions and eight
+modulos per element, a folded bias-and-activation group twelve of each. The
+coordinate is the SAME for every operand, and `Mantle.cart32` over `FastDiv32`
+extents costs a multiply and a shift per axis rather than a division. SAM 2's
+encoder spends 19% of its GPU time in this kernel.
+
+`exts` is `Mantle.broadcastextents(od)` and `n` the element count, since the
+extents no longer arrive in a form the guard can multiply. Only for an output
+whose largest operand index fits `Int32` — [`ewdispatch!`](@ref) decides.
+"""
+function ew32!(out, exts, ops::Tuple, sts::Tuple, f, n::Int32)
+    i = KI.get_global_id().x
+    i <= n || return
+    c = M.cart32(UInt32(i - 1), exts)
+    @inbounds out[i] = f(gather32(c, ops, sts)...)
+    return
+end
+
+"""
     colstrides(d) -> NTuple
 
 Column-major strides of a shape: `(1, d[1], d[1]*d[2], …)`.

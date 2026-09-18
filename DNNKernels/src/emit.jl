@@ -464,9 +464,33 @@ function viewfor(emitctx::EmitCtx, id::AbstractString)
     od = evalshape(b.shape, emitctx.dims)
     ast, off = viewstrides(emitctx, b, parent, od)
     out = make(emitctx, id, eltype(parent), od)
-    M.dispatch!(emitctx.g, stridedcopy!, (out, od, parent, ast, off), prod(od);
-                name = "$(id).$(first(split(b.viewop, '.')))")
+    stridedcopydispatch!(emitctx, out, od, parent, ast, off;
+                         name = "$(id).$(first(split(b.viewop, '.')))")
     emitctx.res[id] = out
+    return out
+end
+
+"""
+    stridedcopydispatch!(ctx, out, od, src, ast, off; name)
+
+Declare the copy that fills `out` from a strided read of `src`.
+
+[`stridedcopy32!`](@ref) wherever the largest index it forms fits `Int32`, which
+is every copy in the models here and is worth the whole division chain; the
+64-bit [`stridedcopy!`](@ref) for anything past that. One place, so the two
+cannot be reached by different callers under different rules.
+"""
+function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
+                              ast::Dims, off::Int; name::AbstractString)
+    n = prod(od)
+    hi = off + sum((od[k] - 1) * ast[k] for k in eachindex(od); init = 0)
+    if n <= typemax(Int32) && hi + 1 <= typemax(Int32)
+        M.dispatch!(emitctx.g, stridedcopy32!,
+                    (out, M.broadcastextents(od), src, map(Int32, ast),
+                     Int32(off), Int32(n)), n; name)
+    else
+        M.dispatch!(emitctx.g, stridedcopy!, (out, od, src, ast, off), n; name)
+    end
     return out
 end
 
@@ -484,9 +508,8 @@ described.
 """
 function materialise(emitctx::EmitCtx, id::AbstractString, b, s::StridedOperand)
     out = make(emitctx, id, eltype(s.parent), s.dims)
-    M.dispatch!(emitctx.g, stridedcopy!,
-                (out, s.dims, s.parent, s.strides, s.offset), prod(s.dims);
-                name = "$(id).$(first(split(b.viewop, '.')))")
+    stridedcopydispatch!(emitctx, out, s.dims, s.parent, s.strides, s.offset;
+                         name = "$(id).$(first(split(b.viewop, '.')))")
     emitctx.res[id] = out
     return out
 end
@@ -928,7 +951,35 @@ function elementwise!(emitctx::EmitCtx, op::Op, f, ins...)
     od = size(out)
     length(out) == 0 && return out      # see `mapbody!`
     ops, sts = operandtuples(od, ins)
-    M.dispatch!(emitctx.g, ew!, (out, od, ops, sts, f), length(out); name = op.id)
+    return ewdispatch!(emitctx, out, od, ops, sts, f; name = op.id)
+end
+
+"""
+    ewdispatch!(ctx, out, od, ops, sts, f; name) -> out
+
+Declare one elementwise pass: `out .= f.(ops...)` read through `sts`.
+
+[`ew32!`](@ref) wherever every index it forms fits `Int32`, which is the whole
+point of it, and the 64-bit [`ew!`](@ref) past that. EVERY elementwise dispatch
+goes through here — the bias and activation the GEMM path peels off, the
+`self`-copy `slice_scatter` and `index_put` start from, the batch-norm
+reciprocal — so the choice cannot differ by caller.
+
+Strides are non-negative here (`bcstrides` and `stridedwindow` both give 0 for a
+broadcast axis and nothing negative), so the largest index is the one the last
+element reads.
+"""
+function ewdispatch!(emitctx::EmitCtx, out, od::Dims, ops::Tuple, sts::Tuple, f;
+                     name::AbstractString)
+    n = prod(od)
+    hi(st) = 1 + sum((od[k] - 1) * st[k] for k in eachindex(od); init = 0)
+    if n <= typemax(Int32) && all(st -> hi(st) <= typemax(Int32), sts)
+        M.dispatch!(emitctx.g, ew32!,
+                    (out, M.broadcastextents(od), ops,
+                     map(st -> map(Int32, st), sts), f, Int32(n)), n; name)
+    else
+        M.dispatch!(emitctx.g, ew!, (out, od, ops, sts, f), n; name)
+    end
     return out
 end
 
@@ -954,8 +1005,9 @@ function operandtuples(od::Dims, ins::Tuple)
         w = stridedwindow(x, od)
         w === nothing || return ((w[1], ops...), (w[2], sts...))
         error("DNNKernels: a strided operand of $(x.dims) cannot be read at an " *
-              "output shape of $(od). `binary!` asks `strideview` for one only " *
-              "where the ranks agree, so this is a caller that did not.")
+              "output shape of $(od). `strideview(ctx, op, pos, od)` returns " *
+              "one only where `stridedwindow` accepts it, so this is a caller " *
+              "that asked without the output shape.")
     end
     return ((x, ops...), (bcstrides(od, size(x)), sts...))
 end
@@ -971,15 +1023,18 @@ own, only a base and one stride per output axis. The base is a ONE-DIMENSIONAL
 window over the root, which is what folds the descriptor's offset in without the
 kernel taking an offset at all.
 
-An axis of extent 1 against a wider output gets stride 0, the same as
-`bcstrides` gives a dense operand. `nothing` where the ranks disagree or the
-window would reach past the root, which is where the caller materialises
-instead.
+Broadcast exactly as `bcstrides` does it for a dense operand, because `ew!`
+cannot tell the two apart: leading-aligned, stride 0 on an axis of extent 1
+against a wider output and on an axis past the operand's rank. `nothing` where
+the operand outranks the output, where an extent neither matches nor is 1, or
+where the window would reach past the root, which is where the caller takes the
+dense operand instead.
 """
 function stridedwindow(s::StridedOperand, od::Dims)
-    length(od) == length(s.dims) || return nothing
+    length(od) >= length(s.dims) || return nothing
     st = ntuple(length(od)) do k
-        s.dims[k] == od[k] ? s.strides[k] : s.dims[k] == 1 ? 0 : -1
+        k > length(s.dims) ? 0 :
+            s.dims[k] == od[k] ? s.strides[k] : s.dims[k] == 1 ? 0 : -1
     end
     any(<(0), st) && return nothing
     span = 1 + sum((od[k] - 1) * st[k] for k in eachindex(od); init = 0)
@@ -1021,8 +1076,9 @@ function binary!(emitctx::EmitCtx, op::Op, f0)
     # Strided where the operand is a view `ew!` can index in place: a residual
     # add reads a permute of its producer, and materialising that is a pass over
     # every element to read every element once.
-    sa = strideview(emitctx, op, 1)
-    sb = strideview(emitctx, op, 2)
+    od = size(dest(emitctx))
+    sa = strideview(emitctx, op, 1, od)
+    sb = strideview(emitctx, op, 2, od)
     a = sa === nothing ? operand(emitctx, op, 1) : sa
     b = sb === nothing ? operand(emitctx, op, 2) : sb
     # The FOLDED ACTIVATION, composed into the same closure so it stays one pass.
@@ -1067,9 +1123,8 @@ function emitclone!(emitctx::EmitCtx, op::Op)
     out = dest(emitctx)
     (s === nothing || size(s) != size(out)) &&
         return elementwise!(emitctx, op, identity, operand(emitctx, op, 1))
-    od = size(out)
-    M.dispatch!(emitctx.g, stridedcopy!, (out, od, s.parent, s.strides, s.offset),
-                prod(od); name = op.id)
+    stridedcopydispatch!(emitctx, out, size(out), s.parent, s.strides, s.offset;
+                         name = op.id)
     return out
 end
 
@@ -1089,7 +1144,7 @@ end
 The one operand of a unary op, strided where [`ew!`](@ref) can index it in place.
 """
 function unaryoperand(emitctx::EmitCtx, op::Op)
-    s = strideview(emitctx, op, 1)
+    s = strideview(emitctx, op, 1, size(dest(emitctx)))
     return s === nothing ? operand(emitctx, op, 1) : s
 end
 
@@ -1673,9 +1728,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("slice_scatter.default")
         "DNNKernels: `slice_scatter` (op $(op.id)) writes $(od) but its `self` " *
         "is $(size(a)); the result is `self` with a slice replaced, so they are " *
         "the same shape.")
-    M.dispatch!(emitctx.g, ew!,
-                (out, od, (a,), (bcstrides(od, size(a)),), identity),
-                prod(od); name = "$(op.id).self")
+    ewdispatch!(emitctx, out, od, (a,), (bcstrides(od, size(a)),), identity;
+                name = "$(op.id).self")
     length(src) == 0 && return out
     M.dispatch!(emitctx.g, blockcopy!,
                 (out, od, src, size(src), ntuple(k -> k == d ? lo : 0, n)),
@@ -1984,10 +2038,8 @@ function emitop!(emitctx::EmitCtx, op::Op,
     C = id[c]
     cstride = prod(ntuple(k -> id[k], c - 1); init = 1)
     invstd = scratch(emitctx, Float32, C)
-    M.dispatch!(emitctx.g, ew!,
-                (invstd, (C,), (rvar,), (bcstrides((C,), (C,)),),
-                 v -> inv(sqrt(Float32(v) + eps))), C;
-                name = "$(op.id).invstd")
+    ewdispatch!(emitctx, invstd, (C,), (rvar,), (bcstrides((C,), (C,)),),
+                v -> inv(sqrt(Float32(v) + eps)); name = "$(op.id).invstd")
     M.dispatch!(emitctx.g, bnapply!,
                 (out, x, rmean, invstd, gamma, beta, length(out), cstride, C),
                 length(out); name = op.id)
@@ -2307,9 +2359,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("scatter.src")})
         "DNNKernels: `scatter.src` (op $(op.id)) has a $(ndims(idx))-d index " *
         "and a $(n)-d self.")
     od = size(out)
-    M.dispatch!(emitctx.g, ew!,
-                (out, od, (a,), (bcstrides(od, size(a)),), identity),
-                prod(od); name = "$(op.id).self")
+    ewdispatch!(emitctx, out, od, (a,), (bcstrides(od, size(a)),), identity;
+                name = "$(op.id).self")
     length(idx) == 0 && return out
     M.dispatch!(emitctx.g, scatter_kernel!, (out, idx, src, Val(d), Val(n)),
                 size(idx); name = op.id)
@@ -2448,9 +2499,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index_put.default")})
     # notices when nothing does.
     if !inplace
         od = size(out)
-        M.dispatch!(emitctx.g, ew!,
-                    (out, od, (a,), (bcstrides(od, size(a)),), identity),
-                    prod(od); name = "$(op.id).self")
+        ewdispatch!(emitctx, out, od, (a,), (bcstrides(od, size(a)),), identity;
+                    name = "$(op.id).self")
     end
     length(src) == 0 && return out
     M.dispatch!(emitctx.g, indexput_kernel!,
@@ -2509,6 +2559,23 @@ function strideview(emitctx::EmitCtx, op::Op, pos::Int)
     idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
     idx <= length(op.ins) || return nothing
     return stridedoperand(emitctx, op.ins[idx])
+end
+
+"""
+    strideview(ctx, op, pos, od) -> StridedOperand or nothing
+
+The same, gated on `ew!` being able to address it at output shape `od`.
+
+The view is describable and still unreadable at that shape: SAM 2's decoder
+multiplies a `(1, 1, 64)` slice of a weight into a `(128, 128, 64, 1)` output,
+and an operand that OUTRANKS its output has no window at all. `stridedwindow` is
+the rule, asked here and discarded, so the two cannot disagree; the caller takes
+the dense operand where it says no.
+"""
+function strideview(emitctx::EmitCtx, op::Op, pos::Int, od::Dims)
+    s = strideview(emitctx, op, pos)
+    s === nothing && return nothing
+    return stridedwindow(s, od) === nothing ? nothing : s
 end
 
 """
@@ -2704,12 +2771,11 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         # their own ops. Folding is an optimisation on the tensor-core path,
         # never a correctness requirement.
         od = size(out)
-        bias === nothing || M.dispatch!(emitctx.g, ew!,
-            (out, od, (out, bias), (bcstrides(od, od), bcstrides(od, size(bias))), +),
-            prod(od); name = "$(op.id).bias")
-        epi === identity || M.dispatch!(emitctx.g, ew!,
-            (out, od, (out,), (bcstrides(od, od),), epi),
-            prod(od); name = "$(op.id).act")
+        bias === nothing || ewdispatch!(emitctx, out, od, (out, bias),
+            (bcstrides(od, od), bcstrides(od, size(bias))), +;
+            name = "$(op.id).bias")
+        epi === identity || ewdispatch!(emitctx, out, od, (out,),
+            (bcstrides(od, od),), epi; name = "$(op.id).act")
         return out
     end
     if plan isa MMGemvPlan
@@ -2762,9 +2828,8 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         if NP != N
             od = size(out)
             src = M.viewof(dst, od)
-            M.dispatch!(emitctx.g, ew!,
-                        (out, od, (src,), (bcstrides(od, od),), identity),
-                        prod(od); name = "$(op.id).unpad")
+            ewdispatch!(emitctx, out, od, (src,), (bcstrides(od, od),), identity;
+                        name = "$(op.id).unpad")
         end
         return out
     end
@@ -2946,9 +3011,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
             # the reversed layout, so it broadcasts with a zero stride everywhere
             # else. One pass, no materialised copy.
             bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
-            M.dispatch!(emitctx.g, ew!,
-                        (acc, od, (bias,), (bcstrides(od, bd),), identity),
-                        prod(od); name = "$(op.id).prefill")
+            ewdispatch!(emitctx, acc, od, (bias,), (bcstrides(od, bd),), identity;
+                        name = "$(op.id).prefill")
         end
     end
 
@@ -2971,15 +3035,14 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     if acc !== out
         od = size(out)
         f = act === :relu ? (v -> max(v, zero(v))) : identity
-        M.dispatch!(emitctx.g, ew!, (out, od, (acc,), (bcstrides(od, od),), f),
-                    prod(od); name = "$(op.id).reduce")
+        ewdispatch!(emitctx, out, od, (acc,), (bcstrides(od, od),), f;
+                    name = "$(op.id).reduce")
     elseif splitk > 1 && act === :relu
         # In place: `out` is the destination AND the operand, so the walk reports
         # it read+write and the pass is ordered against the splits that wrote it.
         od = size(out)
-        M.dispatch!(emitctx.g, ew!,
-                    (out, od, (out,), (bcstrides(od, od),), v -> max(v, zero(v))),
-                    prod(od); name = "$(op.id).act")
+        ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),),
+                    v -> max(v, zero(v)); name = "$(op.id).act")
     end
     return out
 end

@@ -311,3 +311,32 @@ function stridedcopy!(out, od::NTuple{N,Int}, a, ast::NTuple{N,Int},
     @inbounds out[i] = a[o + 1]
     return
 end
+
+"""
+    stridedcopy32!(out, exts, a, ast, off, n)
+
+[`stridedcopy!`](@ref) with the linear-to-Cartesian decomposition in 32 bits.
+
+**The division chain is the cost of this kernel, not the traffic.** At rank 6 the
+form above is six emulated 64-bit divisions and six modulos per element;
+`Mantle.cart32` over `FastDiv32` extents is a high multiply and a shift each.
+That is the same measurement Lava's broadcast records for the same mistake —
+~15 us per division per 2.36 M elements, linear in the rank — and SAM 2's
+encoder copies 940 MiB through this kernel at rank 4 and 6.
+
+`exts` is `Mantle.broadcastextents(od)` and `n` the element count, because the
+extents no longer arrive in a form the guard can multiply. Only for a copy whose
+largest index fits `Int32`, which is what [`stridedcopydispatch!`](@ref) checks.
+"""
+function stridedcopy32!(out, exts, a, ast::NTuple{N,Int32}, off::Int32,
+                        n::Int32) where {N}
+    i = KI.get_global_id().x
+    i <= n || return
+    c = M.cart32(UInt32(i - 1), exts)
+    o = off
+    @inbounds for k in 1:N
+        o += Int32(c[k] - 1) * ast[k]
+    end
+    @inbounds out[i] = a[o + Int32(1)]
+    return
+end

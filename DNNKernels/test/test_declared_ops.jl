@@ -185,24 +185,36 @@ function declaredops(dev, label)
             bh = reshape(Float32[10, 20, 30], 1, 3, 1)   # broadcast on axes 1, 3
             ch = fill(0.5f0, od)
             a = MM.Buffer(dev, ah); b = MM.Buffer(dev, bh); c = MM.Buffer(dev, ch)
+            #
+            # Both kernels at every arity: `ew32!` is what `ewdispatch!` picks
+            # for every output whose indices fit `Int32`, which is every output
+            # in the models, and it reaches its operands through a coordinate
+            # `Mantle.cart32` built rather than through `bcindex`. A broadcast
+            # axis is where the two can disagree, and `b` has two.
             for (ops, hostops, f) in (((a,), (ah,), x -> 2x),
                                       ((a, b), (ah, bh), (x, y) -> x + y),
                                       ((a, b, c), (ah, bh, ch),
                                        (x, y, z) -> (x + y) * z))
-                g = MM.Graph(dev)
-                out = MM.Transient.Buffer(g, Float32, od)
                 o, st = DK.operandtuples(od, ops)
-                MM.dispatch!(g, DK.ew!, (out, od, o, st, f), prod(od);
-                             name = "ew")
-                pl = MM.Plan(g)
-                MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
-                @test reshape(Array(MM.storage(out)), od) == f.(hostops...)
-                MM.free!(pl)
+                for args in ((DK.ew!, (od, o, st, f)),
+                             (DK.ew32!, (MM.broadcastextents(od), o,
+                                         map(t -> map(Int32, t), st), f,
+                                         Int32(prod(od)))))
+                    g = MM.Graph(dev)
+                    out = MM.Transient.Buffer(g, Float32, od)
+                    MM.dispatch!(g, args[1], (out, args[2]...), prod(od);
+                                 name = "ew")
+                    pl = MM.Plan(g)
+                    MM.record!(pl); MM.run!(pl); MM.waitidle(dev)
+                    @test reshape(Array(MM.storage(out)), od) == f.(hostops...)
+                    MM.free!(pl)
+                end
             end
             # `gather`'s base case, asked directly: ambiguous methods answer
             # here too, and the message names dispatch when the kernel's does
             # not.
             @test DK.gather((), (), 0, od) === ()
+            @test DK.gather32((1, 1, 1), (), ()) === ()
         end
     end
 end

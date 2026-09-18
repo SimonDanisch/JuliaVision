@@ -87,3 +87,24 @@ end
     @test got == [a[1 + (i - 1) + 5 * (j - 1)] for i in 1:4, j in 1:3]
     @test DK.reshapestrides(ps, pst, (2, 2, 3)) == (1, 2, 5)
 end
+
+# `stridedwindow` is the other half: what `ew!` can address without a copy. The
+# strides it answers have to mean the same thing `bcstrides` means for a dense
+# operand, because `ew!` cannot tell a window from a buffer.
+@testset "a strided operand broadcasts the way a dense one does" begin
+    # A descriptor over a host vector: `stridedwindow` only reads `parent`'s
+    # length and hands back a view of it.
+    root = collect(Float32, 1:600)
+    s = DK.StridedOperand(root, (1, 1, 64), (0, 0, 1), 0)
+    w = DK.stridedwindow(s, (128, 128, 64, 1))
+    @test w !== nothing
+    # Leading-aligned, zero on a broadcast axis and past the operand's rank,
+    # which is `bcstrides`' rule to the letter.
+    @test w[2] == DK.bcstrides((128, 128, 64, 1), (1, 1, 64))
+    # Refusals: an operand that outranks its output has no window, and an extent
+    # that neither matches nor is 1 is not a broadcast.
+    @test DK.stridedwindow(s, (128, 128)) === nothing
+    @test DK.stridedwindow(DK.StridedOperand(root, (3, 4), (1, 3), 0), (5, 4)) === nothing
+    # And a window that would read past the root is refused rather than clamped.
+    @test DK.stridedwindow(DK.StridedOperand(root, (4, 4), (1, 200), 0), (4, 4)) === nothing
+end
