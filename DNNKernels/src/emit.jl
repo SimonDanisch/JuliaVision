@@ -932,11 +932,29 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")}) = binary!(emitctx, op, +)
 
-# A copy is `identity` over one operand, which is the same one dispatch as any
-# other elementwise op. `runop!` wrote `d .= a`, which is the same launch by
-# another spelling.
+"""
+`aten::clone`, which is a copy.
+
+ONE pass, from wherever the elements are: a clone of a permuted view is a
+`stridedcopy!` off the root, where materialising the view first and copying that
+is two passes over the same bytes. SAM 2's encoder has 90 of these pairs.
+
+Otherwise `identity` over one operand, which is the same dispatch as any other
+elementwise op.
+"""
+function emitclone!(emitctx::EmitCtx, op::Op)
+    s = strideview(emitctx, op, 1)
+    out = dest(emitctx)
+    (s === nothing || size(s) != size(out)) &&
+        return elementwise!(emitctx, op, identity, operand(emitctx, op, 1))
+    od = size(out)
+    M.dispatch!(emitctx.g, stridedcopy!, (out, od, s.parent, s.strides, s.offset),
+                prod(od); name = op.id)
+    return out
+end
+
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("clone.default")}) =
-    elementwise!(emitctx, op, identity, operand(emitctx, op, 1))
+    emitclone!(emitctx, op)
 
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("leaky_relu.default")})
     x = operand(emitctx, op, 1)
@@ -2347,13 +2365,22 @@ is handed. Asked for here and not in `operand` because every other emit takes it
 operands dense.
 """
 function sdpaoperand(emitctx::EmitCtx, op::Op, pos::Int)
-    key = argkey(pos)
-    haskey(op.attrs, key) && return numattr(emitctx.dims, op.attrs[key])
+    s = strideview(emitctx, op, pos)
+    return s === nothing ? operand(emitctx, op, pos) : s
+end
+
+"""
+    strideview(ctx, op, pos) -> StridedOperand or nothing
+
+Operand `pos` of `op` as a strided read of a resource, for the emits whose kernel
+takes strides. `nothing` for a host scalar, for an operand that is not there, and
+for a view [`stridedoperand`](@ref) cannot describe.
+"""
+function strideview(emitctx::EmitCtx, op::Op, pos::Int)
+    haskey(op.attrs, argkey(pos)) && return nothing
     idx = pos - count(p -> haskey(op.attrs, argkey(p)), 1:(pos - 1))
-    idx <= length(op.ins) || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) has no operand at position $pos")
-    s = stridedoperand(emitctx, op.ins[idx])
-    return s === nothing ? operand(emitctx, op.ins[idx]) : s
+    idx <= length(op.ins) || return nothing
+    return stridedoperand(emitctx, op.ins[idx])
 end
 
 """
