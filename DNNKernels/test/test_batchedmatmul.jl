@@ -28,6 +28,7 @@ qualifying fp16 batch really does reach the tensor-core plan.
 
 using Test, Lava, DNNKernels, KernelAbstractions
 import Mantle
+using Mantle: LavaBackend
 using DNNKernels: batchedmatmul!, mm3, mm_coopmat_plan, MMCoopMatPlan, Decline,
                   Ctx, caps, launch!
 const KA = KernelAbstractions

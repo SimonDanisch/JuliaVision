@@ -9,6 +9,7 @@ kernel that is wrong and unused is worse than no kernel: it looks available.
 
 using Test, DNNKernels, Lava, KernelAbstractions
 import Mantle
+using Mantle: LavaBackend
 const KA = KernelAbstractions
 
 function attnref(qh, kh, vh, scale)
@@ -152,9 +153,15 @@ end
             # 64 x 64 wants 66 KB and must never be offered.
             @test !DNNKernels.flashcmfits(dev, 80, 64, 64, 256)
             @test DNNKernels.flashcmfits(dev, 80, 64, 32, 256)
-            # The shipped default, on the encoder's two dominant shapes.
-            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096) == (64, 32, 8)
-            @test DNNKernels.flashcm_tiling(dev, 72, 256, 256) == (64, 32, 8)
+            # The shipped default, on the encoder's two dominant shapes. `NW` is
+            # the table's own scaled to this device's wave: a cooperative-matrix
+            # module that runs narrower than the wave (32 against 64 on RDNA 3.5)
+            # needs twice the subgroups for the same waves in flight, and
+            # `flashcm_tiling` says so with the measurement. `widen` is 1 where
+            # the two agree, which is where the table was measured.
+            widen = max(1, dev.subgroup ÷ dev.coopmatsubgroup)
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096) == (64, 32, 8 * widen)
+            @test DNNKernels.flashcm_tiling(dev, 72, 256, 256) == (64, 32, 8 * widen)
             # A query count no tiling divides is taken clamped — but only when
             # the padding earns its place. `Lq = 4` would be 94% waste at any
             # tiling, so it still falls back; `Lq = 23` is taken at `BR = 32`
@@ -164,7 +171,7 @@ end
             # until the caller asks for it — which only the decoder does.
             @test DNNKernels.flashcm_tiling(dev, 16, 23, 4096) === nothing
             @test DNNKernels.flashcm_tiling(dev, 16, 23, 4096; clamp=true)[1] == 32
-            @test DNNKernels.flashcm_tiling(dev, 16, 23, 23; clamp=true) == (32, 32, 8)
+            @test DNNKernels.flashcm_tiling(dev, 16, 23, 23; clamp=true) == (32, 32, 8 * widen)
             # …and padding still has to earn its place: 4 queries is 94% waste
             # at any tiling.
             @test DNNKernels.flashcm_tiling(dev, 72, 4, 16; clamp=true) === nothing
@@ -180,6 +187,23 @@ end
             # spells out which of the two the tiling needs.
             for (BR, BC, NW) in DNNKernels.FLASHCM_TILINGS
                 @test (BR * 72) % (NW * dev.coopmatsubgroup) == 0
+            end
+            # A scaled `NW` is only taken where it is admissible: `32x32` at
+            # `E = 72` fails `(BR * E) % NT == 0` at twice the subgroups, so that
+            # entry keeps the table's own width even on a widening device.
+            if widen > 1
+                @test (32 * 72) % (8 * widen * dev.coopmatsubgroup) != 0
+                @test DNNKernels.flashcm_tiling(dev, 72, 32, 32) == (32, 32, 8)
+            end
+            # Where `O` lives follows the tiling and not the device: `rego` is on
+            # exactly where it costs at most 10 floats a thread, which is the
+            # crossing both cards' sweeps found.
+            qkv = ntuple(_ -> fill!(KA.allocate(back, Float16, 72, 64, 1, 1),
+                                     Float16(0)), 3)
+            for (BR, BC, NW) in ((64, 32, 8), (64, 32, 16), (32, 32, 8))
+                pl = DNNKernels.flashcm_plan(dev, qkv..., nothing; BR, BC, NW)
+                pl isa DNNKernels.Decline && continue
+                @test pl.rego == ((BR * pl.EP) ÷ pl.NT <= 10)
             end
         end
 

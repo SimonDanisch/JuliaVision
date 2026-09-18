@@ -338,14 +338,14 @@ budget check eight bytes optimistic — harmless at the shipped tiling with 248 
 spare, and exactly the kind of drift that makes a tiling launch and write nothing
 at the margin.
 """
-@inline flashcmshared(EP, BR, BC, epad = flashepad(EP), rpad = flashrpad(BR)) =
+@inline flashcmshared(EP, BR, BC, epad = 0, rpad = 0) =
     2 * (EP + epad) * BR + 2 * (EP + epad) * BC +           # qs, kvs   (e-major)
     4 * (BR + rpad) * BC + 4 * (BR + rpad) * EP +           # ss, pvs   (r-major)
     2 * BC * BR +                                           # ps
     12 * BR + 8                                             # ms/ls/cs, grew/redo
 
 """
-    flashepad(EP) / flashrpad(BR)
+    flashepad(caps, EP) / flashrpad(caps, BR)
 
 How much to pad each shared stride so the tensor cores' column-strided access
 does not land every column in one memory bank. **The kernel takes both as type
@@ -401,8 +401,30 @@ So `rpad` stays a parameter with a default of zero rather than being deleted:
 it is the first thing to re-measure on hardware whose shared memory is banked
 differently, and the numbers above are the NVIDIA baseline to compare against.
 """
-@inline flashepad(EP) = EP % 32 == 0 ? 8 : 0
-@inline flashrpad(BR) = 0
+# The pads above are one card's answer. On a device whose cooperative-matrix
+# modules run NARROWER than its own wave — `caps.subgroup 64` against
+# `caps.coopmatsubgroup 32` on RDNA 3.5 — an LDS access is two 32-lane phases
+# rather than one, and the table does not transfer. Re-measured there at
+# `Lq = Lk = 4096`, `E = 72 -> EP = 80`, tiling `64x32/16`, `rego` on, `epad` down
+# each column and `rpad` across (ms):
+#
+#     epad\rpad     1       2       4       8
+#     0           9.297   9.433   9.359   9.698
+#     2          13.919  14.000  13.954  14.082
+#     4           8.180   8.231   8.614   8.368
+#     8           8.676   8.909   8.727   8.610
+#
+# `epad` is worth 1.14x and `rpad` almost nothing, and **the bank arithmetic does
+# not explain it**: `epad = 2` makes the fp16 row stride 41 bank words, coprime
+# with 32 and therefore conflict-free by the rule above, and it is the worst row
+# in the table by 70%. `plans/projects/portability/bankconflict_sweep.jl` wrote
+# that prediction down before the sweep ran, so this kills it rather than
+# confirming it; what the pad really buys here is unexplained and the numbers are
+# the only reason for these values.
+@inline narrowcoopmat(caps::M.DeviceCaps) = caps.subgroup > caps.coopmatsubgroup
+@inline flashepad(caps::M.DeviceCaps, EP) =
+    narrowcoopmat(caps) ? 4 : EP % 32 == 0 ? 8 : 0
+@inline flashrpad(caps::M.DeviceCaps, BR) = narrowcoopmat(caps) ? 1 : 0
 
 """
 Whether a `(BR, BC)` tiling is one the cooperative-matrix kernel can run **on this
@@ -419,7 +441,10 @@ of the device rather than of the kernel.
     # would silently drop its tiles, so it is refused instead.
     cld((BR ÷ dev.tile) * (EP ÷ dev.tile), NT ÷ dev.coopmatsubgroup) <= 3 || return false
     (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
-    flashcmshared(EP, BR, BC) <= dev.sharedbudget
+    # With the pads this device will actually launch with: the budget check and
+    # the launcher have to agree, or a tiling passes here and then asks for more
+    # `@localmem` than the device has.
+    flashcmshared(EP, BR, BC, flashepad(dev, EP), flashrpad(dev, BR)) <= dev.sharedbudget
 end
 
 """
@@ -1215,7 +1240,23 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
     dev.coopmat || return nothing
     EP = cld(E, dev.tile) * dev.tile
     fits = NTuple{3,Int}[]
-    for (BR, BC, NW) in FLASHCM_TILINGS
+    # `NW` scaled to this device's wave, then the table's own. Every number in
+    # `FLASHCM_TILINGS` was measured where a cooperative-matrix module runs at the
+    # device's native wave width; where it runs narrower — `coopmatsubgroup 32`
+    # against `subgroup 64` — the table's eight subgroups are only four waves, so
+    # the workgroup has half the waves in flight it was tuned for. Doubling `NW`
+    # restores them, and the table's own conclusion was that "subgroups dominate
+    # every other parameter".
+    #
+    # Measured on that device, `Lq = Lk = 4096`, `E = 72`, `epad 4`/`rpad 1`, `rego`
+    # on: `64x32/8` 11.69 ms against `64x32/16` **8.18**, -30%. The windowed shape
+    # (256x256, 128 head-batches) agrees: 0.72 against 0.638.
+    #
+    # The scaled width is tried FIRST and per entry, because it is not always
+    # admissible: `32x32/16` fails `(BR * E) % NT == 0` at `E = 72`, and there the
+    # table's own eight is what runs.
+    widen = max(1, dev.subgroup ÷ dev.coopmatsubgroup)
+    for (BR, BC, NW0) in FLASHCM_TILINGS, NW in unique((NW0 * widen, NW0))
         NT = NW * dev.coopmatsubgroup
         NT <= dev.workgrouplimit || continue
         # Without `clamp` the extents have to divide the tile; with it they are
@@ -1233,7 +1274,8 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
             clamp || continue
             2 * Lq >= BR && 2 * Lk >= BC || continue
         end
-        flashcmfits(dev, EP, BR, BC, NT) && (BR * E) % NT == 0 && push!(fits, (BR, BC, NW))
+        flashcmfits(dev, EP, BR, BC, NT) && (BR * E) % NT == 0 &&
+            !any(c -> c[1] == BR && c[2] == BC, fits) && push!(fits, (BR, BC, NW))
     end
     isempty(fits) && return nothing
     # `FLASHCM_TILINGS` is ordered fastest-first *for a grid that fills the
@@ -1329,7 +1371,8 @@ explicitly, which is what the A/B in `test_flash.jl` does. They are still
 that launches and writes nothing.
 """
 function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
-                      clamp::Bool = false, rego::Bool = false, held::Bool = false,
+                      clamp::Bool = false, rego::Union{Nothing,Bool} = nothing,
+                      held::Bool = false,
                       rescale::Symbol = :fmul, onepass::Bool = true,
                       lazyrescale::Bool = true, split::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
@@ -1378,7 +1421,22 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # axis can be cut.
     nsplit = splitcount(dev, Lq, Lk, BR, BC, H * B; allow = split)
 
-    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, rego, held, rescale, onepass,
+    # ── Where `O` lives, decided from the tiling and not from the device ──────
+    #
+    # `O` in registers costs `BR * EP / NT` floats a thread and saves a read and a
+    # write of the whole accumulator per key block — 40 KB of a key block's ~110 KB
+    # of shared traffic. The Ada sweep found the crossing and wrote it down: the
+    # register form "wins at `32x32` and loses at `64x32`, crossing where
+    # `BR*EP/NT` goes from 10 floats a thread to 20", which is why this shipped
+    # off with `64x32/8`.
+    #
+    # The RDNA 3.5 sweep lands on the same number from the other side: at
+    # `64x32/16` the same `O` is 10 floats a thread and the register form wins,
+    # 10.10 ms against 8.41 at `Lq = Lk = 4096`. So the rule is the ratio, and two
+    # vendors' hardware agrees on where it turns — a default of `false` would now
+    # be wrong for the tiling this device picks.
+    holdregs = rego === nothing ? (BR * EP) ÷ NT <= 10 : rego
+    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, held, rescale, onepass,
                 lazyrescale, nsplit)
 end
 
@@ -1469,7 +1527,8 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       preonly::Bool = false, rscbar::Bool = false,
-                      epad::Int = flashepad(plan.EP), rpad::Int = flashrpad(plan.BR))
+                      epad::Int = flashepad(caps, plan.EP),
+                      rpad::Int = flashrpad(caps, plan.BR))
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     BR, BC, NW, NT = plan.BR, plan.BC, plan.NW, plan.NT
@@ -1576,7 +1635,7 @@ function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0
     plan isa Decline && return false
     sdpaflashcm!(ctx, out, plan, q, k, v, scale;
                  ballast, shpad, nrsc, preonly, rscbar,
-                 epad = something(epad, flashepad(plan.EP)),
-                 rpad = something(rpad, flashrpad(plan.BR)))
+                 epad = something(epad, flashepad(ctx.dev, plan.EP)),
+                 rpad = something(rpad, flashrpad(ctx.dev, plan.BR)))
     return true
 end

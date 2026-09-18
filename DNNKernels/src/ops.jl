@@ -518,8 +518,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.maskedattention")})
         return reshape(out,size(out,1),size(out,2),size(out,3))
     end
     plan = flashcm_plan(ctx.dev,q,k,v,nothing;clamp=true)
-    epad = plan isa FlashCMPlan ? flashepad(plan.EP) : 0
-    rpad = plan isa FlashCMPlan ? flashrpad(plan.BR) : 0
+    epad = plan isa FlashCMPlan ? flashepad(ctx.dev,plan.EP) : 0
+    rpad = plan isa FlashCMPlan ? flashrpad(ctx.dev,plan.BR) : 0
     if ctx.dev.coopmatsubgroup == 32 && size(q,1) == 128
         short = size(q,2) <= 16
         nk = size(k,2)

@@ -146,10 +146,16 @@ struct FlashCMPlan
     #
     # So the reference is not wrong, it is answering a different constraint: in an LLM
     # decode `HSV` reaches 256 and shared memory is what binds, so `Of` has to live in
-    # registers and the round-trip is the price of fitting. Here shared is not binding
-    # — 48 900 of ~100 KB per SM — and the accumulator is better off where the
-    # cooperative-matrix store can reach it. Flipping the switch back would need the
-    # fold to become part of the store, not a cheaper sweep.
+    # registers and the round-trip is the price of fitting. At 20 floats a thread
+    # shared is not binding — 48 900 of ~100 KB per SM — and the accumulator is better
+    # off where the cooperative-matrix store can reach it.
+    #
+    # **The crossing above is the rule, and `flashcm_plan` computes it**: `rego` is on
+    # where `BR*EP/NT <= 10`. A device whose cooperative-matrix modules run narrower
+    # than its wave takes a wider `NW` (see `flashcm_tiling`), which halves the floats
+    # a thread at the same tile and puts `64x32` on the winning side of the same
+    # crossing — measured there at 10.10 ms against 8.41. Nothing above is contradicted;
+    # the tiling moved.
 
     rego::Bool
 

@@ -20,6 +20,7 @@ in the padding copies.
 
 using Test, Lava, DNNKernels, KernelAbstractions
 import Mantle
+using Mantle: LavaBackend
 using DNNKernels: sdpa, sdpa_coopmat!, coopmat_sdpa_plan, CoopMatSDPAPlan, Decline,
                   Ctx
 const KA = KernelAbstractions
