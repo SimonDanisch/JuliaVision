@@ -1407,33 +1407,42 @@ which no split knew:
     L  = Σₛ exp(m_s − m) · l_s
     O  = Σₛ exp(m_s − m) · O_s   /   L
 
-One thread per (row, head, batch), walking the splits. `NSPLIT` arrives as a
-`Val`, so every loop bound here is a compile-time constant and the split loops
-unroll without needing `@nexprs` — which could not be used anyway, since it
-wants a literal at macro-expansion time and this is a type parameter.
+**One thread per output element, and the split count at runtime** — both as in
+the shader this ports, and both load-bearing. It was one thread per `(row, head,
+batch)` looping over `E`, with `NSPLIT` a `Val` so that every loop bound was a
+compile-time constant and the split loops unrolled. At the counts `splitcount`
+actually returns that is not an optimisation, it is a hang: `NSPLIT = 64` with
+`E = 72` is a 4608-iteration triple loop that the driver unrolls whole, and the
+19274-instruction shader it produces — 58 spilled VGPRs, 456 spilled SGPRs — does
+not come back. `Lk = 4096` was a GPU recovery rather than a wrong answer, and
+`NSPLIT = 32` still fits, which is why only the long-key shapes died.
+
+A runtime bound cannot be unrolled to a constant, and giving `e` its own thread
+removes the inner loop entirely. The `ml` loads stay cheap because they are
+uniform across a wave — every `e` of one row reads the same two floats.
 """
 @kernel cpu=false function attn_flash_cm_merge!(out, @Const(partial), @Const(ml),
-                                                ::Val{E}, ::Val{NSPLIT}) where {E, NSPLIT}
-    lq, h, b = @index(Global, NTuple)
+                                                nsplit::Int32, nheads::Int32)
+    # The head and batch axes ride folded in the third grid dimension, so the
+    # first can carry `e` and the launch stays 3-D.
+    e, lq, hb = @index(Global, NTuple)
     @inbounds begin
+        h = (hb - 1) % nheads + 1
+        b = (hb - 1) ÷ nheads + 1
         # pass 1: the row's true maximum across splits
         m = -Inf32
-        for sp in 1:NSPLIT
+        for sp in 1:nsplit
             m = max(m, ml[lq, h, b, sp, 1])
         end
-        # pass 2: the sum, every split rescaled onto that maximum
+        # pass 2: the sum and this element's value, every split rescaled onto it
         L = 0.0f0
-        for sp in 1:NSPLIT
-            L += exp(ml[lq, h, b, sp, 1] - m) * ml[lq, h, b, sp, 2]
+        o = 0.0f0
+        for sp in 1:nsplit
+            w = exp(ml[lq, h, b, sp, 1] - m)
+            L += w * ml[lq, h, b, sp, 2]
+            o += w * partial[e, lq, h, b, sp]
         end
-        inv = L == 0.0f0 ? 1.0f0 : 1.0f0 / L
-        for e in 1:E
-            o = 0.0f0
-            for sp in 1:NSPLIT
-                o += exp(ml[lq, h, b, sp, 1] - m) * partial[e, lq, h, b, sp]
-            end
-            out[e, lq, h, b] = o * inv
-        end
+        out[e, lq, h, b] = o * (L == 0.0f0 ? 1.0f0 : 1.0f0 / L)
     end
 end
 
@@ -1498,8 +1507,8 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale;
         # finished before any row's true maximum is known — that is the one real
         # dependency flash-decoding introduces, and it is why the split has to
         # pay for a second pass over `Lq * H * B * E` to buy its parallelism.
-        attn_flash_cm_merge!(backend)(out, partial, ml, Val(plan.E), Val(ns);
-                                      ndrange = (Lq, H, B))
+        attn_flash_cm_merge!(backend)(out, partial, ml, Int32(ns), Int32(H);
+                                      ndrange = (plan.E, Lq, H * B))
     end
     return out
 end

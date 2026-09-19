@@ -392,3 +392,58 @@ end
     @test DNNKernels.flashcm_plan(dctx.dev, q2, k2, v2, nothing;
                                   clamp = dctx.clampattn) isa DNNKernels.FlashCMPlan
 end
+
+# The merge is the whole cost of a wide split, and how it is written decides
+# whether the split runs at all.
+#
+# `splitcount` aims at two workgroups per shader core, so a one-query-block shape
+# on a 96-core part asks for 64 splits. With the split count a `Val` and `E`
+# looped inside each thread that was a 4608-iteration triple loop with
+# compile-time bounds: the driver unrolled it whole, and the 19274-instruction
+# shader it produced — 58 spilled VGPRs, 456 spilled SGPRs — never returned.
+# `Lk = 4096` took the GPU down rather than giving a wrong answer, so no
+# tolerance would have caught it, and 32 splits still fit, which is why every
+# shorter key axis passed. (First seen on RADV; the shader is the same one
+# everywhere.)
+#
+# Against the closed form rather than against the fused kernel, so it says what
+# the merge owes regardless of what wrote the partials.
+@testset "the split merge survives the counts the chooser asks for" begin
+    back = LavaBackend()
+    dev = DNNKernels.Ctx(back).dev
+
+    # The count that hung is one the chooser asks for, not one a test invented.
+    # Asked of a described device, so the number is the rule's and not this
+    # machine's.
+    caps = DNNKernels.M.DeviceCaps(dev; cores = 96)
+    @test DNNKernels.splitcount(caps, 64, 4096, 64, 32, 2) == 64
+
+    function mergeref(p, m)
+        E, Lq, H, B, ns = size(p)
+        o = zeros(Float32, E, Lq, H, B)
+        for b in 1:B, h in 1:H, lq in 1:Lq
+            mx = maximum(m[lq, h, b, sp, 1] for sp in 1:ns)
+            w = [exp(m[lq, h, b, sp, 1] - mx) for sp in 1:ns]
+            L = sum(w[sp] * m[lq, h, b, sp, 2] for sp in 1:ns)
+            for e in 1:E
+                o[e, lq, h, b] = sum(w[sp] * p[e, lq, h, b, sp] for sp in 1:ns) /
+                                 (L == 0 ? 1 : L)
+            end
+        end
+        o
+    end
+
+    for (E, Lq, H, B, ns) in ((72, 64, 2, 1, 64), (72, 23, 3, 2, 96))
+        ph = randn(Float32, E, Lq, H, B, ns) .* 0.1f0
+        mh = cat(randn(Float32, Lq, H, B, ns) .* 0.5f0,
+                 rand(Float32, Lq, H, B, ns) .+ 1f0; dims = 5)
+        out = KA.allocate(back, Float32, E, Lq, H, B); fill!(out, 0f0)
+        DNNKernels.attn_flash_cm_merge!(back)(out, DNNKernels.toback(back, ph),
+                                              DNNKernels.toback(back, mh),
+                                              Int32(ns), Int32(H);
+                                              ndrange = (E, Lq, H * B))
+        KA.synchronize(back)
+        @test maximum(abs, Array(out) .- mergeref(ph, mh)) /
+              maximum(abs, mergeref(ph, mh)) < 1f-5
+    end
+end
