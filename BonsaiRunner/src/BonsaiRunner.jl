@@ -2,9 +2,8 @@
     BonsaiRunner
 
 Text-only inference for Prism's PTQ1 build of Ternary Bonsai 2 27B. Weights
-remain packed ternary on the device. The initial runtime is batch-one decode;
-prompt ingestion deliberately uses the same token step until a chunked prefill
-kernel is added.
+remain packed ternary on the device. Decode and chunked prompt prefill are
+recorded once and replayed with new token data.
 """
 module BonsaiRunner
 
@@ -12,7 +11,7 @@ using DNNKernels
 using KernelAbstractions
 import Mantle
 
-export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, generate
+export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, prefill!, generate
 export encode, decode, chatprompt, loadweights!
 
 include("tokenizer.jl")
@@ -45,13 +44,16 @@ function _upload(backend, host::AbstractArray)
 end
 
 """
-    Bonsai2(path; device=Mantle.device(), context=8192, loadweights=true)
+    Bonsai2(path; device=Mantle.device(), context=nothing, loadweights=true)
 
-Open a PTQ1 Bonsai GGUF on `device`. Metadata parsing is immediate; packed and
-dense tensors are uploaded when `loadweights` is true. `loadweights=false` is
-useful for inspecting/tokenizing a checkpoint without allocating model memory.
+Open a PTQ1 Bonsai GGUF on `device`. `context=nothing` selects the checkpoint's
+native context length (262144 for Ternary Bonsai 2); KV storage is allocated
+lazily by [`session`](@ref), so selecting it does not reserve the full cache.
+Metadata parsing is immediate; packed and dense tensors are uploaded when
+`loadweights` is true. `loadweights=false` is useful for inspecting/tokenizing
+a checkpoint without allocating model memory.
 """
-function Bonsai2(path::AbstractString; device=Mantle.device(), context::Integer=8192,
+function Bonsai2(path::AbstractString; device=Mantle.device(), context=nothing,
                  loadweights::Bool=true, progress::Bool=true)
     file = readgguf(path)
     md = file.metadata
@@ -61,8 +63,10 @@ function Bonsai2(path::AbstractString; device=Mantle.device(), context::Integer=
     Int(md["qwen35.full_attention_interval"]) == 4 || error("unexpected full-attention interval")
     Int(md["prism.hadamard.version"]) == 1 || error("unsupported Hadamard metadata")
     Int(md["prism.hadamard.block_size"]) == 1024 || error("unsupported Hadamard block size")
+    nativecontext = Int(md["qwen35.context_length"])
+    context = context === nothing ? nativecontext : Int(context)
     context > 0 || throw(ArgumentError("context must be positive"))
-    context <= Int(md["qwen35.context_length"]) || throw(ArgumentError("context exceeds checkpoint limit"))
+    context <= nativecontext || throw(ArgumentError("context exceeds checkpoint limit"))
 
     backend = Mantle.backend(device)
     ctx = DNNKernels.Ctx(backend)
@@ -117,24 +121,57 @@ mutable struct BonsaiSession{M}
     model::M
     position::Int
     recurrent::Dict{Int,Tuple{Any,Any}}
-    kv::Dict{Int,Tuple{Any,Any}}
+    kv::Dict{Int,Any}
     scratch::Dict{Symbol,Any}
     tokenref::Any
     positionref::Any
     plan::Any
+    kvpage::Int
+    prefills::Dict{Int,Any}
+end
+
+struct PrefillExec
+    tokens::Any
+    position::Any
+    scratch::Dict{Symbol,Any}
+    plan::Any
+end
+
+"""Quantized K/V storage for one full-attention layer."""
+mutable struct Q8KVCache{A,S}
+    k::A
+    v::A
+    kscale::S
+    vscale::S
+    capacity::Int
 end
 
 _zeros(m::Bonsai2, ::Type{T}, dims...) where {T} = KernelAbstractions.zeros(m.backend, T, dims...)
 
-"""Allocate mutable recurrent and KV state for one batch-one sequence."""
-function session(model::Bonsai2)
+function _q8cache(model::Bonsai2, capacity::Integer)
+    k = KernelAbstractions.allocate(model.backend, Int8, 256, 4, capacity)
+    v = KernelAbstractions.allocate(model.backend, Int8, 256, 4, capacity)
+    ks = KernelAbstractions.allocate(model.backend, Float32, 4, capacity)
+    vs = KernelAbstractions.allocate(model.backend, Float32, 4, capacity)
+    Q8KVCache(k, v, ks, vs, Int(capacity))
+end
+
+"""
+    session(model; kv_page=4096)
+
+Allocate recurrent state and the first page of a lazily growing Q8 KV cache.
+Capacity doubles in page-sized increments as the sequence grows, up to the
+model's declared context limit.
+"""
+function session(model::Bonsai2; kv_page::Integer=4096)
     isempty(model.weights) && error("weights are not loaded")
+    kv_page > 0 || throw(ArgumentError("kv_page must be positive"))
+    initial = min(Int(kv_page), model.maxcontext)
     recurrent = Dict{Int,Tuple{Any,Any}}()
-    kv = Dict{Int,Tuple{Any,Any}}()
+    kv = Dict{Int,Any}()
     for il in 0:NLAYERS-1
         if (il + 1) % 4 == 0
-            kv[il] = (_zeros(model, Float16, 256, 4, model.maxcontext),
-                      _zeros(model, Float16, 256, 4, model.maxcontext))
+            kv[il] = _q8cache(model, initial)
         else
             recurrent[il] = (_zeros(model, Float32, 3, 10240),
                               _zeros(model, Float32, 128, 128, 48))
@@ -152,8 +189,49 @@ function session(model::Bonsai2)
     dev = Mantle.Device(model.backend)
     s = BonsaiSession(model, 0, recurrent, kv, scratch,
                       Mantle.GPURef(dev, Int32(0)),
-                      Mantle.GPURef(dev, Int32(0)), nothing)
+                      Mantle.GPURef(dev, Int32(0)), nothing, Int(kv_page),
+                      Dict{Int,Any}())
     s.plan = _recordstep(s, dev)
+    s
+end
+
+"""Current token capacity of a session's lazily allocated KV cache."""
+kv_capacity(s::BonsaiSession) = first(values(s.kv)).capacity
+
+"""Bytes occupied by all attention-layer Q8 K/V caches at `capacity`."""
+kv_bytes(capacity::Integer) = (NLAYERS ÷ 4) * capacity *
+    (2 * 256 * 4 * sizeof(Int8) + 2 * 4 * sizeof(Float32))
+
+function _copy_prefix!(backend, dest, src)
+    copy_kernel!(backend, 256)(dest, src, Int32(length(src)); ndrange=length(src))
+    dest
+end
+
+function _ensure_kv!(s::BonsaiSession, needed::Integer)
+    needed <= kv_capacity(s) && return s
+    needed <= s.model.maxcontext || error("session context is full")
+    oldcap = kv_capacity(s)
+    target = min(s.model.maxcontext,
+                 cld(max(Int(needed), 2oldcap), s.kvpage) * s.kvpage)
+    KernelAbstractions.synchronize(s.model.backend)
+    replacement = Dict{Int,Any}()
+    for (il, old) in s.kv
+        new = _q8cache(s.model, target)
+        _copy_prefix!(s.model.backend, new.k, old.k)
+        _copy_prefix!(s.model.backend, new.v, old.v)
+        _copy_prefix!(s.model.backend, new.kscale, old.kscale)
+        _copy_prefix!(s.model.backend, new.vscale, old.vscale)
+        replacement[il] = new
+    end
+    KernelAbstractions.synchronize(s.model.backend)
+    s.kv = replacement
+    oldplan = s.plan
+    s.plan = _recordstep(s, Mantle.Device(s.model.backend))
+    Mantle.free!(oldplan)
+    for p in values(s.prefills)
+        Mantle.free!(p.plan)
+    end
+    empty!(s.prefills)
     s
 end
 
@@ -190,10 +268,12 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed)
     M, K = size(A)
     N = length(transformed) ÷ K
     rows = cld(M, DNNKernels.PTQ1_ROWS_PER_WG)
-    _dispatch!(g, DNNKernels.ptq1_mul_kernel!,
+    kernel = N == 1 ? DNNKernels.ptq1_mul_kernel! : DNNKernels.ptq1_mul4_kernel!
+    columns = N == 1 ? N : cld(N, DNNKernels.PTQ1_COLS_PER_WG)
+    _dispatch!(g, kernel,
         (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
          Int32(rows), Val(false), Val(s.model.ctx.dev.subgroup)),
-        rows * N * DNNKernels.PTQ1_WG;
+        rows * columns * DNNKernels.PTQ1_WG;
         group=DNNKernels.PTQ1_WG, name=name)
     out
 end
@@ -243,13 +323,15 @@ function _attention!(s::BonsaiSession, g, il::Int, xnorm)
         (q[:aq], q[:qgate], q[:qfull], _w(s, prefix * "attn_q_norm.weight"),
          s.positionref, s.model.theta, s.model.eps), 24 * 256;
         group=256, name=prefix * "prepare_q")
-    kc, vc = s.kv[il]
+    cache = s.kv[il]
     _dispatch!(g, prepare_kv_kernel!,
-        (kc, vc, q[:kproj], q[:vproj], _w(s, prefix * "attn_k_norm.weight"),
+        (cache.k, cache.v, cache.kscale, cache.vscale,
+         q[:kproj], q[:vproj], _w(s, prefix * "attn_k_norm.weight"),
          s.positionref, s.model.theta, s.model.eps), 4 * 256;
         group=256, name=prefix * "prepare_kv")
     _dispatch!(g, decode_attention_kernel!,
-        (q[:attn], q[:aq], q[:qgate], kc, vc, s.positionref), 24 * 256;
+        (q[:attn], q[:aq], q[:qgate], cache.k, cache.v,
+         cache.kscale, cache.vscale, s.positionref), 24 * 256;
         group=256, name=prefix * "decode_attention")
     _transform!(s, g, q[:had6144], q[:attn])
     _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144])
@@ -267,6 +349,176 @@ function _ffn!(s::BonsaiSession, g, il::Int, xnorm)
     _transform!(s, g, q[:had17408], q[:ff])
     _ptq!(s, g, q[:branch], prefix * "ffn_down.weight", q[:had17408])
     q[:branch]
+end
+
+function _batchscratch(model::Bonsai2, ntokens::Int)
+    widths = Dict(
+        :x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
+        :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
+        :qkv=>10240, :z=>6144, :conv=>10240, :rq=>2048, :rk=>2048,
+        :rv=>6144, :gdn=>6144, :had6144=>6144,
+        :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
+        :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48)
+    q = Dict{Symbol,Any}(k => _zeros(model, Float32, n * ntokens)
+                         for (k, n) in widths)
+    q[:lastnorm] = _zeros(model, Float32, WIDTH)
+    q[:lasthad] = _zeros(model, Float32, WIDTH)
+    q[:logits] = _zeros(model, Float32, 248320)
+    q
+end
+
+function _hadamard_batch!(s::BonsaiSession, g, x, width::Int, ntokens::Int;
+                          inverse::Bool=false)
+    blocks = width ÷ 1024
+    _dispatch!(g, DNNKernels.hadamard1024_kernel!,
+        (x, s.model.signs[width], Int32(width), Int32(blocks),
+         Val(true), Val(inverse)),
+        blocks * ntokens * 256; group=256,
+        name=inverse ? "hadamard_inverse_batch" : "hadamard_batch")
+    x
+end
+
+function _transform_batch!(s::BonsaiSession, g, dest, x, width::Int, ntokens::Int;
+                           permute::Bool=false)
+    n = width * ntokens
+    if permute
+        width == 6144 || error("GDN permutation requires width 6144")
+        _dispatch!(g, gdn_permute_batch_kernel!, (dest, x), n;
+                   group=256, name="gdn_permute_batch")
+    else
+        _dispatch!(g, copy_kernel!, (dest, x, Int32(n)), n;
+                   group=256, name="copy_batch")
+    end
+    _hadamard_batch!(s, g, dest, width, ntokens)
+end
+
+function _dense_batch!(s::BonsaiSession, g, out, weight, x, K::Int, M::Int,
+                       ntokens::Int, name::String)
+    rows = cld(M, DENSE_ROWS_PER_WG)
+    _dispatch!(g, dense_gemv_batch_kernel!,
+        (out, weight, x, Int32(K), Int32(M), Int32(rows),
+         Val(s.model.ctx.dev.subgroup)),
+        rows * ntokens * 256; group=256, name)
+    out
+end
+
+function _recurrent_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
+    prefix = "blk.$il."
+    _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens)
+    _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120])
+    _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120])
+    _dense_batch!(s, g, q[:alpha], _w(s, prefix * "ssm_alpha.weight"),
+                  xnorm, WIDTH, 48, ntokens, prefix * "ssm_alpha_batch")
+    _dense_batch!(s, g, q[:beta], _w(s, prefix * "ssm_beta.weight"),
+                  xnorm, WIDTH, 48, ntokens, prefix * "ssm_beta_batch")
+    convstate, state = s.recurrent[il]
+    _dispatch!(g, depthwise_conv4_batch_kernel!,
+        (q[:conv], convstate, q[:qkv], _w(s, prefix * "ssm_conv1d.weight"),
+         Int32(10240), Int32(ntokens)), 10240;
+        group=256, name=prefix * "ssm_conv1d_batch")
+    _dispatch!(g, recurrent_split_batch_kernel!,
+        (q[:rq], q[:rk], q[:rv], q[:conv]), 6144 * ntokens;
+        group=256, name=prefix * "recurrent_split_batch")
+    _dispatch!(g, gated_delta_net_batch_kernel!,
+        (q[:gdn], state, q[:rq], q[:rk], q[:rv], q[:alpha], q[:beta],
+         _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"), q[:z],
+         _w(s, prefix * "ssm_norm.weight"), s.model.eps, Int32(ntokens),
+         Int32(48), Int32(16)),
+        48 * 128; group=128, name=prefix * "gated_delta_net_batch")
+    _transform_batch!(s, g, q[:had6144], q[:gdn], 6144, ntokens; permute=true)
+    _ptq!(s, g, q[:branch], prefix * "ssm_out.weight", q[:had6144])
+    q[:branch]
+end
+
+function _attention_batch!(s::BonsaiSession, g, q, il::Int, xnorm,
+                           ntokens::Int, position)
+    prefix = "blk.$il."
+    _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens)
+    _ptq!(s, g, q[:qfull], prefix * "attn_q.weight", q[:had5120])
+    _ptq!(s, g, q[:kproj], prefix * "attn_k.weight", q[:had5120])
+    _ptq!(s, g, q[:vproj], prefix * "attn_v.weight", q[:had5120])
+    _dispatch!(g, prepare_q_batch_kernel!,
+        (q[:aq], q[:qgate], q[:qfull], _w(s, prefix * "attn_q_norm.weight"),
+         position, s.model.theta, s.model.eps), ntokens * 24 * 256;
+        group=256, name=prefix * "prepare_q_batch")
+    cache = s.kv[il]
+    _dispatch!(g, prepare_kv_batch_kernel!,
+        (cache.k, cache.v, cache.kscale, cache.vscale, q[:kproj], q[:vproj],
+         _w(s, prefix * "attn_k_norm.weight"), position,
+         s.model.theta, s.model.eps), ntokens * 4 * 256;
+        group=256, name=prefix * "prepare_kv_batch")
+    _dispatch!(g, decode_attention_batch_kernel!,
+        (q[:attn], q[:aq], q[:qgate], cache.k, cache.v,
+         cache.kscale, cache.vscale, position), ntokens * 24 * 256;
+        group=256, name=prefix * "decode_attention_batch")
+    _transform_batch!(s, g, q[:had6144], q[:attn], 6144, ntokens)
+    _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144])
+    q[:branch]
+end
+
+function _ffn_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
+    prefix = "blk.$il."
+    _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens)
+    _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
+    _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120])
+    _dispatch!(g, swiglu_kernel!,
+        (q[:ff], q[:gate], q[:up], Int32(FFN * ntokens)), FFN * ntokens;
+        group=256, name=prefix * "swiglu_batch")
+    _transform_batch!(s, g, q[:had17408], q[:ff], FFN, ntokens)
+    _ptq!(s, g, q[:branch], prefix * "ffn_down.weight", q[:had17408])
+    q[:branch]
+end
+
+function _declareprefill!(s::BonsaiSession, g, q, tokens, position, ntokens::Int)
+    embedding = _w(s, "token_embd.weight")
+    _dispatch!(g, DNNKernels.ptq1_getrows_kernel!,
+        (q[:x], embedding.data, tokens, Int32(embedding.m), Int32(embedding.k),
+         Int32(ntokens)), embedding.k * ntokens;
+        group=256, name="token_embedding_batch")
+    _hadamard_batch!(s, g, q[:x], WIDTH, ntokens; inverse=true)
+    for il in 0:NLAYERS-1
+        prefix = "blk.$il."
+        _dispatch!(g, rmsnorm_batch_kernel!,
+            (q[:norm], q[:x], _w(s, prefix * "attn_norm.weight"),
+             Int32(WIDTH), s.model.eps), ntokens * 256;
+            group=256, name=prefix * "attn_norm_batch")
+        branch = (il + 1) % 4 == 0 ?
+            _attention_batch!(s, g, q, il, q[:norm], ntokens, position) :
+            _recurrent_batch!(s, g, q, il, q[:norm], ntokens)
+        _dispatch!(g, add_kernel!,
+            (q[:x], q[:x], branch, Int32(WIDTH * ntokens)), WIDTH * ntokens;
+            group=256, name=prefix * "attn_residual_batch")
+        _dispatch!(g, rmsnorm_batch_kernel!,
+            (q[:norm], q[:x], _w(s, prefix * "post_attention_norm.weight"),
+             Int32(WIDTH), s.model.eps), ntokens * 256;
+            group=256, name=prefix * "post_attention_norm_batch")
+        branch = _ffn_batch!(s, g, q, il, q[:norm], ntokens)
+        _dispatch!(g, add_kernel!,
+            (q[:x], q[:x], branch, Int32(WIDTH * ntokens)), WIDTH * ntokens;
+            group=256, name=prefix * "ffn_residual_batch")
+    end
+    _dispatch!(g, rmsnorm_batch_kernel!,
+        (q[:norm], q[:x], _w(s, "output_norm.weight"), Int32(WIDTH), s.model.eps),
+        ntokens * 256; group=256, name="output_norm_batch")
+    _dispatch!(g, select_last_kernel!,
+        (q[:lastnorm], q[:norm], Int32(WIDTH), Int32(ntokens)), WIDTH;
+        group=256, name="select_last")
+    _dispatch!(g, copy_kernel!,
+        (q[:lasthad], q[:lastnorm], Int32(WIDTH)), WIDTH;
+        group=256, name="copy_last")
+    _hadamard!(s, g, q[:lasthad], s.model.signs[WIDTH])
+    _ptq!(s, g, q[:logits], "output.weight", q[:lasthad])
+    q[:logits]
+end
+
+function _recordprefill(s::BonsaiSession, ntokens::Int)
+    dev = Mantle.Device(s.model.backend)
+    tokens = Mantle.Buffer(dev, zeros(Int32, ntokens))
+    position = Mantle.GPURef(dev, Int32(0))
+    q = _batchscratch(s.model, ntokens)
+    g = Mantle.Graph(dev)
+    _declareprefill!(s, g, q, tokens, position, ntokens)
+    PrefillExec(tokens, position, q, Mantle.record!(Mantle.Plan(g)))
 end
 
 function _declarestep!(s::BonsaiSession, g)
@@ -316,6 +568,7 @@ Advance the recorded 64-layer decoder by one zero-based token id. The returned
 function step!(s::BonsaiSession, token::Integer)
     s.position < s.model.maxcontext || error("session context is full")
     0 <= token < length(s.model.tokenizer.tokentostr) || throw(BoundsError(s.model.tokenizer.tokentostr, token + 1))
+    _ensure_kv!(s, s.position + 1)
     s.tokenref[] = Int32(token)
     s.positionref[] = Int32(s.position)
     Mantle.run!(s.plan)
@@ -323,19 +576,51 @@ function step!(s::BonsaiSession, token::Integer)
     s.scratch[:logits]
 end
 
+"""
+    prefill!(session, ids; chunk=8) -> device logits
+
+Advance `session` through a prompt with recorded chunk graphs. A graph is built
+once for each encountered chunk length and reused by later calls. Recurrent
+state is advanced in sequence inside each chunk; projections and attention are
+batched across its tokens. The returned logits belong to the final input token.
+"""
+function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
+                  chunk::Integer=8)
+    isempty(ids) && throw(ArgumentError("prompt must contain at least one token"))
+    chunk > 0 || throw(ArgumentError("chunk must be positive"))
+    chunk <= 8 || throw(ArgumentError(
+        "chunk must be at most 8 so one recorded submission stays below GPU watchdog limits"))
+    s.position + length(ids) <= s.model.maxcontext || error("session context is full")
+    vocab = length(s.model.tokenizer.tokentostr)
+    all(id -> 0 <= id < vocab, ids) || throw(BoundsError(s.model.tokenizer.tokentostr))
+    logits = nothing
+    first = 1
+    while first <= length(ids)
+        n = min(Int(chunk), length(ids) - first + 1)
+        _ensure_kv!(s, s.position + n)
+        exec = get!(s.prefills, n) do
+            _recordprefill(s, n)
+        end
+        exec.tokens[:] = Int32.(view(ids, first:first+n-1))
+        exec.position[] = Int32(s.position)
+        Mantle.run!(exec.plan)
+        s.position += n
+        logits = exec.scratch[:logits]
+        first += n
+    end
+    logits
+end
+
 function _greedy(s::BonsaiSession, logits)
     KernelAbstractions.synchronize(s.model.backend)
     argmax(Array(logits)) - 1
 end
 
-"""Greedy token generation. Prompt prefill currently advances one token at a time."""
+"""Greedy token generation with chunked prompt prefill."""
 function generate(s::BonsaiSession, ids::AbstractVector{<:Integer}; max_tokens::Integer=32,
-                  stop=(s.model.tokenizer.eos,))
+                  stop=(s.model.tokenizer.eos,), prefill_chunk::Integer=8)
     isempty(ids) && throw(ArgumentError("prompt must contain at least one token"))
-    logits = nothing
-    for id in ids
-        logits = step!(s, id)
-    end
+    logits = prefill!(s, ids; chunk=prefill_chunk)
     out = Int[]
     for i in 1:max_tokens
         id = _greedy(s, logits)

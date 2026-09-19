@@ -18,3 +18,10 @@ using Test, BonsaiRunner, DNNKernels
     @test decode(tk,ids) == "hi"
     @test occursin("<|im_start|>user\nhello<|im_end|>", chatprompt(["user"=>"hello"]))
 end
+
+
+@testset "long-context KV sizing" begin
+    @test BonsaiRunner.kv_bytes(1) == 33_280
+    @test BonsaiRunner.kv_bytes(250_000) == 8_320_000_000
+    @test BonsaiRunner.kv_bytes(262_144) == 8_724_152_320
+end

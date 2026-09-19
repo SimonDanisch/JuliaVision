@@ -120,6 +120,106 @@ end
     end
 end
 
+const PTQ1_COLS_PER_WG = 4
+
+# Prefill tile: a packed ternary weight is decoded once and multiplied by four
+# activation columns. Decode keeps the one-column kernel above because four
+# accumulators would only add register pressure there.
+@kernel cpu=false function ptq1_mul4_kernel!(out, @Const(data), @Const(x), @Const(bias),
+                                             M::Int32, K::Int32, N::Int32,
+                                             rowgroups::Int32,
+                                             ::Val{HASBIAS},
+                                             ::Val{SUBGROUP}) where {HASBIAS,SUBGROUP}
+    partial = @localmem Float32 (PTQ1_COLS_PER_WG * PTQ1_ROWS_PER_WG *
+                                 (64 ÷ SUBGROUP),)
+    t = Int32(@index(Local, Linear) - 1)
+    lane = t & Int32(63)
+    sublane = t % Int32(SUBGROUP)
+    rowin = t >> 6
+    wg = Int32(@index(Group, Linear) - 1)
+    rg = wg % rowgroups
+    col0 = (wg ÷ rowgroups) * Int32(PTQ1_COLS_PER_WG)
+    row = rg * Int32(PTQ1_ROWS_PER_WG) + rowin
+    blocks = K ÷ Int32(PTQ1_QK)
+    a0 = 0f0; a1 = 0f0; a2 = 0f0; a3 = 0f0
+    if row < M
+        @inbounds for block in Int32(0):(blocks - Int32(1))
+            base = (row * blocks + block) * Int32(PTQ1_BLOCK_BYTES) + Int32(1)
+            scale = ptq1_scale(data, base)
+            e0 = lane
+            e1 = lane + Int32(64)
+            w0 = scale * Float32(ptq1_value(data, base, e0))
+            w1 = scale * Float32(ptq1_value(data, base, e1))
+            kbase = block * Int32(PTQ1_QK)
+            if col0 < N
+                xb = col0 * K + kbase
+                a0 = muladd(w0, Float32(x[xb + e0 + Int32(1)]), a0)
+                a0 = muladd(w1, Float32(x[xb + e1 + Int32(1)]), a0)
+            end
+            if col0 + Int32(1) < N
+                xb = (col0 + Int32(1)) * K + kbase
+                a1 = muladd(w0, Float32(x[xb + e0 + Int32(1)]), a1)
+                a1 = muladd(w1, Float32(x[xb + e1 + Int32(1)]), a1)
+            end
+            if col0 + Int32(2) < N
+                xb = (col0 + Int32(2)) * K + kbase
+                a2 = muladd(w0, Float32(x[xb + e0 + Int32(1)]), a2)
+                a2 = muladd(w1, Float32(x[xb + e1 + Int32(1)]), a2)
+            end
+            if col0 + Int32(3) < N
+                xb = (col0 + Int32(3)) * K + kbase
+                a3 = muladd(w0, Float32(x[xb + e0 + Int32(1)]), a3)
+                a3 = muladd(w1, Float32(x[xb + e1 + Int32(1)]), a3)
+            end
+        end
+    end
+    r0 = KI.sub_group_reduce_add(a0)
+    r1 = KI.sub_group_reduce_add(a1)
+    r2 = KI.sub_group_reduce_add(a2)
+    r3 = KI.sub_group_reduce_add(a3)
+    if SUBGROUP == 64
+        if lane == Int32(0) && row < M
+            HASBIAS && begin
+                b = Float32(bias[row + Int32(1)])
+                r0 += b; r1 += b; r2 += b; r3 += b
+            end
+            col0 < N && (@inbounds out[row + Int32(1) + col0 * M] = eltype(out)(r0))
+            col0 + Int32(1) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(1)) * M] = eltype(out)(r1))
+            col0 + Int32(2) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(2)) * M] = eltype(out)(r2))
+            col0 + Int32(3) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(3)) * M] = eltype(out)(r3))
+        end
+    else
+        nsub = Int32(64 ÷ SUBGROUP)
+        subinrow = lane ÷ Int32(SUBGROUP)
+        if sublane == Int32(0)
+            base = rowin * nsub + subinrow + Int32(1)
+            partial[base] = r0
+            partial[Int32(PTQ1_ROWS_PER_WG) * nsub + base] = r1
+            partial[Int32(2 * PTQ1_ROWS_PER_WG) * nsub + base] = r2
+            partial[Int32(3 * PTQ1_ROWS_PER_WG) * nsub + base] = r3
+        end
+        @synchronize
+        if lane == Int32(0) && row < M
+            base = rowin * nsub + Int32(1)
+            r0 = partial[base] + partial[base + Int32(1)]
+            r1 = partial[Int32(PTQ1_ROWS_PER_WG) * nsub + base] +
+                 partial[Int32(PTQ1_ROWS_PER_WG) * nsub + base + Int32(1)]
+            r2 = partial[Int32(2 * PTQ1_ROWS_PER_WG) * nsub + base] +
+                 partial[Int32(2 * PTQ1_ROWS_PER_WG) * nsub + base + Int32(1)]
+            r3 = partial[Int32(3 * PTQ1_ROWS_PER_WG) * nsub + base] +
+                 partial[Int32(3 * PTQ1_ROWS_PER_WG) * nsub + base + Int32(1)]
+            HASBIAS && begin
+                b = Float32(bias[row + Int32(1)])
+                r0 += b; r1 += b; r2 += b; r3 += b
+            end
+            col0 < N && (@inbounds out[row + Int32(1) + col0 * M] = eltype(out)(r0))
+            col0 + Int32(1) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(1)) * M] = eltype(out)(r1))
+            col0 + Int32(2) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(2)) * M] = eltype(out)(r2))
+            col0 + Int32(3) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(3)) * M] = eltype(out)(r3))
+        end
+    end
+end
+
 """
     ptq1mul!(ctx, out, A, x[, bias]) -> out
 
@@ -135,11 +235,13 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
     subgroup = ctx.dev.subgroup
     subgroup in (32, 64) || throw(ArgumentError(
         "PTQ1 requires a 32- or 64-lane subgroup, got $subgroup"))
-    ptq1_mul_kernel!(ctx.backend, PTQ1_WG)(
+    kernel = N == 1 ? ptq1_mul_kernel! : ptq1_mul4_kernel!
+    columns = N == 1 ? N : cld(N, PTQ1_COLS_PER_WG)
+    kernel(ctx.backend, PTQ1_WG)(
         out, A.data, x, bias === nothing ? A.data : bias,
         Int32(M), Int32(K), Int32(N), Int32(rows), Val(bias !== nothing),
         Val(subgroup);
-        ndrange = rows * N * PTQ1_WG)
+        ndrange = rows * columns * PTQ1_WG)
     out
 end
 
