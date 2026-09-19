@@ -259,10 +259,10 @@ function generate(s::BonsaiSession, ids::AbstractVector{<:Integer}; max_tokens::
         logits = step!(s, id)
     end
     out = Int[]
-    for _ in 1:max_tokens
+    for i in 1:max_tokens
         id = _greedy(s, logits)
         push!(out, id)
-        id in stop && break
+        (id in stop || i == max_tokens) && break
         logits = step!(s, id)
     end
     out
