@@ -16,7 +16,12 @@
 # `extras`"), so without this the documented `Pkg.activate(".")` workflow at the
 # top of this file does not resolve at all.
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+KernelInterface = "4ee993da-d684-4d17-a7dd-4e58e78d92bf"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
+Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
+VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
 BasicVSRRunner = "80334b24-06e6-4f50-a0e2-378c5490f15d"
+BonsaiRunner = "f8e6003a-513a-4f5e-98bb-1b2c050ff941"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 DeepFilterRunner = "76ab6b05-7ff6-4b1b-98e3-d56aa964097a"
 DemucsRunner = "a4515a7e-7709-4c13-8f3d-d3adf643ca1a"
@@ -37,6 +42,7 @@ WhisperRunner = "6f1a5d52-5102-48dc-988e-ecb6f8c89f5e"
 # The packages here are dev'd by path, which `[sources]` also expresses.
 [sources]
 BasicVSRRunner = {path = "BasicVSRRunner"}
+BonsaiRunner = {path = "BonsaiRunner"}
 DNNKernels = {path = "DNNKernels"}
 DeepFilterRunner = {path = "DeepFilterRunner"}
 DemucsRunner = {path = "DemucsRunner"}
@@ -50,4 +56,8 @@ ProPainterRunner = {path = "ProPainterRunner"}
 RIFERunner = {path = "RIFERunner"}
 SAM2Runner = {path = "SAM2Runner"}
 WhisperRunner = {path = "WhisperRunner"}
-Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}
+KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
+Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
+Vulkan = {url = "https://github.com/JuliaGPU/Vulkan.jl", rev = "sd/vk1.4"}
+VulkanCore = {url = "https://github.com/JuliaGPU/VulkanCore.jl", rev = "sd/vk1.4"}

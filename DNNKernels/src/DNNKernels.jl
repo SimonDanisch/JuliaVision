@@ -34,6 +34,9 @@ import Atomix
 import GPUArrays
 
 export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
+export readgguf, GGUFFile, GGUFTensor, gguftensor, ggufbytes
+export PTQ1Matrix, ptq1matrix, ptq1mul!, ptq1_getrows!, ptq1_dequant
+export hadamard!, gated_delta_net!, depthwise_conv4!
 export KERNELS_VERSION
 
 """
@@ -82,10 +85,15 @@ that is deliberate.
 # *argument types* name `typeof(geluexact)`, and a type name does not change when
 # its method body does. That is the gap the build-id key still leaves, and this
 # constant is what closes it.
-const KERNELS_VERSION = "7"
+#
+# "8": PTQ1 direct packed matmul/get-row/dequant, the signed 1024-point
+# Hadamard transform, depthwise recurrent convolution, and the fused Qwen3.5
+# Gated DeltaNet state update.
+const KERNELS_VERSION = "8"
 
 include("assets.jl")
 include("safetensors.jl")
+include("gguf.jl")
 include("graph.jl")
 include("fusedop.jl")
 include("context.jl")
@@ -95,6 +103,8 @@ include("kernels/extern/conv.jl")
 include("kernels/extern/conv_implicit.jl")
 include("kernels/extern/conv_coopmat.jl")
 include("quant.jl")
+include("ptq1.jl")
+include("gated_delta_net.jl")
 include("q8gemm.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")
