@@ -119,6 +119,9 @@ mutable struct BonsaiSession{M}
     recurrent::Dict{Int,Tuple{Any,Any}}
     kv::Dict{Int,Tuple{Any,Any}}
     scratch::Dict{Symbol,Any}
+    tokenref::Any
+    positionref::Any
+    plan::Any
 end
 
 _zeros(m::Bonsai2, ::Type{T}, dims...) where {T} = KernelAbstractions.zeros(m.backend, T, dims...)
@@ -146,103 +149,178 @@ function session(model::Bonsai2)
         :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48,
         :logits=>248320)
     scratch = Dict{Symbol,Any}(k => _zeros(model, Float32, n) for (k,n) in sizes)
-    scratch[:token] = _zeros(model, Int32, 1)
-    BonsaiSession(model, 0, recurrent, kv, scratch)
+    dev = Mantle.Device(model.backend)
+    s = BonsaiSession(model, 0, recurrent, kv, scratch,
+                      Mantle.GPURef(dev, Int32(0)),
+                      Mantle.GPURef(dev, Int32(0)), nothing)
+    s.plan = _recordstep(s, dev)
+    s
 end
 
 @inline _w(s::BonsaiSession, name) = s.model.weights[name]
 
-function _transform!(s::BonsaiSession, dest, x; permute::Bool=false)
+@inline function _dispatch!(g, kernel, args::Tuple, ndrange;
+                            group::Int=256, name::AbstractString=string(nameof(kernel)))
+    Mantle.dispatch!(g, kernel, args, ndrange; group, name)
+end
+
+function _hadamard!(s::BonsaiSession, g, x, signs; inverse::Bool=false)
+    width = length(x)
+    blocks = width ÷ 1024
+    _dispatch!(g, DNNKernels.hadamard1024_kernel!,
+        (x, signs, Int32(width), Int32(blocks), Val(true), Val(inverse)),
+        blocks * 256; group=256, name=inverse ? "hadamard_inverse" : "hadamard")
+    x
+end
+
+function _transform!(s::BonsaiSession, g, dest, x; permute::Bool=false)
     if permute
-        gdn_permute_kernel!(s.model.backend, 256)(dest, x; ndrange=6144)
+        _dispatch!(g, gdn_permute_kernel!, (dest, x), 6144;
+                   group=256, name="gdn_permute")
     else
-        _copy!(s.model.backend, dest, x)
+        _dispatch!(g, copy_kernel!, (dest, x, Int32(length(x))), length(x);
+                   group=256, name="copy")
     end
-    hadamard!(s.model.ctx, dest, s.model.signs[length(dest)]; width=length(dest))
+    _hadamard!(s, g, dest, s.model.signs[length(dest)])
 end
 
-function _ptq!(s::BonsaiSession, out, name::String, transformed)
+function _ptq!(s::BonsaiSession, g, out, name::String, transformed)
     name in s.model.folded || error("$name is PTQ1 but has no Hadamard declaration")
-    ptq1mul!(s.model.ctx, out, _w(s, name), transformed)
+    A = _w(s, name)
+    M, K = size(A)
+    N = length(transformed) ÷ K
+    rows = cld(M, DNNKernels.PTQ1_ROWS_PER_WG)
+    _dispatch!(g, DNNKernels.ptq1_mul_kernel!,
+        (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
+         Int32(rows), Val(false), Val(s.model.ctx.dev.subgroup)),
+        rows * N * DNNKernels.PTQ1_WG;
+        group=DNNKernels.PTQ1_WG, name=name)
+    out
 end
 
-function _recurrent!(s::BonsaiSession, il::Int, xnorm)
-    b = s.model.backend; q = s.scratch
+function _recurrent!(s::BonsaiSession, g, il::Int, xnorm)
+    q = s.scratch
     prefix = "blk.$il."
-    _transform!(s, q[:had5120], xnorm)
-    _ptq!(s, q[:qkv], prefix * "attn_qkv.weight", q[:had5120])
-    _ptq!(s, q[:z], prefix * "attn_gate.weight", q[:had5120])
-    _densegemv!(b, q[:alpha], _w(s, prefix * "ssm_alpha.weight"), xnorm)
-    _densegemv!(b, q[:beta], _w(s, prefix * "ssm_beta.weight"), xnorm)
+    _transform!(s, g, q[:had5120], xnorm)
+    _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120])
+    _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120])
+    _dispatch!(g, dense_gemv_kernel!,
+        (q[:alpha], _w(s, prefix * "ssm_alpha.weight"), xnorm,
+         Int32(length(xnorm)), Int32(48), Val(s.model.ctx.dev.subgroup)),
+        cld(48, DENSE_ROWS_PER_WG) * 256;
+        group=256, name=prefix * "ssm_alpha")
+    _dispatch!(g, dense_gemv_kernel!,
+        (q[:beta], _w(s, prefix * "ssm_beta.weight"), xnorm,
+         Int32(length(xnorm)), Int32(48), Val(s.model.ctx.dev.subgroup)),
+        cld(48, DENSE_ROWS_PER_WG) * 256;
+        group=256, name=prefix * "ssm_beta")
     convstate, state = s.recurrent[il]
-    depthwise_conv4!(s.model.ctx, q[:conv], convstate, q[:qkv], _w(s, prefix * "ssm_conv1d.weight"))
-    recurrent_split_kernel!(b, 256)(q[:rq], q[:rk], q[:rv], q[:conv]; ndrange=6144)
-    gated_delta_net!(s.model.ctx, q[:gdn], state, q[:rq], q[:rk], q[:rv],
-        q[:alpha], q[:beta], _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"),
-        q[:z], _w(s, prefix * "ssm_norm.weight"); eps=s.model.eps)
-    _transform!(s, q[:had6144], q[:gdn]; permute=true)
-    _ptq!(s, q[:branch], prefix * "ssm_out.weight", q[:had6144])
+    _dispatch!(g, DNNKernels.depthwise_conv4_kernel!,
+        (q[:conv], convstate, q[:qkv], _w(s, prefix * "ssm_conv1d.weight"),
+         Int32(length(q[:qkv]))), length(q[:qkv]);
+        group=256, name=prefix * "ssm_conv1d")
+    _dispatch!(g, recurrent_split_kernel!,
+        (q[:rq], q[:rk], q[:rv], q[:conv]), 6144;
+        group=256, name=prefix * "recurrent_split")
+    _dispatch!(g, DNNKernels.gated_delta_net_kernel!,
+        (q[:gdn], state, q[:rq], q[:rk], q[:rv], q[:alpha], q[:beta],
+         _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"), q[:z],
+         _w(s, prefix * "ssm_norm.weight"), s.model.eps, Int32(48), Int32(16)),
+        48 * 128; group=128, name=prefix * "gated_delta_net")
+    _transform!(s, g, q[:had6144], q[:gdn]; permute=true)
+    _ptq!(s, g, q[:branch], prefix * "ssm_out.weight", q[:had6144])
     q[:branch]
 end
 
-function _attention!(s::BonsaiSession, il::Int, xnorm)
-    b = s.model.backend; q = s.scratch
+function _attention!(s::BonsaiSession, g, il::Int, xnorm)
+    q = s.scratch
     prefix = "blk.$il."
-    _transform!(s, q[:had5120], xnorm)
-    _ptq!(s, q[:qfull], prefix * "attn_q.weight", q[:had5120])
-    _ptq!(s, q[:kproj], prefix * "attn_k.weight", q[:had5120])
-    _ptq!(s, q[:vproj], prefix * "attn_v.weight", q[:had5120])
-    prepare_q_kernel!(b, 256)(q[:aq], q[:qgate], q[:qfull],
-        _w(s, prefix * "attn_q_norm.weight"), Int32(s.position), s.model.theta, s.model.eps;
-        ndrange=24*256)
+    _transform!(s, g, q[:had5120], xnorm)
+    _ptq!(s, g, q[:qfull], prefix * "attn_q.weight", q[:had5120])
+    _ptq!(s, g, q[:kproj], prefix * "attn_k.weight", q[:had5120])
+    _ptq!(s, g, q[:vproj], prefix * "attn_v.weight", q[:had5120])
+    _dispatch!(g, prepare_q_kernel!,
+        (q[:aq], q[:qgate], q[:qfull], _w(s, prefix * "attn_q_norm.weight"),
+         s.positionref, s.model.theta, s.model.eps), 24 * 256;
+        group=256, name=prefix * "prepare_q")
     kc, vc = s.kv[il]
-    prepare_kv_kernel!(b, 256)(kc, vc, q[:kproj], q[:vproj],
-        _w(s, prefix * "attn_k_norm.weight"), Int32(s.position), s.model.theta, s.model.eps;
-        ndrange=4*256)
-    decode_attention_kernel!(b, 256)(q[:attn], q[:aq], q[:qgate], kc, vc,
-                                      Int32(s.position); ndrange=24*256)
-    _transform!(s, q[:had6144], q[:attn])
-    _ptq!(s, q[:branch], prefix * "attn_output.weight", q[:had6144])
+    _dispatch!(g, prepare_kv_kernel!,
+        (kc, vc, q[:kproj], q[:vproj], _w(s, prefix * "attn_k_norm.weight"),
+         s.positionref, s.model.theta, s.model.eps), 4 * 256;
+        group=256, name=prefix * "prepare_kv")
+    _dispatch!(g, decode_attention_kernel!,
+        (q[:attn], q[:aq], q[:qgate], kc, vc, s.positionref), 24 * 256;
+        group=256, name=prefix * "decode_attention")
+    _transform!(s, g, q[:had6144], q[:attn])
+    _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144])
     q[:branch]
 end
 
-function _ffn!(s::BonsaiSession, il::Int, xnorm)
-    b = s.model.backend; q = s.scratch; prefix = "blk.$il."
-    _transform!(s, q[:had5120], xnorm)
-    _ptq!(s, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
-    _ptq!(s, q[:up], prefix * "ffn_up.weight", q[:had5120])
-    swiglu_kernel!(b, 256)(q[:ff], q[:gate], q[:up], Int32(FFN); ndrange=FFN)
-    _transform!(s, q[:had17408], q[:ff])
-    _ptq!(s, q[:branch], prefix * "ffn_down.weight", q[:had17408])
+function _ffn!(s::BonsaiSession, g, il::Int, xnorm)
+    q = s.scratch; prefix = "blk.$il."
+    _transform!(s, g, q[:had5120], xnorm)
+    _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
+    _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120])
+    _dispatch!(g, swiglu_kernel!,
+        (q[:ff], q[:gate], q[:up], Int32(FFN)), FFN;
+        group=256, name=prefix * "swiglu")
+    _transform!(s, g, q[:had17408], q[:ff])
+    _ptq!(s, g, q[:branch], prefix * "ffn_down.weight", q[:had17408])
     q[:branch]
+end
+
+function _declarestep!(s::BonsaiSession, g)
+    q = s.scratch
+    embedding = _w(s, "token_embd.weight")
+    _dispatch!(g, DNNKernels.ptq1_getrows_kernel!,
+        (q[:x], embedding.data, s.tokenref, Int32(embedding.m), Int32(embedding.k), Int32(1)),
+        embedding.k; group=256, name="token_embedding")
+    _hadamard!(s, g, q[:x], s.model.signs[WIDTH]; inverse=true)
+    for il in 0:NLAYERS-1
+        prefix = "blk.$il."
+        _dispatch!(g, rmsnorm_kernel!,
+            (q[:norm], q[:x], _w(s, prefix * "attn_norm.weight"), Int32(WIDTH), s.model.eps),
+            256; group=256, name=prefix * "attn_norm")
+        branch = (il + 1) % 4 == 0 ? _attention!(s, g, il, q[:norm]) :
+                                     _recurrent!(s, g, il, q[:norm])
+        _dispatch!(g, add_kernel!, (q[:x], q[:x], branch, Int32(WIDTH)), WIDTH;
+                   group=256, name=prefix * "attn_residual")
+        _dispatch!(g, rmsnorm_kernel!,
+            (q[:norm], q[:x], _w(s, prefix * "post_attention_norm.weight"),
+             Int32(WIDTH), s.model.eps),
+            256; group=256, name=prefix * "post_attention_norm")
+        branch = _ffn!(s, g, il, q[:norm])
+        _dispatch!(g, add_kernel!, (q[:x], q[:x], branch, Int32(WIDTH)), WIDTH;
+                   group=256, name=prefix * "ffn_residual")
+    end
+    _dispatch!(g, rmsnorm_kernel!,
+        (q[:norm], q[:x], _w(s, "output_norm.weight"), Int32(WIDTH), s.model.eps),
+        256; group=256, name="output_norm")
+    _transform!(s, g, q[:had5120], q[:norm])
+    _ptq!(s, g, q[:logits], "output.weight", q[:had5120])
+    q[:logits]
+end
+
+function _recordstep(s::BonsaiSession, dev)
+    g = Mantle.Graph(dev)
+    _declarestep!(s, g)
+    Mantle.record!(Mantle.Plan(g))
 end
 
 """
     step!(session, token) -> device logits
 
-Advance the full 64-layer decoder by one zero-based token id. The returned
+Advance the recorded 64-layer decoder by one zero-based token id. The returned
 248320-element logits remain on the device.
 """
 function step!(s::BonsaiSession, token::Integer)
     s.position < s.model.maxcontext || error("session context is full")
-    q = s.scratch; b = s.model.backend
-    copyto!(q[:token], Int32[token])
-    ptq1_getrows!(s.model.ctx, q[:x], _w(s, "token_embd.weight"), q[:token])
-    hadamard!(s.model.ctx, q[:x], s.model.signs[WIDTH]; inverse=true, width=WIDTH)
-    for il in 0:NLAYERS-1
-        prefix = "blk.$il."
-        _rmsnorm!(b, q[:norm], q[:x], _w(s, prefix * "attn_norm.weight"), s.model.eps)
-        branch = (il + 1) % 4 == 0 ? _attention!(s, il, q[:norm]) : _recurrent!(s, il, q[:norm])
-        add_kernel!(b, 256)(q[:x], q[:x], branch, Int32(WIDTH); ndrange=WIDTH)
-        _rmsnorm!(b, q[:norm], q[:x], _w(s, prefix * "post_attention_norm.weight"), s.model.eps)
-        branch = _ffn!(s, il, q[:norm])
-        add_kernel!(b, 256)(q[:x], q[:x], branch, Int32(WIDTH); ndrange=WIDTH)
-    end
-    _rmsnorm!(b, q[:norm], q[:x], _w(s, "output_norm.weight"), s.model.eps)
-    _transform!(s, q[:had5120], q[:norm])
-    _ptq!(s, q[:logits], "output.weight", q[:had5120])
+    0 <= token < length(s.model.tokenizer.tokentostr) || throw(BoundsError(s.model.tokenizer.tokentostr, token + 1))
+    s.tokenref[] = Int32(token)
+    s.positionref[] = Int32(s.position)
+    Mantle.run!(s.plan)
     s.position += 1
-    q[:logits]
+    s.scratch[:logits]
 end
 
 function _greedy(s::BonsaiSession, logits)

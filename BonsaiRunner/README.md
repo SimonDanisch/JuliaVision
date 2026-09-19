@@ -26,9 +26,11 @@ cpu = Bonsai2(path; device=Mantle.device("lavapipe"), context=256)
 
 The initial implementation is batch-one greedy decode. It has a real KV cache,
 the 48 Gated DeltaNet states, the checkpoint's byte-level Qwen tokenizer, and
-the complete 64-layer forward pass. Prompt ingestion currently calls the same
-one-token step repeatedly. Chunked prefill, sampling policies, vision input,
-and quantized long-context KV storage remain follow-up work.
+the complete 64-layer forward pass. `session(model)` records that fixed decode
+graph once; each `step!` updates the token and position GPU references and
+replays all 1,527 passes in one Vulkan submission. Prompt ingestion currently
+calls the same one-token step repeatedly. Chunked prefill, sampling policies,
+vision input, and quantized long-context KV storage remain follow-up work.
 
 An F16 KV cache costs 64 KiB per context token: 512 MiB at 8192 tokens and 2
 GiB at 32768. The recurrent state is about 144 MiB per session.

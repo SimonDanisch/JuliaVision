@@ -36,15 +36,49 @@ end
     end
 end
 
-@kernel cpu=false function dense_gemv_kernel!(out, @Const(weight), @Const(x), K::Int32, M::Int32)
-    m = Int32(@index(Global, Linear) - 1)
-    if m < M
-        acc = 0f0
-        base = m * K
-        @inbounds for k in Int32(0):(K - Int32(1))
-            acc = muladd(Float32(weight[base + k + Int32(1)]), Float32(x[k + Int32(1)]), acc)
+const DENSE_ROWS_PER_WG = 4
+
+# Four output rows per 256-thread workgroup, one 64-lane reduction per row.
+# The previous kernel assigned one thread to a whole row: the recurrent 5120x48
+# projections therefore launched only 48 threads, each with a 5120-FMA serial
+# dependency chain and each lane reading a different, distant row. Here lanes
+# walk adjacent K values and the hardware reduction closes the dot product.
+@kernel cpu=false function dense_gemv_kernel!(out, @Const(weight), @Const(x),
+                                              K::Int32, M::Int32,
+                                              ::Val{SUBGROUP}) where {SUBGROUP}
+    partial = @localmem Float32 (DENSE_ROWS_PER_WG * (64 ÷ SUBGROUP),)
+    t = Int32(@index(Local, Linear) - 1)
+    lane = t & Int32(63)
+    sublane = t % Int32(SUBGROUP)
+    rowin = t >> 6
+    row = Int32(@index(Group, Linear) - 1) * Int32(DENSE_ROWS_PER_WG) + rowin
+    acc = 0f0
+    if row < M
+        base = row * K
+        k = lane
+        @inbounds while k < K
+            acc = muladd(Float32(weight[base + k + Int32(1)]),
+                         Float32(x[k + Int32(1)]), acc)
+            k += Int32(64)
         end
-        @inbounds out[m + Int32(1)] = eltype(out)(acc)
+    end
+    reduced = DNNKernels.KI.sub_group_reduce_add(acc)
+    if SUBGROUP == 64
+        if lane == Int32(0) && row < M
+            @inbounds out[row + Int32(1)] = eltype(out)(reduced)
+        end
+    else
+        nsub = Int32(64 ÷ SUBGROUP)
+        subinrow = lane ÷ Int32(SUBGROUP)
+        if sublane == Int32(0)
+            partial[rowin * nsub + subinrow + Int32(1)] = reduced
+        end
+        @synchronize
+        if lane == Int32(0) && row < M
+            @inbounds out[row + Int32(1)] = eltype(out)(
+                partial[rowin * nsub + Int32(1)] +
+                partial[rowin * nsub + Int32(2)])
+        end
     end
 end
 
@@ -89,10 +123,11 @@ end
 # 6144-vectors. Normalize q per head, rotate its first 64 dimensions, and
 # extract the sigmoid gate in one pass.
 @kernel cpu=false function prepare_q_kernel!(q, gate, @Const(qfull), @Const(norm),
-                                            pos::Int32, theta_base::Float32, eps::Float32)
+                                            @Const(position), theta_base::Float32, eps::Float32)
     sh = @localmem Float32 (512,)
     d = Int32(@index(Local, Linear) - 1)
     h = Int32(@index(Group, Linear) - 1)
+    pos = Int32(position[1])
     base = h * Int32(512)
     @inbounds begin
         x = Float32(qfull[base + d + Int32(1)])
@@ -127,11 +162,12 @@ end
 end
 
 @kernel cpu=false function prepare_kv_kernel!(kcache, vcache, @Const(kproj), @Const(vproj),
-                                             @Const(norm), pos::Int32, theta_base::Float32,
+                                             @Const(norm), @Const(position), theta_base::Float32,
                                              eps::Float32)
     sh = @localmem Float32 (512,)
     d = Int32(@index(Local, Linear) - 1)
     h = Int32(@index(Group, Linear) - 1)
+    pos = Int32(position[1])
     base = h * Int32(256)
     @inbounds begin
         x = Float32(kproj[base + d + Int32(1)])
@@ -170,10 +206,11 @@ end
 # own weighted-value accumulator.
 @kernel cpu=false function decode_attention_kernel!(out, @Const(q), @Const(gate),
                                                     @Const(kcache), @Const(vcache),
-                                                    pos::Int32)
+                                                    @Const(position))
     sh = @localmem Float32 (256,)
     d = Int32(@index(Local, Linear) - 1)
     h = Int32(@index(Group, Linear) - 1)
+    pos = Int32(position[1])
     kvh = h ÷ Int32(6)
     qv = Float32(q[h * Int32(256) + d + Int32(1)])
     high = -floatmax(Float32)
@@ -214,5 +251,11 @@ end
 function _densegemv!(backend, out, weight, x)
     K = length(x); M = length(out)
     length(weight) == K*M || throw(DimensionMismatch("dense weight is not $K×$M"))
-    dense_gemv_kernel!(backend, 256)(out, weight, x, Int32(K), Int32(M); ndrange=M); out
+    subgroup = Mantle.caps(backend).subgroup
+    subgroup in (32, 64) || throw(ArgumentError(
+        "dense GEMV requires a 32- or 64-lane subgroup, got $subgroup"))
+    groups = cld(M, DENSE_ROWS_PER_WG)
+    dense_gemv_kernel!(backend, 256)(out, weight, x, Int32(K), Int32(M),
+        Val(subgroup); ndrange=groups * 256)
+    out
 end

@@ -68,10 +68,17 @@ end
 @kernel cpu=false function ptq1_mul_kernel!(out, @Const(data), @Const(x), @Const(bias),
                                             M::Int32, K::Int32, N::Int32,
                                             rowgroups::Int32,
-                                            ::Val{HASBIAS}) where {HASBIAS}
-    partial = @localmem Float32 (PTQ1_WG,)
+                                            ::Val{HASBIAS},
+                                            ::Val{SUBGROUP}) where {HASBIAS,SUBGROUP}
+    # A row is always 64 lanes. On wave64 hardware its reduction is one native
+    # subgroup instruction. Wave32 needs one partial from each of its two
+    # subgroups and a single workgroup barrier before the row leader combines
+    # them. This replaces the old six-barrier shared-memory reduction tree on
+    # the Radeon decode path while keeping the same kernel portable to NVIDIA.
+    partial = @localmem Float32 (PTQ1_ROWS_PER_WG * (64 ÷ SUBGROUP),)
     t = Int32(@index(Local, Linear) - 1)
     lane = t & Int32(63)
+    sublane = t % Int32(SUBGROUP)
     rowin = t >> 6
     wg = Int32(@index(Group, Linear) - 1)
     rg = wg % rowgroups
@@ -90,20 +97,26 @@ end
             acc = muladd(scale * Float32(ptq1_value(data, base, e1)), Float32(x[xbase + e1 + Int32(1)]), acc)
         end
     end
-    partial[t + Int32(1)] = acc
-    @synchronize
-    step = Int32(32)
-    while step > Int32(0)
-        if lane < step
-            partial[t + Int32(1)] += partial[t + step + Int32(1)]
+    reduced = KI.sub_group_reduce_add(acc)
+    if SUBGROUP == 64
+        if lane == Int32(0) && row < M && col < N
+            v = reduced
+            HASBIAS && (v += Float32(bias[row + Int32(1)]))
+            @inbounds out[row + Int32(1) + col * M] = eltype(out)(v)
+        end
+    else
+        nsub = Int32(64 ÷ SUBGROUP)
+        subinrow = lane ÷ Int32(SUBGROUP)
+        if sublane == Int32(0)
+            partial[rowin * nsub + subinrow + Int32(1)] = reduced
         end
         @synchronize
-        step >>= 1
-    end
-    if lane == Int32(0) && row < M && col < N
-        v = partial[t + Int32(1)]
-        HASBIAS && (v += Float32(bias[row + Int32(1)]))
-        @inbounds out[row + Int32(1) + col * M] = eltype(out)(v)
+        if lane == Int32(0) && row < M && col < N
+            v = partial[rowin * nsub + Int32(1)] +
+                partial[rowin * nsub + Int32(2)]
+            HASBIAS && (v += Float32(bias[row + Int32(1)]))
+            @inbounds out[row + Int32(1) + col * M] = eltype(out)(v)
+        end
     end
 end
 
@@ -119,9 +132,13 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
     N = length(x) ÷ K
     length(out) == M * N || throw(DimensionMismatch("output has $(length(out)) values, expected $(M*N)"))
     rows = cld(M, PTQ1_ROWS_PER_WG)
+    subgroup = ctx.dev.subgroup
+    subgroup in (32, 64) || throw(ArgumentError(
+        "PTQ1 requires a 32- or 64-lane subgroup, got $subgroup"))
     ptq1_mul_kernel!(ctx.backend, PTQ1_WG)(
         out, A.data, x, bias === nothing ? A.data : bias,
-        Int32(M), Int32(K), Int32(N), Int32(rows), Val(bias !== nothing);
+        Int32(M), Int32(K), Int32(N), Int32(rows), Val(bias !== nothing),
+        Val(subgroup);
         ndrange = rows * N * PTQ1_WG)
     out
 end
