@@ -103,8 +103,19 @@ cooperative-matrix kernel to select, which take it and drop it rather than
 erroring, so a caller sweeping shapes does not have to know which path each one
 lands on.
 """
-matmul!(ctx, out, A, B, bias=nothing; epi=identity, gemm=NamedTuple()) =
-    matmul!(ctx, mmplan(ctx.dev, out, A, B, bias), out, A, B, bias, epi; gemm)
+function matmul!(ctx, out, A, B, bias=nothing; epi=identity, gemm=NamedTuple())
+    # A backend with a native dense GEMM owns this product.  The immediate path
+    # reaches it through `mul!`; the declared path asks
+    # `native_gemm_dispatch!` before consulting the portable planner.  Without
+    # this guard a native backend whose capability record also says
+    # `coopmat=true` enters the Vulkan staged-GEMM planner below.  Besides making
+    # the two execution modes disagree, that planner's padding policy is not a
+    # generic cooperative-matrix primitive (`gemm_padn` belongs to Mantle's
+    # Vulkan implementation), so interpreted Metal failed before launching.
+    plan = M.native_gemm_available(ctx.backend, eltype(A), eltype(B), eltype(out)) ?
+           Decline(:native) : mmplan(ctx.dev, out, A, B, bias)
+    matmul!(ctx, plan, out, A, B, bias, epi; gemm)
+end
 
 """
     mmplan(dev, out, A, B, bias) -> MMCoopMatPlan | MMGemvPlan | Decline

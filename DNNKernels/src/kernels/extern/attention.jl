@@ -773,6 +773,11 @@ end
 `bias` may be `nothing` (flash) or an additive mask (mem-efficient).
 """
 function sdpa(ctx, q, k, v, bias, scale; out=nothing)
+    # Attention kernels accumulate in Float32, and every specialised path
+    # already converts this scalar before launching.  Do it once for the
+    # fallback as well: exported attributes arrive as Float64 on the host, a
+    # type Metal (and several other GPU targets) cannot carry in device code.
+    scale = Float32(scale)
     # Decide once, then dispatch: deciding in pieces puts the last refusals
     # inside `sdpaflashcm!`, after `out` has been allocated. See `FlashCMPlan`.
     plan, k, v = sdpaplan(ctx, q, k, v, bias)
@@ -793,6 +798,14 @@ the arithmetic — and on the windowed blocks the padding kernels alone were hal
 the op.
 """
 function sdpaplan(ctx, q, k, v, bias)
+    # Native-matrix backends may expose a cooperative-matrix capability whose
+    # tile/layout is different from the portable flash kernels below.  The
+    # declared path makes the same choice in `emitsdpa!`: use its fully generic
+    # three-pass attention until that backend supplies a recordable native
+    # attention dispatch.  This keeps immediate diagnostics on the same
+    # algorithm instead of entering a backend implementation that is absent.
+    M.native_gemm_available(ctx.backend, eltype(q), eltype(k), Float32) &&
+        return (Decline(:native), k, v)
     # The coopmat2 kernel first, where the device has workgroup-scope matrices.
     # Measured 2026-08-11 against the cm1 path, interleaved: -27% on the global
     # blocks, -45% on the windowed ones, -33% at 1024. It declines every shape it
