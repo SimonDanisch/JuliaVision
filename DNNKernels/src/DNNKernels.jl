@@ -112,7 +112,9 @@ that is deliberate.
 # "30": recorded noise adds counter/hash kernels, scatter-add now consumes
 # torch's zero-based indices directly, and declared unfold/FFT/fused-op paths
 # add or change kernels reachable from frozen model graphs.
-const KERNELS_VERSION = "30"
+# "40": Bonsai wide prefill decodes PTQ1 tiles directly into fp16 cooperative
+# matrix operands, with fused Hadamard and recurrent-state kernels.
+const KERNELS_VERSION = "40"
 
 include("assets.jl")
 include("safetensors.jl")

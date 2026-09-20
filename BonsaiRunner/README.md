@@ -28,13 +28,14 @@ The runtime has batch-one greedy decode, the 48 Gated DeltaNet states, the
 checkpoint's byte-level Qwen tokenizer, and the complete 64-layer forward pass.
 `session(model)` records the fixed decode graph once; each `step!` updates the
 token and position GPU references and replays all 1,527 passes in one Vulkan
-submission. `prefill!` ingests prompts in recorded chunks, and `generate` uses
-8-token chunks by default. This keeps each submission below desktop GPU
-watchdogs while still batching the expensive projections:
+submission. `prefill!` ingests prompts in 512-token chunks by default. Each
+chunk uses wide tiled matrix kernels and is split into recorded four-layer
+submissions, keeping individual submissions below desktop GPU watchdog limits
+without giving up prompt-wide weight and activation reuse:
 
 ```julia
-logits = prefill!(s, encode(model.tokenizer, prompt); chunk=8)
-text = generate(session(model), prompt; max_tokens=256, prefill_chunk=8)
+logits = prefill!(s, encode(model.tokenizer, prompt))
+text = generate(session(model), prompt; max_tokens=256)
 ```
 
 Sampling policies and vision input remain follow-up work.

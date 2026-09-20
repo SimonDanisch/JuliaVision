@@ -133,6 +133,26 @@ end
     ptq1_getrows!(ctx,emb,A,rows); KernelAbstractions.synchronize(backend)
     @test Array(emb) ≈ permutedims(W[[1,7,3],:]) atol=1f-6
 
+    if backend isa Mantle.LavaBackend &&
+       Mantle.coopmat_gemm_available(Mantle.vk_context())
+        # The wide-prefill path decodes PTQ1 directly into cooperative-matrix
+        # shared tiles.  Exercise one complete 128x128 output block, including
+        # every byte/trit layout in two consecutive 128-value weight blocks.
+        MW, KW, NW = 128, 256, 128
+        widebytes, wideW = pack_ptq1(randn(rng, Float32, MW, KW))
+        wdb = KernelAbstractions.allocate(backend, UInt8, length(widebytes))
+        copyto!(wdb, widebytes)
+        wideA = PTQ1Matrix(wdb, MW, KW)
+        wideXh = Float16.(randn(rng, Float32, KW, NW))
+        wideX = DNNKernels.toback(backend, wideXh)
+        wideout = KernelAbstractions.allocate(backend, Float32, MW, NW)
+        DNNKernels.ptq1_coopmat_kernel!(backend, DNNKernels.PTQ1_COOP_WG)(
+            wideout, wideA.data, wideX, Val(MW), Val(NW), Val(KW);
+            ndrange=DNNKernels.PTQ1_COOP_WG)
+        KernelAbstractions.synchronize(backend)
+        @test Array(wideout) ≈ wideW * Float32.(wideXh) rtol=2f-4 atol=2f-3
+    end
+
     h = randn(rng,Float32,2048); signs = rand(rng,Float32[-1,1],2048)
     dh = DNNKernels.toback(backend,h); ds = DNNKernels.toback(backend,signs)
     hadamard!(ctx,dh,ds); KernelAbstractions.synchronize(backend)

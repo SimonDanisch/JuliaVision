@@ -43,6 +43,12 @@ function _upload(backend, host::AbstractArray)
     out
 end
 
+function _upload16(backend, host::AbstractArray)
+    out = KernelAbstractions.allocate(backend, Float16, size(host)...)
+    copyto!(out, Float16.(host))
+    out
+end
+
 """
     Bonsai2(path; device=Mantle.device(), context=nothing, loadweights=true)
 
@@ -106,12 +112,21 @@ function loadweights!(model::Bonsai2; progress::Bool=true)
             model.weights[name] = ptq1matrix(model.backend, model.file, t)
         elseif t.typeid in (DNNKernels.GGML_TYPE_F32, DNNKernels.GGML_TYPE_F16,
                             DNNKernels.GGML_TYPE_BF16)
-            model.weights[name] = _upload(model.backend, DNNKernels.gguffloat(model.file, t))
+            host = DNNKernels.gguffloat(model.file, t)
+            model.weights[name] = _upload(model.backend, host)
         else
             error("unsupported GGML tensor type $(t.typeid) for $name")
         end
         progress && (i == 1 || i % 32 == 0 || i == length(names)) &&
             println("BonsaiRunner: loaded $i/$(length(names)) tensors")
+    end
+    for il in 0:NLAYERS-1
+        (il + 1) % 4 == 0 && continue
+        prefix = "blk.$il."
+        ah = DNNKernels.gguffloat(model.file, model.file[prefix * "ssm_alpha.weight"])
+        bh = DNNKernels.gguffloat(model.file, model.file[prefix * "ssm_beta.weight"])
+        model.weights[prefix * "ssm_ab.weight.coop"] =
+            _upload16(model.backend, permutedims(hcat(ah, bh)))
     end
     KernelAbstractions.synchronize(model.backend)
     model
@@ -134,7 +149,7 @@ struct PrefillExec
     tokens::Any
     position::Any
     scratch::Dict{Symbol,Any}
-    plan::Any
+    plans::Vector{Any}
 end
 
 """Quantized K/V storage for one full-attention layer."""
@@ -229,7 +244,7 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
     s.plan = _recordstep(s, Mantle.Device(s.model.backend))
     Mantle.free!(oldplan)
     for p in values(s.prefills)
-        Mantle.free!(p.plan)
+        foreach(Mantle.free!, p.plans)
     end
     empty!(s.prefills)
     s
@@ -262,19 +277,43 @@ function _transform!(s::BonsaiSession, g, dest, x; permute::Bool=false)
     _hadamard!(s, g, dest, s.model.signs[length(dest)])
 end
 
-function _ptq!(s::BonsaiSession, g, out, name::String, transformed)
+function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
+               workspace=nothing)
     name in s.model.folded || error("$name is PTQ1 but has no Hadamard declaration")
     A = _w(s, name)
     M, K = size(A)
     N = length(transformed) ÷ K
-    rows = cld(M, DNNKernels.PTQ1_ROWS_PER_WG)
-    kernel = N == 1 ? DNNKernels.ptq1_mul_kernel! : DNNKernels.ptq1_mul4_kernel!
-    columns = N == 1 ? N : cld(N, DNNKernels.PTQ1_COLS_PER_WG)
-    _dispatch!(g, kernel,
-        (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
-         Int32(rows), Val(false), Val(s.model.ctx.dev.subgroup)),
-        rows * columns * DNNKernels.PTQ1_WG;
-        group=DNNKernels.PTQ1_WG, name=name)
+    coopmat = workspace !== nothing && N % DNNKernels.PTQ1_COOP_BN == 0 &&
+              M % DNNKernels.PTQ1_COOP_BM == 0 &&
+              K % DNNKernels.PTQ1_COOP_BK == 0 &&
+              eltype(transformed) === Float16 &&
+              g.dev isa Mantle.LavaDevice &&
+              Mantle.coopmat_gemm_available(g.dev.ctx)
+    if coopmat
+        blocks = (M ÷ DNNKernels.PTQ1_COOP_BM) *
+                 (N ÷ DNNKernels.PTQ1_COOP_BN)
+        _dispatch!(g, DNNKernels.ptq1_coopmat_kernel!,
+            (out, A.data, transformed, Val(M), Val(N), Val(K)),
+            blocks * DNNKernels.PTQ1_COOP_WG;
+            group=DNNKernels.PTQ1_COOP_WG, name)
+    elseif N >= 8
+        mtiles = cld(M, DNNKernels.PTQ1_MM_BM)
+        ntiles = cld(N, DNNKernels.PTQ1_MM_BN)
+        _dispatch!(g, DNNKernels.ptq1_mul_mm_kernel!,
+            (out, A.data, transformed, Int32(M), Int32(K), Int32(N),
+             Int32(mtiles)),
+            mtiles * ntiles * DNNKernels.PTQ1_WG;
+            group=DNNKernels.PTQ1_WG, name=name)
+    else
+        rows = cld(M, DNNKernels.PTQ1_ROWS_PER_WG)
+        kernel = N == 1 ? DNNKernels.ptq1_mul_kernel! : DNNKernels.ptq1_mul4_kernel!
+        columns = N == 1 ? N : cld(N, DNNKernels.PTQ1_COLS_PER_WG)
+        _dispatch!(g, kernel,
+            (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
+             Int32(rows), Val(false), Val(s.model.ctx.dev.subgroup)),
+            rows * columns * DNNKernels.PTQ1_WG;
+            group=DNNKernels.PTQ1_WG, name=name)
+    end
     out
 end
 
@@ -358,9 +397,16 @@ function _batchscratch(model::Bonsai2, ntokens::Int)
         :qkv=>10240, :z=>6144, :conv=>10240, :rq=>2048, :rk=>2048,
         :rv=>6144, :gdn=>6144, :had6144=>6144,
         :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
-        :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48)
-    q = Dict{Symbol,Any}(k => _zeros(model, Float32, n * ntokens)
-                         for (k, n) in widths)
+        :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48, :alphabeta=>96,
+        :densehalf=>WIDTH)
+    q = Dict{Symbol,Any}()
+    for (k, n) in widths
+        # The Hadamard-transformed activations feed fp16 cooperative matrices.
+        # Storing them in that precision here removes a separate cast before
+        # every projection and has the same rounding point as the old cast.
+        T = k in (:had5120, :had6144, :had17408, :densehalf) ? Float16 : Float32
+        q[k] = _zeros(model, T, n * ntokens)
+    end
     q[:lastnorm] = _zeros(model, Float32, WIDTH)
     q[:lasthad] = _zeros(model, Float32, WIDTH)
     q[:logits] = _zeros(model, Float32, 248320)
@@ -379,38 +425,71 @@ function _hadamard_batch!(s::BonsaiSession, g, x, width::Int, ntokens::Int;
 end
 
 function _transform_batch!(s::BonsaiSession, g, dest, x, width::Int, ntokens::Int;
-                           permute::Bool=false)
-    n = width * ntokens
+                           permute::Bool=false, halfcopy=nothing)
+    blocks = width ÷ 1024
     if permute
         width == 6144 || error("GDN permutation requires width 6144")
-        _dispatch!(g, gdn_permute_batch_kernel!, (dest, x), n;
-                   group=256, name="gdn_permute_batch")
+        _dispatch!(g, gdn_permute_hadamard1024_batch_kernel!,
+            (dest, x, s.model.signs[width], Int32(width), Int32(blocks)),
+            blocks * ntokens * 256; group=256,
+            name="gdn_permute_hadamard_batch")
     else
-        _dispatch!(g, copy_kernel!, (dest, x, Int32(n)), n;
-                   group=256, name="copy_batch")
+        copydest = halfcopy === nothing ? dest : halfcopy
+        _dispatch!(g, hadamard1024_out_batch_kernel!,
+            (dest, copydest, x, s.model.signs[width], Int32(width),
+             Int32(blocks), Val(halfcopy !== nothing)),
+            blocks * ntokens * 256; group=256, name="hadamard_out_batch")
     end
-    _hadamard_batch!(s, g, dest, width, ntokens)
+    dest
 end
 
 function _dense_batch!(s::BonsaiSession, g, out, weight, x, K::Int, M::Int,
                        ntokens::Int, name::String)
-    rows = cld(M, DENSE_ROWS_PER_WG)
-    _dispatch!(g, dense_gemv_batch_kernel!,
-        (out, weight, x, Int32(K), Int32(M), Int32(rows),
-         Val(s.model.ctx.dev.subgroup)),
-        rows * ntokens * 256; group=256, name)
+    if ntokens >= 8
+        mtiles = cld(M, DENSE_MM_BM)
+        ntiles = cld(ntokens, DENSE_MM_BN)
+        _dispatch!(g, dense_mul_mm_kernel!,
+            (out, weight, x, Int32(K), Int32(M), Int32(ntokens), Int32(mtiles)),
+            mtiles * ntiles * 256; group=256, name)
+    else
+        rows = cld(M, DENSE_ROWS_PER_WG)
+        _dispatch!(g, dense_gemv_batch_kernel!,
+            (out, weight, x, Int32(K), Int32(M), Int32(rows),
+             Val(s.model.ctx.dev.subgroup)),
+            rows * ntokens * 256; group=256, name)
+    end
+    out
+end
+
+function _dense_coop_batch!(g, out, weight, xhalf,
+                            K::Int, M::Int, ntokens::Int, name::String)
+    Mantle.coopmat_gemm_dispatch!(g, out, weight, xhalf, M, ntokens, K;
+                                  name, blk_split=(2, 1))
     out
 end
 
 function _recurrent_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
     prefix = "blk.$il."
-    _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens)
-    _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120])
-    _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120])
-    _dense_batch!(s, g, q[:alpha], _w(s, prefix * "ssm_alpha.weight"),
-                  xnorm, WIDTH, 48, ntokens, prefix * "ssm_alpha_batch")
-    _dense_batch!(s, g, q[:beta], _w(s, prefix * "ssm_beta.weight"),
-                  xnorm, WIDTH, 48, ntokens, prefix * "ssm_beta_batch")
+    _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens;
+                      halfcopy=q[:densehalf])
+    _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120], q)
+    _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120], q)
+    densecoop = ntokens % 16 == 0 && g.dev isa Mantle.LavaDevice &&
+                Mantle.coopmat_gemm_available(g.dev.ctx) &&
+                haskey(s.model.weights, prefix * "ssm_ab.weight.coop")
+    if densecoop
+        _dense_coop_batch!(g, q[:alphabeta],
+            _w(s, prefix * "ssm_ab.weight.coop"), q[:densehalf],
+            WIDTH, 96, ntokens, prefix * "ssm_alpha_beta_batch")
+        _dispatch!(g, dense_ab_split_kernel!,
+            (q[:alpha], q[:beta], q[:alphabeta], Int32(ntokens)),
+            48 * ntokens; group=256, name=prefix * "ssm_alpha_beta_split")
+    else
+        _dense_batch!(s, g, q[:alpha], _w(s, prefix * "ssm_alpha.weight"),
+                      xnorm, WIDTH, 48, ntokens, prefix * "ssm_alpha_batch")
+        _dense_batch!(s, g, q[:beta], _w(s, prefix * "ssm_beta.weight"),
+                      xnorm, WIDTH, 48, ntokens, prefix * "ssm_beta_batch")
+    end
     convstate, state = s.recurrent[il]
     _dispatch!(g, depthwise_conv4_batch_kernel!,
         (q[:conv], convstate, q[:qkv], _w(s, prefix * "ssm_conv1d.weight"),
@@ -419,14 +498,23 @@ function _recurrent_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
     _dispatch!(g, recurrent_split_batch_kernel!,
         (q[:rq], q[:rk], q[:rv], q[:conv]), 6144 * ntokens;
         group=256, name=prefix * "recurrent_split_batch")
-    _dispatch!(g, gated_delta_net_batch_kernel!,
+    _dispatch!(g, l2normalize_qk_batch_kernel!,
+        (q[:rq], q[:rk], s.model.eps), ntokens * 16 * 128;
+        group=128, name=prefix * "gdn_normalize_qk")
+    subgroup = s.model.ctx.dev.subgroup
+    nsubgroups = 256 ÷ subgroup
+    groupsperhead = cld(128, nsubgroups)
+    _dispatch!(g, gated_delta_state_batch_kernel!,
         (q[:gdn], state, q[:rq], q[:rk], q[:rv], q[:alpha], q[:beta],
-         _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"), q[:z],
-         _w(s, prefix * "ssm_norm.weight"), s.model.eps, Int32(ntokens),
-         Int32(48), Int32(16)),
-        48 * 128; group=128, name=prefix * "gated_delta_net_batch")
+         _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"),
+         Int32(ntokens), Int32(groupsperhead), Val(subgroup)),
+        48 * groupsperhead * 256; group=256,
+        name=prefix * "gated_delta_state_batch")
+    _dispatch!(g, gdn_norm_gate_batch_kernel!,
+        (q[:gdn], q[:z], _w(s, prefix * "ssm_norm.weight"), s.model.eps),
+        ntokens * 48 * 128; group=128, name=prefix * "gdn_norm_gate_batch")
     _transform_batch!(s, g, q[:had6144], q[:gdn], 6144, ntokens; permute=true)
-    _ptq!(s, g, q[:branch], prefix * "ssm_out.weight", q[:had6144])
+    _ptq!(s, g, q[:branch], prefix * "ssm_out.weight", q[:had6144], q)
     q[:branch]
 end
 
@@ -434,9 +522,9 @@ function _attention_batch!(s::BonsaiSession, g, q, il::Int, xnorm,
                            ntokens::Int, position)
     prefix = "blk.$il."
     _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens)
-    _ptq!(s, g, q[:qfull], prefix * "attn_q.weight", q[:had5120])
-    _ptq!(s, g, q[:kproj], prefix * "attn_k.weight", q[:had5120])
-    _ptq!(s, g, q[:vproj], prefix * "attn_v.weight", q[:had5120])
+    _ptq!(s, g, q[:qfull], prefix * "attn_q.weight", q[:had5120], q)
+    _ptq!(s, g, q[:kproj], prefix * "attn_k.weight", q[:had5120], q)
+    _ptq!(s, g, q[:vproj], prefix * "attn_v.weight", q[:had5120], q)
     _dispatch!(g, prepare_q_batch_kernel!,
         (q[:aq], q[:qgate], q[:qfull], _w(s, prefix * "attn_q_norm.weight"),
          position, s.model.theta, s.model.eps), ntokens * 24 * 256;
@@ -447,78 +535,94 @@ function _attention_batch!(s::BonsaiSession, g, q, il::Int, xnorm,
          _w(s, prefix * "attn_k_norm.weight"), position,
          s.model.theta, s.model.eps), ntokens * 4 * 256;
         group=256, name=prefix * "prepare_kv_batch")
-    _dispatch!(g, decode_attention_batch_kernel!,
+    _dispatch!(g, decode_attention_batch_fast_kernel!,
         (q[:attn], q[:aq], q[:qgate], cache.k, cache.v,
-         cache.kscale, cache.vscale, position), ntokens * 24 * 256;
+         cache.kscale, cache.vscale, position, Val(s.model.ctx.dev.subgroup)),
+        ntokens * 24 * 256;
         group=256, name=prefix * "decode_attention_batch")
     _transform_batch!(s, g, q[:had6144], q[:attn], 6144, ntokens)
-    _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144])
+    _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144], q)
     q[:branch]
 end
 
 function _ffn_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
     prefix = "blk.$il."
     _transform_batch!(s, g, q[:had5120], xnorm, WIDTH, ntokens)
-    _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
-    _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120])
-    _dispatch!(g, swiglu_kernel!,
-        (q[:ff], q[:gate], q[:up], Int32(FFN * ntokens)), FFN * ntokens;
-        group=256, name=prefix * "swiglu_batch")
-    _transform_batch!(s, g, q[:had17408], q[:ff], FFN, ntokens)
-    _ptq!(s, g, q[:branch], prefix * "ffn_down.weight", q[:had17408])
+    _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120], q)
+    _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120], q)
+    _dispatch!(g, swiglu_hadamard1024_batch_kernel!,
+        (q[:had17408], q[:gate], q[:up], s.model.signs[FFN],
+         Int32(FFN), Int32(FFN ÷ 1024)),
+        (FFN ÷ 1024) * ntokens * 256;
+        group=256, name=prefix * "swiglu_hadamard_batch")
+    _ptq!(s, g, q[:branch], prefix * "ffn_down.weight", q[:had17408], q)
     q[:branch]
 end
 
-function _declareprefill!(s::BonsaiSession, g, q, tokens, position, ntokens::Int)
-    embedding = _w(s, "token_embd.weight")
-    _dispatch!(g, DNNKernels.ptq1_getrows_kernel!,
-        (q[:x], embedding.data, tokens, Int32(embedding.m), Int32(embedding.k),
-         Int32(ntokens)), embedding.k * ntokens;
-        group=256, name="token_embedding_batch")
-    _hadamard_batch!(s, g, q[:x], WIDTH, ntokens; inverse=true)
-    for il in 0:NLAYERS-1
-        prefix = "blk.$il."
+function _declareprefill_stage!(s::BonsaiSession, g, q, tokens, position,
+                                ntokens::Int, layers;
+                                initialize::Bool=false, finalize::Bool=false)
+    if initialize
+        embedding = _w(s, "token_embd.weight")
+        _dispatch!(g, DNNKernels.ptq1_getrows_kernel!,
+            (q[:x], embedding.data, tokens, Int32(embedding.m), Int32(embedding.k),
+             Int32(ntokens)), embedding.k * ntokens;
+            group=256, name="token_embedding_batch")
+        _hadamard_batch!(s, g, q[:x], WIDTH, ntokens; inverse=true)
         _dispatch!(g, rmsnorm_batch_kernel!,
-            (q[:norm], q[:x], _w(s, prefix * "attn_norm.weight"),
+            (q[:norm], q[:x], _w(s, "blk.0.attn_norm.weight"),
              Int32(WIDTH), s.model.eps), ntokens * 256;
-            group=256, name=prefix * "attn_norm_batch")
+            group=256, name="blk.0.attn_norm_batch")
+    end
+    for il in layers
+        prefix = "blk.$il."
         branch = (il + 1) % 4 == 0 ?
             _attention_batch!(s, g, q, il, q[:norm], ntokens, position) :
             _recurrent_batch!(s, g, q, il, q[:norm], ntokens)
-        _dispatch!(g, add_kernel!,
-            (q[:x], q[:x], branch, Int32(WIDTH * ntokens)), WIDTH * ntokens;
-            group=256, name=prefix * "attn_residual_batch")
-        _dispatch!(g, rmsnorm_batch_kernel!,
-            (q[:norm], q[:x], _w(s, prefix * "post_attention_norm.weight"),
-             Int32(WIDTH), s.model.eps), ntokens * 256;
-            group=256, name=prefix * "post_attention_norm_batch")
+        _dispatch!(g, add_rmsnorm_batch_kernel!,
+            (q[:norm], q[:x], branch,
+             _w(s, prefix * "post_attention_norm.weight"),
+             Int32(WIDTH), s.model.eps, Val(s.model.ctx.dev.subgroup)), ntokens * 256;
+            group=256, name=prefix * "attn_residual_norm_batch")
         branch = _ffn_batch!(s, g, q, il, q[:norm], ntokens)
-        _dispatch!(g, add_kernel!,
-            (q[:x], q[:x], branch, Int32(WIDTH * ntokens)), WIDTH * ntokens;
-            group=256, name=prefix * "ffn_residual_batch")
+        nextnorm = il == NLAYERS - 1 ? "output_norm.weight" :
+                   "blk.$(il + 1).attn_norm.weight"
+        _dispatch!(g, add_rmsnorm_batch_kernel!,
+            (q[:norm], q[:x], branch, _w(s, nextnorm),
+             Int32(WIDTH), s.model.eps, Val(s.model.ctx.dev.subgroup)), ntokens * 256;
+            group=256, name=prefix * "ffn_residual_norm_batch")
     end
-    _dispatch!(g, rmsnorm_batch_kernel!,
-        (q[:norm], q[:x], _w(s, "output_norm.weight"), Int32(WIDTH), s.model.eps),
-        ntokens * 256; group=256, name="output_norm_batch")
-    _dispatch!(g, select_last_kernel!,
-        (q[:lastnorm], q[:norm], Int32(WIDTH), Int32(ntokens)), WIDTH;
-        group=256, name="select_last")
-    _dispatch!(g, copy_kernel!,
-        (q[:lasthad], q[:lastnorm], Int32(WIDTH)), WIDTH;
-        group=256, name="copy_last")
-    _hadamard!(s, g, q[:lasthad], s.model.signs[WIDTH])
-    _ptq!(s, g, q[:logits], "output.weight", q[:lasthad])
+    if finalize
+        _dispatch!(g, select_last_kernel!,
+            (q[:lastnorm], q[:norm], Int32(WIDTH), Int32(ntokens)), WIDTH;
+            group=256, name="select_last")
+        _dispatch!(g, copy_kernel!,
+            (q[:lasthad], q[:lastnorm], Int32(WIDTH)), WIDTH;
+            group=256, name="copy_last")
+        _hadamard!(s, g, q[:lasthad], s.model.signs[WIDTH])
+        _ptq!(s, g, q[:logits], "output.weight", q[:lasthad])
+    end
     q[:logits]
 end
 
-function _recordprefill(s::BonsaiSession, ntokens::Int)
+const PREFILL_LAYERS_PER_PLAN = 4
+const PREFILL_CHUNK = 512
+
+function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     dev = Mantle.Device(s.model.backend)
     tokens = Mantle.Buffer(dev, zeros(Int32, ntokens))
     position = Mantle.GPURef(dev, Int32(0))
     q = _batchscratch(s.model, ntokens)
-    g = Mantle.Graph(dev)
-    _declareprefill!(s, g, q, tokens, position, ntokens)
-    PrefillExec(tokens, position, q, Mantle.record!(Mantle.Plan(g)))
+    plans = Any[]
+    for firstlayer in 0:PREFILL_LAYERS_PER_PLAN:NLAYERS-1
+        lastlayer = min(firstlayer + PREFILL_LAYERS_PER_PLAN - 1, NLAYERS - 1)
+        g = Mantle.Graph(dev)
+        _declareprefill_stage!(s, g, q, tokens, position, ntokens,
+            firstlayer:lastlayer;
+            initialize=firstlayer == 0, finalize=lastlayer == NLAYERS - 1)
+        push!(plans, Mantle.record!(Mantle.Plan(g; profile)))
+    end
+    PrefillExec(tokens, position, q, plans)
 end
 
 function _declarestep!(s::BonsaiSession, g)
@@ -577,7 +681,7 @@ function step!(s::BonsaiSession, token::Integer)
 end
 
 """
-    prefill!(session, ids; chunk=8) -> device logits
+    prefill!(session, ids; chunk=512) -> device logits
 
 Advance `session` through a prompt with recorded chunk graphs. A graph is built
 once for each encountered chunk length and reused by later calls. Recurrent
@@ -585,11 +689,11 @@ state is advanced in sequence inside each chunk; projections and attention are
 batched across its tokens. The returned logits belong to the final input token.
 """
 function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
-                  chunk::Integer=8)
+                  chunk::Integer=PREFILL_CHUNK)
     isempty(ids) && throw(ArgumentError("prompt must contain at least one token"))
     chunk > 0 || throw(ArgumentError("chunk must be positive"))
-    chunk <= 8 || throw(ArgumentError(
-        "chunk must be at most 8 so one recorded submission stays below GPU watchdog limits"))
+    chunk <= PREFILL_CHUNK || throw(ArgumentError(
+        "chunk must be at most $PREFILL_CHUNK"))
     s.position + length(ids) <= s.model.maxcontext || error("session context is full")
     vocab = length(s.model.tokenizer.tokentostr)
     all(id -> 0 <= id < vocab, ids) || throw(BoundsError(s.model.tokenizer.tokentostr))
@@ -603,7 +707,7 @@ function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
         end
         exec.tokens[:] = Int32.(view(ids, first:first+n-1))
         exec.position[] = Int32(s.position)
-        Mantle.run!(exec.plan)
+        foreach(Mantle.run!, exec.plans)
         s.position += n
         logits = exec.scratch[:logits]
         first += n
@@ -618,7 +722,7 @@ end
 
 """Greedy token generation with chunked prompt prefill."""
 function generate(s::BonsaiSession, ids::AbstractVector{<:Integer}; max_tokens::Integer=32,
-                  stop=(s.model.tokenizer.eos,), prefill_chunk::Integer=8)
+                  stop=(s.model.tokenizer.eos,), prefill_chunk::Integer=PREFILL_CHUNK)
     isempty(ids) && throw(ArgumentError("prompt must contain at least one token"))
     logits = prefill!(s, ids; chunk=prefill_chunk)
     out = Int[]

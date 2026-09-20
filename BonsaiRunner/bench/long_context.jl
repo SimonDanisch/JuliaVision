@@ -4,11 +4,13 @@ path = get(ENV, "BONSAI_GGUF", "")
 isempty(path) && error("set BONSAI_GGUF to Ternary-Bonsai-2-27B-PTQ1_0.gguf")
 selector = get(ENV, "BONSAI_DEVICE", "")
 dev = isempty(selector) ? Mantle.device() : Mantle.device(selector)
-chunk = parse(Int, get(ENV, "BONSAI_PREFILL_CHUNK", "8"))
-ntokens = parse(Int, get(ENV, "BONSAI_PREFILL_TOKENS", "32"))
+chunk = parse(Int, get(ENV, "BONSAI_PREFILL_CHUNK", "512"))
+ntokens = parse(Int, get(ENV, "BONSAI_PREFILL_TOKENS", "512"))
 
 model = Bonsai2(path; device=dev, progress=true)
-ids = encode(model.tokenizer, repeat("Vulkan barriers order memory accesses. ", 32))[1:ntokens]
+seedids = encode(model.tokenizer, repeat("Vulkan barriers order memory accesses. ",
+                                        cld(ntokens, 4) + 1))
+ids = seedids[1:ntokens]
 
 # Run each pipeline shape once before measuring it. State is session-local, so
 # the measured sessions below still start from the same zero state.
