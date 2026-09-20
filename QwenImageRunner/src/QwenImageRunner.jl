@@ -20,12 +20,19 @@ module QwenImageRunner
 
 using DNNKernels
 using DNNKernels: loadgraph, readsafetensors, Model, planfor, replay!
+# JSON3 comes through DNNKernels, which reads every exported graph with it. The
+# tokenizer's `vocab.json` is the only other JSON this package reads, and a
+# second copy in the manifest would be a second version to keep in step.
+using DNNKernels: JSON3
 using KernelAbstractions
 using Lava
 import Mantle
 
 export QWEN_IMAGE_21, assetdir, ready, qwenimagegraph, qwenimageweights
-export compact_transformer_weights
+export compact_transformer_weights, compact_text_encoder_weights
+export QwenTokenizer, encode, decode
+export QwenTextEncoder, qwenimagetextencoder, encode_prompt, token_embeddings
+export qwen_prompt_template
 export QwenTransformer, qwenimagetransformer, denoise!
 export QwenVAEDecoder, qwenimagevae, decode!
 export generate!
@@ -229,21 +236,32 @@ function denoise!(model::QwenTransformer, latents, prompt_embeddings, timestep)
                   (latents, prompt_embeddings, timestep)))
 end
 
-"""A prepared Qwen-Image 2.1 VAE decoder and its recorded execution plan."""
-struct QwenVAEDecoder{B,G,W,P}
+"""A prepared Qwen-Image 2.1 VAE decoder. `plan === nothing` runs interpreted."""
+struct QwenVAEDecoder{B,D,G,W,P}
     backend::B
+    device::D
     graph::G
     weights::W
     plan::P
 end
 
 """
-    qwenimagevae(; backend=Mantle.LavaBackend(), dir=assetdir())
+    qwenimagevae(; backend=Mantle.LavaBackend(), dir=assetdir(), record=false)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
+
+`record = false`, unlike the denoiser, for two measured reasons and one decode
+per image to pay for them. The decoder's mid-block attention is a single head
+1152 wide, which `flashcm_plan` declines and `coopmat_sdpa_plan` accepts — and
+that plan has no declared form, so a recorded graph refuses to emit. Leaving the
+attention unfused does emit, and then one submission of the 1024² decode runs
+past the driver's limit (`ring gfx_0.0.0 timeout`, device lost) even split into
+64-pass pieces, because a single dispatch in it is too long to split that way.
+Interpreted, the same decode is 38.4 s and correct.
 """
-function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir())
+function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
+                      record::Bool=false, maxpasses::Integer=64)
     ready(:vae_decoder; dir) || throw(ArgumentError(
         "no Qwen-Image 2.1 VAE export at $dir — run " *
         "`tools/export_qwenimage21.py --component vae` first"))
@@ -251,16 +269,24 @@ function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetd
     weights = qwenimageweights(:vae_decoder; dir)
     model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend)
     prepared = model.graphs["qwenimage21_vae_decoder"]
-    plan = planfor(model.device, prepared, model.weights, (;))
-    QwenVAEDecoder(model.backend, prepared, model.weights, plan)
+    plan = record ?
+        planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses)) :
+        nothing
+    QwenVAEDecoder(model.backend, model.device, prepared, model.weights, plan)
 end
 
 """
     decode!(model, latents)
 
-Decode normalized latents in Julia order `(64, width, height, 1, batch)` to an
-RGB image `(width*16, height*16, 3, batch)` on the same backend.
+Decode normalized latents in Julia order `(width, height, 1, channels, batch)`
+to an image `(width*16, height*16, 1, 4, batch)` — the decoder's fourth channel
+is alpha — on the same backend.
 """
+decode!(model::QwenVAEDecoder{<:Any,<:Any,<:Any,<:Any,Nothing}, latents) =
+    DNNKernels.execute!(model.graph, Dict(only(model.graph.inputs) => latents),
+                        model.weights; dims=(;), backend=model.backend)[
+        DNNKernels.viewroot(model.graph, only(model.graph.outputs))]
+
 decode!(model::QwenVAEDecoder, latents) =
     first(replay!(model.plan, "qwenimage21_vae_decoder", (latents,)))
 
@@ -381,6 +407,35 @@ function generate!(transformer::QwenTransformer, vae::QwenVAEDecoder,
     lh = height ÷ QWEN_IMAGE_21.vae_scale_factor
     grid = unpacklatents(latents, lw, lh)
     decode!(vae, reshape(grid, lw, lh, 1, size(grid, 3), size(grid, 4)))
+end
+
+include("tokenizer.jl")
+include("textencoder.jl")
+
+"""
+    Mantle.release!(component)
+
+Free a prepared component's plan and return its device memory to the pool.
+
+The three components of this pipeline do not fit on an 8060S at once: the
+denoiser decodes to 7.26 GB of INT8 and the Qwen3-VL conditioner to another
+6.9 GB. A generation encodes its prompt, releases the encoder, denoises,
+releases the denoiser, and only then decodes — which is also the order in which
+each is finished with. See `examples/generate.jl`.
+
+A method on Mantle's own `release!` rather than a second name for it: it means
+the same thing here as it does for a recording, and two exported `release!`s
+are an ambiguity at every call site that has both packages in scope.
+"""
+function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVAEDecoder})
+    component.plan === nothing || Mantle.free!(component.plan.plan)
+    # The weight dict is the only reference the component holds to the device
+    # arrays; the `Model` that built them is long gone.
+    empty!(component.weights)
+    GC.gc(true)
+    Mantle.trim_gpu_pool!()
+    GC.gc(true)
+    nothing
 end
 
 end # module

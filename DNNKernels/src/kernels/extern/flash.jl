@@ -1618,6 +1618,39 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
 end
 
 """
+    flashcm_padded_plan(dev, q, k, v, bias; limit = 1.25) -> FlashCMPlan | Decline
+
+The clamped plan, taken only where the padding is cheaper than not having flash
+attention at all.
+
+A tiling has to divide both extents, and a joint attention's key length is
+whatever the prompt made it: Qwen-Image 2.1 at 1024² over a 22-token prompt
+queries 4096 positions against 4118 keys, and 4118 is 2 x 29 x 71. No tile
+divides that, so the strict plan declines and the caller materialises a
+4096 x 4118 score matrix per layer instead — measured at **40.2 s per denoising
+step against 9.6 s** for the same model at a key length that happens to divide.
+
+Clamping pads the last tile and masks it, so the cost is the padding: 0.3% at
+that shape. It is refused by default because padding is not always that cheap —
+SAM 2's encoder has `Lq = 16` calls that would pad to 32 and lose 2.12 ms of
+encode for nothing — so this asks how much padding the shape actually needs and
+declines when it is more than `limit`.
+
+The one exception is a query shorter than a single tile against exactly one key
+tile: four real rows in a 16-row tile is 4x padding and still beats writing the
+scores plus two padded products, which is why `flashcm_tiling` has a rule for
+that shape and this has one too.
+"""
+function flashcm_padded_plan(dev, q, k, v, bias; limit::Real = 1.25)
+    plan = flashcm_plan(dev, q, k, v, bias; clamp = true)
+    plan isa FlashCMPlan || return plan
+    Lq, Lk = size(q, 2), size(k, 2)
+    (Lq < dev.tile && Lk == dev.tile && 4Lq >= dev.tile) && return plan
+    padded = cld(Lq, plan.BR) * plan.BR * cld(Lk, plan.BC) * plan.BC
+    padded <= limit * Lq * Lk ? plan : Decline(:padding)
+end
+
+"""
 Merge the per-split partial attentions into the final output.
 
 A port of `flash_attn_split_k_reduce.comp` from llama.cpp

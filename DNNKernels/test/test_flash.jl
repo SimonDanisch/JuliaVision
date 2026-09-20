@@ -256,6 +256,37 @@ end
             end
         end
 
+        @testset "a key length no tiling divides still takes flash" begin
+            # Qwen-Image 2.1 at 1024x1024 over a 22-token prompt: 4096 image
+            # queries against 4096 + 22 keys. 4118 is 2 x 29 x 71, so no tile
+            # divides it, the strict plan declines, and the declared path fell
+            # through to writing a 4096 x 4118 score matrix per layer — 40.2 s
+            # per denoising step against 9.6 s at a key length that divides.
+            f16(E, L, H, B) = DNNKernels.toback(back, zeros(Float16, E, L, H, B))
+            q, k = f16(128, 4096, 32, 1), f16(128, 4118, 32, 1)
+            @test DNNKernels.flashcm_plan(dev, q, k, k, nothing) isa DNNKernels.Decline
+            padded = DNNKernels.flashcm_padded_plan(dev, q, k, k, nothing)
+            @test padded isa DNNKernels.FlashCMPlan
+            @test padded.clamp
+            # The padding is what it costs: one tile of 4118 keys, 0.3%.
+            @test cld(4118, padded.BC) * padded.BC <= 1.01 * 4118
+            q = k = nothing; GC.gc()
+
+            # And it stays refused where padding is not cheap. Seventeen queries
+            # take a 32-row tile and throw away 88% of it — the kind of waste
+            # that measured +2.12 ms of SAM 2 encode for nothing.
+            q, k = f16(128, 17, 32, 1), f16(128, 4096, 32, 1)
+            @test DNNKernels.flashcm_plan(dev, q, k, k, nothing) isa DNNKernels.Decline
+            @test DNNKernels.flashcm_padded_plan(dev, q, k, k, nothing) isa DNNKernels.Decline
+            q = k = nothing; GC.gc()
+
+            # The one shape padded at any occupancy: a query shorter than a tile
+            # against exactly one key tile.
+            q, k = f16(72, 4, 1, 1), f16(72, 16, 1, 1)
+            @test DNNKernels.flashcm_padded_plan(dev, q, k, k, nothing) isa DNNKernels.FlashCMPlan
+            q = k = nothing; GC.gc()
+        end
+
         @testset "clamped: extents that do not divide the tile" begin
             # The decoder's shapes, which are why CLAMP exists: every one has a
             # 23 in it. Includes Lk = 23 < BC, where the key-block count has to

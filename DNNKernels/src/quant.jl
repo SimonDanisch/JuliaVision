@@ -166,7 +166,8 @@ end
 
 @kernel cpu=false function w4a8_pack_kernel!(q32, @Const(q), @Const(srel),
                                               @Const(codebook), K::Int32, M::Int32,
-                                              MG::Int32, GS::Int32)
+                                              MG::Int32, GS::Int32, MGD::Int32,
+                                              GOFF::Int32)
     i = @index(Global, Linear)
     if i <= MG * K
         @inbounds begin
@@ -185,7 +186,10 @@ end
                     word |= UInt32(byte) << (8 * (r - 1))
                 end
             end
-            q32[i] = word
+            # The destination may be a STACK of parts: this one owns the row
+            # groups from `GOFF`, and a group is four output rows, so a part
+            # whose row count is not a multiple of four cannot be stacked.
+            q32[(rg + GOFF) + Int32(1) + k * MGD] = word
         end
     end
 end
@@ -207,8 +211,51 @@ function w4a8convrot(backend, q::AbstractMatrix{Int8}, s_rel::AbstractMatrix{UIn
     dc = toback(backend, Float32.(vec(codebook)))
     MG = cld(M, Q8ROWS)
     packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    w4a8_pack_kernel!(backend, 256)(packed, dq, dr, dc, Int32(K), Int32(M),
-                                     Int32(MG), Int32(group_size); ndrange=MG*K)
+    w4a8pack!(backend, packed, dq, dr, dc, K, M, group_size, MG, 0)
+    ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
+end
+
+"""Decode one W4A8 part into row groups `goff...` of an already-allocated pack."""
+function w4a8pack!(backend, packed, q, s_rel, codebook, K::Integer, M::Integer,
+                   group_size::Integer, mgdest::Integer, goff::Integer)
+    mg = cld(M, Q8ROWS)
+    w4a8_pack_kernel!(backend, 256)(packed, q, s_rel, codebook, Int32(K), Int32(M),
+                                     Int32(mg), Int32(group_size), Int32(mgdest),
+                                     Int32(goff); ndrange=mg*K)
+    packed
+end
+
+"""
+    w4a8convrot(backend, parts) -> ConvRotQInt8Matrix
+
+The stacked form: `fuseqkv`'s three projections, or a gate/up pair, as one
+matrix. Each part decodes into its own row range of a single pack, which is the
+only way to assemble these — a part's storage is four output rows to a `UInt32`
+word after decoding, and the 16-value codebook is per tensor, so there is
+nothing to concatenate before the decode.
+"""
+function w4a8convrot(backend, parts::AbstractVector{<:W4A8ConvRotHostMatrix})
+    first_part = first(parts)
+    K = size(first_part, 2)
+    group_size = first_part.group_size
+    convrot_group_size = first_part.convrot_group_size
+    all(p -> size(p, 2) == K, parts) || throw(DimensionMismatch(
+        "stacked W4A8 matrices disagree on their input width"))
+    all(p -> p.group_size == group_size && p.convrot_group_size == convrot_group_size,
+        parts) || throw(ArgumentError("stacked W4A8 matrices disagree on their group sizes"))
+    all(p -> size(p, 1) % Q8ROWS == 0, parts) || throw(ArgumentError(
+        "a stacked W4A8 part must have a multiple of $Q8ROWS output rows"))
+    M = sum(p -> size(p, 1), parts)
+    MG = cld(M, Q8ROWS)
+    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
+    ds = toback(backend, Float32.(reduce(vcat, (vec(p.s_channel) for p in parts))))
+    goff = 0
+    for p in parts
+        w4a8pack!(backend, packed, toback(backend, p.q), toback(backend, p.s_rel),
+                  toback(backend, Float32.(vec(p.codebook))), K, size(p, 1),
+                  group_size, MG, goff)
+        goff += size(p, 1) ÷ Q8ROWS
+    end
     ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
 end
 

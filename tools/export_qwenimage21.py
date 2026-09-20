@@ -268,6 +268,136 @@ def export_transformer(module, args):
     print(f"  wrote {out}")
 
 
+class StaticRotary(torch.nn.Module):
+    """Qwen3-VL's rotary tables for one fixed prompt length, as constants.
+
+    The real module multiplies its inverse frequencies by the position ids and
+    recomposes the mRoPE sections; at a bound length that is a constant, and
+    computing it on CPU is what lets a meta-device export serialize it. Same
+    values as the module it replaces — they come *from* it.
+    """
+
+    def __init__(self, rotary, position_ids, dtype):
+        super().__init__()
+        with torch.no_grad():
+            cos, sin = rotary(torch.zeros(1, dtype=dtype), position_ids)
+        self.tables = (cos.contiguous(), sin.contiguous())
+
+    def forward(self, x, position_ids):
+        return tuple(table.to(x.device) for table in self.tables)
+
+
+class StaticQwen3VLTextEncoder(torch.nn.Module):
+    """Qwen3-VL's language model over a fixed-length text prompt.
+
+    Three things are bound here rather than computed per call.
+
+    **The final RMSNorm is dropped.**  What the denoiser was trained on is the
+    last *decoder layer's* output; the pipeline neutralizes ``model.norm`` with
+    a forward hook for exactly this reason (see ``_get_qwen_prompt_embeds``).
+    Removing it is the same value and one fewer op.
+
+    **The input is ``inputs_embeds``, not ``input_ids``.**  The embedding table
+    is 151936x4096 - 622M entries, a fifth of the checkpoint - and a prompt
+    reads forty rows of it.  The runner gathers those rows on the host and the
+    table never reaches the device.
+
+    **Positions are static.**  Qwen3-VL's mRoPE splits the head dimension into
+    (24, 20, 20) lanes fed by three position streams; for text the three agree,
+    so the rotary tables fold to constants at export.
+    """
+
+    def __init__(self, text_model, tokens: int):
+        super().__init__()
+        text_model.norm = torch.nn.Identity()
+        self.model = text_model
+        positions = torch.arange(tokens).view(1, 1, tokens).expand(3, 1, tokens)
+        self.position_ids = positions.contiguous()
+
+    def forward(self, inputs_embeds):
+        outputs = self.model(
+            inputs_embeds=inputs_embeds,
+            position_ids=self.position_ids.to(inputs_embeds.device),
+            attention_mask=None,
+            use_cache=False,
+        )
+        return outputs.last_hidden_state
+
+
+def build_text_encoder(args):
+    from transformers.models.qwen3_vl import modeling_qwen3_vl as qwen3vl
+
+    config_path = args.config_dir / "text_encoder" / "config.json"
+    if not config_path.is_file():
+        raise SystemExit(f"missing text encoder config at {config_path}")
+    config = json.loads(config_path.read_text())
+    text_config = qwen3vl.Qwen3VLTextConfig(**config["text_config"])
+    # `sdpa`, and NOT the default: `flash_attention_2` is not exportable and
+    # `eager` writes the causal mask as an additive fp16 tensor whose `-inf`
+    # rows the graph then carries. Both reach the same numbers here.
+    text_config._attn_implementation = "sdpa"
+    with torch.device("meta"):
+        model = qwen3vl.Qwen3VLTextModel(text_config).to(dtype=torch.float16).eval()
+    if args.layers is not None:
+        if not 1 <= args.layers <= len(model.layers):
+            raise SystemExit(f"--layers must be in 1..{len(model.layers)}")
+        model.layers = torch.nn.ModuleList(model.layers[: args.layers])
+    # The rotary tables are a constant, not a parameter: build them on CPU so a
+    # meta-device export can serialize them.
+    positions = torch.arange(args.prompt_tokens).view(1, 1, args.prompt_tokens).expand(3, 1, -1)
+    model.rotary_emb = StaticRotary(qwen3vl.Qwen3VLTextRotaryEmbedding(text_config),
+                                    positions.contiguous(), torch.float16)
+    wrapper = StaticQwen3VLTextEncoder(model, args.prompt_tokens).eval()
+    example = torch.randn(1, args.prompt_tokens, text_config.hidden_size,
+                          dtype=torch.float16, device="meta")
+    return wrapper, (example,), text_config
+
+
+def export_text_encoder(args):
+    torch.manual_seed(0)
+    wrapper, examples, text_config = build_text_encoder(args)
+    with torch.no_grad():
+        program = torch.export.export(wrapper, examples, strict=False).run_decompositions()
+
+    graph = EG.convert(program, ({},), "qwenimage21_text_encoder")
+    out = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "qwenimage21_text_encoder.json").write_text(json.dumps(graph, indent=1))
+    tensors = {
+        key: value.detach().cpu().contiguous()
+        for key, value in EG.save_constants(program).items()
+        if value.device.type != "meta"
+    }
+    save_file(tensors, str(out / "text_encoder_constants.safetensors"))
+
+    requested = {buffer["key"] for buffer in graph["buffers"] if buffer["kind"] == "weight"}
+    missing = [key for key in sorted(requested - tensors.keys()) if not key.startswith("model.")]
+    if missing:
+        raise SystemExit(f"exported graph references {len(missing)} unsaved constants: {missing[:5]}")
+
+    histogram = {}
+    for op in graph["ops"]:
+        histogram[op["aten"]] = histogram.get(op["aten"], 0) + 1
+    (out / "text_encoder_op_histogram.json").write_text(json.dumps(histogram, indent=1, sort_keys=True))
+    (out / "qwenimage21_text_encoder_export.json").write_text(
+        json.dumps(
+            {
+                "model": args.model,
+                "prompt_tokens": args.prompt_tokens,
+                "layers": len(wrapper.model.layers),
+                "hidden_size": text_config.hidden_size,
+                "num_attention_heads": text_config.num_attention_heads,
+                "num_key_value_heads": text_config.num_key_value_heads,
+                "dtype": "float16",
+            },
+            indent=1,
+        )
+    )
+    print(f"qwenimage21_text_encoder: {len(graph['ops'])} ops, "
+          f"{args.prompt_tokens} tokens, {len(wrapper.model.layers)} layers")
+    print(f"  wrote {out}")
+
+
 class NormalizedVAEDecoder(torch.nn.Module):
     """Decode scheduler-space latents and return the single image frame."""
 
@@ -311,17 +441,28 @@ def build_vae(module, args):
         if args.height % 16 or args.width % 16:
             raise SystemExit("--height and --width must be divisible by the VAE stride, 16")
         latent_height, latent_width = args.height // 16, args.width // 16
+    # The reference runs in the checkpoint's own BF16 and the graph is exported
+    # in Float16: Mantle's cooperative-matrix path is fp16 and DNNKernels has no
+    # bfloat16 buffer, but torch has no fp16 CPU convolution either — a 1024²
+    # decode in fp16 on the host does not finish in twenty minutes, while the
+    # same decode in bf16 takes seconds. Same weights, one rounding apart.
+    reference = None
+    if not args.no_reference:
+        with torch.no_grad():
+            example = torch.randn(1, vae.config.z_dim, 1, latent_height, latent_width,
+                                  dtype=next(vae.parameters()).dtype)
+            reference = NormalizedVAEDecoder(vae).eval()(example).float()
+    vae = vae.to(torch.float16)
     wrapper = NormalizedVAEDecoder(vae).eval()
-    dtype = next(vae.parameters()).dtype
-    example = torch.randn(1, vae.config.z_dim, 1, latent_height, latent_width, dtype=dtype)
-    return wrapper, example, (latent_height, latent_width)
+    example = torch.randn(1, vae.config.z_dim, 1, latent_height, latent_width,
+                          dtype=torch.float16) if reference is None else example.half()
+    return wrapper, example, (latent_height, latent_width), reference
 
 
 def export_vae(module, args):
     torch.manual_seed(0)
-    wrapper, example, shape = build_vae(module, args)
+    wrapper, example, shape, reference = build_vae(module, args)
     with torch.no_grad():
-        reference = wrapper(example)
         program = torch.export.export(wrapper, (example,), strict=False).run_decompositions()
 
     graph = EG.convert(program, ({},), "qwenimage21_vae_decoder")
@@ -339,10 +480,12 @@ def export_vae(module, args):
         raise SystemExit(f"exported VAE graph references {len(missing)} unsaved weights: {missing[:5]}")
     tensors = {key: available[key] for key in requested}
     save_file(tensors, str(out / "vae.safetensors"))
-    save_file(
-        {"latents": example.cpu().contiguous(), "image": reference.cpu().contiguous()},
-        str(out / "vae_reference.safetensors"),
-    )
+    if reference is not None:
+        save_file(
+            {"latents": example.float().cpu().contiguous(),
+             "image": reference.cpu().contiguous()},
+            str(out / "vae_reference.safetensors"),
+        )
 
     histogram = {}
     for op in graph["ops"]:
@@ -353,7 +496,8 @@ def export_vae(module, args):
         f"qwenimage21_vae_decoder: {len(graph['ops'])} ops, "
         f"{sum(value.numel() for value in tensors.values()) / 1e6:.2f}M saved parameters"
     )
-    print(f"  latent {lh}x{lw}, output {tuple(reference.shape)}")
+    print(f"  latent {lh}x{lw}" +
+          ("" if reference is None else f", output {tuple(reference.shape)}"))
     print(f"  wrote {out}")
 
 
@@ -364,7 +508,12 @@ def main():
     parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--context-tokens", type=int, default=256)
-    parser.add_argument("--component", choices=("transformer", "vae", "all"), default="all")
+    parser.add_argument("--component", choices=("transformer", "vae", "text_encoder", "all"),
+                        default="all")
+    parser.add_argument("--no-reference", action="store_true",
+                        help="skip the host reference decode for the VAE")
+    parser.add_argument("--prompt-tokens", type=int, default=64,
+                        help="static prompt length for the text encoder export")
     parser.add_argument("--layers", type=int, default=None, help="export only the first N real blocks for bring-up")
     parser.add_argument("--smoke", action="store_true", help="small random one-block export; downloads no weights")
     parser.add_argument("--graph-only", action="store_true", help="export from a meta model without downloading BF16 weights")
@@ -376,6 +525,8 @@ def main():
         export_transformer(transformer_module, args)
     if args.component in ("vae", "all"):
         export_vae(vae_module, args)
+    if args.component in ("text_encoder", "all"):
+        export_text_encoder(args)
 
 
 if __name__ == "__main__":

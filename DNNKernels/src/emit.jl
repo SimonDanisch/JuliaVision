@@ -3229,10 +3229,11 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
         "shape a port takes.")
     plan = flashcm_plan(caps, q, k, v, bias)
-    if plan isa Decline && bias === nothing && Lq < caps.tile &&
-            size(k, 2) == caps.tile && 4 * Lq >= caps.tile
-        plan = flashcm_plan(caps, q, k, v, bias; clamp = true)
-    end
+    # The same padded retry the immediate path takes — see `flashcm_padded_plan`.
+    # Without it a key length no tile divides falls through to `threepass!`,
+    # which is the score matrix this kernel exists to avoid.
+    plan isa Decline && bias === nothing &&
+        (plan = flashcm_padded_plan(caps, q, k, v, bias))
     if plan isa Decline
         cm = coopmat_sdpa_plan(caps, q, k, v, bias)
         cm isa Decline || error(

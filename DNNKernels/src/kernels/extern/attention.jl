@@ -802,14 +802,12 @@ function sdpaplan(ctx, q, k, v, bias)
     cm2 isa FlashCM2Plan && return (cm2, k, v)
 
     plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
-    # A short query against exactly one matrix tile is the one useful padded
-    # case below the tile width.  Four real rows in a 16-row tile still avoid
-    # materialising scores plus two padded GEMMs; `flashcm_tiling` applies the
-    # matching occupancy exception only to this exact-key shape.
-    if plan isa Decline && !ctx.clampattn && bias === nothing &&
-            size(q, 2) < ctx.dev.tile && size(k, 2) == ctx.dev.tile &&
-            4 * size(q, 2) >= ctx.dev.tile
-        plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = true)
+    # An extent the tiling cannot divide is not a reason to write the score
+    # matrix. `flashcm_padded_plan` pads and masks the last tile where that is
+    # cheap — including the short-query-against-one-key-tile shape this branch
+    # used to special-case on its own.
+    if plan isa Decline && !ctx.clampattn && bias === nothing
+        plan = flashcm_padded_plan(ctx.dev, q, k, v, bias)
     end
 
     # The one refusal that is recoverable, and it recovers here: an operand

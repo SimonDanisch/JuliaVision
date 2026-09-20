@@ -143,6 +143,12 @@ end
 toback(backend, A::RowCat{T,<:AbstractVector{<:ConvRotQInt8HostMatrix}}) where {T} =
     toback(backend, stackrows(A.parts))
 
+# W4A8 cannot stack in the checkpoint layout the way ConvRot INT8 does: the
+# codebook is per tensor, so the parts only agree once decoded. `w4a8convrot`
+# decodes each into its own row range of one pack.
+toback(backend, A::RowCat{T,<:AbstractVector{<:W4A8ConvRotHostMatrix}}) where {T} =
+    w4a8convrot(backend, A.parts)
+
 # `hoistpermutes` leaves its transposed weights lazy so they are not all
 # materialised at once. This is where one of them becomes real, and WHERE it
 # happens is the whole cost of a cold load.
