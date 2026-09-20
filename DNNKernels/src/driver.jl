@@ -215,6 +215,13 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # a model ever comes out wrong — see `2026-08-08-elementwise-fusion.md`
                # for why a bad fusion looks like a precision bug.
                fuse::Bool = true,
+               # Just the attention fusion, independently of the rest. A fused
+               # attention is only recordable if its plan has a declared form,
+               # and `CoopMatSDPAPlan` has none, so a model whose attention it
+               # claims can be recorded OR fused and not both. Qwen-Image 2.1's
+               # VAE is the case: one mid-block head 1152 wide, which
+               # `flashcm_plan` declines and `coopmat_sdpa_plan` takes.
+               fuseattn::Bool = true,
                # Store the matmul weights as int8 with a per-output-channel
                # scale. Decode reads every weight once per token and is
                # bandwidth-bound outright, so this is a straight halving of the
@@ -356,14 +363,17 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
         # `softmax` that the elementwise fuser would otherwise absorb into a
         # group, and a fused group is no longer recognisable as attention. This
         # rewrite is worth 9.88x per layer where it fires, so it goes first.
-        graphs, nattn = fuseattention(graphs)
-        if nattn > 0
-            @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
-            # The fusion reads q, k and v from further back than the `bmm` did,
-            # so the casts and scalings in between are left with no consumer.
-            # They are not free: Qwen-Image's are 64 MB apiece, 6 per layer.
-            graphs, nattndead = dropdead(graphs)
-            ndead += nattndead
+        if fuseattn
+            graphs, nattn = fuseattention(graphs)
+            if nattn > 0
+                @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
+                # The fusion reads q, k and v from further back than the `bmm`
+                # did, so the casts and scalings in between are left with no
+                # consumer. They are not free: Qwen-Image's are 64 MB apiece,
+                # 6 per layer.
+                graphs, nattndead = dropdead(graphs)
+                ndead += nattndead
+            end
         end
         graphs, nfused = fuseops(graphs)
         graphs, nmasked = fusemaskedattention(graphs)

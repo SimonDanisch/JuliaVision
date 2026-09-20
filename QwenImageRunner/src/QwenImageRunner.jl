@@ -251,23 +251,33 @@ end
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
 
-`record = false`, unlike the denoiser, for two measured reasons and one decode
-per image to pay for them. The decoder's mid-block attention is a single head
-1152 wide, which `flashcm_plan` declines and `coopmat_sdpa_plan` accepts — and
-that plan has no declared form, so a recorded graph refuses to emit. Leaving the
-attention unfused does emit, and then one submission of the 1024² decode runs
-past the driver's limit (`ring gfx_0.0.0 timeout`, device lost) even split into
-64-pass pieces, because a single dispatch in it is too long to split that way.
-Interpreted, the same decode is 38.4 s and correct.
+`record = false`, unlike the denoiser, because for this graph a recorded plan is
+SLOWER than interpreting it. At 1024² on an 8060S, decoding one denoised latent:
+12.8 s interpreted, 16.0 s replayed, and the plan itself takes 11.4 s to build,
+against one decode per image to amortise any of it. The two paths agree to
+9.3e-5 rms and 4.9e-4 peak of a [-1, 1] range, so this is a speed choice and not
+a correctness one.
+
+`record = true` builds the model with `fuseattn = false`, because the fused form
+cannot be recorded: the mid-block attention is a single head 1152 wide, which
+`flashcm_plan` declines and `coopmat_sdpa_plan` accepts, and that plan has no
+declared form. Unfusing it costs nothing measurable here (12.7 s against 12.8 s
+interpreted) because it is one attention among 422 ops.
+
+Two numbers that were in this docstring and are wrong: the decode is not 38.4 s
+(that was a first call, whose extra ~6 s is shader compilation), and a recorded
+submission does not have to exceed the driver's limit (`maxpasses = 8` records
+and replays; 64 is what times out).
 """
 function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
-                      record::Bool=false, maxpasses::Integer=64)
+                      record::Bool=false, maxpasses::Integer=8)
     ready(:vae_decoder; dir) || throw(ArgumentError(
         "no Qwen-Image 2.1 VAE export at $dir — run " *
         "`tools/export_qwenimage21.py --component vae` first"))
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
-    model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend)
+    model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend,
+                  fuseattn = !record)
     prepared = model.graphs["qwenimage21_vae_decoder"]
     plan = record ?
         planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses)) :

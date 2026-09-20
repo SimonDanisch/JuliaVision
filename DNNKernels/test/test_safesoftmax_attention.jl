@@ -25,7 +25,7 @@ Two halves, and the second is the one that cost the time:
     every layer downstream of it still finite and plausible.
 """
 
-using Test, DNNKernels, Mantle, Random, LinearAlgebra
+using Test, DNNKernels, Mantle, Random, LinearAlgebra, KernelAbstractions
 
 const DKA = DNNKernels
 
@@ -125,6 +125,26 @@ end
     @test last(DKA.fuseattention(safesoftmaxgraph(outputs = ["out", "p"]))) == 0
     extra = [DKA.Op("peek", "clone.default", ["scores4"], "peek", Dict{String,Any}())]
     @test last(DKA.fuseattention(safesoftmaxgraph(extraops = extra))) == 0
+end
+
+# `fuseattn` exists because a fused attention and a RECORDED graph are not
+# always both available: `emitgraph` needs the chosen plan to have a declared
+# form, and `CoopMatSDPAPlan` has none. Qwen-Image 2.1's VAE decoder is the
+# case, one mid-block head 1152 wide, so `qwenimagevae(record = true)` asks for
+# the chain instead of the fusion. It is a switch on that one pass and not on
+# `fuse`, which would also take the elementwise groups with it.
+@testset "the attention fusion can be switched off on its own" begin
+    fused = DKA.Model(Dict("g" => safesoftmaxgraph()), Dict{String,Any}();
+                      backend = KernelAbstractions.CPU()).graphs["g"]
+    @test count(o -> o.aten == "fused.sdpa", fused.ops) == 1
+    @test !any(o -> o.aten == "_softmax.default", fused.ops)
+
+    chain = DKA.Model(Dict("g" => safesoftmaxgraph()), Dict{String,Any}();
+                      backend = KernelAbstractions.CPU(), fuseattn = false).graphs["g"]
+    @test !any(o -> o.aten == "fused.sdpa", chain.ops)
+    # And the chain it declined to fuse is still all there to run.
+    @test count(o -> o.aten == "_softmax.default", chain.ops) == 1
+    @test count(o -> o.aten == "bmm.default", chain.ops) == 2
 end
 
 # The two runners on one graph. `scale` is an attribute here rather than a `mul`
