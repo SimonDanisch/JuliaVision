@@ -150,16 +150,10 @@ A graph that trips one of these is refused by name, which is right — what was
 wrong was having no way to know which they are without running a model that
 happens to hit one.
 
-  * `fused.groupedrms`, `fused.swiglu` — Kokoro and the Horizon decoder, whose
-    graphs also want the FFT pair and an LSTM, so they are blocked on more than
-    this.
-  * `fused.rope`, `fused.ropecache` — the rotary embedding, and `ropecache`
-    writes the KV cache in place, which is `index_put`'s territory.
   * `fused.maskedattention` — the prefill path, whose plan
     (`maskedprefill.jl`) has its own launch shape to split.
 """
-const FUSION_UNPORTED = ("fused.groupedrms", "fused.maskedattention",
-                         "fused.rope", "fused.ropecache", "fused.swiglu")
+const FUSION_UNPORTED = ("fused.maskedattention",)
 
 """
 Attributes a pass SETS on an existing op, and the emit that has to read each.

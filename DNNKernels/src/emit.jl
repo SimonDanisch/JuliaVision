@@ -56,7 +56,7 @@ struct EmitCtx{G,D}
 end
 
 """
-    emitgraph(dev, aten, weights, dims; keepall = false, skip = ())
+    emitgraph(dev, aten, weights, dims; keepall = false, skip = (), noise = RandomNoise())
 
 Declare `aten` into a fresh Mantle graph. Runs nothing.
 
@@ -74,7 +74,7 @@ skipped op's output buffer still exists — `declare!` made it — and the calle
 writes it before the run.
 """
 function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
-                   keepall::Bool = false, skip = ())
+                   keepall::Bool = false, skip = (), noise::NoiseSource = RandomNoise())
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
@@ -93,7 +93,17 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
         for op in aten.ops
             op.out in skip && continue
             emitctx.outid[] = op.out
-            emitop!(emitctx, op, op.tag)
+            if op.aten in ("rand.default", "randn.default", "rand_like.default",
+                           "randn_like.default")
+                # ZeroNoise is a deterministic fill. RandomNoise gets a small
+                # persistent device state whose advance dispatch is part of the
+                # recorded plan, so replay draws again instead of freezing the
+                # host values captured on the first run.
+                noise isa ZeroNoise ? emitfill!(emitctx, op, 0) :
+                    emitnoise!(emitctx, op, noise)
+            else
+                emitop!(emitctx, op, op.tag)
+            end
         end
     catch
         freeowned!(emitctx)
@@ -275,8 +285,9 @@ end
 
 Whether this op's result IS one of its inputs rather than a new value.
 
-Two shapes, both from `foldcacheupdate`, which rewrites a KV cache update once
-it has proved the cache slice is a view of a graph input nothing reads first:
+Three shapes. Two come from `foldcacheupdate`, which rewrites a KV cache update
+once it has proved the cache slice is a view of a graph input nothing reads
+first:
 
   * an `index_put` marked `inplace`, which writes THROUGH its `self`;
   * an `alias.default` OP, which is what the `cat` it folded becomes — the
@@ -285,9 +296,13 @@ it has proved the cache slice is a view of a graph input nothing reads first:
 `alias.default` is also a VIEW op (`SHAPEONLY_VIEWS`), and that is the same
 statement from the buffer side rather than a second rule: a view of a buffer and
 an op that returns its input both name bytes someone else owns.
+
+The third is `fused.ropecache`: its fused rotary transform writes through the
+cache operand and returns that same storage.
 """
 isaliasing(op::Op) =
     op.aten == "alias.default" ||
+    op.aten == "fused.ropecache" ||
     (op.aten == "index_put.default" &&
      get(op.attrs, "inplace", false) === true)
 
@@ -709,8 +724,12 @@ function viewstrides(emitctx::EmitCtx, b, ps::Dims, pst::Dims, od::Dims)
         return (bcstrides(od, ps), 0)
     elseif op == "slice.Tensor"
         jd = jdim(Int(b.attrs["arg1"]), n)
-        start = fromend(Int(get(b.attrs, "arg2", 0)), ps[jd], b.id, op)
-        step = Int(get(b.attrs, "arg4", 1))
+        # Optional torch arguments are represented as JSON `null`, not merely
+        # omitted.  `get` therefore can return `nothing`; apply the schema
+        # defaults in both cases, as the interpreted view path does.
+        start = fromend(Int(something(get(b.attrs, "arg2", nothing), 0)),
+                        ps[jd], b.id, op)
+        step = Int(something(get(b.attrs, "arg4", nothing), 1))
         return (ntuple(k -> k == jd ? pst[k] * step : pst[k], n), start * pst[jd])
     elseif op == "select.int"
         jd = jdim(Int(b.attrs["arg1"]), n)
@@ -980,6 +999,22 @@ that asked for it.
 """
 scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
     M.Transient.Buffer(emitctx.g, T, map(Int, dims))
+
+"""Declare a fresh uniform or normal draw that remains fresh under replay."""
+function emitnoise!(emitctx::EmitCtx, op::Op, noise::RandomNoise)
+    out = dest(emitctx)
+    # The state belongs to the recorded plan, just like its input/output
+    # buffers. It cannot be transient: a transient's bytes may alias another
+    # value between this op and the next replay.
+    state = M.Buffer(emitctx.dev, rand(noise.rng, UInt32, 1))
+    push!(emitctx.owned, state)
+    M.dispatch!(emitctx.g, rngadvance_kernel!, (state,), 1;
+                group = 1, name = "$(op.id)/advance")
+    normal = op.aten in ("randn.default", "randn_like.default")
+    M.dispatch!(emitctx.g, randomfill_kernel!, (out, state, Val(normal)), length(out);
+                name = op.id)
+    return out
+end
 
 """The fallback, so an unported op says which one it is rather than failing four
 frames down in `dispatch!`."""
@@ -1471,6 +1506,17 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("empty.memory_format")}) =
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("scalar_tensor.default")}) =
     emitfill!(emitctx, op, numattr(emitctx.dims, op.attrs["arg0"]))
 
+"""Torch remainder takes the divisor's sign (`mod`, not Julia's `rem`)."""
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("remainder.Scalar")}) =
+    elementwise!(emitctx, op,
+                 Base.Fix2(mod, numattr(emitctx.dims, op.attrs["arg1"])),
+                 operand(emitctx, op, 1))
+
+"""Complex phase, using the quadrant-correct two-argument arctangent."""
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("angle.default")}) =
+    elementwise!(emitctx, op, z -> atan(imag(z), real(z)),
+                 operand(emitctx, op, 1))
+
 """
 `aten::pow.Tensor_Scalar`, with the small integer exponents written out.
 
@@ -1540,6 +1586,79 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("repeat.default")})
     od = size(out)
     id = ntuple(k -> k <= ndims(a) ? size(a, k) : 1, length(od))
     M.dispatch!(emitctx.g, tilecopy!, (out, od, a, id), prod(od); name = op.id)
+    return out
+end
+
+"""Materialise torch's overlapping sliding-window view as one declared pass."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("unfold.default")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    d = jdim(Int(op.attrs["arg1"]), ndims(a))
+    sz = Int(op.attrs["arg2"])
+    step = Int(op.attrs["arg3"])
+    size(out, 1) == sz || error(
+        "DNNKernels: `unfold.default` (op $(op.id)) declares window $sz " *
+        "but its leading output extent is $(size(out, 1)).")
+    M.dispatch!(emitctx.g, unfoldcopy!,
+                (out, size(out), a, size(a), Val(d), Val(step)), length(out);
+                name = op.id)
+    return out
+end
+
+# ── FFT ──────────────────────────────────────────────────────────────────────
+
+"""Torch's FFT-normalisation enum as the scale fused into the final FFT pass."""
+function fftscale(mode::Integer, n::Integer)
+    mode == 0 && return 1f0
+    mode == 1 && return inv(sqrt(Float32(n)))
+    mode == 2 && return inv(Float32(n))
+    error("DNNKernels: unknown torch FFT normalization mode $mode")
+end
+
+"""Declare torch's contiguous-axis, one-sided real FFT through Mantle."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_fft_r2c.default")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    dims = ints(op.attrs["arg1"])
+    length(dims) == 1 || error(
+        "DNNKernels: `_fft_r2c.default` (op $(op.id)) supports one transform axis")
+    d = jdim(dims[1], ndims(a))
+    d == 1 || error(
+        "DNNKernels: `_fft_r2c.default` (op $(op.id)) requires the contiguous axis")
+    Bool(get(op.attrs, "arg3", true)) || error(
+        "DNNKernels: `_fft_r2c.default` (op $(op.id)) has no two-sided declared form")
+    N = size(a, 1)
+    iseven(N) || error(
+        "DNNKernels: `_fft_r2c.default` (op $(op.id)) requires an even length, got $N")
+    pdims = (N ÷ 2, Base.tail(size(a))...)
+    packed = scratch(emitctx, ComplexF32, pdims...)
+    spectrum = scratch(emitctx, ComplexF32, pdims...)
+    M.rfft_dispatch!(emitctx.g, out, a, packed, spectrum;
+                     scale = fftscale(Int(get(op.attrs, "arg2", 0)), N),
+                     name = op.id)
+    return out
+end
+
+"""Declare torch's inverse real FFT, including Hermitian extension."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_fft_c2r.default")})
+    a = operand(emitctx, op, 1)
+    out = dest(emitctx)
+    dims = ints(op.attrs["arg1"])
+    length(dims) == 1 || error(
+        "DNNKernels: `_fft_c2r.default` (op $(op.id)) supports one transform axis")
+    d = jdim(dims[1], ndims(a))
+    d == 1 || error(
+        "DNNKernels: `_fft_c2r.default` (op $(op.id)) requires the contiguous axis")
+    N = Int(op.attrs["arg3"])
+    size(out, 1) == N || error(
+        "DNNKernels: `_fft_c2r.default` (op $(op.id)) declares length $N " *
+        "but its output has leading extent $(size(out, 1))")
+    fdims = (N, Base.tail(size(a))...)
+    full = scratch(emitctx, ComplexF32, fdims...)
+    transformed = scratch(emitctx, ComplexF32, fdims...)
+    M.irfft_dispatch!(emitctx.g, out, a, full, transformed;
+                      scale = fftscale(Int(get(op.attrs, "arg2", 0)), N),
+                      name = op.id)
     return out
 end
 
@@ -2539,6 +2658,93 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_fused_rms_norm.default
 end
 
 """
+The grouped RMS norm produced by `fusegroupedrms`, as one declared dispatch.
+
+This is the recorded counterpart of the backend-independent `runop!` route in
+`ops.jl`: it declares the same KernelAbstractions kernel into Mantle's graph.
+There is deliberately no Lava- or ROCm-specific implementation here.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.groupedrms")})
+    a = operand(emitctx, op.ins[1])
+    γ = operand(emitctx, op.ins[2])
+    out = dest(emitctx)
+    C = Int(op.attrs["C"])
+    NG = Int(op.attrs["ng"])
+    ε = Float32(op.attrs["eps"])
+    C > 0 || error("DNNKernels: `fused.groupedrms` (op $(op.id)) has C=$C")
+    NG > 0 || error("DNNKernels: `fused.groupedrms` (op $(op.id)) has ng=$NG")
+    length(a) % C == 0 || error(
+        "DNNKernels: `fused.groupedrms` (op $(op.id)) groups $(length(a)) " *
+        "elements into groups of $C, which does not divide evenly.")
+    length(γ) == C * NG || error(
+        "DNNKernels: `fused.groupedrms` (op $(op.id)) needs $(C * NG) gain " *
+        "values for $NG groups of $C, but received $(length(γ)).")
+    groups = length(a) ÷ C
+    M.dispatch!(emitctx.g, groupedrms_kernel!,
+                (out, a, γ, Int32(C), Int32(NG), ε),
+                groups * LN_WG; group = LN_WG, name = op.id)
+    return out
+end
+
+"""The fused SwiGLU produced by `fuseswiglu`, as one declared dispatch."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
+    gate = operand(emitctx, op.ins[1])
+    up = operand(emitctx, op.ins[2])
+    out = dest(emitctx)
+    size(gate) == size(up) == size(out) || error(
+        "DNNKernels: `fused.swiglu` (op $(op.id)) needs equal gate, up and " *
+        "output shapes, got $(size(gate)), $(size(up)) and $(size(out)).")
+    M.dispatch!(emitctx.g, swiglu_kernel!,
+                (out, gate, up, Int64(length(gate))), length(gate);
+                name = op.id)
+    return out
+end
+
+"""The fused rotary embedding produced by `fuserope`, declared once for every backend."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
+    x = operand(emitctx, op.ins[1])
+    cs = operand(emitctx, op.ins[2])
+    sn = operand(emitctx, op.ins[3])
+    out = dest(emitctx)
+    H = size(x, 1)
+    iseven(H) || error(
+        "DNNKernels: `fused.rope` (op $(op.id)) needs an even head size, got $H.")
+    HT = H * size(x, 2)
+    length(cs) >= HT && length(sn) >= HT || error(
+        "DNNKernels: `fused.rope` (op $(op.id)) needs at least $HT cosine and " *
+        "sine values, got $(length(cs)) and $(length(sn)).")
+    M.dispatch!(emitctx.g, rope_kernel!,
+                (out, x, cs, sn, Int32(H), Int32(H ÷ 2), Int32(HT),
+                 Int64(length(x))), length(x); name = op.id)
+    return out
+end
+
+"""RoPE fused with its in-place KV-cache store, declared through Mantle."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.ropecache")})
+    x = operand(emitctx, op.ins[1])
+    cs = operand(emitctx, op.ins[2])
+    sn = operand(emitctx, op.ins[3])
+    cache = operand(emitctx, op.ins[4])
+    indices = operand(emitctx, op.ins[5])
+    H = size(x, 1)
+    iseven(H) || error(
+        "DNNKernels: `fused.ropecache` (op $(op.id)) needs an even head size, got $H.")
+    HT = H * size(x, 2)
+    length(cs) >= HT && length(sn) >= HT || error(
+        "DNNKernels: `fused.ropecache` (op $(op.id)) needs at least $HT cosine " *
+        "and sine values, got $(length(cs)) and $(length(sn)).")
+    length(indices) >= size(x, 2) || error(
+        "DNNKernels: `fused.ropecache` (op $(op.id)) needs one cache index per " *
+        "token, got $(length(indices)) for $(size(x, 2)) tokens.")
+    M.dispatch!(emitctx.g, rope_store_kernel!,
+                (cache, x, cs, sn, indices, Int32(H), Int32(H ÷ 2),
+                 Int32(HT), Val(ndims(x)), Val(size(x)), Int64(length(x))),
+                length(x); name = op.id)
+    emitctx.res[op.out] = cache
+    return cache
+end
+
+"""
     resultread(emitctx, i) -> Bool
 
 Does the GRAPH read element `i` of the op being emitted?
@@ -2738,17 +2944,12 @@ inside `execute!`. A recorded plan could not do it at all — a host read during
 recording sees a buffer that has not been written. Declared, the index is an
 ordinary read operand and `indexput_kernel!` does the arithmetic.
 
-Two shapes are refused rather than guessed:
-
-  * `inplace`, which `foldcacheupdate` sets once it has proved that `self` is a
-    view of a graph input nothing else reads first. The write then has to land in
-    THAT buffer and `op.out` has to be it — not a copy — and a declaration that
-    quietly copied instead would leave the caller's cache unwritten with the
-    right numbers everywhere this graph looks. `declare!` gives `op.out` storage
-    of its own, so making this work means teaching it that an in-place op
-    declares none; that is a change to the declaration rule, not to this emit.
-  * `accumulate`, and more than one index tensor: `runop!` reaches the host for
-    both — a loop for the non-fp32 accumulate, a `view` for advanced indexing.
+The declared route supports both replacement and fp32 atomic accumulation for
+one indexed axis. `inplace`, which `foldcacheupdate` sets only after proving the
+cache slice is a safe graph-input view, aliases `op.out` to that storage instead
+of declaring or copying a result. Advanced indexing with multiple index tensors
+is still refused: it needs a general device-side coordinate mapping rather than
+the host `view` used by `runop!`.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index_put.default")})
     a = operand(emitctx, op, 1)
@@ -2774,11 +2975,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index_put.default")})
     else
         dest(emitctx)
     end
-    Bool(something(get(op.attrs, "arg3", nothing), false)) && error(
-        "DNNKernels: `index_put` (op $(op.id)) accumulates. That is a " *
-        "scatter-ADD, which `runop!` does on the device only for fp32 " *
-        "(`scatteradd_kernel!`, through `OpAtomicFAdd`) and on the HOST " *
-        "otherwise — and a host loop is not something a plan can hold.")
+    accum = Bool(something(get(op.attrs, "arg3", nothing), false))
     # The index tensors, by Julia axis. torch lists them from the last dim.
     ids = Tuple{Int,Any}[]
     for (k, e) in enumerate(op.attrs["arg1"])
@@ -2807,6 +3004,23 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index_put.default")})
                     name = "$(op.id).self")
     end
     length(src) == 0 && return out
+    if accum
+        length(ids) == 1 || error(
+            "DNNKernels: `index_put` (op $(op.id)) accumulates with " *
+            "$(length(ids)) index tensors; only one-axis scatter-add is implemented.")
+        all(k -> k == d || size(a, k) == 1, 1:n) || error(
+            "DNNKernels: `index_put` (op $(op.id)) scatter-add requires singleton " *
+            "axes outside indexed dim $d, got $(size(a)).")
+        eltype(out) === Float32 || error(
+            "DNNKernels: `index_put` (op $(op.id)) scatter-add has dtype " *
+            "$(eltype(out)); the declared atomic form is fp32.")
+        M.dispatch!(emitctx.g, scatteradd_kernel!,
+                    (M.viewof(out, (length(out),)),
+                     M.viewof(src, (length(src),)),
+                     M.viewof(idx, (length(idx),)), Int32(length(src))),
+                    length(src); group = 256, name = op.id)
+        return out
+    end
     M.dispatch!(emitctx.g, indexput_kernel!,
                 (out, src, M.viewof(idx, (length(idx),)), Val(d), Val(n),
                  Val(size(src)), Int64(length(src))),
@@ -3223,12 +3437,59 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                          bias, epilogue = epi, name = op.id)
         return out
     end
+    if plan isa MMInt8Plan
+        Mm, K = size(A)
+        N = size(B, 2)
+        MG = size(A.q, 1)
+        if N == 1
+            # The packed W8A16 GEMV is backend-independent KernelAbstractions
+            # code.  Declare the same two passes as `q8gemv!`: Mantle owns the
+            # partial plane, its lifetime, and the barrier between reduction
+            # and store.  Nothing here depends on Lava or ROCm resource types.
+            if Q8SINGLE[]
+                RG = q8rowgroups(Mm, K)
+                kernel = Q8GEMV1_KERNELS[RG]
+                M.dispatch!(emitctx.g, kernel,
+                    (out, A.q, B, A.scale,
+                     bias === nothing ? A.scale : bias,
+                     Int32(MG), Int32(Mm), Int32(K), Val(bias !== nothing)),
+                    cld(MG, RG) * Q8WG; group = Q8WG, name = op.id)
+            else
+                MP = MG * Q8ROWS
+                S = q8split(Mm, K)
+                KC = cld(K, S)
+                parts = scratch(emitctx, Float32, MP, 1, S)
+                M.dispatch!(emitctx.g, q8gemv_kernel!,
+                    (parts, A.q, B, Int32(MG), Int32(MP), Int32(K),
+                     Int32(KC), Int32(MG * S)),
+                    MG * S; group = 256, name = "$(op.id).q8")
+                M.dispatch!(emitctx.g, q8reduce_kernel!,
+                    (out, parts, A.scale,
+                     bias === nothing ? A.scale : bias,
+                     Int32(Mm), Int32(MP), Int32(S), Val(bias !== nothing)),
+                    Mm; group = 256, name = "$(op.id).reduce")
+            end
+            epi === identity || ewdispatch!(emitctx, out, size(out), (out,),
+                (bcstrides(size(out), size(out)),), epi;
+                name = "$(op.id).act")
+            return out
+        end
+
+        # Prompt products reuse the ordinary fp16 planner after one declared
+        # unpack pass.  This is the portable fallback of the immediate path:
+        # backends with callable libraries reach their GEMM library, while
+        # command-buffer backends reach the cooperative-matrix declaration.
+        W = scratch(emitctx, Float16, Mm, K)
+        M.dispatch!(emitctx.g, q8dequant_kernel!,
+                    (W, A.q, A.scale, Int32(Mm), Int32(MG), Int64(MG) * K),
+                    MG * K; group = 256, name = "$(op.id).dequant")
+        return gemm!(emitctx, op, out, W, B; bias, epi)
+    end
     plan isa MMCoopMatPlan || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
         "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
-        "yet. `MMCoopMatPlan`, `MMGemvPlan` and `Decline` are ported; " *
-        "`MMInt8Plan` still launches immediately (`matmul!`) and a graph cannot " *
-        "hold that. Port the plan rather than widening this branch.")
+        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMInt8Plan` and `Decline` are " *
+        "ported. Port the plan rather than widening this branch.")
     Mm, K = size(A)
     N = size(B, 2)
     NP = plan.NP
@@ -3626,23 +3887,47 @@ gather meanwhile, which is slow and right.
 """
 function emitconvtranspose!(emitctx::EmitCtx, op::Op, x, w, bias, out,
                             stride, pad, dil, outpad, groups, act)
-    act === :none || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) is transposed and has a fused " *
-        "`$(act)`. Neither declared path has an epilogue to fold it into; the " *
-        "fusion pass should not have attached one.")
+    act in (:none, :relu) || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) is transposed and has the " *
+        "unsupported fused activation `$(act)`.")
+    if length(stride) == 1
+        # ConvTranspose1d is exactly the 2-D gather over a singleton spatial
+        # axis.  These are descriptor-only views, so this declares one portable
+        # kernel and does not duplicate either its arithmetic or a backend
+        # implementation.  The interpreted path performs the same lift.
+        x2 = M.viewof(x, (size(x, 1), 1, size(x, 2), size(x, 3)))
+        w2 = M.viewof(w, (size(w, 1), 1, size(w, 2), size(w, 3)))
+        out2 = M.viewof(out, (size(out, 1), 1, size(out, 2), size(out, 3)))
+        mapbody!(emitctx, op, convtranspose2d, out2, x2, w2, bias,
+                 Val(stride[1]), Val(1), Val(pad[1]), Val(0),
+                 Val(dil[1]), Val(1), Val(groups))
+        if act === :relu
+            od = size(out)
+            ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),),
+                        v -> max(v, zero(v)); name = "$(op.id).act")
+        end
+        return out
+    end
     length(stride) == 2 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is a $(length(stride))-D " *
-        "transposed convolution, and only the 2-D form is declared.")
+        "transposed convolution, and only the 1-D and 2-D forms are declared.")
 
     if shufflecase(w, stride, pad, dil, outpad, groups) && size(x, 4) == 1
-        return emitconvtransposeshuffle!(emitctx, op, x, w, bias, out, stride)
+        emitconvtransposeshuffle!(emitctx, op, x, w, bias, out, stride)
+    else
+        # `output_padding` needs no code here: it only chooses the output SIZE,
+        # and the gather computes each output position from whichever inputs
+        # reach it -- of which the padded positions have none.
+        mapbody!(emitctx, op, convtranspose2d, out, x, w, bias,
+                 Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
+                 Val(dil[1]), Val(dil[2]), Val(groups))
     end
-    # `output_padding` needs no code here: it only chooses the output SIZE, and
-    # the gather computes each output position from whichever inputs reach it --
-    # of which the padded positions have none.
-    return mapbody!(emitctx, op, convtranspose2d, out, x, w, bias,
-                    Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
-                    Val(dil[1]), Val(dil[2]), Val(groups))
+    if act === :relu
+        od = size(out)
+        ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),),
+                    v -> max(v, zero(v)); name = "$(op.id).act")
+    end
+    return out
 end
 
 """

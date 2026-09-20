@@ -109,7 +109,10 @@ that is deliberate.
 # removing the separate spatial permutation/cast pass.
 # "18": window attention may store columns in final spatial order so its output
 # projection preserves that order and the following contiguous clone disappears.
-const KERNELS_VERSION = "29"
+# "30": recorded noise adds counter/hash kernels, scatter-add now consumes
+# torch's zero-based indices directly, and declared unfold/FFT/fused-op paths
+# add or change kernels reachable from frozen model graphs.
+const KERNELS_VERSION = "30"
 
 include("assets.jl")
 include("safetensors.jl")

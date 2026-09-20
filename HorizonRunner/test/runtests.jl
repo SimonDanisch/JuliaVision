@@ -136,7 +136,7 @@ const TINY = get(ENV, "HORIZON_TINY_DIR",
                 bm = HorizonRunner.bucketmodel(m, "horizon32b_decode_bucket")
                 @test bm.weights === m.model.weights
                 @test length(bm.graphs) == 1
-                @test any(k -> k isa Tuple && !isempty(k) && first(k) === :mantleplan,
+                @test any(k -> k isa Tuple && !isempty(k) && first(k) === :plan,
                           keys(bm.scratch))
                 @test HorizonRunner.prefillbucket(m, 3) == 4
                 @test HorizonRunner.attentionbucket(m, 16) == 16

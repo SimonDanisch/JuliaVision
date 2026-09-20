@@ -53,6 +53,13 @@ Base.size(A::QInt8Matrix, i::Integer) = i == 1 ? A.m : size(A.q, i)
 Base.eltype(::QInt8Matrix) = Float16          # what it dequantises to
 Base.ndims(::QInt8Matrix) = 2
 
+# A quantised weight is a pair of resident arrays rather than an AbstractArray
+# itself. `residentweights` still passes every weight through `toback`, so carry
+# that operation through the wrapper. Each component uses `toback`'s ordinary
+# backend-kind check and is therefore unchanged when it already lives there.
+toback(backend, A::QInt8Matrix) =
+    QInt8Matrix(toback(backend, A.q), toback(backend, A.scale), A.m)
+
 # Rows per packed word. Fixed at four by `UInt32`; named so the arithmetic reads.
 const Q8ROWS = 4
 

@@ -138,26 +138,59 @@ end
     @test any(<(0), ah .+ bh)
 end
 
-@testset "host randomness has no declared form" begin
+# `fusegroupedrms` creates an op that never occurs in an exported graph. Its
+# immediate `runop!` existed, but the declared path fell through `emitop!`'s
+# unknown-op refusal, so recording Horizon failed before its first launch.
+# Exercise the actual Model -> emitgraph -> Mantle plan route and compare with
+# the definition, not with the immediate implementation that shares the kernel.
+@testset "grouped RMS norm is declared backend-independently" begin
+    DK = DNNKernels
+    backend = Mantle.LavaBackend()
+    C, NG, rows = 4, 3, 2
+    shape = Any[rows, NG, C]
+    buffers = Dict(
+        "x" => DK.Buffer("x", :external, shape, Float32, "", (0, 2), "", "",
+                         Dict{String,Any}()),
+        "gamma" => DK.Buffer("gamma", :weight, Any[C * NG], Float32, "gamma",
+                             (0, 2), "", "", Dict{String,Any}()),
+        "y" => DK.Buffer("y", :transient, shape, Float32, "", (0, 2), "", "",
+                         Dict{String,Any}()))
+    attrs = Dict{String,Any}("C" => C, "ng" => NG, "eps" => 1.0f-5)
+    op = DK.Op("grouped_rms", "fused.groupedrms", ["x", "gamma"], "y", attrs)
+    graph = DK.Graph("grouped_rms", String[], ["x"], ["y"], buffers,
+                     ["x", "gamma", "y"], [op])
+
+    xh = reshape(Float32[sin(i) for i in 1:(rows * NG * C)], C, NG, rows)
+    γh = Float32[0.5 + i / 20 for i in 1:(C * NG)]
+    model = DK.Model(Dict("grouped_rms" => graph), Dict{String,Any}("gamma" => γh),
+                     backend, 1, 1, 1)
+    got = Array(only(DK.call(model, "grouped_rms", DK.toback(backend, xh);
+                             dims = (;))))
+    want = similar(xh)
+    for row in 1:rows, group in 1:NG
+        v = @view xh[:, group, row]
+        gain = @view γh[(group - 1) * C + 1:group * C]
+        @views want[:, group, row] .= v .* gain ./
+            sqrt(sum(abs2, v) / C + 1.0f-5)
+    end
+    @test got ≈ want rtol=2f-6 atol=2f-6
+    @test count(v -> v isa DK.RecordedPlan, values(model.scratch)) == 1
+end
+
+@testset "recorded randomness advances on every replay" begin
     DK = DNNKernels
     back = Mantle.LavaBackend()
     b = DK.Buffer("y", :transient, Any[128], Float32, "", (0, 1), "", "", Dict{String,Any}())
     op = DK.Op("noise", "rand.default", String[], "y", Dict{String,Any}())
     g = DK.Graph("noise", String[], String[], ["y"], Dict("y"=>b), ["y"], [op])
     m = DK.Model(Dict("noise"=>g), Dict{String,Any}(), back, 1, 1, 1)
-    # A host draw cannot be replayed. Refused at record time, `ZeroNoise` is
-    # the way to ask for one: captured as a device fill.
-    # Declared, there is no capture and no escape hatch: `rand.default` has no
-    # `emitop!`, so the graph is refused whichever `NoiseSource` it was given.
-    # The declared form would be a device RNG, which is a kernel.
-    for noise in (DK.RandomNoise(), DK.ZeroNoise())
-        err = try
-            DK.call(m, "noise"; dims=(;), noise)
-            nothing
-        catch e
-            e
-        end
-        @test err !== nothing
-        @test occursin("rand.default", sprint(showerror, err))
-    end
+    # The counter advance is itself in the recorded command stream. A replay
+    # therefore draws again rather than returning the values captured while the
+    # plan was built.
+    a = Array(only(DK.call(m, "noise"; dims=(;), noise=DK.RandomNoise())))
+    c = Array(only(DK.call(m, "noise"; dims=(;), noise=DK.RandomNoise())))
+    @test a != c
+    @test all(x -> 0f0 < x <= 1f0, a)
+    got = only(DK.call(m, "noise"; dims=(;), noise=DK.ZeroNoise()))
+    @test all(iszero, Array(got))
 end

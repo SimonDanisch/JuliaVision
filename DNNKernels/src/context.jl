@@ -44,6 +44,7 @@ and cannot identify a HIP device, stream, pool or capability record.
 # own record into the portable one, so this stays right when a second backend
 # exists and wrong-by-construction if it did the conversion here.
 caps(d::M.Device) = M.caps(d)
+caps(b::KernelAbstractions.Backend) = caps(M.todevice(b))
 
 """
 Device facts for a backend that is not Lava's — the CPU verification path.
@@ -56,7 +57,7 @@ This method is DNNKernels' and not Lava's on purpose. Lava answers for devices i
 owns; what a *non*-Vulkan backend should pretend to be is a question about this
 library's verification path, and only this library can answer it.
 """
-caps(::Any) = M.DeviceCaps(false, 16, 1, 1, 48 * 1024, 1024, 0, 0)
+caps(::M.HostDevice) = M.DeviceCaps(false, 16, 1, 1, 48 * 1024, 1024, 0, 0)
 
 """
     NoiseSource
@@ -78,8 +79,10 @@ abstract type NoiseSource end
 """
     RandomNoise(rng = Random.default_rng())
 
-The real thing, and the default. Drawn on the **host** and uploaded: Lava has no
-device RNG yet, so this is the honest implementation rather than the fast one.
+The real thing, and the default. The immediate executor draws from `rng` on the
+host. A declared graph uses `rng` once to seed a persistent device counter, then
+advances and expands that counter inside every replay so randomness is not
+frozen into the recorded plan.
 """
 struct RandomNoise{R} <: NoiseSource
     rng::R
@@ -351,7 +354,7 @@ function Ctx(values, graph, dims, dev::M.Device;
              clampattn::Bool = false, flashcm2::Bool = true,
              noise::NoiseSource = RandomNoise())
     backend = M.backend(dev)
-    Ctx(values, graph, dims, backend, M.caps(dev), M.runscalls(dev),
+    Ctx(values, graph, dims, backend, caps(dev), M.runscalls(dev),
         clampattn, flashcm2, noise,
         slab, plan, outid, ws, lazy, rec, diag)
 end

@@ -199,7 +199,9 @@ const COND_DIM = 1024
 """
     conddir(), ditdir(), vaedir(), geodir() -> String
 
-Where each part's export lives — one artifact each.
+Where each part's graph export lives. The conditioner, VAE and geometry decoder
+also keep their weights beside the graph; the denoiser's weights are the four
+artifacts in [`DIT_SHARDS`](@ref).
 
 Four artifacts rather than one tree, because the parts carry different weights
 and run at wildly different rates: the conditioner once per generation, the
@@ -267,7 +269,8 @@ end
 """
     ready() -> Bool
 
-Whether all four parts are already in the artifact store.
+Whether all four graph parts and all four denoiser weight shards are already in
+the artifact store.
 
 Deliberately does NOT go through `@artifact_str`: that downloads, and this is
 what `@setup_workload` and the tests branch on — a guard that fetches 6.8 GB to

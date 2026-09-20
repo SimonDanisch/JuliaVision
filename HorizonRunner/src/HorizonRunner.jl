@@ -191,7 +191,7 @@ function bucketmodel(m::Horizon32B, name::String)
     get!(m.model.scratch, (:horizon_bucket_model, name)) do
         base = m.model
         Model(Dict(name => base.graphs[name]), base.weights, base.device,
-              base.memevery, base.memframes, base.topk; record=base.record,
+              base.memevery, base.memframes, base.topk;
               record_maxpasses=base.record_maxpasses)
     end
 end

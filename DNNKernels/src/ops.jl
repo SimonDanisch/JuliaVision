@@ -1567,11 +1567,11 @@ runop!(ctx::Ctx, op::Op, ::Val{Symbol("angle.default")}) =
 
 `rand`/`randn` generated on the host and uploaded.
 
-**Lava has no device RNG**, so this is the honest implementation rather than the
-fast one: Kokoro's `SineGen` wants `randn_like` over `(1, 58800, 9)` — about
-2 MB per call — plus a 9-element `rand` for the initial phase. A counter-based
-(Philox-style) device generator is the follow-up; until then this is correct,
-and correctness is what the vocoder's noise floor needs first.
+This is the immediate executor's host implementation. The declared executor
+uses a counter-derived device kernel instead, because recording these uploaded
+values would replay the same noise forever. Kokoro's `SineGen` wants
+`randn_like` over `(1, 58800, 9)` — about 2 MB per call — plus a 9-element
+`rand` for the initial phase.
 
 The values come from `ctx.noise` rather than from `Random` directly, so a parity
 run can substitute [`ZeroNoise`](@ref) and compare the deterministic path against
@@ -1662,7 +1662,8 @@ end
 """
     scatteradd_kernel!(dst, src, idx, n)
 
-`dst[idx[j]] += src[j]`, atomically, for every `j`.
+`dst[idx[j] + 1] += src[j]`, atomically, for every `j`; `idx` uses torch's
+zero-based convention.
 
 **The atomic is the whole point, not a precaution.** `idx` repeats — that is what
 distinguishes a scatter-add from a scatter — and on Kokoro's iSTFT overlap-add
@@ -1684,7 +1685,7 @@ it is one of the ops `torch.use_deterministic_algorithms` refuses — and
 @kernel function scatteradd_kernel!(dst, @Const(src), @Const(idx), n::Int32)
     j = @index(Global, Linear)
     @inbounds if j <= n
-        Atomix.@atomic dst[Int(idx[j])] += src[j]
+        Atomix.@atomic dst[Int(idx[j]) + 1] += src[j]
     end
 end
 
@@ -1772,13 +1773,13 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
         d = nz[1]
         all(k -> k == d || size(a, k) == 1, 1:n) ||
             error("index_put: accumulate needs singleton batch axes (op $(op.id))")
-        if eltype(dst) === Float32 && dst isa Mantle.LavaArray
-            # The `+1` and the Int32 narrowing are a broadcast on the DEVICE.
-            # `toback(ctx.backend, Int32.(collect(...)))` did the same arithmetic
-            # by downloading, converting on one core, and uploading again.
-            iv32 = Int32.(vec(raw[d])) .+ Int32(1)
+        if eltype(dst) === Float32
+            # The kernel consumes torch's zero-based index directly. It is a
+            # backend-independent KernelAbstractions kernel; whether the target
+            # lowers Atomix's fp32 add to its native atomic is the backend's job.
+            iv = vec(raw[d])
             m = length(src)
-            scatteradd_kernel!(ctx.backend)(vec(dst), vec(src), iv32, Int32(m);
+            scatteradd_kernel!(ctx.backend)(vec(dst), vec(src), iv, Int32(m);
                                             ndrange = m)
             return dst
         end

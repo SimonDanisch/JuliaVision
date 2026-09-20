@@ -466,10 +466,9 @@ immediate path.
     slab, the weights and the input buffers. `call` enforces the last of those by
     copying into the arrays it recorded against; the first two are fixed for the
     life of a `Model`.
-  * Host noise draws cannot be replayed. `rand.default` has no `emitop!` at all,
-    so a graph containing one is refused by name whichever `NoiseSource` it was
-    given; the declared form would be a device RNG, which is a kernel and not a
-    capture.
+  * Host noise draws cannot be replayed. `RandomNoise` therefore declares a
+    persistent counter advanced by the recorded device graph and expands it in
+    parallel; `ZeroNoise` is the separate deterministic device fill.
 
 Whisper exposed two recording defects: dtype conversions outside the capture
 scope, and missing submission tracking for captured dispatch buffers. Operation
@@ -588,10 +587,12 @@ with, which is why `call` copies into it rather than rebinding.
 planfor(m::Model, g::Graph, name::AbstractString, dims,
         clampattn::Bool, noise::NoiseSource) =
     planfor(m.device, g, m.weights, dims;
-            maxpasses = get(m.record_maxpasses, name, 0))
+            maxpasses = get(m.record_maxpasses, name, 0), noise)
 
-function planfor(dev, g::Graph, weights::AbstractDict, dims; maxpasses::Int = 0)
-    mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims)
+function planfor(dev, g::Graph, weights::AbstractDict, dims;
+                 maxpasses::Int = 0, noise::NoiseSource = RandomNoise())
+    mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims;
+                                    noise)
     plan = Mantle.Plan(mantlegraph)
     Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)

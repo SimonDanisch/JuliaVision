@@ -11,6 +11,42 @@ answered by GPUArrays allocating the result and, for a non-trivial `dims`, a
 mapreduce workspace as well. Neither is in any plan.
 """
 
+# A compact counter-derived generator for declared random ops. The persistent
+# state is advanced by a one-thread pass once per graph replay; every output
+# lane then hashes that replay key with its own index, so generating a large
+# tensor has no atomic counter bottleneck. This is statistical model noise, not
+# a cryptographic or cross-framework reproducibility API.
+@inline function rngmix32(x::UInt32)
+    x = xor(x, x >> 16)
+    x *= UInt32(0x7feb352d)
+    x = xor(x, x >> 15)
+    x *= UInt32(0x846ca68b)
+    return xor(x, x >> 16)
+end
+
+@kernel cpu=false function rngadvance_kernel!(state)
+    @inbounds state[1] += UInt32(0x9e3779b9)
+end
+
+@kernel cpu=false function randomfill_kernel!(out, @Const(state),
+                                               ::Val{NORMAL}) where {NORMAL}
+    i = @index(Global, Linear)
+    @inbounds begin
+        key = state[1]
+        x = rngmix32(xor(key, UInt32(i) * UInt32(0x85ebca6b)))
+        # Top 24 bits map exactly into Float32. Adding one keeps log's argument
+        # away from zero in the normal branch.
+        u = Float32((x >> 8) + UInt32(1)) * Float32(0x1p-24)
+        if NORMAL
+            y = rngmix32(xor(x, UInt32(0xc2b2ae35)))
+            v = Float32(y >> 8) * Float32(0x1p-24)
+            out[i] = convert(eltype(out), sqrt(-2f0 * log(u)) * cospi(2f0 * v))
+        else
+            out[i] = convert(eltype(out), u)
+        end
+    end
+end
+
 """
     rowbias!(out, bias, n, Val(rows))
 
@@ -50,6 +86,31 @@ function tilecopy!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}) where {N}
     @inbounds for k in 1:N
         off += ((r % od[k]) % id[k]) * ist[k]
         r = r ÷ od[k]
+    end
+    @inbounds out[i] = a[off + 1]
+    return
+end
+
+"""
+    unfoldcopy!(out, od, a, id, Val(d), Val(step))
+
+Materialise torch's sliding-window `unfold`. The appended torch window axis is
+the first Julia axis, and output coordinate `(k, ..., q_d, ...)` reads input
+coordinate `q_d * step + k` on the unfolded dimension.
+"""
+function unfoldcopy!(out, od::NTuple{NO,Int}, a, id::NTuple{N,Int},
+                     ::Val{D}, ::Val{STEP}) where {NO,N,D,STEP}
+    i = KI.get_global_id().x
+    i <= prod(od) || return
+    ist = colstrides(id)
+    r = i - 1
+    k = r % od[1]
+    r = r ÷ od[1]
+    off = 0
+    @inbounds for j in 1:N
+        q = r % od[j + 1]
+        r = r ÷ od[j + 1]
+        off += (j == D ? q * STEP + k : q) * ist[j]
     end
     @inbounds out[i] = a[off + 1]
     return

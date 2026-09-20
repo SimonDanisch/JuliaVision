@@ -30,6 +30,7 @@ suite for the shape.
 
 using Test, Hunyuan3DRunner, DNNKernels
 import Mantle
+import Artifacts
 const H = Hunyuan3DRunner
 
 @testset "Hunyuan3DRunner" begin
@@ -49,12 +50,21 @@ const H = Hunyuan3DRunner
         # downloads them on first use.
         if Hunyuan3DRunner.ready()
             for (d, f) in ((H.conddir(), "hunyuan3d_cond.json"),
-                           (H.ditdir(),  "hunyuan3d_dit.json"),
                            (H.vaedir(),  "hunyuan3d_vae.json"),
                            (H.geodir(),  "hunyuan3d_geo.json"))
                 @test isdir(d)
                 @test isfile(joinpath(d, f))
                 @test isfile(joinpath(d, "weights.safetensors"))
+            end
+            # The 5.7-GiB denoiser is intentionally different: its graph has a
+            # small artifact of its own and its weights are four release-sized
+            # shards, merged by `hunyuan3dweights`. Requiring a monolithic file
+            # beside the graph contradicts the loader and the artifact layout.
+            @test isfile(joinpath(H.ditdir(), "hunyuan3d_dit.json"))
+            for (artifact, file) in H.DIT_SHARDS
+                hash = Artifacts.artifact_hash(artifact, H.ARTIFACTS_TOML)
+                @test hash !== nothing
+                @test isfile(joinpath(Artifacts.artifact_path(hash), file))
             end
             # The four are distinct trees, which is the whole claim.
             @test length(unique([H.conddir(), H.ditdir(), H.vaedir(), H.geodir()])) == 4
