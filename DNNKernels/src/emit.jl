@@ -2319,6 +2319,19 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
     total == od[d] ||
         error("DNNKernels: `cat` (op $(op.id)) joins $(total) along axis $d and " *
               "its output holds $(od[d]).")
+    # The interleave, as one dispatch. See `interleave2!`: on the innermost
+    # axis the per-part block copy writes every other element, which is half of
+    # every cache line twice.
+    if d == 1 && n >= 1 && od[1] == 2 && length(parts) == 2 &&
+       all(p -> size(p, 1) == 1, parts) &&
+       length(parts[1]) == length(parts[2]) &&
+       length(out) == 2 * length(parts[1]) &&
+       eltype(out) === eltype(parts[1]) === eltype(parts[2])
+        M.dispatch!(emitctx.g, interleave2!,
+                    (out, parts[1], parts[2], length(parts[1])),
+                    length(parts[1]); name = "$(op.id).ilv")
+        return out
+    end
     off = 0
     for (j, p) in enumerate(parts)
         len = size(p, d)

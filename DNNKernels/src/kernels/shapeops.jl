@@ -359,6 +359,32 @@ function blockcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
 end
 
 """
+    interleave2!(out, a, b, n)
+
+Two parts joined along an axis that is INNERMOST in the output and unit in each
+part: `out[2i-1] = a[i]`, `out[2i] = b[i]`.
+
+`blockcopy!` writes one part per dispatch, and a part that owns one of the two
+innermost slots writes every other element: half of each cache line, and then
+the other half on the second dispatch. Qwen-Image 2.1's rotary embedding is
+exactly this cat -- `stack((-x2, x1), -1)` over `(1, 4118, 32, 64)` fp32, twice
+a layer -- and the four dispatches measured 12.6 ms of a 222 ms layer against
+the 2.2 ms the traffic itself costs.
+
+One thread writes both elements, so the store is a contiguous pair and the
+reads are two contiguous streams. Same linear indexing of the parts as
+`blockcopy!`, and the same requirement behind it: each part is read in its own
+order.
+"""
+function interleave2!(out, a, b, n::Int)
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[2i - 1] = a[i]
+    @inbounds out[2i] = b[i]
+    return
+end
+
+"""
     stridedcopy!(out, od, a, ast, off)
 
 `out[i] = a[off + Σ_k c_k * ast[k]]` where `c` is `i`'s coordinate in `od`.
