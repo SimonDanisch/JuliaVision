@@ -14,28 +14,34 @@ decodes to 7.26 GB of INT8 on the device and the Qwen3-VL-8B conditioner to
 another 6.9 GB, which do not fit at once. Each is released as soon as its output
 is in hand.
 
-Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 377.1 s total):
+Measured, 20 steps at 1024x1024 (`examples/generate.jl`):
 
 | stage | time |
 | --- | --- |
 | prompt encoding, including building the 36-layer encoder | 75.3 s |
 | denoiser build and record | 59.9 s |
-| 20 denoising steps | 200.9 s (10.0 s/step) |
+| 20 denoising steps | 169 s (8.43 s/step) |
 | VAE decode, including its build | 39.2 s |
 
-Where a denoising step goes, measured per kernel at this resolution and prompt
-length (4096 image tokens over 4118 joint positions):
+A denoising step was 12.5 s when the model first ran. Where the 8.43 s goes,
+per layer, at this resolution and prompt length (4096 image tokens over 4118
+joint positions):
 
-| | per step | rate |
+| | per layer | |
 | --- | --- | --- |
-| 128 packed INT8 products | 2.77 s | 20-25 TOP/s |
-| 32 joint attentions | 2.67 s | 3.3 TFLOP/s |
-| 128 ConvRot transforms | 0.16 s | at copy speed |
-| column padding for the products | ~0.5 s | |
-| elementwise, norms, and the rest | ~3.9 s | |
+| one joint attention | ~113 ms | 4.9 TFLOP/s, and 43% of the step |
+| the gate/up product | 47 ms | 20 TOP/s |
+| the QKV product | 44 ms | 21 TOP/s |
+| the output and down products | 18 ms | 24-25 TOP/s |
+| four ConvRot transforms | 5 ms | at copy speed |
+| elementwise, norms, padding | ~35 ms | |
 
-The attention is the next thing worth fixing: 4118 is a key length no tiling
-divides, and the padded (clamped) kernel costs 40% over the same shape at 4096.
+The attention is the next thing worth fixing and it needs kernel work, not
+tuning: its existing knobs are within 5% of each other at this shape. Two
+causes, separable. A head 128 wide leaves shared memory for nothing bigger than
+a 32x32 tile, which is why even an exact extent only reaches 4.9 TFLOP/s; and
+4118 is a key length no tiling divides, so the last block's bounds checks are
+compiled into every block — 40% over the same shape at 4096.
 
 ## What is where
 

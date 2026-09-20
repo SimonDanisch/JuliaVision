@@ -179,3 +179,24 @@ end
         @test_skip false
     end
 end
+
+# Which strided attention operands the kernel reads in place. Pure shape
+# arithmetic, so it needs no device.
+@testset "an interleaved attention operand is copied, a sliced one is not" begin
+    E, Lq, H = 128, 4096, 32
+    root = zeros(Float16, 1)
+    # `[B, H, L, E]`: the `(E, L)` plane is contiguous, which is the case the
+    # root-and-four-strides form exists for.
+    planar = DKA.StridedOperand(root, (E, Lq, H, 1), (1, E, E * Lq, E * Lq * H), 0)
+    @test DKA.flashplanar(planar)
+    # A slice of the tokens keeps that: same strides, fewer of them.
+    @test DKA.flashplanar(DKA.StridedOperand(root, (E, 2048, H, 1),
+                                             (1, E, E * Lq, E * Lq * H), E * 64))
+    # `[B, L, H, E]` permuted to `[B, H, L, E]` — a QKV projection's own layout.
+    # Consecutive tokens are `E * H` apart and every tile row is its own burst.
+    interleaved = DKA.StridedOperand(root, (E, Lq, H, 1), (1, E * H, E, E * H * Lq), 0)
+    @test !DKA.flashplanar(interleaved)
+    # An operand whose head dimension is not contiguous either.
+    @test !DKA.flashplanar(DKA.StridedOperand(root, (E, Lq, H, 1),
+                                              (2, 2E, 2E * Lq, 2E * Lq * H), 0))
+end

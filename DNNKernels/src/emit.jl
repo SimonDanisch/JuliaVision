@@ -3079,7 +3079,29 @@ operands dense.
 """
 function sdpaoperand(emitctx::EmitCtx, op::Op, pos::Int)
     s = strideview(emitctx, op, pos)
-    return s === nothing ? operand(emitctx, op, pos) : s
+    (s === nothing || !flashplanar(s)) && return operand(emitctx, op, pos)
+    return s
+end
+
+"""
+    flashplanar(s) -> Bool
+
+Whether a strided attention operand is one the kernel should read in place.
+
+Free where the view only picks a head, a batch or a range of tokens out of a
+larger tensor: the `(E, L)` plane the kernel walks is still contiguous, and
+`attn_flash_cm!` takes a root and four strides precisely so that costs nothing.
+
+Not free where the permute interleaves the heads with the tokens, which is what
+a QKV projection reshaped to `[B, L, H, E]` gives: consecutive tokens are then
+`E * H` apart, so every row of every tile is its own burst. Qwen-Image 2.1's
+joint attention measured **170 ms a layer read in place against 113 ms from a
+dense copy** of the same values — three copies cost 1.4 ms and the result is
+bit-identical.
+"""
+function flashplanar(s::StridedOperand)
+    length(s.dims) >= 2 || return false
+    s.strides[1] == 1 && s.strides[2] == s.dims[1]
 end
 
 """

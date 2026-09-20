@@ -1760,7 +1760,16 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
                                 Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
                                 Val(BR), Val(BC), Val(plan.E), Val(plan.EP), Val(NW),
-                                Val(rego), Val(held && !rego), Val(plan.clamp),
+                                Val(rego), Val(held && !rego),
+                                # Per AXIS, not per plan. A clamped plan is
+                                # taken because ONE extent does not divide its
+                                # tile, and the other one usually still does:
+                                # Qwen-Image 2.1 queries 4096 positions — which
+                                # every tile divides — over 4118 keys, which
+                                # none do. Compiling the query bounds check in
+                                # anyway put it in the load and all three store
+                                # loops for nothing, and those are the loops.
+                                Val(plan.clamp && Lq % BR != 0),
                                 # Padded queries do not require key checks when
                                 # the occupied-cache bucket divides BC exactly.
                                 Val(plan.clamp && Lk % BC != 0),
