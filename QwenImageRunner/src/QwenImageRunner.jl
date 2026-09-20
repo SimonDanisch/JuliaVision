@@ -27,6 +27,7 @@ import Mantle
 export QWEN_IMAGE_21, assetdir, ready, qwenimagegraph, qwenimageweights
 export QwenTransformer, qwenimagetransformer, denoise!
 export QwenVAEDecoder, qwenimagevae, decode!
+export generate!
 export packlatents, unpacklatents, image_sequence_length
 export calculate_shift, qwen_schedule, euler_step!
 
@@ -200,11 +201,7 @@ equivalent of Qwen-Image 2.1's `(B,C,H,W) -> (B,H*W,C)` transform.
 """
 function packlatents(x::AbstractArray{T,4}) where {T}
     w, h, c, b = size(x)
-    out = similar(x, T, c, w * h, b)
-    @inbounds for ib in 1:b, iy in 1:h, ix in 1:w, ic in 1:c
-        out[ic, (iy - 1) * w + ix, ib] = x[ix, iy, ic, ib]
-    end
-    out
+    permutedims(reshape(x, w * h, c, b), (2, 1, 3))
 end
 
 """Inverse of [`packlatents`](@ref), returning `(width,height,channels,batch)`."""
@@ -214,11 +211,7 @@ function unpacklatents(packed::AbstractArray{T,3}, width::Integer, height::Integ
     c, tokens, b = size(packed)
     tokens == width * height || throw(DimensionMismatch(
         "got $tokens tokens, expected $(width * height)"))
-    out = similar(packed, T, width, height, c, b)
-    @inbounds for ib in 1:b, iy in 1:height, ix in 1:width, ic in 1:c
-        out[ix, iy, ic, ib] = packed[ic, (iy - 1) * width + ix, ib]
-    end
-    out
+    reshape(permutedims(packed, (2, 1, 3)), width, height, c, b)
 end
 
 """Resolution-dependent shift used by the official FlowMatch scheduler."""
@@ -262,6 +255,43 @@ function euler_step!(sample, model_output, sigma::Real, sigma_next::Real)
         "sample and model output must have identical axes"))
     sample .+= convert(eltype(sample), sigma_next - sigma) .* model_output
     sample
+end
+
+"""
+    generate!(transformer, vae, latents, prompt_embeddings; width, height, steps=40)
+
+Run the diffusion loop from caller-supplied noise and precomputed Qwen3-VL
+prompt embeddings, then decode the result. `latents` is updated in place and
+has shape `(64, image_sequence_length(width,height), batch)`.
+
+Prompt encoding is intentionally outside this method: the compact Comfy-Org
+encoder is asymmetric W4A8+ConvRot and cannot be represented by the existing
+symmetric INT8 weight type without silently changing the model.
+"""
+function generate!(transformer::QwenTransformer, vae::QwenVAEDecoder,
+                   latents, prompt_embeddings;
+                   width::Integer, height::Integer, steps::Integer=40)
+    graph_channels = Int(last(transformer.graph.buffers["latents"].shape))
+    size(latents, 1) == graph_channels || throw(DimensionMismatch(
+        "latents have $(size(latents, 1)) channels, expected $graph_channels"))
+    expected_tokens = image_sequence_length(width, height)
+    size(latents, 2) == expected_tokens || throw(DimensionMismatch(
+        "latents have $(size(latents, 2)) tokens, expected $expected_tokens"))
+    size(latents, 3) == size(prompt_embeddings, 3) || throw(DimensionMismatch(
+        "latent and prompt batch sizes differ"))
+
+    schedule = qwen_schedule(width, height; steps)
+    timestep = similar(latents, eltype(latents), size(latents, 3))
+    for i in eachindex(schedule.timesteps)
+        fill!(timestep, convert(eltype(timestep), schedule.timesteps[i] / 1000f0))
+        prediction = denoise!(transformer, latents, prompt_embeddings, timestep)
+        euler_step!(latents, prediction, schedule.sigmas[i], schedule.sigmas[i + 1])
+    end
+
+    lw = width ÷ QWEN_IMAGE_21.vae_scale_factor
+    lh = height ÷ QWEN_IMAGE_21.vae_scale_factor
+    grid = unpacklatents(latents, lw, lh)
+    decode!(vae, reshape(grid, lw, lh, 1, size(grid, 3), size(grid, 4)))
 end
 
 end # module

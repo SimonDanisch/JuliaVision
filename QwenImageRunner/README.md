@@ -6,6 +6,10 @@ The host-side 2.1 pipeline contract is implemented: official architecture
 constants, unpatched stride-16 latent flattening, resolution-dependent FlowMatch scheduling, Euler
 updates, and separate transformer/text-encoder/VAE graph discovery.
 
+`qwenimagetransformer` and `qwenimagevae` prepare recorded GPU plans;
+`generate!` runs the scheduler, denoiser replays, and VAE decode from supplied
+noise and Qwen3-VL prompt embeddings.
+
 The end-to-end GPU port is in progress. The compact Comfy-Org files require two
 new weight paths before they are usable:
 
