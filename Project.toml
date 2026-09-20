@@ -32,6 +32,7 @@ KokoroRunner = "31480c1c-f298-4848-9ae9-978a73fb95d8"
 MatAnyoneRunner = "7c4d9e15-2b83-4f6a-a0d7-3e1b8f5c9a24"
 NeuralLUTRunner = "0f237b2a-cdac-4549-9dcd-ab780cc4b910"
 ProPainterRunner = "f30bad0e-6420-4ef0-ba68-abf723d394da"
+QwenImageRunner = "c9f7083c-8461-4622-afdd-95dfb5dadffd"
 RIFERunner = "091c3b0f-d4d3-44b9-a2bb-d2bc125c3573"
 SAM2Runner = "3f5b1e8a-9d42-4c7e-b16a-2c9d0e4f7a51"
 WhisperRunner = "6f1a5d52-5102-48dc-988e-ecb6f8c89f5e"
@@ -53,6 +54,7 @@ KokoroRunner = {path = "KokoroRunner"}
 MatAnyoneRunner = {path = "MatAnyoneRunner"}
 NeuralLUTRunner = {path = "NeuralLUTRunner"}
 ProPainterRunner = {path = "ProPainterRunner"}
+QwenImageRunner = {path = "QwenImageRunner"}
 RIFERunner = {path = "RIFERunner"}
 SAM2Runner = {path = "SAM2Runner"}
 WhisperRunner = {path = "WhisperRunner"}

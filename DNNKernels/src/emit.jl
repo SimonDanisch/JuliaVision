@@ -1286,6 +1286,7 @@ end
 # ── the ops ──────────────────────────────────────────────────────────────────
 
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx, op, *)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Scalar")}) = binary!(emitctx, op, *)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
 
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")})
