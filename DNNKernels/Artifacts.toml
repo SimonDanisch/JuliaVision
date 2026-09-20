@@ -1,4 +1,5 @@
-# The same bindings as SAM2Runner's and MatAnyoneRunner's, deliberately duplicated.
+# The graph fixtures used by DNNKernels' tests, deliberately bound here as well
+# as in their owning runners.
 #
 # Artifacts are content-addressed, so an identical `git-tree-sha1` in two
 # `Artifacts.toml` files resolves to ONE directory in `~/.julia/artifacts` — this
@@ -27,3 +28,10 @@ git-tree-sha1 = "495f67add8178497d11163d71e9d5929138b470b"
     [[sam2-large.download]]
     sha256 = "1bcd6b66cd1800317563379886633e5a68a50c7e7886a223acc757a252b8d243"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/sam2-large.tar.gz"
+
+[kokoro]
+git-tree-sha1 = "e72003e9926bfa5f1b1061c7f32803918d8090a8"
+
+    [[kokoro.download]]
+    sha256 = "fe2333483e6405b74aabaa8ae8d2767b8b630acfb6dbd9e57be9ba8e0ff3848e"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/kokoro.tar.gz"

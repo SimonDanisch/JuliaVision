@@ -30,8 +30,9 @@ checking against an explicit per-element loop rather than against either
 implementation.
 """
 
-using Test, DNNKernels, SAM2Runner, KokoroRunner
+using Test, DNNKernels
 const DK = DNNKernels
+isdefined(Main, :Fixtures) || include("fixtures.jl")
 
 """
 Torch's semantics, written out: broadcast the index tensors, then take one
@@ -106,17 +107,11 @@ end
     # costs no device: every shape it needs is declared in the graph.
     @testset "every index.Tensor in a shipped graph is handled" begin
         checked = 0
-        for (pkg, ready, graphs) in
-            (("SAM 2", SAM2Runner.ready(),
-              () -> [SAM2Runner.sam2graph(n) for n in ("sam2_encoder", "sam2_decoder")]),
-             ("Kokoro", KokoroRunner.ready(),
-              () -> [DK.loadgraph(joinpath(KokoroRunner.assetdir(), "$n.json"))
-                     for n in ("kokorotext", "kokorovoc")]))
-            if !ready
-                @info "$pkg's artifact is not installed; skipping"
-                @test_skip ready
-                continue
-            end
+        for (pkg, graphs) in
+            (("SAM 2", () -> [Fixtures.sam2(n)
+                                for n in ("sam2_encoder", "sam2_decoder")]),
+             ("Kokoro", () -> [Fixtures.kokoro(n)
+                                 for n in ("kokorotext", "kokorovoc")]))
             for g in graphs(), op in g.ops
                 op.aten == "index.Tensor" || continue
                 x = g.buffers[op.ins[1]]

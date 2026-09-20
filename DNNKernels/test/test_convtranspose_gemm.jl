@@ -28,8 +28,7 @@ what the emits route on, so a wrong answer from one of them sends a real graph
 down the wrong path.
 """
 
-using Test, DNNKernels, Lava, KernelAbstractions
-using Mantle: LavaBackend
+using Test, DNNKernels, KernelAbstractions
 import Mantle
 const KA = KernelAbstractions
 const DK = DNNKernels
@@ -80,8 +79,8 @@ function transposedplan(dev, route::Symbol, x, w, bias, od, stride)
 end
 
 @testset "transposed convolution via GEMM" begin
-    back = LavaBackend()
-    dev = MC.Device(back)
+    dev = MC.Device()
+    back = MC.backend(dev)
 
     @testset "agrees with the gather" begin
         # The decoder's two shapes, plus small ones whose channel counts are not
@@ -188,8 +187,8 @@ function onebyoneref(x, w, bias, act::Symbol)
 end
 
 @testset "a 1x1 convolution is declared as a GEMM" begin
-    back = LavaBackend()
-    dev = MC.Device(back)
+    dev = MC.Device()
+    back = MC.backend(dev)
     # `N = 2` is here for the per-plane loop: `(W, H, Cout, N)` puts the batch
     # outermost, so one reshape over all of it would interleave the planes.
     #
@@ -206,7 +205,10 @@ end
         got, kernels = onebyoneplan(dev, hx, hw, hb, (Wi, Wi, Cout, N); act)
         ref = onebyoneref(hx, hw, hb, act)
         @test !any(==("conv2d_igemm_ki!"), kernels)
-        @test any(k -> occursin("coopmat_gemm", k), kernels)
+        # Vulkan lowers this to its cooperative-matrix GEMM; Metal records the
+        # native simdgroup GEMM.  The contract here is the GEMM route, not one
+        # backend's kernel name.
+        @test any(k -> occursin("gemm", k), kernels)
         @test maximum(abs, Float32.(got) .- ref) / maximum(abs, ref) < 5e-3
         act === :relu && @test minimum(Float32.(got)) >= 0f0
         GC.gc()
@@ -214,7 +216,7 @@ end
 end
 
 @testset "the convolution routing predicates" begin
-    back = LavaBackend()
+    back = MC.backend(MC.Device())
 
     @testset "only the 1x1 case is taken" begin
         w11 = KA.allocate(back, Float16, 1, 1, 8, 8)
@@ -231,6 +233,11 @@ end
     end
 
     @testset "the reduction-axis pad is refused when the waste is large" begin
+        if !isdefined(MC, :LavaBackend)
+            # This policy belongs to the Vulkan cooperative-matrix lowering.
+            # Metal's 1x1 path above uses its native simdgroup GEMM directly.
+            @test_skip isdefined(MC, :LavaBackend)
+        else
         # `CRS = Cin*KH*KW` is the weight's own extent. A concatenated scalar
         # channel gives MatAnyone `Cin = 17`, which would round to 32 and pay 88%
         # waste to reach the tensor cores; `crspad` is where that line sits.
@@ -254,6 +261,7 @@ end
         @test DK.conv_coopmat_plan(dev, o2, x2, w2; crspad = 1.0).reason ===
               :crswaste
         x = w = o = w2 = x2 = o2 = nothing; GC.gc()
+        end
     end
 
     @testset "the overlapping transposed decomposition, as a predicate" begin

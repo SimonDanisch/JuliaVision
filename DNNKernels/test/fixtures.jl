@@ -4,7 +4,7 @@ Graphs for the pass tests, from this package's own artifact bindings.
 `foldoutcasts`, `constfold`, `plan` and `diagnostics` test **DNNKernels**, and a
 test belongs with its subject — but each needs a real exported graph, because a
 synthetic one does not exercise a fold or a plan the way a 400-op encoder does.
-Five test files were importing `SAM2Runner`/`MatAnyoneRunner` to get one, which
+Test files were importing runner packages to get one, which
 made the kernel library's suite unrunnable without a model package installed.
 
 `DNNKernels/Artifacts.toml` binds the same two artifacts the runners bind. They
@@ -24,6 +24,9 @@ matanyone(n::AbstractString) = loadgraph(joinpath(artifact"matanyone", "graphs",
 
 "SAM 2's `sam2_encoder` or `sam2_decoder`."
 sam2(n::AbstractString) = loadgraph(joinpath(artifact"sam2-large", "$n.json"))
+
+"Kokoro's `kokorotext` or `kokorovoc`."
+kokoro(n::AbstractString) = loadgraph(joinpath(artifact"kokoro", "$n.json"))
 
 """
 Graph names present in the artifact, so a test can skip precisely rather than

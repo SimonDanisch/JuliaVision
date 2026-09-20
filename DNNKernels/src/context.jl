@@ -125,7 +125,12 @@ The `VkContext` a backend runs on. Kept for the paths that need the context
 itself rather than what it can do; prefer [`caps`](@ref) for the latter.
 """
 vkcontext(::Any) = nothing
-vkcontext(b::Mantle.LavaBackend) = Mantle.vk_context(b)
+@static if !Sys.isapple()
+    vkcontext(b::Mantle.LavaBackend) = Mantle.vk_context(b)
+    islavaarray(x) = x isa Mantle.LavaArray
+else
+    islavaarray(x) = false
+end
 
 """
     Diagnostics(; optimes, opdouble, opdoublefilter, planmisses, launches)

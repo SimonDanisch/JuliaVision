@@ -16,7 +16,7 @@
 function maskedprefill_applicable(ctx,q,k,v,mask)
     ctx.dev.coopmat && ctx.dev.coopmatsubgroup == 32 && ctx.dev.tile == 16 || return false
     ctx.dev.workgrouplimit >= 256 && ctx.dev.sharedbudget >= 21504 || return false
-    mask isa Mantle.LavaArray{Float16,4} || return false
+    islavaarray(mask) && eltype(mask) === Float16 && ndims(mask) == 4 || return false
     all(a->eltype(a)===Float16,(q,k,v,mask)) || return false
     e,nq,h,b=size(q); nk=size(k,2)
     e==128 && b==1 && nq>=2048 && nq%128==0 && 128<=nk<=1024 && nk%128==0 || return false

@@ -94,7 +94,9 @@ SAM 2's image for a model that never runs on the CPU.
 The fallback stays abstract, so a backend without a method still works.
 """
 arraytype(backend, ::Type{T}, ::Val{N}) where {T,N} = AbstractArray{T,N}
-arraytype(::Mantle.LavaBackend, ::Type{T}, ::Val{N}) where {T,N} = Mantle.LavaArray{T,N}
+@static if !Sys.isapple()
+    arraytype(::Mantle.LavaBackend, ::Type{T}, ::Val{N}) where {T,N} = Mantle.LavaArray{T,N}
+end
 
 function recycle!(r::Recycler, backend, ::Type{T}, dims::Dims{N}) where {T,N}
     A = arraytype(backend, T, Val(N))

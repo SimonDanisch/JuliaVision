@@ -489,7 +489,7 @@ for a model run and not for the dispatch count.
     # settles this without building the view — the views are not free at this
     # call rate.
     if ctx.dev.coopmat && eltype(A) === Float16 && eltype(B) === Float16 &&
-       A isa Mantle.LavaArray && B isa Mantle.LavaArray &&
+       islavaarray(A) && islavaarray(B) &&
        size(A, 1) % t == 0 && size(A, 2) % t == 0
         return true
     end
@@ -550,7 +550,7 @@ bmmpad(n::Int) = cld(n, BMM_PADSTEP) * BMM_PADSTEP
 """Would padding this plane's `M`/`N` onto a block buy a real kernel?"""
 @inline function bmmpad_worth(ctx, out, A, B)
     eltype(out) === Float16 && eltype(A) === Float16 && eltype(B) === Float16 || return false
-    A isa Mantle.LavaArray && B isa Mantle.LavaArray && out isa Mantle.LavaArray || return false
+    islavaarray(A) && islavaarray(B) && islavaarray(out) || return false
     M, N = size(out, 1), size(out, 2)
     Mp, Np = bmmpad(M), bmmpad(N)
     # **`M` is the gate, not `M` or `N`.** The pad is not free — the operands have

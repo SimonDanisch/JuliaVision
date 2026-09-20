@@ -71,13 +71,7 @@ const VRAM_CEILING = 1951        # 1756 MB PyTorch / 0.9
 
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
 backend = if mode == "gpu"
-    # `Mantle.LavaBackend`, not `Lava.LavaBackend`: the backend object belongs to
-    # Mantle with the rest of the placement/recording API, and `using Lava`
-    # leaves `LavaBackend` undefined.
-    # `Lava` itself is still imported at the top — the coopmat2 A/B below reads
-    # `Lava.caps()`, and scoping that import inside this branch is what made it
-    # fail there instead of here.
-    Mantle.LavaBackend()
+    Mantle.defaultbackend()
 else
     KA.CPU()
 end

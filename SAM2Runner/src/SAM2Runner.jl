@@ -114,8 +114,9 @@ function sam2model(; backend = nothing, device = nothing, res::Int = 1024, kw...
     backend !== nothing && device !== nothing &&
         throw(ArgumentError("pass either `device` or `backend`, not both"))
     target = device === nothing ?
-             (backend === nothing ? Mantle.LavaBackend() : backend) : device
-    return SAM2(sam2graphs(), sam2weights(); device = Mantle.todevice(target), res, kw...)
+             (backend === nothing ? Mantle.Device() : Mantle.todevice(backend)) :
+             Mantle.todevice(device)
+    return SAM2(sam2graphs(), sam2weights(); device = target, res, kw...)
 end
 
 # ── What callers outside this package may ask for ────────────────────────────
@@ -314,20 +315,22 @@ convenience form useless for the thing it is for.
 const DEFAULT_MODEL = Ref{Any}(nothing)
 
 """
-    defaultmodel(; backend = Mantle.LavaBackend()) -> SAM2
+    defaultmodel(; backend = nothing, device = nothing) -> SAM2
 
 The shared model, built on first call. Throws with the path it looked in when
 the weights are not installed, rather than returning `nothing` for the caller to
 trip over later.
 """
-function defaultmodel(; backend = Mantle.LavaBackend())
+function defaultmodel(; backend = nothing, device = nothing)
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
     m = DEFAULT_MODEL[]
     m === nothing || return m::SAM2
     dir = assetdir()
     isfile(joinpath(dir, "weights.safetensors")) || throw(ArgumentError(
         "SAM 2.1 weights not found at $dir. Set JULIA_SAM2_ASSETS, or generate " *
         "them with `uv run tools/export_sam2.py && uv run tools/convert_weights.py`."))
-    m = sam2model(; backend)
+    m = sam2model(; backend, device)
     DEFAULT_MODEL[] = m
     return m
 end
@@ -364,8 +367,8 @@ after that is the network.
 """
 function segment(image::AbstractMatrix, points::AbstractVector;
                             key = nothing, model::Union{Nothing,SAM2} = nothing,
-                            pick = :confident, backend = Mantle.LavaBackend())
-    m = model === nothing ? defaultmodel(; backend) : model
+                            pick = :confident, backend = nothing, device = nothing)
+    m = model === nothing ? defaultmodel(; backend, device) : model
     seg = get!(SEGMENTERS, (objectid(m), pick)) do
         sam2segmenter(m; pick)
     end
@@ -454,7 +457,8 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
+    isdefined(Mantle, :use_frozen_kernels) &&
+        Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -478,7 +482,11 @@ end
             isfile(joinpath(dir, "sam2_encoder.json"))
     if ready
         try
-            backend = Mantle.LavaBackend()
+            # During package-image construction dependency `__init__` methods
+            # have not registered their probes yet. `Device()` is Mantle's
+            # platform-selected device and therefore works both there and at
+            # runtime without naming Vulkan or Metal.
+            backend = Mantle.backend(Mantle.Device())
             res = 1024
 
             # The frame type the editor actually hands a segmenter, and the

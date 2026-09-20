@@ -27,7 +27,8 @@ both ends.
 """
 
 """Round up to the cooperative-matrix tile."""
-padtile(n::Int) = cld(n, Mantle.GEMM_TILE) * Mantle.GEMM_TILE
+const VULKAN_GEMM_TILE = 16
+padtile(n::Int) = cld(n, VULKAN_GEMM_TILE) * VULKAN_GEMM_TILE
 
 """
 `K` rounded to the staged kernel's `bk`, which is what a TILING needs — the
@@ -40,7 +41,7 @@ register-blocked kernel although M and N are both fine. Same mistake `GEMM_BLOCK
 exists to fix one axis over — "padtile pads to the cooperative-matrix tile, 16,
 and that is not enough" was true of K as well.
 """
-const GEMM_BK = lcm(Mantle.gemm_bk.(Mantle.GEMM_TILINGS)...)
+const GEMM_BK = 32
 padbk(n::Int) = cld(n, GEMM_BK) * GEMM_BK
 
 """
@@ -85,7 +86,7 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     # context, which answers yes whenever Lava is loaded, so without this the CPU
     # verification run took this path and handed host `Array`s to the SPIR-V
     # compiler.
-    x isa Mantle.LavaArray && w isa Mantle.LavaArray || return Decline(:host)
+    islavaarray(x) && islavaarray(w) || return Decline(:host)
     return conv_coopmat_plan(dev, eltype(x), eltype(w), size(out), size(w);
                              crspad, im2colcap)
 end
@@ -228,7 +229,7 @@ function im2colbudget(x)
     # the same reason `coopmat_gemm!` uses `get_backend(C)`: an unpinned backend
     # resolves through the global context, so on a second device the budget read
     # would describe the wrong GPU.
-    ctx = x isa Mantle.LavaArray ? Mantle.vk_context(x) : nothing
+    ctx = islavaarray(x) ? Mantle.vk_context(x) : nothing
     ctx === nothing && return IM2COL_CAP[]
     free = 0
     for h in Mantle.probe_device_memory_budget(ctx)
@@ -263,7 +264,7 @@ not shape.
 At most 191 extra rows against thousands, and the im2col kernel already zero-fills
 past `NPQ`, so the padding costs a fraction of a percent and needs no new code.
 """
-const GEMM_BLOCK = lcm(Mantle.gemm_bm.(Mantle.GEMM_TILINGS)...)
+const GEMM_BLOCK = 192
 
 "Round `n` up to a multiple of [`GEMM_BLOCK`](@ref)."
 @inline padgemm(n::Integer) = cld(n, GEMM_BLOCK) * GEMM_BLOCK

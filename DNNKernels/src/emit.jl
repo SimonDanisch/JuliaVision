@@ -55,6 +55,26 @@ struct EmitCtx{G,D}
     owned::Vector{Any}
 end
 
+# Host scalar attributes are commonly decoded as Float64, while some GPU
+# targets (Metal in particular) have no Float64 instructions.  Lower only those
+# literal values that become kernel constants; buffers keep their declared
+# dtype and still fail clearly if a graph genuinely asks for a Float64 tensor.
+kernelnumber(ctx::EmitCtx, x::Float64) =
+    KI.supports_float64(M.backend(ctx.dev)) ? x : Float32(x)
+kernelnumber(::EmitCtx, x) = x
+
+kernelcallable(ctx::EmitCtx, f::Base.Fix1) =
+    Base.Fix1(f.f, kernelnumber(ctx, f.x))
+kernelcallable(ctx::EmitCtx, f::Base.Fix2) =
+    Base.Fix2(f.f, kernelnumber(ctx, f.x))
+kernelcallable(::EmitCtx, f) = f
+kernelcallable(ctx::EmitCtx, r::Rounded{T}) where {T} =
+    Rounded(T, kernelcallable(ctx, r.f))
+kernelcallable(ctx::EmitCtx, k::Konst) = Konst(kernelnumber(ctx, k.v))
+kernelcallable(ctx::EmitCtx, xs::Tuple) = map(x -> kernelcallable(ctx, x), xs)
+kernelcallable(ctx::EmitCtx, f::FusedOp) =
+    FusedOp(kernelcallable(ctx, f.funcs), kernelcallable(ctx, f.args))
+
 """
     emitgraph(dev, aten, weights, dims; keepall = false, skip = (), noise = RandomNoise())
 
@@ -1277,8 +1297,10 @@ function binary!(emitctx::EmitCtx, op::Op, f0)
         end
     end
     isresource(a) && isresource(b) && return elementwise!(emitctx, op, f, a, b)
-    isresource(a) && return elementwise!(emitctx, op, Base.Fix2(f, b), a)
-    isresource(b) && return elementwise!(emitctx, op, Base.Fix1(f, a), b)
+    isresource(a) && return elementwise!(emitctx, op,
+        Base.Fix2(f, kernelnumber(emitctx, b)), a)
+    isresource(b) && return elementwise!(emitctx, op,
+        Base.Fix1(f, kernelnumber(emitctx, a)), b)
     error("DNNKernels: `$(op.aten)` (op $(op.id)) has a host scalar on both " *
           "sides, so it is a constant and `constfold` should have removed it.")
 end
@@ -1535,7 +1557,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("pow.Tensor_Scalar")})
         n == -1 && return elementwise!(emitctx, op, inv, a)
         return elementwise!(emitctx, op, x -> intpow(x, n), a)
     end
-    return elementwise!(emitctx, op, Base.Fix2(^, e), a)
+    return elementwise!(emitctx, op, Base.Fix2(^, kernelnumber(emitctx, e)), a)
 end
 
 """
@@ -1568,7 +1590,8 @@ the function barrier that keeps the per-element call static -- it comes out of a
 per element.
 """
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.elementwise")}) =
-    elementwise!(emitctx, op, op.attrs["fused"], map(i -> operand(emitctx, i), op.ins)...)
+    elementwise!(emitctx, op, kernelcallable(emitctx, op.attrs["fused"]),
+                 map(i -> operand(emitctx, i), op.ins)...)
 
 # ── repeat, and a reduction ──────────────────────────────────────────────────
 
@@ -3189,6 +3212,7 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     scale = sc !== nothing ? Float64(sc) :
             defaultscale !== nothing ? Float64(defaultscale) :
             inv(sqrt(size(q, 1)))
+    scale = kernelnumber(emitctx, scale)
     caps = M.caps(emitctx.dev)
     E, Lq, H, B = size(q)
     want = (size(v, 1), Lq, H, B)
@@ -3200,6 +3224,18 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
           length(dst) == prod(want) ? M.viewof(dst, want) :
           error("DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(dst)) " *
                 "result where its operands give $(want).")
+    # Metal exposes 8x8 SIMD-group matrices through its native GEMM kernel, but
+    # the fused attention kernels below encode the Vulkan/Lava cooperative
+    # matrix layout (16x16 today).  Use the fully declared three-pass attention
+    # until the Metal-specific flash kernel is split into recordable launches.
+    if M.native_gemm_available(emitctx.dev, eltype(q), eltype(k), Float32)
+        threepass!(emitctx, op, out,
+                   q isa StridedOperand ? operand(emitctx, op, 1) : q,
+                   k isa StridedOperand ? operand(emitctx, op, 2) : k,
+                   v isa StridedOperand ? operand(emitctx, op, 3) : v,
+                   bias, scale)
+        return sdparesults(emitctx, dst)
+    end
     outperm = sdpaoutputpermute(emitctx, op)
     cm2 = flashcm2_plan(caps, q, k, v, bias)
     cm2 isa Decline || error(
@@ -3353,6 +3389,27 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     lib = M.librarygemm(dev, out, A, B, bias, epi)
     if lib !== nothing
         M.dispatch!(emitctx.g, lib, (out, A, B, bias); name = op.id)
+        return out
+    end
+    # Command-buffer backends cannot bake a host library call, but may expose a
+    # native device GEMM whose dispatch is recordable.  Metal uses its tuned
+    # SIMD-group matrix kernel here, with bias and activation kept as declared
+    # follow-up passes when they cannot be folded into that kernel.
+    if M.native_gemm_dispatch!(dev, emitctx.g, out, A, B; name = op.id)
+        od = size(out)
+        if bias !== nothing
+            if biasfoldable(bias, size(out, 1))
+                M.dispatch!(emitctx.g, rowbias!,
+                            (out, bias, length(out), Val(size(out, 1))),
+                            length(out); name = "$(op.id).bias")
+            else
+                ewdispatch!(emitctx, out, od, (out, bias),
+                    (bcstrides(od, od), bcstrides(od, size(bias))), +;
+                    name = "$(op.id).bias")
+            end
+        end
+        epi === identity || ewdispatch!(emitctx, out, od, (out,),
+            (bcstrides(od, od),), epi; name = "$(op.id).act")
         return out
     end
     # `Core.Typeof` of the OPERAND, not `devicetype`: what the plan asks is
@@ -3652,6 +3709,20 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
                          (0, 0)), CRS * Cout; name = "$(op.id).wpad")
             wp
         end
+    # A backend-native matrix kernel can consume the same im2col matrices.  On
+    # Metal this is the recordable SIMD-group GEMM, accumulating directly into
+    # fp32, so there is no Vulkan split-K layout to construct or reduce.
+    if M.native_gemm_available(emitctx.dev, eltype(col), eltype(B), Float32)
+        Cnative = scratch(emitctx, Float32, MP, Cout)
+        M.native_gemm_dispatch!(emitctx.dev, emitctx.g, Cnative, col, B;
+                                name = "$(op.id).gemm") || error(
+            "native GEMM capability changed while declaring $(op.id)")
+        M.dispatch!(emitctx.g, conv_epilogue_kernel!,
+                    (out, Cnative, bias, Val(MP), Val(act), Val(1),
+                     OW * OH, Cout, length(out), MP * Cout), length(out);
+                    name = "$(op.id).epilogue")
+        return out
+    end
     blk_split = M.coopmat_gemm_shape(MP, Cout, CRSP)
     splitk = blk_split[2]
     C = scratch(emitctx, Float32, MP, Cout, max(splitk, 1))
@@ -3764,11 +3835,13 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     # same product and is right for any `N`. Every graph here has `N = 1`.
     if onebyone(w, stride, pad, dil, groups)
         pix = OW * OH
-        cm = mmplan(caps, M.ResourceView{T,2,typeof(out)},
+        native = M.native_gemm_available(emitctx.dev, eltype(x), eltype(w), T)
+        cm = native ? nothing :
+             mmplan(caps, M.ResourceView{T,2,typeof(out)},
                     M.ResourceView{eltype(x),2,typeof(x)},
                     M.ResourceView{eltype(w),2,typeof(w)},
                     (pix, Cout), (pix, Cin), (Cin, Cout), false)
-        if cm isa MMCoopMatPlan
+        if native || cm isa MMCoopMatPlan
             wm = M.viewof(w, (Cin, Cout))
             for n in 1:N
                 gemm!(emitctx, op,

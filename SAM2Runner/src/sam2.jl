@@ -168,16 +168,11 @@ Horizon 32B is validated on.
 function handover(s::SAM2)
     h = s.plans[]
     h === nothing || return h
-    # The question is whether this backend's device RECORDS, and Mantle has a
-    # verb for it. Spelled `isa Mantle.LavaBackend` until 2026-09-14, which named
-    # the one backend that did at the time: the decoder verifies bit-exact
-    # against PyTorch on ROCm (`ok=true`, 0 mismatches) and its device answers
-    # `recordsplans` with `true`, but `handover` refused it and the whole
-    # `runsam2` path was unreachable there.
-    Mantle.recordsplans(s.model.device) || error(
-        "SAM2 replays its graphs as recorded Mantle plans, and " *
-        "$(typeof(s.model.backend))'s device answers `Mantle.recordsplans` " *
-        "with false, so there is nothing to replay. Use a backend that records.")
+    # Whether an individual plan can be recorded is decided by `record!` when
+    # that plan is built. `recordsplans(device)` has a narrower meaning: whether
+    # `run!` must reject a recordable plan that has not been recorded. Metal
+    # records eligible compute plans while answering false because it can also
+    # walk plans it declines (for example plans containing draws).
     dec_g = s.model.graphs["sam2_decoder"]
     feat = ntuple(3) do i
         b = dec_g.buffers[dec_g.inputs[i]]

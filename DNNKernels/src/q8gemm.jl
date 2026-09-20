@@ -160,7 +160,7 @@ to the dequantise-and-reuse path: wrong operand types, no cooperative matrix, an
 extent the tiles cannot divide, or a tile this device has no room for."""
 function q8gemm_tiling(dev, A, B, C)
     dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16 || return nothing
-    B isa Mantle.LavaArray{Float16,2} && C isa Mantle.LavaArray || return nothing
+    islavaarray(B) && eltype(B) === Float16 && ndims(B) == 2 && islavaarray(C) || return nothing
     eltype(C) in (Float16,Float32) || return nothing
     m,k = size(A); n = size(B,2)
     m%64 == 0 && k%32 == 0 && n%16 == 0 || return nothing
