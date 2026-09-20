@@ -1,10 +1,6 @@
 """
-The fused attention kernel: correct where it claims to be, and refusing the
-shapes where it is not.
-
-It is not on the `sdpa` path — it measured slower (see the file's docstring) —
-so this exists to keep it honest for whoever picks the optimisation back up. A
-kernel that is wrong and unused is worse than no kernel: it looks available.
+The fused attention kernel: correct where it claims to be, refusing the shapes
+where it is not, and recordable through the declared `sdpa` path.
 """
 
 using Test, DNNKernels, Lava, KernelAbstractions
@@ -129,6 +125,39 @@ end
         o = KA.allocate(back, Float32, E,L,H,B)
         @test !DNNKernels.sdpaflash!(o, q, k, v, 0.1f0; backend = back)
         q = k = v = o = nothing; GC.gc()
+    end
+
+    @testset "scalar flash is a recordable declared pass" begin
+        E, L, H, B = 72, 128, 2, 1
+        qh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
+        kh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
+        vh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
+        q = Mantle.Buffer(dev, qh)
+        k = Mantle.Buffer(dev, kh)
+        v = Mantle.Buffer(dev, vh)
+        out = Mantle.Buffer(dev, Float16, (E,L,H,B))
+        graph = Mantle.Graph(dev)
+        op = DNNKernels.Op("flash", "fused.sdpa", String[], "flash",
+                           Dict{String,Any}())
+        emitctx = DNNKernels.EmitCtx(
+            DNNKernels.Graph("flash", String[], String[], String[],
+                             Dict{String,DNNKernels.Buffer}(), String[],
+                             DNNKernels.Op[], Vector{Vector{String}}()),
+            graph, dev, NamedTuple(), Dict{String,Any}("flash" => out),
+            Set{String}(), Ref("flash"), Any[])
+        scale = Float32(inv(sqrt(E)))
+        @test DNNKernels.scalarflash_dispatch!(emitctx, op, out, q, k, v,
+                                                nothing, scale)
+        @test length(graph.passes) == 1
+        plan = Mantle.Plan(graph)
+        Mantle.record!(plan)
+        Mantle.run!(plan)
+        Mantle.waitidle(dev)
+        got = Array(Mantle.storage(out))
+        ref = attnref(Float32.(qh), Float32.(kh), Float32.(vh), scale)
+        @test maximum(abs, Float32.(got) .- ref) < 2e-3
+        Mantle.free!(plan)
+        q = k = v = out = nothing; GC.gc()
     end
 
     # ── the cooperative-matrix form, which IS on the `sdpa` path ─────────────

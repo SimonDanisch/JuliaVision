@@ -3224,16 +3224,16 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
           length(dst) == prod(want) ? M.viewof(dst, want) :
           error("DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(dst)) " *
                 "result where its operands give $(want).")
-    # Metal exposes 8x8 SIMD-group matrices through its native GEMM kernel, but
-    # the fused attention kernels below encode the Vulkan/Lava cooperative
-    # matrix layout (16x16 today).  Use the fully declared three-pass attention
-    # until the Metal-specific flash kernel is split into recordable launches.
+    # A backend with recordable native GEMM can always use `threepass!`.  Try the
+    # portable scalar flash kernel first when its shared-memory launch fits: it
+    # avoids materialising the Lq-by-Lk score tensor without encoding a vendor
+    # matrix layout.  Cooperative-matrix backends keep their tuned path below.
     if M.native_gemm_available(emitctx.dev, eltype(q), eltype(k), Float32)
-        threepass!(emitctx, op, out,
-                   q isa StridedOperand ? operand(emitctx, op, 1) : q,
-                   k isa StridedOperand ? operand(emitctx, op, 2) : k,
-                   v isa StridedOperand ? operand(emitctx, op, 3) : v,
-                   bias, scale)
+        qd = q isa StridedOperand ? operand(emitctx, op, 1) : q
+        kd = k isa StridedOperand ? operand(emitctx, op, 2) : k
+        vd = v isa StridedOperand ? operand(emitctx, op, 3) : v
+        scalarflash_dispatch!(emitctx, op, out, qd, kd, vd, bias, scale) ||
+            threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
         return sdparesults(emitctx, dst)
     end
     outperm = sdpaoutputpermute(emitctx, op)
@@ -3295,6 +3295,38 @@ export gave this op a `"#0"` result at all.
 sdparesults(emitctx::EmitCtx, dst) =
     maybedest(emitctx, 0) === nothing ? dst :
     (dst, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
+
+"""
+    scalarflash_dispatch!(emitctx, op, out, q, k, v, bias, scale) -> Bool
+
+Declare the portable scalar flash-attention kernel when its exact launch fits
+the device.  The 32x32, 128-thread tile uses 31,128 bytes at SAM 2's E=72, so it
+fits a 32 KiB device while eliminating the 268 MiB global-attention score tensor.
+Selection depends only on `DeviceCaps` and operand shape; backends need no
+attention-specific hook.
+
+The kernel currently has no bias input, and its vector loads require Float16
+Q/K/V.  Return false for those cases so the caller can use `threepass!`.
+"""
+function scalarflash_dispatch!(emitctx::EmitCtx, op::Op, out, q, k, v,
+                               bias, scale)
+    bias === nothing || return false
+    eltype(q) === Float16 && eltype(k) === Float16 &&
+        eltype(v) === Float16 || return false
+    (eltype(out) === Float16 || eltype(out) === Float32) || return false
+    E, Lq, H, B = size(q)
+    Lk = size(k, 2)
+    size(v, 1) == E || return false
+    BQ, BK, NT = 32, 32, 128
+    Lq % BQ == 0 && Lk % BK == 0 || return false
+    flashfits(E, BQ, BK, NT, M.caps(emitctx.dev).sharedbudget) || return false
+    nd = (NT * div(Lq, BQ), H, B)
+    M.dispatch!(emitctx.g, attn_flash!,
+                (out, q, k, v, Float32(scale), Val(BQ), Val(BK), Val(E),
+                 Val(NT), Int32(Lk)), nd;
+                group = (NT, 1, 1), name = op.id)
+    return true
+end
 
 """
 The three-pass path: always available and always right.
