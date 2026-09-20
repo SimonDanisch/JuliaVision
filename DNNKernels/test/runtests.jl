@@ -112,6 +112,7 @@ include(joinpath(@__DIR__, "test_bonsai_primitives.jl"))
 include(joinpath(@__DIR__, "test_masked_flash.jl"))
 include(joinpath(@__DIR__, "test_safesoftmax_attention.jl"))
 include(joinpath(@__DIR__, "test_convrot_q8.jl"))
+include(joinpath(@__DIR__, "test_w8a8.jl"))
 include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # This file existed and was never listed here, so its assertions had never run —
 # including the one its own docstring calls "the whole test". It covers the tiled

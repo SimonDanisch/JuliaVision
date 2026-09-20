@@ -24,57 +24,60 @@ multiplies on the fp16 units. At Qwen-Image's shapes it reaches **20.8 TOP/s**,
 which is 85% of the 24.4 fp16 ceiling. There is nothing left in that direction:
 the kernel is close to what fp16 can do on this device.
 
-## What a W8A8 kernel gets today
+## What a W8A8 kernel gets, finished
 
-Three prototypes, same shapes (`12288 x 4096 x 4224` and friends), all exact
-against an integer reference:
+`DNNKernels/src/w8a8.jl`, measured at `12288 x 4096 x 4224`:
 
 | | rate |
 | --- | --- |
 | byte-at-a-time staging, 64x64 tile | 15.4 TOP/s |
 | byte-at-a-time staging, 128x64 tile | 15.6 TOP/s |
-| packed 32-bit global loads, byte LDS stores, 128x64 | 17.3 TOP/s |
-| 4-wide int8 vector LDS, 128x64 | 19.8 TOP/s |
-| 4-wide int8 vector LDS, 128x128 | **22.4 TOP/s** |
+| packed 32-bit global loads, byte LDS stores | 17.3 TOP/s |
+| 4-wide int8 vector LDS | 19.8 TOP/s |
+| 128x128 tile | 22.4 TOP/s |
+| double buffered, int32 stored raw | 27.6 TOP/s |
+| ... with the scale epilogue | 23.1 TOP/s |
+| **A read straight from global, B staged, scale epilogue** | **28.6 TOP/s** |
 
-So a straightforward int8 kernel lands at parity with the fp16-tile one — 30%
-of the int8 ceiling — and every improvement so far has been to STAGING, not to
-the arithmetic. That is the shape of the problem: fp16 math is slow enough to
-hide the staging behind it, and int8 math at 3x is not.
+1.38x the fp16-tile path, 38% of the int8 ceiling. Two things account for the
+rest: the epilogue (27.6 -> 22.4 measured with the scales dropped, so it is the
+per-component `getcomp`/`setcomp` and not the scales), and B's staging.
 
-Getting from 22 to something near 74 needs what `q8gemm` and `Mantle`'s fp16
-GEMM already have and these prototypes do not:
+Two findings worth keeping:
 
-* double buffering, so a block's staging overlaps the previous block's math
-  (both barriers per k-block are currently exposed),
-* wider staging per thread, and a k-block deep enough to amortise the two
-  barriers,
-* a tile sweep of the kind `q8gemm_tile` records, at the shapes that matter.
+* **A needs no staging and no repacking.** A weight tile is `(M, K)`
+  column-major, which is exactly a `MatrixA` load; and `convrotqint8`'s four
+  rows to a `UInt32` word ARE int8 `(M, K)` bytes. Staging A in shared memory
+  instead costs 28.6 -> 23.1.
+* **Guarding the double buffer is a wrong answer, not a slow one.** Writing
+  `if kb + 1 < nb` around the prefetch and the store puts the two barriers at
+  non-uniform control flow, and the result is correct for one, two and three k
+  blocks and wrong from the fourth. Clamping the index instead is correct and
+  faster.
+
+## Why it is not on the path
+
+Accuracy, not speed. Against an fp32 reference of the same dequantised weight
+at `1024 x 4096 x 256`:
+
+| activation | fp16 activation | int8 activation |
+| --- | --- | --- |
+| Gaussian | 0.036% rms | 0.87% rms |
+| 1% outliers at 8 sigma | 0.036% rms | 3.5% rms |
+
+12% of a step for 24x to 97x the error, on a path already more accurate than
+the reference implementation. The kernel is in the tree with tests
+(`test_w8a8.jl`) so the next person does not have to write it again to ask the
+question; what would change the answer is a finer activation quantisation —
+per-group scales along k, as the encoder's own W4A8 weights use — not a faster
+kernel.
 
 ## What is already in place
 
 * **Lava emits signed 8-bit cooperative matrices** (`dev/Lava`, "Signed 8-bit
   cooperative matrices"). The component type is signless, like every other
   integer the emitter makes, and `OpCooperativeMatrixMulAddKHR` carries the
-  signedness in its operands word. A 16x16x16 int8 product is exact, and so is
-  a 12288x4096x4224 one. Before that fix an int8 matrix over a shared array
-  failed SPIR-V validation.
-* **The weights are already packed the way such a kernel wants them.**
-  `convrotqint8` stores four output rows to a `UInt32` word, which is exactly a
-  4-wide int8 vector for the A tile.
-
-## What is not
-
-* **Activation quantisation.** W8A8 means the activation is int8 too, with a
-  per-token scale, which is what Comfy's checkpoint expects — ConvRot exists to
-  make that accurate. Nothing in DNNKernels quantises an activation yet: it
-  needs a pass after the ConvRot transform and a scale that reaches the GEMM's
-  epilogue, where the product becomes `acc * w_scale[m] * a_scale[n]`.
-* **The accuracy question.** Every number above is exactness against an integer
-  reference, which says the kernel computes the product it claims. Whether the
-  MODEL survives int8 activations is a separate measurement against the fp16
-  activation path and, past that, against the reference implementation.
-
-The prototypes are in `tmp/w8a8_probe.jl` on the machine they were measured on;
-they are scratch, not a package path, and the numbers above are what they were
-for.
+  signedness in its operands word. Before that fix an int8 matrix over a shared
+  array failed SPIR-V validation.
+* **The quantiser**, `w8a8quantize`: a workgroup per activation column, its own
+  scale, packed four to a word along k, padding columns quantised to zero.
