@@ -53,6 +53,13 @@ struct EmitCtx{G,D}
     # weights and host scalars, and
     # the emit knows what it allocated.
     owned::Vector{Any}
+    # Destinations declared WIDER than the buffer they stand for: the packed
+    # int8 GEMM runs at a padded column count, and columns `1..N` of an
+    # `Mm x NP` buffer are its first `Mm*N` elements, so the op's result is a
+    # dense view of one of these rather than a copy out of it. Keyed by the
+    # buffer id, filled by `declare!`, read by `gemm!` — which needs the padded
+    # extent, while everything downstream reads `res` and sees the real one.
+    padded::Dict{String,Any}
 end
 
 """
@@ -78,8 +85,12 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
-    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[])
+    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[],
+                      Dict{String,Any}())
     shapes = resultshapes(aten)
+    # Which op makes each buffer, so `declare!` can ask what is about to be
+    # emitted into one. Built once here rather than scanned per buffer.
+    producers = Dict{String,Op}(op.out => op for op in aten.ops)
     # A REFUSAL must not leak what it had already allocated. `declare!` gives
     # every escaping buffer storage before the first op is emitted, so an op
     # without an `emitop!` -- the refusal this path exists to give -- throws with
@@ -88,7 +99,7 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     # answer, and only the cleanup is added.
     try
         for id in aten.order
-            declare!(emitctx, aten.buffers[id], weights, live, shapes)
+            declare!(emitctx, aten.buffers[id], weights, live, shapes, producers)
         end
         for op in aten.ops
             op.out in skip && continue
@@ -197,7 +208,8 @@ The kinds are the export's, and the decision each one makes is Mantle's:
     may hand to something else at its last use.
 """
 function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict,
-                  live::Set{String}, shapes::Dict{String,Any})
+                  live::Set{String}, shapes::Dict{String,Any},
+                  producers::AbstractDict = Dict{String,Op}())
     b.kind === :view && return                      # `viewfor`, on demand
     if b.kind === :weight
         haskey(weights, b.key) || error("missing weight $(b.key)")
@@ -223,7 +235,53 @@ function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict,
         return
     end
     b.id in live || return
-    emitctx.res[b.id] = make(emitctx, b.id, b.dtype, evalshape(b.shape, emitctx.dims))
+    dims = evalshape(b.shape, emitctx.dims)
+    np = paddedcolumns(emitctx, b, dims, weights, producers)
+    if np !== nothing
+        # The wide one is what the GEMM writes; `res` is the view every reader
+        # sees. Both are this buffer — the padding is arithmetic nobody asked
+        # for, not a second value.
+        wide = make(emitctx, b.id, b.dtype, (dims[1], np))
+        emitctx.padded[b.id] = wide
+        emitctx.res[b.id] = M.viewof(wide, dims)
+        return
+    end
+    emitctx.res[b.id] = make(emitctx, b.id, b.dtype, dims)
+end
+
+"""
+    paddedcolumns(emitctx, b, dims, weights, producers) -> np | nothing
+
+The column count to declare `b` at when the op that writes it is a packed int8
+product whose own column count is padded — see `q8gemm_columns`.
+
+Declaring it wide is what turns the discard of those columns into a rename. The
+alternative is a copy of the real columns into a second buffer, which at
+Qwen-Image 2.1's widest product is 202 MB read and written per layer.
+
+`nothing` for everything else, and deliberately for a buffer that ESCAPES: an
+output's storage is the caller's, handed back by `planfor`, and handing back a
+view of something wider is a different promise than the one the graph makes.
+"""
+function paddedcolumns(emitctx::EmitCtx, b::Buffer, dims::Dims,
+                       weights::AbstractDict, producers::AbstractDict)
+    length(dims) == 2 || return nothing
+    (b.id in emitctx.esc || b.id in emitctx.aten.outputs) && return nothing
+    op = get(producers, b.id, nothing)
+    op === nothing && return nothing
+    op.aten in ("mm.default", "addmm.default") || return nothing
+    # `mm(a, b)` is `b * a` reversed, so the MATRIX operand is the last input.
+    # Read from the weight table and not from `res`: declarations run in the
+    # graph's order and the weight need not have been declared yet.
+    wb = get(emitctx.aten.buffers, last(op.ins), nothing)
+    (wb === nothing || wb.kind !== :weight) && return nothing
+    w = get(weights, wb.key, nothing)
+    (w isa QInt8Matrix || w isa ConvRotQInt8Matrix) || return nothing
+    Mm, K = size(w)
+    Mm == dims[1] || return nothing
+    np = q8gemm_columns(dims[2])
+    np == dims[2] && return nothing
+    q8gemm_tiling(M.caps(emitctx.dev), b.dtype, Mm, K, np) === nothing ? nothing : np
 end
 
 """
@@ -3541,7 +3599,11 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                 M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
                             name = "$(op.id).padB")
             end
-            dst = NP == N ? out : scratch(emitctx, eltype(out), Mm, NP)
+            # `declare!` may already have made the destination wide, in which
+            # case `out` is a view of it and there is nothing to discard.
+            declared = get(emitctx.padded, op.out, nothing)
+            dst = NP == N ? out : (declared === nothing ?
+                                   scratch(emitctx, eltype(out), Mm, NP) : declared)
             M.dispatch!(emitctx.g, Q8_GEMM_KERNELS[tiling],
                         (dst, A.q, A.scale, Bp, nothing, epi,
                          Val(Mm), Val(NP), Val(K)),
@@ -3557,7 +3619,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             # no pass to give it an interval, which `Mantle.Liveness` refuses by
             # name. The fix is for `declare!` to make the padded buffer in the
             # first place, which means it has to know the tiling.
-            if NP != N
+            if NP != N && declared === nothing
                 od = size(out)
                 ewdispatch!(emitctx, out, od, (M.viewof(dst, od),),
                             (bcstrides(od, od),), identity; name = "$(op.id).unpad")

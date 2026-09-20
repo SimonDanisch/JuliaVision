@@ -20,7 +20,7 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | --- | --- |
 | prompt encoding, including building the 36-layer encoder | 74.1 s |
 | denoiser build and record | 56.5 s |
-| 20 denoising steps | 142.4 s (7.12 s/step) |
+| 20 denoising steps | 138 s (6.89 s/step) |
 | VAE decode, including its build | 40.2 s |
 
 A denoising step was 12.5 s when the model first ran. Where the rest went:
@@ -32,6 +32,7 @@ A denoising step was 12.5 s when the model first ran. Where the rest went:
 | ConvRot in two register passes instead of four | 9.8 |
 | attention operands copied rather than read interleaved | 8.4 |
 | a 64-row attention tile, which a 128-wide head has room for | 7.1 |
+| the padded product's destination declared padded, so nothing discards it | 6.9 |
 
 What remains, per layer: one joint attention ~63 ms, the gate/up product 47 ms,
 the QKV product 44 ms, the output and down products 18 ms, four ConvRot

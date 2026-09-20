@@ -94,6 +94,26 @@ const DKA = DNNKernels
         want2 = Float32.(Array(out))
         @test size(got) == (M, N)
         @test maximum(abs, got .- want2) <= 0.02maximum(abs, want2)
+
+        # The same product feeding something else, so its destination is
+        # INTERNAL. `declare!` then builds that destination at the padded width
+        # and the op's result is a view of it — no pass discards the padding,
+        # which at Qwen-Image's widest product is 202 MB read and written.
+        buffers2 = Dict(b.id => b for b in (buf("x", (N, K); kind = :external),
+                                            buf("w", (M, K); kind = :weight),
+                                            buf("y", (N, M)),
+                                            buf("z", (N, M))))
+        ops2 = [DKA.Op("y", "mm.default", ["x", "w"], "y", Dict{String,Any}()),
+                DKA.Op("z", "clamp.default", ["y"], "z",
+                       Dict{String,Any}("arg1" => -1000, "arg2" => 1000))]
+        g2 = DKA.Graph("q8chain", String[], ["x"], ["z"], buffers2,
+                       collect(keys(buffers2)), ops2)
+        plan2 = DNNKernels.planfor(Mantle.todevice(backend), g2,
+                                   Dict{String,Any}("w" => A), (;))
+        chained = Float32.(Array(first(DNNKernels.replay!(plan2, "q8chain", (B,)))))
+        @test count(p -> occursin("unpad", String(p.pass.name)), plan2.plan.passes) == 0
+        @test maximum(abs, chained .- clamp.(want2, -1000, 1000)) <= 0.02maximum(abs, want2)
+        Mantle.free!(plan2.plan)
     else
         @test_skip false
     end
