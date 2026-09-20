@@ -3541,14 +3541,22 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                 M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
                             name = "$(op.id).padB")
             end
-            # Columns 1..N of an `Mm x NP` buffer are its first `Mm*N` elements,
-            # so the discard is a linear copy — the same argument the fp16 path
-            # below makes for its own padding.
             dst = NP == N ? out : scratch(emitctx, eltype(out), Mm, NP)
             M.dispatch!(emitctx.g, Q8_GEMM_KERNELS[tiling],
                         (dst, A.q, A.scale, Bp, nothing, epi,
                          Val(Mm), Val(NP), Val(K)),
                         (Mm ÷ bm) * (NP ÷ bn) * wg; group = wg, name = op.id)
+            # Columns 1..N of an `Mm x NP` buffer ARE its first `Mm * N`
+            # elements, so this is a linear copy rather than a gather — the same
+            # argument the fp16 path below makes for its own padding.
+            #
+            # It should be a RENAME and is not: at Qwen-Image 2.1's widest
+            # product it reads and writes 202 MB for nothing, 10 ms a layer over
+            # the four products. Registering `res[op.out]` as a view of `dst`
+            # works and then leaves the destination `declare!` already made with
+            # no pass to give it an interval, which `Mantle.Liveness` refuses by
+            # name. The fix is for `declare!` to make the padded buffer in the
+            # first place, which means it has to know the tiling.
             if NP != N
                 od = size(out)
                 ewdispatch!(emitctx, out, od, (M.viewof(dst, od),),
