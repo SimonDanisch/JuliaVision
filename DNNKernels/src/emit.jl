@@ -3392,9 +3392,9 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         return out
     end
     # Command-buffer backends cannot bake a host library call, but may expose a
-    # native device GEMM whose dispatch is recordable.  Metal uses its tuned
-    # SIMD-group matrix kernel here, with bias and activation kept as declared
-    # follow-up passes when they cannot be folded into that kernel.
+    # native device GEMM whose dispatch is recordable.  Metal chooses its
+    # fastest recordable matrix kernel here, with bias and activation kept as
+    # declared follow-up passes when they cannot be folded into that kernel.
     if M.native_gemm_dispatch!(dev, emitctx.g, out, A, B; name = op.id)
         od = size(out)
         if bias !== nothing
