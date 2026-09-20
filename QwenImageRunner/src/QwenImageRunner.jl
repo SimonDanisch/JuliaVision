@@ -237,7 +237,11 @@ function qwen_schedule(width::Integer, height::Integer; steps::Integer=40)
     steps > 0 || throw(ArgumentError("steps must be positive"))
     n = image_sequence_length(width, height)
     mu = calculate_shift(n)
-    raw = collect(range(1f0, 1f-3; length=steps))
+    # The pipeline supplies `linspace(1, 1/steps, steps)` to the scheduler.
+    # `1e-3` is the scheduler's default when no explicit sigmas are supplied,
+    # but Qwen does supply them; confusing the two substantially changes every
+    # late denoising step.
+    raw = collect(range(1f0, inv(Float32(steps)); length=steps))
     emu = exp(mu)
     shifted = @. emu / (emu + (inv(raw) - 1f0))
 

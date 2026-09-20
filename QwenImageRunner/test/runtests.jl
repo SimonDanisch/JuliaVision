@@ -31,6 +31,8 @@ end
     @test s.sigmas[end] == 0f0
     @test all(diff(s.sigmas) .< 0)
     @test s.mu ≈ 0.6935484f0 atol=2f-7
+    @test s.sigmas[2] ≈ 0.97834116f0 atol=2f-7
+    @test s.sigmas[end-2] ≈ 0.09564310f0 atol=2f-7
 
     x = ones(Float32, 2, 3)
     prediction = fill(2f0, 2, 3)
