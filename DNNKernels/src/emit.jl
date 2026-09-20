@@ -1000,22 +1000,18 @@ that asked for it.
 scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
     M.Transient.Buffer(emitctx.g, T, map(Int, dims))
 
-"""Declare the radix-4 regular-Hadamard ConvRot transform."""
+"""Declare the radix-4 regular-Hadamard ConvRot transform — see
+[`convrot_kernel!`](@ref) for why it is one pass and not one per stage."""
 function convrot(emitctx::EmitCtx, input, group_size::Integer; name::AbstractString="convrot")
-    K = size(input, 1)
-    K % group_size == 0 || throw(DimensionMismatch("ConvRot group size does not divide input"))
-    stages = round(Int, log(4, group_size))
-    4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
     out = scratch(emitctx, eltype(input), size(input)...)
-    tmp = scratch(emitctx, eltype(input), size(input)...)
+    strides, sets, ndrange = convrot_passes(input, group_size)
+    n = Int64(length(input))
     src = input
-    for stage in 0:stages-1
-        dst = isodd(stage) ? out : tmp
-        stage == stages - 1 && (dst = out)
-        M.dispatch!(emitctx.g, convrot_stage_kernel!,
-                    (dst, src, Int32(K), Int32(4^stage), Int64(length(input))),
-                    length(input); group=256, name="$name.$stage")
-        src = dst
+    for (i, S) in enumerate(strides)
+        M.dispatch!(emitctx.g, convrot_pass_kernel!,
+                    (out, src, Val(S), Val(sets), Val(Int(group_size)), n),
+                    ndrange; group=256, name="$name.$i")
+        src = out
     end
     out
 end
@@ -3502,10 +3498,47 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             return out
         end
 
-        # Prompt products reuse the ordinary fp16 planner after one declared
-        # unpack pass.  This is the portable fallback of the immediate path:
-        # backends with callable libraries reach their GEMM library, while
-        # command-buffer backends reach the cooperative-matrix declaration.
+        # The packed cooperative-matrix GEMM, which reads the int8 weight
+        # directly: no 100 MB fp16 copy of it per product, and twice the rate
+        # where a wide column tile fits. `q8gemm_columns` is what makes it
+        # reachable at a sequence length no tile divides — see its docstring for
+        # the measurement that pays for the padding.
+        #
+        # `bias === nothing` only. The kernel takes a bias by POINTER, and
+        # whether the access walk reads that as a dispatch input has not been
+        # checked; a bias keeps the path below until it has been.
+        NP = q8gemm_columns(N)
+        tiling = bias === nothing && eltype(B) === Float16 ?
+            q8gemm_tiling(caps, eltype(out), Mm, K, NP) : nothing
+        if tiling !== nothing
+            stm, stn, wm, wn, bk, _ = tiling
+            bm, bn, wg = 16stm*wm, 16stn*wn, 32wm*wn
+            Bp = B
+            if NP != N
+                Bp = scratch(emitctx, Float16, K, NP)
+                M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
+                            name = "$(op.id).padB")
+            end
+            # Columns 1..N of an `Mm x NP` buffer are its first `Mm*N` elements,
+            # so the discard is a linear copy — the same argument the fp16 path
+            # below makes for its own padding.
+            dst = NP == N ? out : scratch(emitctx, eltype(out), Mm, NP)
+            M.dispatch!(emitctx.g, Q8_GEMM_KERNELS[tiling],
+                        (dst, A.q, A.scale, Bp, nothing, epi,
+                         Val(Mm), Val(NP), Val(K)),
+                        (Mm ÷ bm) * (NP ÷ bn) * wg; group = wg, name = op.id)
+            if NP != N
+                od = size(out)
+                ewdispatch!(emitctx, out, od, (M.viewof(dst, od),),
+                            (bcstrides(od, od),), identity; name = "$(op.id).unpad")
+            end
+            return out
+        end
+
+        # Otherwise the ordinary fp16 planner after one declared unpack pass.
+        # This is the portable fallback of the immediate path: backends with
+        # callable libraries reach their GEMM library, while command-buffer
+        # backends reach the cooperative-matrix declaration.
         W = scratch(emitctx, Float16, Mm, K)
         M.dispatch!(emitctx.g, q8dequant_kernel!,
                     (W, A.q, A.scale, Int32(Mm), Int32(MG), Int64(MG) * K),

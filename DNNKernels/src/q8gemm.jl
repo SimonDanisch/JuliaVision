@@ -159,16 +159,49 @@ end
 to the dequantise-and-reuse path: wrong operand types, no cooperative matrix, an
 extent the tiles cannot divide, or a tile this device has no room for."""
 function q8gemm_tiling(dev, A, B, C)
-    dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16 || return nothing
     B isa Mantle.LavaArray{Float16,2} && C isa Mantle.LavaArray || return nothing
-    eltype(C) in (Float16,Float32) || return nothing
-    m,k = size(A); n = size(B,2)
+    q8gemm_tiling(dev, eltype(C), size(A)..., size(B, 2))
+end
+
+"""
+    q8gemm_tiling(caps, Tout, m, k, n) -> cfg | nothing
+
+The same decision from extents alone, which is all a DECLARATION has: the
+declared form holds transients rather than arrays, so it cannot ask an operand
+what type it is, and the two paths must not answer differently.
+"""
+function q8gemm_tiling(caps, ::Type{Tout}, m::Integer, k::Integer, n::Integer) where {Tout}
+    caps.coopmat && caps.coopmatsubgroup == 32 && caps.tile == 16 || return nothing
+    Tout in (Float16, Float32) || return nothing
     m%64 == 0 && k%32 == 0 && n%16 == 0 || return nothing
     max(m*k, k*n, m*n) <= typemax(Int32) || return nothing
     cfg = q8gemm_tile(m, k, n)
     stm,stn,wm,wn,bk,pad = cfg
     wg = 32wm*wn
     shared = 2*((16stm*wm+pad)*bk+(bk+pad)*16stn*wn)
-    wg <= dev.workgrouplimit && shared <= dev.sharedbudget || return nothing
+    wg <= caps.workgrouplimit && shared <= caps.sharedbudget || return nothing
     cfg
 end
+
+"""
+    q8gemm_columns(n) -> np
+
+The column count to run a packed int8 product at: `n`, padded to the widest
+column tile once the product is wide enough to want one.
+
+Every tile has to divide `n`, and a wide product's column count is whatever the
+caller's sequence happens to be. Qwen-Image 2.1 at 1024² over a 22-token prompt
+runs `n = 4118`, which is `2 x 29 x 71`: nothing divides it, so the GEMM fell
+out of this path entirely and dequantised 100 MB of weights per product instead.
+Even `n = 4128` only admits a 32-column tile. Measured at `12288 x 4096`:
+
+    n = 4118   11.27 TOP/s   (dequantise, then the fp16 GEMM)
+    n = 4128    8.60 TOP/s   (32-column tile, the widest that divides it)
+    n = 4096   21.61 TOP/s   (128-column tile)
+
+so padding 4118 up to 4224 buys 2x and costs 2.6% of the arithmetic plus two
+copies of the activation. Below 256 columns the wide tiles cannot fill anyway
+and the padding would be the whole cost, so a narrow product keeps the tile its
+own extent admits.
+"""
+q8gemm_columns(n::Integer) = n >= 256 ? cld(n, 128) * 128 : cld(n, 16) * 16

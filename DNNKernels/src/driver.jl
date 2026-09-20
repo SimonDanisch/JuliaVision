@@ -609,11 +609,16 @@ planfor(m::Model, g::Graph, name::AbstractString, dims,
     planfor(m.device, g, m.weights, dims;
             maxpasses = get(m.record_maxpasses, name, 0), noise)
 
+# `profile = true` builds the plan with a timestamp query pool, so
+# `Mantle.timings(plan.plan)` reports per-pass GPU milliseconds after a replay.
+# It is not free — a query pair around every pass — so it is off by default and
+# a plan asked for it is a plan being measured.
 function planfor(dev, g::Graph, weights::AbstractDict, dims;
-                 maxpasses::Int = 0, noise::NoiseSource = RandomNoise())
+                 maxpasses::Int = 0, noise::NoiseSource = RandomNoise(),
+                 profile::Bool = false)
     mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims;
                                     noise)
-    plan = Mantle.Plan(mantlegraph)
+    plan = Mantle.Plan(mantlegraph; profile)
     Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
     outs = Tuple(Mantle.storage(emitctx.res[id]) for id in g.outputs)

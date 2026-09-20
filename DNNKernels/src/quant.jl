@@ -301,28 +301,79 @@ function stackrows(parts::AbstractVector{<:ConvRotQInt8HostMatrix})
                            reduce(hcat, (p.scale for p in parts)), group)
 end
 
-@kernel cpu=false function convrot_stage_kernel!(out, @Const(input),
-                                                  K::Int32, stride::Int32, n::Int64)
-    i = @index(Global, Linear)
-    if i <= n
+
+"""
+Two radix-4 stages of the ConvRot transform, in registers.
+
+A 256-wide group is four stages at strides 1, 4, 16 and 64, and a thread that
+holds SIXTEEN elements spaced `S` apart does two of them without talking to any
+other thread: `S = 1` covers strides 1 and 4, `S = 16` covers 16 and 64. Two
+launches, four traversals of the tensor, no shared memory and no barrier.
+
+The two forms this replaced, measured on Qwen-Image 2.1's largest activation
+(4096 x 4118 fp16) on an 8060S:
+
+    a pass per stage, eight traversals          7.87 ms
+    one pass, group staged in shared memory    12.13 ms
+    two passes, sixteen elements in registers   ? ms
+
+Shared memory looked like the obvious answer and is the slowest of the three:
+64-thread workgroups over a 512-byte group spend their time on four barriers,
+not on four adds. Unrolling the stages so every stride is a compile-time shift
+did not move it either.
+
+Each stage rounds to `eltype(out)`, which is the rounding the pass-per-stage
+kernel had, so a group validated against the checkpoint's own decode keeps the
+same error. Not the same BITS: against a host implementation of the staged form
+this agrees to one fp16 ulp, because the compiler is free to reassociate
+`a + b + c - d` and does.
+"""
+@kernel cpu=false unsafe_indices=true function convrot_pass_kernel!(
+        out, @Const(input), ::Val{S}, ::Val{SETS}, ::Val{G}, n::Int64) where {S,SETS,G}
+    j = Int64(@index(Global, Linear)) - Int64(1)
+    g = j ÷ Int64(SETS)
+    w = j - g * Int64(SETS)
+    base = g * Int64(G) + (S == 1 ? w * Int64(16) : w) + Int64(1)
+    if base <= n
         @inbounds begin
-            z = Int64(i) - Int64(1)
-            k = Int32(z % K)
-            col = z ÷ K
-            period = Int32(4) * stride
-            base = (k ÷ period) * period + (k % stride)
-            row = (k ÷ stride) % Int32(4)
-            off = Int64(base) + col * Int64(K) + Int64(1)
-            a = Float32(input[off])
-            b = Float32(input[off + stride])
-            c = Float32(input[off + Int32(2) * stride])
-            d = Float32(input[off + Int32(3) * stride])
-            v = row == 0 ? a + b + c - d :
-                row == 1 ? a + b - c + d :
-                row == 2 ? a - b + c + d : -a + b + c + d
-            out[i] = eltype(out)(v * 0.5f0)
+            Base.Cartesian.@nexprs 16 i -> v_i = Float32(input[base + Int64((i - 1) * S)])
+            # Stride 1 across the sixteen registers, then stride 4. Both are the
+            # same symmetric 4x4, and both round to the output type in between.
+            Base.Cartesian.@nexprs 4 q -> begin
+                a = v_{4q-3}; b = v_{4q-2}; c = v_{4q-1}; d = v_{4q}
+                v_{4q-3} = Float32(eltype(out)(( a + b + c - d) * 0.5f0))
+                v_{4q-2} = Float32(eltype(out)(( a + b - c + d) * 0.5f0))
+                v_{4q-1} = Float32(eltype(out)(( a - b + c + d) * 0.5f0))
+                v_{4q}   = Float32(eltype(out)((-a + b + c + d) * 0.5f0))
+            end
+            Base.Cartesian.@nexprs 4 q -> begin
+                a = v_q; b = v_{q+4}; c = v_{q+8}; d = v_{q+12}
+                v_q      = Float32(eltype(out)(( a + b + c - d) * 0.5f0))
+                v_{q+4}  = Float32(eltype(out)(( a + b - c + d) * 0.5f0))
+                v_{q+8}  = Float32(eltype(out)(( a - b + c + d) * 0.5f0))
+                v_{q+12} = Float32(eltype(out)((-a + b + c + d) * 0.5f0))
+            end
+            Base.Cartesian.@nexprs 16 i -> out[base + Int64((i - 1) * S)] = eltype(out)(v_i)
         end
     end
+end
+
+"""
+    convrot_passes(input, group_size) -> (strides, sets, ndrange)
+
+The strides a ConvRot group needs, sixteen elements to a thread. A group of 256
+is two passes; the general power-of-four case is `log4(G) ÷ 2` of them, and an
+odd stage count has no register form here.
+"""
+function convrot_passes(input, group_size::Integer)
+    K = size(input, 1)
+    K % group_size == 0 || throw(DimensionMismatch("ConvRot group size does not divide input"))
+    stages = round(Int, log(4, group_size))
+    4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
+    iseven(stages) || throw(ArgumentError(
+        "ConvRot group $group_size has $stages stages; the register form takes two at a time"))
+    strides = Tuple(16^(i - 1) for i in 1:(stages ÷ 2))
+    (strides, group_size ÷ 16, length(input) ÷ 16)
 end
 
 function convrot(ctx::Ctx, input, group_size::Integer)
@@ -331,14 +382,13 @@ function convrot(ctx::Ctx, input, group_size::Integer)
     stages = round(Int, log(4, group_size))
     4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
     out = scratch!(ctx, eltype(input), size(input)...)
-    tmp = scratch!(ctx, eltype(input), size(input)...)
+    strides, sets, ndrange = convrot_passes(input, group_size)
+    n = Int64(length(input))
     src = input
-    for stage in 0:stages-1
-        dst = isodd(stage) ? out : tmp
-        stage == stages - 1 && (dst = out)
-        convrot_stage_kernel!(ctx.backend, 256)(dst, src, Int32(K), Int32(4^stage),
-                                                Int64(length(input)); ndrange=length(input))
-        src = dst
+    for S in strides
+        convrot_pass_kernel!(ctx.backend, 256)(out, src, Val(S), Val(sets),
+                                               Val(Int(group_size)), n; ndrange)
+        src = out
     end
     out
 end

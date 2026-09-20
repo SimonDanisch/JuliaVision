@@ -14,14 +14,28 @@ decodes to 7.26 GB of INT8 on the device and the Qwen3-VL-8B conditioner to
 another 6.9 GB, which do not fit at once. Each is released as soon as its output
 is in hand.
 
-Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 413.6 s total):
+Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 377.1 s total):
 
 | stage | time |
 | --- | --- |
-| prompt encoding, including building the 36-layer encoder | 71.0 s |
-| denoiser build and record | 55.8 s |
-| 20 denoising steps | 250.2 s (12.5 s/step) |
-| VAE decode, including its build | 34.9 s |
+| prompt encoding, including building the 36-layer encoder | 75.3 s |
+| denoiser build and record | 59.9 s |
+| 20 denoising steps | 200.9 s (10.0 s/step) |
+| VAE decode, including its build | 39.2 s |
+
+Where a denoising step goes, measured per kernel at this resolution and prompt
+length (4096 image tokens over 4118 joint positions):
+
+| | per step | rate |
+| --- | --- | --- |
+| 128 packed INT8 products | 2.77 s | 20-25 TOP/s |
+| 32 joint attentions | 2.67 s | 3.3 TFLOP/s |
+| 128 ConvRot transforms | 0.16 s | at copy speed |
+| column padding for the products | ~0.5 s | |
+| elementwise, norms, and the rest | ~3.9 s | |
+
+The attention is the next thing worth fixing: 4118 is a key length no tiling
+divides, and the padded (clamped) kernel costs 40% over the same shape at 4096.
 
 ## What is where
 
