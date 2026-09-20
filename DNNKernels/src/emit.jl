@@ -1000,6 +1000,26 @@ that asked for it.
 scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
     M.Transient.Buffer(emitctx.g, T, map(Int, dims))
 
+"""Declare the radix-4 regular-Hadamard ConvRot transform."""
+function convrot(emitctx::EmitCtx, input, group_size::Integer; name::AbstractString="convrot")
+    K = size(input, 1)
+    K % group_size == 0 || throw(DimensionMismatch("ConvRot group size does not divide input"))
+    stages = round(Int, log(4, group_size))
+    4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
+    out = scratch(emitctx, eltype(input), size(input)...)
+    tmp = scratch(emitctx, eltype(input), size(input)...)
+    src = input
+    for stage in 0:stages-1
+        dst = isodd(stage) ? out : tmp
+        stage == stages - 1 && (dst = out)
+        M.dispatch!(emitctx.g, convrot_stage_kernel!,
+                    (dst, src, Int32(K), Int32(4^stage), Int64(length(input))),
+                    length(input); group=256, name="$name.$stage")
+        src = dst
+    end
+    out
+end
+
 """Declare a fresh uniform or normal draw that remains fresh under replay."""
 function emitnoise!(emitctx::EmitCtx, op::Op, noise::RandomNoise)
     out = dest(emitctx)
@@ -3438,6 +3458,11 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                          bias, epilogue = epi, name = op.id)
         return out
     end
+    if plan isa MMConvRotInt8Plan
+        B = convrot(emitctx, B, A.group_size; name="$(op.id).convrot")
+        A = QInt8Matrix(A.q, A.scale, A.m)
+        plan = MMInt8Plan()
+    end
     if plan isa MMInt8Plan
         Mm, K = size(A)
         N = size(B, 2)
@@ -3489,7 +3514,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     plan isa MMCoopMatPlan || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
         "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
-        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMInt8Plan` and `Decline` are " *
+        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMConvRotInt8Plan`, `MMInt8Plan` and `Decline` are " *
         "ported. Port the plan rather than widening this branch.")
     Mm, K = size(A)
     N = size(B, 2)

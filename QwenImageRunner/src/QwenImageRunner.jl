@@ -25,6 +25,7 @@ using Lava
 import Mantle
 
 export QWEN_IMAGE_21, assetdir, ready, qwenimagegraph, qwenimageweights
+export compact_transformer_weights
 export QwenTransformer, qwenimagetransformer, denoise!
 export QwenVAEDecoder, qwenimagevae, decode!
 export generate!
@@ -99,6 +100,79 @@ function qwenimageweights(component::Symbol; dir::AbstractString=assetdir())
     readsafetensors(path)
 end
 
+@inline _bf16(x::UInt16) = Float16(reinterpret(Float32, UInt32(x) << 16))
+_bf16array(x::AbstractArray{UInt16}) = map(_bf16, x)
+function _densebool(x::BitArray{N}) where {N}
+    out = Array{Bool,N}(undef, size(x))
+    @inbounds for i in eachindex(x)
+        out[i] = x[i]
+    end
+    out
+end
+
+"""
+    compact_transformer_weights(graph; checkpoint_dir, constants_dir)
+
+Map Comfy-Org's compact Qwen-Image 2.1 denoiser into the exported Diffusers
+graph. Quantized matrices remain packed host views and are decoded/repacked by
+DNNKernels while uploading to the selected backend. Dense BF16 tensors are
+converted to Float16; lifted RoPE, mask, and timestep constants come from the
+allocation-free graph export.
+"""
+function compact_transformer_weights(graph;
+        checkpoint_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""),
+        constants_dir::AbstractString=assetdir())
+    isempty(checkpoint_dir) && throw(ArgumentError(
+        "set JULIA_QWENIMAGE21_COMPACT to the Comfy-Org checkpoint directory"))
+    checkpoint = joinpath(checkpoint_dir, "diffusion_models",
+                          "qwen_image_2.1_int8_convrot.safetensors")
+    constants_path = joinpath(constants_dir, "transformer_constants.safetensors")
+    isfile(checkpoint) || throw(ArgumentError("compact denoiser not found at $checkpoint"))
+    isfile(constants_path) || throw(ArgumentError("graph constants not found at $constants_path"))
+    compact = readsafetensors(checkpoint)
+    constants = readsafetensors(constants_path; mmap=false)
+    out = Dict{String,Any}()
+
+    for buffer in values(graph.buffers)
+        buffer.kind === :weight || continue
+        key = buffer.key
+        isempty(key) && continue
+        haskey(out, key) && continue
+        if haskey(constants, key)
+            value = constants[key]
+            out[key] = value isa BitArray ? _densebool(value) : value
+            continue
+        end
+
+        source = startswith(key, "model.") ? key[7:end] : key
+        rows = nothing
+        if occursin(".img_mlp.gate_layer.weight", source) ||
+           occursin(".img_mlp.proj.weight", source)
+            fused = replace(source,
+                r"\.img_mlp\.(gate_layer|proj)\.weight$" => ".img_mlp.gate_up.weight")
+            haskey(compact, fused) || throw(KeyError(source))
+            half = size(compact[fused], 2) ÷ 2
+            rows = occursin(".gate_layer.weight", source) ? (1:half) : (half+1:2half)
+            source = fused
+        end
+        haskey(compact, source) || throw(KeyError(source))
+        value = compact[source]
+
+        quant_key = replace(source, r"\.weight$" => ".comfy_quant")
+        scale_key = replace(source, r"\.weight$" => ".weight_scale")
+        if eltype(value) === Int8 && haskey(compact, scale_key) && haskey(compact, quant_key)
+            q = rows === nothing ? value : view(value, :, rows)
+            scale = rows === nothing ? compact[scale_key] : view(compact[scale_key], :, rows)
+            out[key] = DNNKernels.ConvRotQInt8HostMatrix(q, scale, 256)
+        elseif eltype(value) === UInt16
+            out[key] = _bf16array(rows === nothing ? value : view(value, :, rows))
+        else
+            out[key] = rows === nothing ? value : view(value, :, rows)
+        end
+    end
+    out
+end
+
 """
     QwenTransformer
 
@@ -118,16 +192,27 @@ end
 
 Load and prepare the exported denoiser. The graph is static in latent resolution
 and prompt length; those are selected when running `tools/export_qwenimage21.py`.
+
+`maxpasses` splits the recording into submissions of that many passes. One step
+of the 32-layer model at 1024² is ~9.6 s of device time, and a single
+submission that long is killed by the driver — `ring gfx_0.0.0 timeout`, a
+device loss, and nothing in the Julia frame naming the cause. The completion
+points cost nothing measurable and the barriers between the pieces are still
+the ones the graph derived. `0` restores the single submission.
 """
-function qwenimagetransformer(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir())
-    ready(:transformer; dir) || throw(ArgumentError(
-        "no Qwen-Image 2.1 transformer export at $dir — run " *
-        "`tools/export_qwenimage21.py` first"))
+function qwenimagetransformer(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
+                              compact_dir::Union{Nothing,AbstractString}=nothing,
+                              maxpasses::Integer=64)
+    graph_path = joinpath(dir, first(COMPONENT_FILES[:transformer]))
+    isfile(graph_path) || throw(ArgumentError(
+        "no Qwen-Image 2.1 transformer graph at $dir — run " *
+        "`tools/export_qwenimage21.py --graph-only` first"))
     graph = qwenimagegraph(:transformer; dir)
-    weights = qwenimageweights(:transformer; dir)
+    weights = compact_dir === nothing ? qwenimageweights(:transformer; dir) :
+        compact_transformer_weights(graph; checkpoint_dir=compact_dir, constants_dir=dir)
     model = Model(Dict("qwenimage21_transformer" => graph), weights; backend)
     prepared = model.graphs["qwenimage21_transformer"]
-    plan = planfor(model.device, prepared, model.weights, (;))
+    plan = planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses))
     QwenTransformer(model.backend, prepared, model.weights, plan)
 end
 

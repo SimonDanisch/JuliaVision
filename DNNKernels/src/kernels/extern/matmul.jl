@@ -121,6 +121,7 @@ split-K GEMV is the bandwidth-bound kernel that shape wants.
 function mmplan(dev, out, A, B, bias)
     # First, and not a preference either: an int8 weight is not an operand any
     # of the float paths can read at all.
+    A isa ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     A isa QInt8Matrix && return MMInt8Plan()
     p = mm_coopmat_plan(dev, out, A, B)
     p isa Decline || return p
@@ -141,6 +142,7 @@ is a performance regression nothing would report.
 """
 function mmplan(caps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                 sout::Dims, sa::Dims, sb::Dims, hasbias::Bool) where {Tout,Ta,Tb}
+    Ta <: ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     Ta <: QInt8Matrix && return MMInt8Plan()
     p = mm_coopmat_plan(caps, Tout, Ta, Tb, sa, sb)
     p isa Decline || return p
@@ -236,6 +238,13 @@ function matmul!(ctx, ::MMInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
     # because which one applies depends on the dequantised extents.
     W = q8dequant(ctx, A)
     matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
+end
+
+"""ConvRot is an orthogonal, group-wise activation transform preceding INT8 GEMM."""
+function matmul!(ctx, ::MMConvRotInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
+    Brot = convrot(ctx, B, A.group_size)
+    matmul!(ctx, MMInt8Plan(), out, QInt8Matrix(A.q, A.scale, A.m), Brot,
+            bias, epi; gemm)
 end
 
 """`Mantle.gemv!`: the M = 1 path, with the bias and activation in its store."""

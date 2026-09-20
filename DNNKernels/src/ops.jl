@@ -502,8 +502,12 @@ end
 `bmm -> softmax -> [clone] -> bmm` into.
 
 Its operands are `(q, k, v)` as `(D, S, H, B)`, which is what `sdpa` wants and
-what the exporter's own 4-D buffers already are. The scale is **not** applied
-here: the `mul` that scaled q is left in the graph, so this runs at `scale = 1`.
+what the exporter's own 4-D buffers already are. The scale is usually **not**
+applied here: the `mul` that scaled q is left in the graph, so the default is
+`scale = 1`. A fusion that had to reach past that `mul` to find an fp16 operand
+carries the product it folded as the op's `scale`, and then this reads it — the
+declared form takes the same attribute, and the two paths disagreeing about it
+is a `rel 1.8` difference in the attention output that nothing else reports.
 
 The declared output keeps the second `bmm`'s shape, `(H, S, D)` in torch order
 and `(D, S, H)` in Julia's — the same elements as `sdpa`'s `(D, S, H, B)` with
@@ -580,8 +584,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     # a constant. Two different guesses at the destination both produced the
     # bit-identical wrong answer, which is what said the fault was the slot and
     # not the dtype.
-    o = sdpa(ctx, qc, kc, vc, nothing, 1.0)
-    FUSEATTENTIONCHECK[] && checksdpa(qc, kc, vc, o)
+    scale = Float64(get(op.attrs, "scale", 1.0))
+    o = sdpa(ctx, qc, kc, vc, nothing, scale)
+    FUSEATTENTIONCHECK[] && checksdpa(qc, kc, vc, o, scale)
     reshape(o, size(o, 1), size(o, 2), size(o, 3))
 end
 
@@ -599,10 +604,10 @@ bytes.
 """
 const FUSEATTENTIONCHECK = Ref(false)
 
-function checksdpa(q, k, v, o)
+function checksdpa(q, k, v, o, scale = 1.0)
     Q = Float32.(Array(q)[:, :, 1, 1]); K = Float32.(Array(k)[:, :, 1, 1])
     V = Float32.(Array(v)[:, :, 1, 1])
-    S = K' * Q
+    S = (K' * Q) .* Float32(scale)
     S .-= maximum(S; dims = 1)
     P = exp.(S); P ./= sum(P; dims = 1)
     R = V * P

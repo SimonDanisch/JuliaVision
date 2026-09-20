@@ -81,7 +81,8 @@ function hoistpermutes(g::Graph, weights::Dict{String,Any})
         src === nothing && continue
         haskey(weights, src.key) || continue
         W = weights[src.key]
-        W isa AbstractArray && ndims(W) >= 2 || continue
+        packed = ispackedquantmatrix(W)
+        packed || (W isa AbstractArray && ndims(W) >= 2) || continue
 
         # Same index gymnastics as `makeview`: torch permutes the un-reversed
         # shape, so both the order of the permutation and the indices it names
@@ -97,6 +98,20 @@ function hoistpermutes(g::Graph, weights::Dict{String,Any})
             pv = collect(1:nd)
             pv[jdim(d1, nd)], pv[jdim(d2, nd)] = pv[jdim(d2, nd)], pv[jdim(d1, nd)]
             Tuple(pv)
+        end
+
+        # A packed quantised checkpoint matrix is already stored as `[M, K]`, so
+        # the transpose the linear layer names is the matrix itself. Bind the
+        # view to the weight and hoist nothing: there is no strided view of
+        # four output rows per `UInt32` word to take.
+        if packed
+            jperm == (2, 1) || throw(ArgumentError(
+                "packed quantised weight `$(src.key)` is viewed by $(b.viewop) " *
+                "as $jperm; only the 2-D transpose has a packed form"))
+            buffers[id] = Buffer(id, :weight, b.shape, b.dtype, src.key, (0, 0),
+                                 "", "", Dict{String,Any}())
+            hoisted += 1
+            continue
         end
 
         # Keyed by the SOURCE weight and the permutation, not by graph and
@@ -219,7 +234,7 @@ function hoistcasts(g::Graph, weights::Dict{String,Any})
         # Keys are graph-scoped: op ids repeat across graphs and one weight table
         # serves all of them (the same trap `foldbatchnorm` documents).
         key = g.name * "|" * op.id * "|hoistcast"
-        weights[key] = ob.dtype.(weights[src.key])
+        weights[key] = densecast(ob.dtype, weights[src.key])
         buffers[op.out] = Buffer(op.out, :weight, ob.shape, ob.dtype, key, (0, 0),
                                  "", "", Dict{String,Any}())
         push!(drop, op.id)

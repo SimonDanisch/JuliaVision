@@ -152,6 +152,20 @@ const DTYPE_NAMES = Dict("float32" => Float32, "float64" => Float64, "float16" =
                          "int64" => Int64, "int32" => Int32, "bool" => Bool, "uint8" => UInt8,
                          "complex64" => ComplexF32, "complex128" => ComplexF64)
 
+"""
+    densecast(T, x) -> dense array of `T`
+
+Cast a host value to a buffer's declared dtype. `T.(x)` is the obvious spelling
+and is wrong for exactly one dtype: broadcasting to `Bool` returns a *packed*
+`BitArray`, which is not something any backend can upload
+(`KernelAbstractions.get_backend(::BitVector)` throws) nor anything a kernel can
+read a byte from. Qwen-Image 2.1 found this: its prompt mask is a `bool` weight
+with a `_to_copy` on it, and the model failed to load with an error naming
+`BitVector` rather than the pass that made one.
+"""
+densecast(::Type{T}, x::AbstractArray) where {T} = convert(Array{T}, x)
+densecast(::Type{T}, x::Number) where {T} = convert(T, x)
+
 function Op(o)
     Op(String(o.id), String(o.aten), String[String(x) for x in o.ins_],
        String(o.out),

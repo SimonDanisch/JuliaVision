@@ -48,6 +48,53 @@ struct QInt8Matrix{Q,S}
     m::Int          # true row count; `q` is padded up to a multiple of four
 end
 
+"""
+Packed INT8 weight in Comfy's ConvRot basis.
+
+`q` has the same four-output-row `UInt32` packing as [`QInt8Matrix`](@ref).
+The only semantic difference is that the right operand is transformed by the
+normalized regular Hadamard matrix, independently in `group_size`-wide blocks,
+before multiplication. The representation and kernels are backend-independent.
+"""
+struct ConvRotQInt8Matrix{Q,S}
+    q::Q
+    scale::S
+    m::Int
+    group_size::Int
+end
+
+Base.size(A::ConvRotQInt8Matrix) = (A.m, size(A.q, 2))
+Base.size(A::ConvRotQInt8Matrix, i::Integer) = i == 1 ? A.m : size(A.q, i)
+Base.eltype(::ConvRotQInt8Matrix) = Float16
+Base.ndims(::ConvRotQInt8Matrix) = 2
+
+"""Host view of a safetensors INT8 `[M,K]` matrix (stored by Julia as `(K,M)`)."""
+struct ConvRotQInt8HostMatrix{Q,S}
+    q::Q
+    scale::S
+    group_size::Int
+end
+
+Base.size(A::ConvRotQInt8HostMatrix) = (size(A.q, 2), size(A.q, 1))
+Base.size(A::ConvRotQInt8HostMatrix, i::Integer) = size(A)[i]
+Base.eltype(::ConvRotQInt8HostMatrix) = Float16
+Base.ndims(::ConvRotQInt8HostMatrix) = 2
+
+"""Host view of Comfy's packed asymmetric W4A8+ConvRot matrix."""
+struct W4A8ConvRotHostMatrix{Q,R,S,C}
+    q::Q                    # checkpoint `[M,K/2]`, Julia `(K/2,M)`
+    s_rel::R                # E4M3FN bits, checkpoint `[M,K/group]`
+    s_channel::S            # Float32, one per output row
+    codebook::C             # Float32[16]
+    group_size::Int
+    convrot_group_size::Int
+end
+
+Base.size(A::W4A8ConvRotHostMatrix) = (size(A.q, 2), 2size(A.q, 1))
+Base.size(A::W4A8ConvRotHostMatrix, i::Integer) = size(A)[i]
+Base.eltype(::W4A8ConvRotHostMatrix) = Float16
+Base.ndims(::W4A8ConvRotHostMatrix) = 2
+
 Base.size(A::QInt8Matrix) = (A.m, size(A.q, 2))
 Base.size(A::QInt8Matrix, i::Integer) = i == 1 ? A.m : size(A.q, i)
 Base.eltype(::QInt8Matrix) = Float16          # what it dequantises to
@@ -60,8 +107,194 @@ Base.ndims(::QInt8Matrix) = 2
 toback(backend, A::QInt8Matrix) =
     QInt8Matrix(toback(backend, A.q), toback(backend, A.scale), A.m)
 
+toback(backend, A::ConvRotQInt8Matrix) =
+    ConvRotQInt8Matrix(toback(backend, A.q), toback(backend, A.scale), A.m,
+                       A.group_size)
+
 # Rows per packed word. Fixed at four by `UInt32`; named so the arithmetic reads.
 const Q8ROWS = 4
+
+@kernel cpu=false function checkpoint_q8pack_kernel!(q32, @Const(q),
+                                                      K::Int32, M::Int32, MG::Int32)
+    i = @index(Global, Linear)
+    if i <= MG * K
+        @inbounds begin
+            l = Int32(i) - Int32(1)
+            g = l % MG
+            k = l ÷ MG
+            word = UInt32(0)
+            Base.Cartesian.@nexprs 4 r -> begin
+                m = g * Int32(4) + Int32(r - 1)
+                if m < M
+                    byte = reinterpret(UInt8, q[k + Int32(1) + m * K])
+                    word |= UInt32(byte) << (8 * (r - 1))
+                end
+            end
+            q32[i] = word
+        end
+    end
+end
+
+"""Upload and repack a Comfy `int8_tensorwise` ConvRot checkpoint matrix."""
+function convrotqint8(backend, q::AbstractMatrix{Int8}, scale;
+                      group_size::Integer=256)
+    K, M = size(q)
+    K % group_size == 0 || throw(DimensionMismatch(
+        "ConvRot group size $group_size does not divide K=$K"))
+    length(scale) in (1, M) || throw(DimensionMismatch(
+        "INT8 scale has $(length(scale)) entries for M=$M"))
+    dq = toback(backend, q)
+    ds = toback(backend, Float32.(vec(scale)))
+    MG = cld(M, Q8ROWS)
+    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
+    checkpoint_q8pack_kernel!(backend, 256)(packed, dq, Int32(K), Int32(M), Int32(MG);
+                                              ndrange=MG*K)
+    ConvRotQInt8Matrix(packed, ds, M, Int(group_size))
+end
+
+toback(backend, A::ConvRotQInt8HostMatrix) =
+    convrotqint8(backend, A.q, A.scale; group_size=A.group_size)
+
+@inline function f8e4m3fn(x::UInt8)
+    sign = (x & 0x80) == 0 ? 1f0 : -1f0
+    exponent = Int32((x >> 3) & 0x0f)
+    mantissa = Int32(x & 0x07)
+    exponent == 0 && return sign * Float32(mantissa) * 0.001953125f0 # 2^-9
+    exponent == 15 && mantissa == 7 && return Float32(NaN)
+    sign * (1f0 + Float32(mantissa) * 0.125f0) * exp2(Float32(exponent - 7))
+end
+
+@kernel cpu=false function w4a8_pack_kernel!(q32, @Const(q), @Const(srel),
+                                              @Const(codebook), K::Int32, M::Int32,
+                                              MG::Int32, GS::Int32)
+    i = @index(Global, Linear)
+    if i <= MG * K
+        @inbounds begin
+            l = Int32(i) - Int32(1)
+            rg = l % MG
+            k = l ÷ MG
+            word = UInt32(0)
+            Base.Cartesian.@nexprs 4 r -> begin
+                m = rg * Int32(4) + Int32(r - 1)
+                if m < M
+                    packed = reinterpret(UInt8, q[(k ÷ Int32(2)) + Int32(1) + m * (K ÷ Int32(2))])
+                    code = iseven(k) ? (packed & 0x0f) : (packed >> 4)
+                    sr = f8e4m3fn(srel[(k ÷ GS) + Int32(1) + m * (K ÷ GS)])
+                    v = round(clamp(codebook[Int32(code) + Int32(1)] * sr, -127f0, 127f0))
+                    byte = reinterpret(UInt8, unsafe_trunc(Int8, v))
+                    word |= UInt32(byte) << (8 * (r - 1))
+                end
+            end
+            q32[i] = word
+        end
+    end
+end
+
+"""Upload Comfy `asym_w4a8_int8` storage and decode its INT4 grid to packed INT8."""
+function w4a8convrot(backend, q::AbstractMatrix{Int8}, s_rel::AbstractMatrix{UInt8},
+                     s_channel, codebook; group_size::Integer=16,
+                     convrot_group_size::Integer=256)
+    KH, M = size(q)
+    K = 2KH
+    size(s_rel) == (K ÷ group_size, M) || throw(DimensionMismatch(
+        "W4A8 relative scales are $(size(s_rel)); expected $((K ÷ group_size, M))"))
+    length(s_channel) == M || throw(DimensionMismatch("W4A8 channel scale length mismatch"))
+    length(codebook) == 16 || throw(DimensionMismatch("W4A8 codebook must have 16 entries"))
+    K % convrot_group_size == 0 || throw(DimensionMismatch(
+        "ConvRot group size $convrot_group_size does not divide K=$K"))
+    dq, dr = toback(backend, q), toback(backend, s_rel)
+    ds = toback(backend, Float32.(vec(s_channel)))
+    dc = toback(backend, Float32.(vec(codebook)))
+    MG = cld(M, Q8ROWS)
+    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
+    w4a8_pack_kernel!(backend, 256)(packed, dq, dr, dc, Int32(K), Int32(M),
+                                     Int32(MG), Int32(group_size); ndrange=MG*K)
+    ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
+end
+
+toback(backend, A::W4A8ConvRotHostMatrix) =
+    w4a8convrot(backend, A.q, A.s_rel, A.s_channel, A.codebook;
+                group_size=A.group_size, convrot_group_size=A.convrot_group_size)
+
+"""
+    ispackedquantmatrix(W) -> Bool
+
+Whether `W` is a host weight whose packing already presents the `(M, K)`
+orientation a GEMM reads — the torch `[M, K]` checkpoint layout, kept as
+packed words rather than as an array that can be permuted.
+
+`hoistpermutes` asks this. A dense weight arrives as `(K, M)` and its `t()` view
+is materialised into a real `(M, K)` weight; a packed matrix is *stored* that way
+already, so the same view is the matrix itself and materialising it would mean
+transposing a representation that has no strided form.
+"""
+ispackedquantmatrix(::Any) = false
+ispackedquantmatrix(::ConvRotQInt8HostMatrix) = true
+ispackedquantmatrix(::W4A8ConvRotHostMatrix) = true
+
+"""
+    stackrows(parts) -> matrix
+
+Concatenate packed checkpoint matrices along their output rows.
+
+`fuseqkv` stacks the three attention projections, or a gate/up pair, into one
+GEMM. A dense stack is assembled on the device row range by row range; a packed
+one cannot be, because four output rows share a `UInt32` word. It is assembled
+in the checkpoint's own layout instead — `q` is stored `(K, M)`, so stacking
+output rows is `hcat`, and the per-channel scales stack the same way — and the
+result is packed once, by the same path any single matrix takes.
+"""
+function stackrows(parts::AbstractVector{<:ConvRotQInt8HostMatrix})
+    group = first(parts).group_size
+    all(p -> p.group_size == group, parts) || throw(ArgumentError(
+        "stacked ConvRot matrices disagree on their group size"))
+    all(p -> size(p.scale, 1) == 1, parts) || throw(ArgumentError(
+        "stacked ConvRot matrices must carry one scale per output channel"))
+    ConvRotQInt8HostMatrix(reduce(hcat, (p.q for p in parts)),
+                           reduce(hcat, (p.scale for p in parts)), group)
+end
+
+@kernel cpu=false function convrot_stage_kernel!(out, @Const(input),
+                                                  K::Int32, stride::Int32, n::Int64)
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            z = Int64(i) - Int64(1)
+            k = Int32(z % K)
+            col = z ÷ K
+            period = Int32(4) * stride
+            base = (k ÷ period) * period + (k % stride)
+            row = (k ÷ stride) % Int32(4)
+            off = Int64(base) + col * Int64(K) + Int64(1)
+            a = Float32(input[off])
+            b = Float32(input[off + stride])
+            c = Float32(input[off + Int32(2) * stride])
+            d = Float32(input[off + Int32(3) * stride])
+            v = row == 0 ? a + b + c - d :
+                row == 1 ? a + b - c + d :
+                row == 2 ? a - b + c + d : -a + b + c + d
+            out[i] = eltype(out)(v * 0.5f0)
+        end
+    end
+end
+
+function convrot(ctx::Ctx, input, group_size::Integer)
+    K = size(input, 1)
+    K % group_size == 0 || throw(DimensionMismatch("ConvRot group size does not divide input"))
+    stages = round(Int, log(4, group_size))
+    4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
+    out = scratch!(ctx, eltype(input), size(input)...)
+    tmp = scratch!(ctx, eltype(input), size(input)...)
+    src = input
+    for stage in 0:stages-1
+        dst = isodd(stage) ? out : tmp
+        stage == stages - 1 && (dst = out)
+        convrot_stage_kernel!(ctx.backend, 256)(dst, src, Int32(K), Int32(4^stage),
+                                                Int64(length(input)); ndrange=length(input))
+        src = dst
+    end
+    out
+end
 
 @inline q8byte(w::UInt32, r::Integer) =
     Float32(reinterpret(Int8, UInt8((w >> (8 * r)) & 0x000000ff)))

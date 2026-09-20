@@ -399,6 +399,9 @@ fp16 GEMM, and both of those are decided from the operands.
 """
 struct MMInt8Plan end
 
+"""A ConvRot weight: rotate activations, then use the ordinary packed INT8 path."""
+struct MMConvRotInt8Plan end
+
 """
     ConvCoopMatPlan
 

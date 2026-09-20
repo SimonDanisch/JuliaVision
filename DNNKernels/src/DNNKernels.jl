@@ -34,6 +34,8 @@ import Atomix
 import GPUArrays
 
 export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
+export ConvRotQInt8Matrix, ConvRotQInt8HostMatrix, convrotqint8
+export W4A8ConvRotHostMatrix, w4a8convrot
 export readgguf, GGUFFile, GGUFTensor, gguftensor, ggufbytes
 export PTQ1Matrix, ptq1matrix, ptq1mul!, ptq1_getrows!, ptq1_dequant
 export hadamard!, gated_delta_net!, depthwise_conv4!
@@ -114,7 +116,7 @@ that is deliberate.
 # add or change kernels reachable from frozen model graphs.
 # "40": Bonsai wide prefill decodes PTQ1 tiles directly into fp16 cooperative
 # matrix operands, with fused Hadamard and recurrent-state kernels.
-const KERNELS_VERSION = "40"
+const KERNELS_VERSION = "41"
 
 include("assets.jl")
 include("safetensors.jl")

@@ -96,6 +96,8 @@ class StaticTextToImageTransformer(torch.nn.Module):
         self.segments = [(0, context_tokens, True)]
 
     def forward(self, latents, prompt_embeddings, timestep):
+        target_mask = self.target_mask.to(latents.device)
+        rotary = tuple(value.to(latents.device) for value in self.rotary)
         hidden = self.model.img_in(latents)
         context = self.model.txt_in(prompt_embeddings)
         joint = torch.cat((context, hidden), dim=1)
@@ -110,9 +112,9 @@ class StaticTextToImageTransformer(torch.nn.Module):
             joint = block(
                 hidden_states=joint,
                 modulation=modulation,
-                rotary_emb=self.rotary,
+                rotary_emb=rotary,
                 attention_mask=None,
-                target_token_mask=self.target_mask,
+                target_token_mask=target_mask,
                 layer_cache=None,
                 kv_cache_mode=None,
                 cache_write_slice=None,
@@ -120,7 +122,7 @@ class StaticTextToImageTransformer(torch.nn.Module):
                 key_valid=None,
             )
 
-        joint = self.model.norm_out(joint, temb, self.target_mask)
+        joint = self.model.norm_out(joint, temb, target_mask)
         output = self.model.proj_out(joint)
         return output[:, -latents.shape[1] :]
 
@@ -138,6 +140,32 @@ def build(module, args):
             axes_dims_rope=(4, 6, 6),
         ).eval()
         latent_height, latent_width, context_tokens = 2, 2, 3
+    elif args.graph_only:
+        config_path = args.config_dir / "transformer" / "config.json"
+        if not config_path.is_file():
+            raise SystemExit(f"missing transformer config at {config_path}")
+        config = json.loads(config_path.read_text())
+        config = {k: v for k, v in config.items() if not k.startswith("_")}
+        with torch.device("meta"):
+            # Mantle's cooperative-matrix path is Float16. Compact quantized
+            # weights decode into that compute type, so bind the allocation-free
+            # graph to Float16 rather than emitting unsupported BF16 buffers.
+            model = module.QwenImage21Transformer2DModel(**config).to(dtype=torch.float16).eval()
+        # Rope's frequency tables are constants, not parameters. Construct them
+        # on CPU so the graph-only export can serialize them while the 7B
+        # parameter set remains allocation-free on the meta device.
+        model.pos_embed = module.QwenImage21Rope(
+            theta=10000, axes_dim=list(model.config.axes_dims_rope)
+        )
+        model.time_text_embed.time_proj = module.QwenImage21TemporalTimesteps(timestep_dim=256)
+        if args.layers is not None:
+            if not 1 <= args.layers <= len(model.transformer_blocks):
+                raise SystemExit(f"--layers must be in 1..{len(model.transformer_blocks)}")
+            model.transformer_blocks = torch.nn.ModuleList(model.transformer_blocks[: args.layers])
+        if args.height % 16 or args.width % 16:
+            raise SystemExit("--height and --width must be divisible by the VAE stride, 16")
+        latent_height, latent_width = args.height // 16, args.width // 16
+        context_tokens = args.context_tokens
     else:
         model = module.QwenImage21Transformer2DModel.from_pretrained(
             args.model,
@@ -159,10 +187,11 @@ def build(module, args):
     module.apply_rotary_emb_qwen = real_rotary
     wrapper = StaticTextToImageTransformer(model, context_tokens, latent_height, latent_width).eval()
     dtype = next(model.parameters()).dtype
+    device = "meta" if args.graph_only else "cpu"
     examples = (
-        torch.randn(1, latent_height * latent_width, model.config.in_channels, dtype=dtype),
-        torch.randn(1, context_tokens, model.config.context_in_dim, dtype=dtype),
-        torch.tensor([0.5], dtype=dtype),
+        torch.randn(1, latent_height * latent_width, model.config.in_channels, dtype=dtype, device=device),
+        torch.randn(1, context_tokens, model.config.context_in_dim, dtype=dtype, device=device),
+        torch.tensor([0.5], dtype=dtype, device=device),
     )
     return wrapper, examples, (latent_height, latent_width, context_tokens)
 
@@ -179,23 +208,33 @@ def export_transformer(module, args):
     out.mkdir(parents=True, exist_ok=True)
     (out / "qwenimage21_transformer.json").write_text(json.dumps(graph, indent=1))
 
-    tensors = {key: value.detach().cpu().contiguous() for key, value in wrapper.state_dict().items()}
-    tensors.update(
-        {key: value.detach().cpu().contiguous() for key, value in EG.save_constants(program).items()}
-    )
-    save_file(tensors, str(out / "transformer.safetensors"))
-    save_file(
-        {
-            "latents": examples[0].cpu().contiguous(),
-            "prompt_embeddings": examples[1].cpu().contiguous(),
-            "timestep": examples[2].cpu().contiguous(),
-            "output": reference.cpu().contiguous(),
-        },
-        str(out / "transformer_reference.safetensors"),
-    )
+    if args.graph_only:
+        tensors = {
+            key: value.detach().cpu().contiguous()
+            for key, value in EG.save_constants(program).items()
+            if value.device.type != "meta"
+        }
+        save_file(tensors, str(out / "transformer_constants.safetensors"))
+    else:
+        tensors = {key: value.detach().cpu().contiguous() for key, value in wrapper.state_dict().items()}
+        tensors.update(
+            {key: value.detach().cpu().contiguous() for key, value in EG.save_constants(program).items()}
+        )
+        save_file(tensors, str(out / "transformer.safetensors"))
+        save_file(
+            {
+                "latents": examples[0].cpu().contiguous(),
+                "prompt_embeddings": examples[1].cpu().contiguous(),
+                "timestep": examples[2].cpu().contiguous(),
+                "output": reference.cpu().contiguous(),
+            },
+            str(out / "transformer_reference.safetensors"),
+        )
 
     requested = {buffer["key"] for buffer in graph["buffers"] if buffer["kind"] == "weight"}
     missing = sorted(requested - tensors.keys())
+    if args.graph_only:
+        missing = [key for key in missing if not key.startswith("model.")]
     if missing:
         raise SystemExit(f"exported graph references {len(missing)} unsaved weights: {missing[:5]}")
 
@@ -328,6 +367,8 @@ def main():
     parser.add_argument("--component", choices=("transformer", "vae", "all"), default="all")
     parser.add_argument("--layers", type=int, default=None, help="export only the first N real blocks for bring-up")
     parser.add_argument("--smoke", action="store_true", help="small random one-block export; downloads no weights")
+    parser.add_argument("--graph-only", action="store_true", help="export from a meta model without downloading BF16 weights")
+    parser.add_argument("--config-dir", type=Path, default=Path("/home/sim/.cache/JuliaVision/Qwen-Image-2.1-config"))
     parser.add_argument("--diffusers-source", type=Path, default=None, help="path to a Diffusers src/ checkout")
     args = parser.parse_args()
     transformer_module, vae_module = import_qwen21(args.diffusers_source)

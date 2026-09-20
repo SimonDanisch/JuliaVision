@@ -136,6 +136,13 @@ function toback(backend, A::RowCat)
     d
 end
 
+# A stack of packed quantised parts has no dense rows to copy into: four output
+# rows share a word and each carries its own scale. `stackrows` assembles it in
+# the checkpoint layout and the result packs exactly like a single weight, so
+# the host peak is one fused matrix rather than the whole stacked model.
+toback(backend, A::RowCat{T,<:AbstractVector{<:ConvRotQInt8HostMatrix}}) where {T} =
+    toback(backend, stackrows(A.parts))
+
 # `hoistpermutes` leaves its transposed weights lazy so they are not all
 # materialised at once. This is where one of them becomes real, and WHERE it
 # happens is the whole cost of a cold load.
@@ -344,7 +351,14 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
         # group, and a fused group is no longer recognisable as attention. This
         # rewrite is worth 9.88x per layer where it fires, so it goes first.
         graphs, nattn = fuseattention(graphs)
-        nattn > 0 && @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
+        if nattn > 0
+            @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
+            # The fusion reads q, k and v from further back than the `bmm` did,
+            # so the casts and scalings in between are left with no consumer.
+            # They are not free: Qwen-Image's are 64 MB apiece, 6 per layer.
+            graphs, nattndead = dropdead(graphs)
+            ndead += nattndead
+        end
         graphs, nfused = fuseops(graphs)
         graphs, nmasked = fusemaskedattention(graphs)
         nmasked > 0 && @info "fusemaskedattention: $nmasked masked attention blocks"
