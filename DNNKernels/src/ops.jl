@@ -552,7 +552,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.maskedattention")})
             if short && nk >= 512
                 p = plan
                 plan = FlashCMPlan(p.BR,p.BC,p.NW,p.NT,p.E,p.EP,p.clamp,
-                    p.rego,p.held,p.rescale,p.onepass,p.lazyrescale,8)
+                    p.rego,p.held,p.rescale,p.onepass,p.lazyrescale,8,false)
             end
         end
     end

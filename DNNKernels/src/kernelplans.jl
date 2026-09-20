@@ -315,6 +315,26 @@ struct FlashCMPlan
     # Re-deriving from the chunk is what keeps the key range a multiple of `BC`,
     # so the last split is not a ragged remainder.
     nsplit::Int
+
+    # ── Two launches, because a partial last key block costs 40% of the kernel.
+    #
+    # Measured on an 8060S at `Lq = 4096`, `E = 128`, 32 heads, `BC = 16`: 50.8
+    # ms at `Lk = 4096`, 53.5 at 4128, and 67-74 at EVERY length in between.
+    # One masked column costs the same as fifteen, so it is not the masking
+    # work: rewriting the mask as selects, clamping the load address so staging
+    # is unconditional, and finally deleting every `KCLAMP` effect from the body
+    # so that both cases compile the same program all left the cliff exactly
+    # where it was. What it follows is `Val{KCLAMP}` itself.
+    #
+    # So the fix is to not ask for it on the bulk of the work: one launch over
+    # the `div(Lk, BC)` blocks that fill a tile with `KCLAMP` off, one over the
+    # ragged remainder with it on, and `attn_flash_cm_merge!` to combine them.
+    # The second launch is one key block of 258 and can be as slow as it likes.
+    #
+    # Rides on `nsplit = 2` so that every caller's scratch allocation and the
+    # merge dispatch already do the right thing; what differs is that the two
+    # launches carry their own key ranges rather than halving one.
+    tailsplit::Bool
 end
 
 """

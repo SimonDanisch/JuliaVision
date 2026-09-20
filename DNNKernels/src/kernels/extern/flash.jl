@@ -521,12 +521,12 @@ end
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
         ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
-        ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
+        ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
                                             BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,PREFETCHV,OUTPERM,
-                                            WIW,WIH,WNX,WNY,NH,NSPLIT,
+                                            WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
                                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
     # workgroup as `NW * dev.coopmatsubgroup`, so a literal disagrees with it on
@@ -683,7 +683,7 @@ end
         # otherwise keeps this kernel at ~49 KiB and admits only one workgroup.
         # With no held-path reference to `pvs`, the compiler removes that 20 KiB
         # allocation entirely.
-        if HELD && (RSC === :comp || NSPLIT == 1)
+        if HELD && (RSC === :comp || (NSPLIT == 1 && PARTOUT < 0))
             for idx in tid:NT:(Mantle.GEMM_TILE * Mantle.GEMM_TILE - 1)
                 r, c = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
                 ss[1 + idx] = Float32(r + c * Mantle.GEMM_TILE)
@@ -1087,7 +1087,7 @@ end
             out[1] = Float16(shpad[1])
         end
 
-        if HELD && !REGO && NSPLIT != 1
+        if HELD && !REGO && (NSPLIT != 1 || PARTOUT >= 0)
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
                 t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Mantle.GEMM_TILE +
@@ -1101,7 +1101,7 @@ end
         # than storing fp32 to shared memory, synchronising, then loading every
         # value again with scalar threads. `ocoord_i` above discovers the
         # implementation-defined component layout; no lane mapping is assumed.
-        if HELD && !REGO && NSPLIT == 1
+        if HELD && !REGO && NSPLIT == 1 && PARTOUT < 0
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
                 if t_j < RT * ET
@@ -1131,14 +1131,14 @@ end
         # Slots `1 : BR*E/NT` are exactly the ones whose `e` is inside the real
         # head dimension: `idx = tid + (s-1)*NT` and `NT` divides `BR*E`, so the
         # padded columns are all in the slots past that and never written out.
-        if !HELD || REGO || NSPLIT != 1
+        if !HELD || REGO || NSPLIT != 1 || PARTOUT >= 0
             for s in 1:div(BR * E, NT)
                 idx = tid + (s - 1) * NT
                 lq, e = Mantle.splitidx(idx, Val(BR))
                 if !CLAMP || q0 + lq < Lq
                     l = ls[1 + lq]
                     o = REGO ? acco[s] : pvs[1 + lq + e * BRS]
-                    if NSPLIT == 1
+                    if NSPLIT == 1 && PARTOUT < 0
                         ov = o / (l == 0.0f0 ? 1.0f0 : l)
                         if OUTPERM
                             oi = flashoutindex(e, h, q0 + lq, b,
@@ -1154,17 +1154,19 @@ end
                     # the rows' maxima differ between splits, so the rescale has
                     # to happen after every split's `m` is known. Same split as
                     # llama.cpp's `flash_attn_split_k_reduce.comp`.
-                        partial[1 + e, 1 + q0 + lq, h, b, 1 + sp] = o
+                        partial[1 + e, 1 + q0 + lq, h, b,
+                                1 + sp + (PARTOUT < 0 ? 0 : PARTOUT)] = o
                     end
                 end
             end
         end
         # One thread per row writes the pair the merge reduces over.
-        if NSPLIT > 1
+        if NSPLIT > 1 || PARTOUT >= 0
             for lq in tid:NT:(BR - 1)
                 if !CLAMP || q0 + lq < Lq
-                    ml[1 + q0 + lq, h, b, 1 + sp, 1] = ms[1 + lq]
-                    ml[1 + q0 + lq, h, b, 1 + sp, 2] = ls[1 + lq]
+                    slot = 1 + sp + (PARTOUT < 0 ? 0 : PARTOUT)
+                    ml[1 + q0 + lq, h, b, slot, 1] = ms[1 + lq]
+                    ml[1 + q0 + lq, h, b, slot, 2] = ls[1 + lq]
                 end
             end
         end
@@ -1624,8 +1626,15 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # that occupancy and holding wins: the 39 windowed SAM 2 calls take attention
     # from 80.01 to 69.17 ms, with bit-identical encoder outputs. Unknown
     # residency (`warps == 0`) keeps the conservative table behavior.
+    # A ragged last key block is 40% of this kernel whatever the mask does, so
+    # it gets its own launch rather than a flag. See `tailsplit` in
+    # `kernelplans.jl` for the measurement. Only where the key axis is the
+    # ragged one and nothing else has already split it: a split plan's slices
+    # are uniform and reasoning about both at once buys nothing.
+    tailsplit = clamp && Lk % BC != 0 && nsplit == 1 && Lk > BC
+    tailsplit && (nsplit = 2)
     FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, onepass,
-                lazyrescale, nsplit)
+                lazyrescale, nsplit, tailsplit)
 end
 
 """
@@ -1766,10 +1775,16 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
 
     ns = plan.nsplit
     outarg = outperm ? flashoutflat(out) : out
-    args = (outarg, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
+    # One launch's arguments. `keys` is how many of them this launch sees and
+    # `k0` where they start, so a tail split is two calls to this and not two
+    # copies of the tuple; `nsp` is the split count the RANGE arithmetic uses,
+    # which is 1 for each of those two even though the plan's is 2; `partout`
+    # is the slot it writes, or -1 to normalise into `out` directly.
+    mkargs(keys, k0, nsp, partout) =
+                               (outarg, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
-                                Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
-                                Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
+                                Int32(rk[2] + 1 + k0 * sk[2]), sk[1], sk[2], sk[3], sk[4],
+                                Int32(rv[2] + 1 + k0 * sv[2]), sv[1], sv[2], sv[3], sv[4],
                                 Val(BR), Val(BC), Val(plan.E), Val(plan.EP), Val(NW),
                                 Val(rego), Val(held && !rego),
                                 # Per AXIS, not per plan. A clamped plan is
@@ -1783,27 +1798,36 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 Val(plan.clamp && Lq % BR != 0),
                                 # Padded queries do not require key checks when
                                 # the occupied-cache bucket divides BC exactly.
-                                Val(plan.clamp && Lk % BC != 0),
+                                Val(plan.clamp && keys % BC != 0),
                                 # Normalised, so a `rescale` setting cannot key a
                                 # second identical pipeline when nothing rescales.
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
                                 Val(rscbar), Val(prefetchv), Val(outperm),
                                 map(Val, outwindow)..., Val(H),
-                                Val(ns), Val(epad), Val(rpad),
+                                Val(nsp), Val(partout), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),
-                                Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
+                                Int32(Lq), Int32(keys), Int32(plan.lazyrescale ? 0 : 1),
                                 Int32(plan.onepass && !rego ? 1 : 0), partial, ml)
-    first = (kern = attn_flash_cm_spatial4!, args = args,
-             ndrange = (NT * cld(Lq, BR) * ns, H, B), group = NT)
+    launch(keys, k0, nsp, partout) =
+        (kern = attn_flash_cm_spatial4!, args = mkargs(keys, k0, nsp, partout),
+         ndrange = (NT * cld(Lq, BR) * nsp, H, B), group = NT)
+    merge = (kern = attn_flash_cm_merge!,
+             args = (out, partial, ml, Int32(ns), Int32(H)),
+             ndrange = (plan.E, Lq, H * B), group = 0)
+    if plan.tailsplit
+        # Everything that fills a key tile, then what is left of it. Only the
+        # second launch compiles the bounds check, and it is one block of 258.
+        nfull = div(Lk, BC) * BC
+        return [launch(nfull, 0, 1, 0), launch(Lk - nfull, nfull, 1, 1), merge]
+    end
+    first = launch(Lk, 0, ns, -1)
     ns == 1 && return [first]
     # The merge is a separate dispatch because every split has to have
     # finished before any row's true maximum is known — that is the one real
     # dependency flash-decoding introduces, and it is why the split has to
     # pay for a second pass over `Lq * H * B * E` to buy its parallelism.
-    return [first, (kern = attn_flash_cm_merge!,
-                    args = (out, partial, ml, Int32(ns), Int32(H)),
-                    ndrange = (plan.E, Lq, H * B), group = 0)]
+    return [first, merge]
 end
 
 """Submit this attention now."""

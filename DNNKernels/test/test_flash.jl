@@ -600,3 +600,88 @@ end
               maximum(abs, mergeref(ph, mh)) < 1f-5
     end
 end
+
+# A key axis that does not divide the tile, as two launches.
+#
+# The clamped path costs 40% of this kernel and not because of what the mask
+# does: at `Lq = 4096`, `E = 128`, 32 heads, `BC = 16`, every `Lk` between 4096
+# and 4128 runs 67-74 ms while the two ends run 51-53, and ONE masked column
+# costs what fifteen do. So the bulk of the work gets a launch with the bounds
+# check compiled out, the ragged remainder gets its own, and
+# `attn_flash_cm_merge!` combines them under their own row maxima.
+@testset "a ragged key axis is split at the last whole tile" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+    if dev.coopmat && dev.coopmatsubgroup == 32
+        E, Lq, Lk, H = 128, 512, 530, 8
+        rng = MersenneTwister(5)
+        mk(L) = DNNKernels.toback(back, Float16.(randn(rng, Float32, E, L, H, 1) .* 0.3f0))
+        q, k, v = mk(Lq), mk(Lk), mk(Lk)
+        scale = Float32(1 / sqrt(E))
+        plan = DNNKernels.flashcm_plan(dev, q, k, v, nothing; clamp = true)
+        @test plan isa DNNKernels.FlashCMPlan
+        @test Lk % plan.BC != 0
+        @test plan.tailsplit
+        # It rides on the split count so that every caller's scratch and the
+        # merge dispatch already do the right thing.
+        @test plan.nsplit == 2
+
+        partial = KA.allocate(back, Float32, E, Lq, H, 1, 2)
+        ml = KA.allocate(back, Float32, Lq, H, 1, 2, 2)
+        ls = DNNKernels.flash_launches(dev, q, plan, q, k, v, scale, partial, ml)
+        @test length(ls) == 3
+        @test ls[3].kern === DNNKernels.attn_flash_cm_merge!
+        # `..., Lq, keys, lazyrescale, onepass, partial, ml`: what each launch
+        # was told its key axis is. Together they are the whole of it, and only
+        # the second one is ragged.
+        keysof(l) = Int(l.args[end - 4])
+        @test keysof(ls[1]) + keysof(ls[2]) == Lk
+        @test keysof(ls[1]) % plan.BC == 0
+        @test keysof(ls[1]) == div(Lk, plan.BC) * plan.BC
+        @test 0 < keysof(ls[2]) < plan.BC
+        # Both query the same rows; the ranges differ in the key axis alone.
+        @test ls[1].ndrange == ls[2].ndrange
+
+        out = KA.allocate(back, Float32, E, Lq, H, 1); fill!(out, 0f0)
+        DNNKernels.sdpaflashcm!(ctx, out, plan, q, k, v, scale)
+        KA.synchronize(back)
+        got = Array(out)
+
+        ref = zeros(Float32, E, Lq, H, 1)
+        for h in 1:H
+            qh = Float32.(Array(q)[:, :, h, 1])
+            kh = Float32.(Array(k)[:, :, h, 1])
+            vh = Float32.(Array(v)[:, :, h, 1])
+            s = (qh' * kh) .* scale
+            for i in 1:Lq
+                p = exp.(s[i, :] .- maximum(s[i, :]))
+                ref[:, i, h, 1] = vh * (p ./ sum(p))
+            end
+        end
+        @test maximum(abs, got .- ref) / maximum(abs, ref) < 5e-3
+
+        # And the same numbers as one clamped launch over the whole axis, which
+        # is what it replaced. Not bit-identical and cannot be: the merge sums
+        # the two slices' contributions under a common maximum, so the fp32
+        # accumulation is reassociated. Two orders of magnitude inside the fp16
+        # output's own resolution is the claim.
+        one = DNNKernels.FlashCMPlan(plan.BR, plan.BC, plan.NW, plan.NT, plan.E,
+                                     plan.EP, plan.clamp, plan.rego, plan.held,
+                                     plan.rescale, plan.onepass, plan.lazyrescale,
+                                     1, false)
+        fill!(out, 0f0)
+        DNNKernels.sdpaflashcm!(ctx, out, one, q, k, v, scale)
+        KA.synchronize(back)
+        @test maximum(abs, got .- Array(out)) / maximum(abs, ref) < 1e-4
+
+        # A key axis the tile divides is one launch, as before.
+        k2, v2 = mk(512), mk(512)
+        plain = DNNKernels.flashcm_plan(dev, q, k2, v2, nothing; clamp = true)
+        @test !plain.tailsplit
+        @test length(DNNKernels.flash_launches(dev, q, plain, q, k2, v2, scale,
+                                               partial, ml)) == 1
+    else
+        @test_skip false
+    end
+end
