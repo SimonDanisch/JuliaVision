@@ -108,3 +108,17 @@ end
     # And a window that would read past the root is refused rather than clamped.
     @test DK.stridedwindow(DK.StridedOperand(root, (4, 4), (1, 200), 0), (4, 4)) === nothing
 end
+
+@testset "transpose-cast recognises only dense batched matrix transposes" begin
+    # `(144, 65536, 1)` source planes read as dense `(65536, 144, 1)` output:
+    # SAM's spatial dimensions remain split here, which must give the same M.
+    @test DK.transposecastshape((256, 256, 144, 1),
+                                (144, 144 * 256, 1, 144 * 256 * 256), 0) ==
+          (256 * 256, 144, 1)
+    @test DK.transposecastshape((64, 32, 7, 3),
+                                (7, 7 * 64, 1, 7 * 64 * 32), 0) ==
+          (64 * 32, 7, 3)
+    @test DK.transposecastshape((64, 32, 7), (7, 7 * 64, 1), 1) === nothing
+    @test DK.transposecastshape((64, 32, 7), (7, 999, 1), 0) === nothing
+    @test DK.transposecastshape((64, 32, 7), (1, 64, 64 * 32), 0) === nothing
+end

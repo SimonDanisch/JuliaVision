@@ -88,7 +88,28 @@ that is deliberate.
 # "8": PTQ1 direct packed matmul/get-row/dequant, the signed 1024-point
 # Hadamard transform, depthwise recurrent convolution, and the fused Qwen3.5
 # Gated DeltaNet state update.
-const KERNELS_VERSION = "8"
+# "9": shape-selected layer-norm workgroups and the tiled Float32-to-Float16
+# transpose/cast change kernels reached by recorded graphs.
+# "10": tiled same-type transposes and fused 2x2 max-pool/transposes.
+# "11": the pool/transpose accepts a strided pixel pitch, including Q views of
+# interleaved QKV storage.
+# "12": dense GEMM bias addition uses the shape-specialised linear row-bias
+# kernel instead of rank-wide generic broadcast indexing; the fp16/fp32
+# positional add uses a coalesced tiled transpose.
+# "13": high-residency cooperative-matrix flash tilings and direct fragment
+# output stores remove the held-output shared-memory round trip.
+# "14": dense and one-axis elementwise dispatch plus the coalesced fp16
+# transpose/residual-add kernel used between SAM 2 window stages.
+# "15": flash attention register-prefetches V on the wide global tile and can
+# write the sole head/token permutation directly, changing both its signature
+# and its SPIR-V body.
+# "16": layer norm uses a backend-independent subgroup shuffle tree instead of
+# a shared-memory reduction tree where the device reports a subgroup width.
+# "17": subgroup layer norm can write its sole narrowing window clone directly,
+# removing the separate spatial permutation/cast pass.
+# "18": window attention may store columns in final spatial order so its output
+# projection preserves that order and the following contiguous clone disappears.
+const KERNELS_VERSION = "29"
 
 include("assets.jl")
 include("safetensors.jl")

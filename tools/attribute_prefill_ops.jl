@@ -28,7 +28,7 @@ function attribute_prefill_ops(m, tokens; atens = nothing, repeats = 7, warmup =
     atens === nothing && (atens = first.(sort(collect(counts), by = x -> -x[2])))
     host = Matrix{Float16}(undef, m.vocab, 1)
     function timeone(double)
-        model = DNNKernels.Model(Dict(name => graph), base.weights, base.backend,
+        model = DNNKernels.Model(Dict(name => graph), base.weights, base.device,
             base.memevery, base.memframes, base.topk;
             record = base.record, record_maxpasses = base.record_maxpasses)
         model.diag.opdouble = double

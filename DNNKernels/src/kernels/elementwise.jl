@@ -155,6 +155,36 @@ function ew32!(out, exts, ops::Tuple, sts::Tuple, f, n::Int32)
     return
 end
 
+"""Each dense operand at the same linear index, recursively and type-stably."""
+@inline gatherlinear(::Tuple{}, i) = ()
+@inline gatherlinear(ops::Tuple, i) =
+    (@inbounds(first(ops)[i]), gatherlinear(Base.tail(ops), i)...)
+
+"""
+    denseew!(out, ops, f, n)
+
+The no-broadcast elementwise case. Every operand has the output's contiguous
+shape, so decomposing a linear index into coordinates and dotting those
+coordinates back into the same strides is an identity. Residual adds in SAM 2
+are large enough that those otherwise-cheap integer operations are measurable.
+"""
+function denseew!(out, ops::Tuple, f, n::Int32)
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[i] = f(gatherlinear(ops, i)...)
+    return
+end
+
+"""Dense tensor combined with a one-axis bias, without rebuilding N-D coordinates."""
+function axisbias!(out, a, bias, f, ::Val{BIASFIRST}, ::Val{INNER}, ::Val{C},
+                   n::Int32) where {BIASFIRST,INNER,C}
+    i = KI.get_global_id().x
+    i <= n || return
+    c = ((i - 1) ÷ INNER) % C + 1
+    @inbounds out[i] = BIASFIRST ? f(bias[c], a[i]) : f(a[i], bias[c])
+    return
+end
+
 """
     colstrides(d) -> NTuple
 

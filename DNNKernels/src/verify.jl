@@ -98,8 +98,11 @@ predicate that flipped, so the ops downstream are still judged on their own
 arithmetic.
 """
 function declaredvalues(g::Graph, inputs::AbstractDict, weights::AbstractDict;
-                        dims, backend, overrides::AbstractDict = Dict{String,Any}())
-    dev = M.Device(backend)
+                        dims, backend=nothing, device=nothing,
+                        overrides::AbstractDict = Dict{String,Any}())
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
+    dev = M.todevice(device === nothing ? backend : device)
     mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims;
                                      keepall = true, skip = keys(overrides))
     for (id, x) in Iterators.flatten((inputs, overrides))
@@ -142,8 +145,12 @@ them covers every op type it uses for a sixteenth of the arithmetic, which is
 the difference between a CPU-backend check that finishes and one that does not.
 """
 function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
-                     dims, backend=KernelAbstractions.CPU(),
+                     dims, backend=nothing, device=nothing,
                      atol=1e-4, rtol=1e-3, rtol16=3e-2, amplify=4.0, verbose=true)
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
+    dev = M.todevice(device === nothing ?
+                     (backend === nothing ? KernelAbstractions.CPU() : backend) : device)
     inputs = Dict{String,Any}()
     for (i, name) in enumerate(g.inputs)
         k = "$(g.name)/in$(i-1)"
@@ -158,7 +165,7 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
     #
     # `declaredvalues`, so the tool verifies what `Model` actually submits and
     # not a second path with its own allocation.
-    values = declaredvalues(g, inputs, weights; dims, backend)
+    values = declaredvalues(g, inputs, weights; dims, device = dev)
 
     # A flipped predicate changes the graph's behaviour discontinuously, so
     # everything after it diverges for a reason that is not a bug. Pin the tie
@@ -175,7 +182,7 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
         n > 0 && (pinned[op.out] = refs[k]; flips[op.out] = n)
     end
     isempty(pinned) || (values = declaredvalues(g, inputs, weights;
-                                                dims, backend, overrides = pinned))
+                                                dims, device = dev, overrides = pinned))
 
     err = Dict{String,Float64}()          # per-buffer error carried so far
     # fp16 precision is transitive: once a value has passed through an fp16

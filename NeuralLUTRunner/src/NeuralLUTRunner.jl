@@ -179,11 +179,11 @@ function neurallut(; backend = Mantle.LavaBackend())
     # and a lazy-broadcast set are four mechanisms for recovering what the graph
     # had
     # already stated.
-    dev = Mantle.Device(backend)
+    dev = model.device
     mgraph, ec = emitgraph(dev, graph, model.weights, (;))
     plan = Mantle.Plan(mgraph)
     Mantle.record!(plan)
-    return NeuralLUT(backend, dev, graph, mgraph, plan,
+    return NeuralLUT(model.backend, dev, graph, mgraph, plan,
                      ec.res[only(graph.inputs)], ec.res[only(graph.outputs)])
 end
 

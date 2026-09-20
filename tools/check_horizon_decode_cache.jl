@@ -20,7 +20,7 @@ function check_decode_cache(reference, short_export)
     shortgraph = DK.Graph(g.name, g.symbols, g.inputs, g.outputs, buffers,
                           g.order, ops, g.fusion)
     shortmodel = DK.Model(Dict(g.name => shortgraph), reference.model.weights,
-                          reference.backend, 1, 1, 1; record=true)
+                          reference.model.device, 1, 1, 1; record=true)
     short = Horizon32B(reference.backend, shortmodel, 64, 1, reference.vocab)
     k, v = newcache(short)
     args = (DK.toback(short.backend, ones(Int64, 1, 1)), k, v,

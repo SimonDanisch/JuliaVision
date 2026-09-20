@@ -25,10 +25,18 @@ mask parity with PyTorch to five decimals is not worth trading for a pass that
 comes out of cache anyway.
 """
 
-"""Threads per normalisation group. 128 rather than 256 because `C` is as small
-as 144 here and a workgroup wider than the group is idle lanes; the largest `C`
-is 1152, which is nine elements per lane."""
+"""Fallback threads per normalisation group for reductions wider than 2048."""
 const LN_WG = 128
+
+"""Workgroup width for layer norm, selected from the reduction width.
+
+Small normalisation groups need useful lanes more than they need parallelism:
+on SAM 2's 144/288/576-wide groups, 32 lanes are 2.5--2.9x faster than the old
+fixed 128.  At 1152, 64 lanes win.  This depends only on the tensor shape, not
+on a backend identity; larger reductions retain the conservative 128-wide
+route.
+"""
+layernormwg(C::Integer) = C <= 576 ? 32 : C <= 2048 ? 64 : LN_WG
 
 """
     layernorm_kernel!(out, mean, rstd, a, γ, β, C, eps)
@@ -43,8 +51,9 @@ so the cost is noise.
 """
 @kernel cpu=false function layernorm_kernel!(out, mean, rstd, @Const(a), @Const(γ),
                                              @Const(β), C::Int32, eps::Float32,
-                                             ::Val{HASG}, ::Val{HASB}) where {HASG,HASB}
-    red = @localmem Float32 (LN_WG,)
+                                             ::Val{WG}, ::Val{HASG}, ::Val{HASB}) where
+                                            {WG,HASG,HASB}
+    red = @localmem Float32 (WG,)
     g = @index(Group, Linear) - 1
     t = @index(Local, Linear) - 1
     base = g * Int(C)
@@ -55,14 +64,14 @@ so the cost is noise.
     i = t
     @inbounds while i < C
         s += Float32(a[base + i + 1])
-        i += LN_WG
+        i += WG
     end
     @inbounds red[t + 1] = s
     @synchronize
     # Tree reduction. The barrier is outside the `if`, so every lane reaches it
     # — a barrier in divergent control flow is undefined, and on this compiler
     # that is not a theoretical concern.
-    stride = LN_WG ÷ 2
+    stride = WG ÷ 2
     while stride > 0
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
@@ -79,11 +88,11 @@ so the cost is noise.
     @inbounds while i < C
         d = Float32(a[base + i + 1]) - μ
         s2 += d * d
-        i += LN_WG
+        i += WG
     end
     @inbounds red[t + 1] = s2
     @synchronize
-    stride = LN_WG ÷ 2
+    stride = WG ÷ 2
     while stride > 0
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
@@ -105,9 +114,230 @@ so the cost is noise.
             x += Float32(β[i + 1])
         end
         out[base + i + 1] = x
-        i += LN_WG
+        i += WG
     end
     @inbounds if t == 0
+        mean[g + 1] = μ
+        rstd[g + 1] = r
+    end
+end
+
+"""
+Layer norm with exactly one hardware subgroup per normalisation group.
+
+The ordinary kernel's shared-memory tree is the portable fallback. Backends
+which report a subgroup width can reduce each partial sum with the portable
+KernelInterface intrinsic instead: no shared scratch and no reduction barriers.
+"""
+@kernel cpu=false function layernorm_shfl_kernel!(out, mean, rstd,
+                                                       @Const(a), @Const(γ),
+                                                       @Const(β), C::Int32,
+                                                       NG::Int32, eps::Float32,
+                                                       ::Val{SG}, ::Val{ROW},
+                                                      ::Val{HASG}, ::Val{HASB}) where
+                                                      {SG,ROW,HASG,HASB}
+    block = @index(Group, Linear) - 1
+    t = @index(Local, Linear) - 1
+    lane = t % ROW
+    chunk = t ÷ ROW
+    g = block * div(SG, ROW) + chunk
+    valid = g < NG
+    base = g * Int(C)
+    n = Float32(C)
+
+    s = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        s += Float32(a[base + i + 1])
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s, 32); lane < 32 && (s += v)
+    end
+    v = KI.shfl_down(s, 16); lane < 16 && (s += v)
+    v = KI.shfl_down(s, 8);  lane < 8  && (s += v)
+    v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
+    v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
+    v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
+    μ = KI.shfl(s, chunk * ROW) / n
+
+    s2 = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        d = Float32(a[base + i + 1]) - μ
+        s2 += d * d
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s2, 32); lane < 32 && (s2 += v)
+    end
+    v = KI.shfl_down(s2, 16); lane < 16 && (s2 += v)
+    v = KI.shfl_down(s2, 8);  lane < 8  && (s2 += v)
+    v = KI.shfl_down(s2, 4);  lane < 4  && (s2 += v)
+    v = KI.shfl_down(s2, 2);  lane < 2  && (s2 += v)
+    v = KI.shfl_down(s2, 1);  lane < 1  && (s2 += v)
+    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW) / n + eps)
+
+    i = lane
+    @inbounds while valid && i < C
+        x = (Float32(a[base + i + 1]) - μ) * r
+        HASG && (x *= Float32(γ[i + 1]))
+        HASB && (x += Float32(β[i + 1]))
+        out[base + i + 1] = x
+        i += ROW
+    end
+    @inbounds if valid && lane == 0
+        mean[g + 1] = μ
+        rstd[g + 1] = r
+    end
+end
+
+"""Subgroup layer norm fused with the residual add that produces its input."""
+@kernel cpu=false function add_layernorm_shfl_kernel!(out, sumout, mean, rstd,
+        @Const(a), @Const(b), @Const(γ), @Const(β), C::Int32, NG::Int32,
+        eps::Float32, ::Val{SG}, ::Val{ROW}, ::Val{HASG}, ::Val{HASB}) where
+        {SG,ROW,HASG,HASB}
+    block = @index(Group, Linear) - 1
+    t = @index(Local, Linear) - 1
+    lane = t % ROW
+    chunk = t ÷ ROW
+    g = block * div(SG, ROW) + chunk
+    valid = g < NG
+    base = g * Int(C)
+    n = Float32(C)
+
+    s = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        # Convert through the residual's declared element type. In particular,
+        # f16 + f16 -> f16 must round before the norm observes it.
+        z = convert(eltype(sumout), a[base + i + 1] + b[base + i + 1])
+        sumout[base + i + 1] = z
+        s += Float32(z)
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s, 32); lane < 32 && (s += v)
+    end
+    v = KI.shfl_down(s, 16); lane < 16 && (s += v)
+    v = KI.shfl_down(s, 8);  lane < 8  && (s += v)
+    v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
+    v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
+    v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
+    μ = KI.shfl(s, chunk * ROW) / n
+
+    s2 = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        d = Float32(sumout[base + i + 1]) - μ
+        s2 += d * d
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s2, 32); lane < 32 && (s2 += v)
+    end
+    v = KI.shfl_down(s2, 16); lane < 16 && (s2 += v)
+    v = KI.shfl_down(s2, 8);  lane < 8  && (s2 += v)
+    v = KI.shfl_down(s2, 4);  lane < 4  && (s2 += v)
+    v = KI.shfl_down(s2, 2);  lane < 2  && (s2 += v)
+    v = KI.shfl_down(s2, 1);  lane < 1  && (s2 += v)
+    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW) / n + eps)
+
+    i = lane
+    @inbounds while valid && i < C
+        x = (Float32(sumout[base + i + 1]) - μ) * r
+        HASG && (x *= Float32(γ[i + 1]))
+        HASB && (x += Float32(β[i + 1]))
+        out[base + i + 1] = x
+        i += ROW
+    end
+    @inbounds if valid && lane == 0
+        mean[g + 1] = μ
+        rstd[g + 1] = r
+    end
+end
+
+
+"""
+The subgroup layer norm with its result written directly in SAM-style window
+order.  `g` remains the dense spatial row used to read `a`; only the output row
+is permuted, so the reduction and fp16 store rounding are unchanged.
+"""
+@kernel cpu=false function layernorm_shfl_window4_add_kernel!(out, wideout, sumout, mean, rstd,
+        @Const(a), @Const(b), @Const(γ), @Const(β), C::Int32, NG::Int32, eps::Float32,
+        ::Val{SG}, ::Val{ROW}, ::Val{IW}, ::Val{IH}, ::Val{NX}, ::Val{NY},
+        ::Val{ADD}, ::Val{FULLWIDE}, ::Val{HASG}, ::Val{HASB}) where
+        {SG,ROW,IW,IH,NX,NY,ADD,FULLWIDE,HASG,HASB}
+    block = @index(Group, Linear) - 1
+    t = @index(Local, Linear) - 1
+    lane = t % ROW
+    chunk = t ÷ ROW
+    g = block * div(SG, ROW) + chunk
+    valid = g < NG
+    base = g * Int(C)
+    n = Float32(C)
+
+    s = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        z = ADD ? convert(eltype(sumout), a[base + i + 1] + b[base + i + 1]) :
+                  a[base + i + 1]
+        ADD && (sumout[base + i + 1] = z)
+        s += Float32(z)
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s, 32); lane < 32 && (s += v)
+    end
+    v = KI.shfl_down(s, 16); lane < 16 && (s += v)
+    v = KI.shfl_down(s, 8);  lane < 8  && (s += v)
+    v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
+    v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
+    v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
+    μ = KI.shfl(s, chunk * ROW) / n
+
+    s2 = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        z = ADD ? sumout[base + i + 1] : a[base + i + 1]
+        d = Float32(z) - μ
+        s2 += d * d
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s2, 32); lane < 32 && (s2 += v)
+    end
+    v = KI.shfl_down(s2, 16); lane < 16 && (s2 += v)
+    v = KI.shfl_down(s2, 8);  lane < 8  && (s2 += v)
+    v = KI.shfl_down(s2, 4);  lane < 4  && (s2 += v)
+    v = KI.shfl_down(s2, 2);  lane < 2  && (s2 += v)
+    v = KI.shfl_down(s2, 1);  lane < 1  && (s2 += v)
+    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW) / n + eps)
+
+    W = IW * NX
+    H = IH * NY
+    x = g % W
+    tail = g ÷ W
+    y = tail % H
+    b = tail ÷ H
+    ix, wx = x % IW, x ÷ IW
+    iy, wy = y % IH, y ÷ IH
+    outrow = ix + IW * (iy + IH * (wx + NX * (wy + NY * b)))
+    outbase = outrow * Int(C)
+    i = lane
+    @inbounds while valid && i < C
+        src = ADD ? sumout[base + i + 1] : a[base + i + 1]
+        z = (Float32(src) - μ) * r
+        HASG && (z *= Float32(γ[i + 1]))
+        HASB && (z += Float32(β[i + 1]))
+        # The ordinary result is provably dead when this route is selected; one
+        # element per row keeps its declared transient live for Mantle without
+        # writing the full fp32 tensor that no pass can read.
+        (FULLWIDE || i == 0) && (wideout[base + i + 1] = z)
+        out[outbase + i + 1] = z
+        i += ROW
+    end
+    @inbounds if valid && lane == 0
         mean[g + 1] = μ
         rstd[g + 1] = r
     end
@@ -125,12 +355,24 @@ dims, and those are the leading Julia ones.
 function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
     backend = ctx.backend
     groups = length(a) ÷ C
+    rowsg = layernormwg(C)
+    sg = hasproperty(ctx, :dev) ? ctx.dev.subgroup : 0
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
-    layernorm_kernel!(backend, LN_WG)(
+    if sg > 0 && rowsg <= sg && sg % rowsg == 0
+        layernorm_shfl_kernel!(backend, sg)(
+            out, mean, rstd, a,
+            γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+            Int32(C), Int32(groups), Float32(eps), Val(sg), Val(rowsg),
+            Val(γ !== nothing), Val(β !== nothing);
+            ndrange = cld(groups, sg ÷ rowsg) * sg)
+        return out
+    end
+    wg = rowsg
+    layernorm_kernel!(backend, wg)(
         out, mean, rstd, a,
         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
-        Int32(C), Float32(eps), Val(γ !== nothing), Val(β !== nothing);
-        ndrange = groups * LN_WG)
+        Int32(C), Float32(eps), Val(wg), Val(γ !== nothing), Val(β !== nothing);
+        ndrange = groups * wg)
     out
 end
 

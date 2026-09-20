@@ -9,7 +9,7 @@ defined. `graph.jl` is the only thing above this file.
 """
 
 """
-    caps(backend) -> M.DeviceCaps
+    caps(device) -> M.DeviceCaps
 
 What the kernels need to know about the device they are about to run on,
 answered **once per context**, at construction, from a live device.
@@ -36,14 +36,14 @@ What stays here is the one number that is *not* a device fact:
 
 ## Where the device comes from
 
-`Lava.caps(backend)` resolves a pinned backend to the context it was built with
-and an unpinned one to whichever is current, so the caps read from a pinned
-backend describe **that** device and two of them can be alive at once.
+The execution owner is passed in explicitly. A KernelAbstractions backend is a
+kernel-launch descriptor, not a general device handle; ROCm's is an empty value
+and cannot identify a HIP device, stream, pool or capability record.
 """
 # Through Mantle, not `Lava.caps` directly: the backend's extension converts its
 # own record into the portable one, so this stays right when a second backend
 # exists and wrong-by-construction if it did the conversion here.
-caps(b::Mantle.LavaBackend) = M.caps(b)
+caps(d::M.Device) = M.caps(d)
 
 """
 Device facts for a backend that is not Lava's — the CPU verification path.
@@ -228,6 +228,7 @@ struct Ctx{B,N,S,P,W,L,R}
     dims::NamedTuple
     backend::B
     dev::M.DeviceCaps          # what this backend's device can do — see `caps`
+    runscalls::Bool            # whether this execution path may invoke libraries
 
     # ── Let an attention whose extents do not divide the tile take the fused
     # cooperative-matrix path anyway, padded and masked.
@@ -335,12 +336,23 @@ reset!(::Nothing) = nothing
 # the graph path and the bare `Ctx(backend)`, not a combinatorial spread. And the
 # typing is load-bearing rather than tidiness — see the note above on `slab`,
 # where `::Any` put 3 948 CPU kernel specialisations into SAM 2's package image.
-function Ctx(values, graph, dims, backend;
+function Ctx(values, graph, dims, target;
              slab = nothing, plan = nothing, outid = Ref(""), ws = nothing,
              lazy = nothing, rec = nothing, diag::Diagnostics = Diagnostics(),
              clampattn::Bool = false, flashcm2::Bool = true,
              noise::NoiseSource = RandomNoise())
-    Ctx(values, graph, dims, backend, caps(backend), clampattn, flashcm2, noise,
+    Ctx(values, graph, dims, M.todevice(target);
+        slab, plan, outid, ws, lazy, rec, diag, clampattn, flashcm2, noise)
+end
+
+function Ctx(values, graph, dims, dev::M.Device;
+             slab = nothing, plan = nothing, outid = Ref(""), ws = nothing,
+             lazy = nothing, rec = nothing, diag::Diagnostics = Diagnostics(),
+             clampattn::Bool = false, flashcm2::Bool = true,
+             noise::NoiseSource = RandomNoise())
+    backend = M.backend(dev)
+    Ctx(values, graph, dims, backend, M.caps(dev), M.runscalls(dev),
+        clampattn, flashcm2, noise,
         slab, plan, outid, ws, lazy, rec, diag)
 end
 

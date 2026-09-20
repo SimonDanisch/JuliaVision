@@ -50,7 +50,7 @@ const HAVE_SAM2 = SAM2Runner.ready()
 # is the whole point of it. `sam.model` records and replays now, so calling
 # through it here would compare a replay against itself and pass whatever the
 # plan held. Sharing the weights makes the second model nearly free.
-eagermodel(sam) = DK.Model(sam.model.graphs, sam.model.weights, sam.model.backend,
+eagermodel(sam) = DK.Model(sam.model.graphs, sam.model.weights, sam.model.device,
                            sam.model.memevery, sam.model.memframes, sam.model.topk;
                            record = false)
 

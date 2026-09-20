@@ -49,7 +49,7 @@ function bench_horizon_longprompt(m; prompts=(1024, 2048), repeats=5, warmup=2,
         end
         println("HORIZON_LONGPP kv=$label n=$n chunks=$(cld(n, m.prefill)) ",
                 "median_s=$(median(samples)) samples=$samples token=$expected ",
-                "pool_gib=$(Mantle.reserved(Mantle.pool(Mantle.Device(m.backend))) / 2.0^30)")
+                "pool_gib=$(Mantle.reserved(Mantle.pool(m.model.device)) / 2.0^30)")
         flush(stdout)
     end
     nothing

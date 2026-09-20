@@ -21,6 +21,7 @@ runtimes do and worth seeing rather than hiding.
 
 import argparse
 import json
+import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -42,6 +43,13 @@ def smclock():
                               "--format=csv,noheader,nounits"],
                              capture_output=True, text=True, check=True)
         return int(out.stdout.strip().splitlines()[0])
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["rocm-smi", "-c"], capture_output=True, text=True,
+                             check=True)
+        m = re.search(r"sclk clock level: \d+: \((\d+)Mhz\)", out.stdout)
+        return int(m.group(1)) if m else None
     except Exception:
         return None
 
@@ -86,6 +94,12 @@ def kerneltimes(fn, iters):
             rec = kernel[name]
         rec[0] += e.count
         rec[1] += dev / 1e3 / iters      # us total over iters -> ms per call
+    if not aten and not kernel:
+        # This ROCm build currently returns CPU ranges only.  An all-zero JSON
+        # looks like a successful measurement and is worse than a refusal.
+        raise RuntimeError(
+            "torch.profiler recorded no device activity; this build cannot "
+            "produce a kernel-time profile")
     fix = lambda d: {k: (v[0] // iters, v[1]) for k, v in d.items()}
     return fix(aten), fix(kernel)
 
@@ -97,6 +111,9 @@ def main():
     ap.add_argument("--iters", type=int, default=20)
     ap.add_argument("--tf32", action="store_true")
     ap.add_argument("--precision", default="autocast", choices=["autocast", "fp32"])
+    ap.add_argument("--compile", action="store_true")
+    ap.add_argument("--compile-mode", default="default",
+                    choices=["default", "reduce-overhead", "max-autotune"])
     a = ap.parse_args()
 
     torch.backends.cudnn.allow_tf32 = a.tf32
@@ -108,6 +125,10 @@ def main():
     res = model.image_size
     enc = ES.Encoder(model).to(dev).eval()
     dec = ES.Decoder(model).to(dev).eval()
+
+    if a.compile:
+        enc = torch.compile(enc, mode=a.compile_mode, dynamic=False)
+        dec = torch.compile(dec, mode=a.compile_mode, dynamic=False)
 
     image = torch.rand(1, 3, res, res, device=dev)
     with torch.no_grad(), EG.precision_ctx(a.precision):
@@ -128,10 +149,13 @@ def main():
         d_aten, d_kern = kerneltimes(lambda: dec(f0, f1, f2, point, label), a.iters)
 
     out = {"size": a.size, "res": res, "precision": a.precision, "tf32": a.tf32,
+           "compiled": a.compile,
+           "compile_mode": a.compile_mode if a.compile else None,
            "sm_clock_mhz": smclock(), "device": torch.cuda.get_device_name(0),
            "encode_kernels_ms": e_aten, "decode_kernels_ms": d_aten,
            "encode_cuda_ms": e_kern, "decode_cuda_ms": d_kern}
-    dest = ROOT / "gen" / "graphs" / f"sam2-{a.size}" / "pytorch_kernels.json"
+    suffix = "_compiled" if a.compile else ""
+    dest = ROOT / "gen" / "graphs" / f"sam2-{a.size}" / f"pytorch_kernels{suffix}.json"
     dest.write_text(json.dumps(out, indent=1))
 
     def table(title, d, width=44):

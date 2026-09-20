@@ -4,7 +4,7 @@ using HorizonRunner, DNNKernels, Mantle, Test, Statistics
 function check_horizon_buckets(recorded)
     base = recorded.model
     fixedgraphs = Dict(n => base.graphs[n] for n in HorizonRunner.GRAPHS)
-    immediate = DNNKernels.Model(fixedgraphs, base.weights, base.backend,
+    immediate = DNNKernels.Model(fixedgraphs, base.weights, base.device,
         base.memevery, base.memframes, base.topk; record=false)
     reference = Horizon32B(recorded.backend, immediate, recorded.maxlen,
                           recorded.prefill, recorded.vocab)
@@ -25,7 +25,7 @@ function check_horizon_buckets(recorded)
                 flush(stdout)
                 @test actual == expected
                 println("BUCKET_MEMORY pool_gib=",
-                    Mantle.reserved(Mantle.pool(Mantle.Device(recorded.backend))) / 2.0^30)
+                    Mantle.reserved(Mantle.pool(recorded.model.device)) / 2.0^30)
                 flush(stdout)
             end
         end

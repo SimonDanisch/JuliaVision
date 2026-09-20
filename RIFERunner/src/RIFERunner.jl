@@ -217,10 +217,10 @@ function rife(; backend = Mantle.LavaBackend())
     # of Mantle's phases over the whole graph, so placement, aliasing and
     # barriers are decided before a byte is touched. `planfor` is the same one
     # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
-    plan = planfor(Mantle.Device(backend), graph, model.weights, (;))
-    input = KA.allocate(backend, Float32, w, h, 6, 1)
-    timestep = KA.allocate(backend, Float32, 1, 1, 1, 1)
-    return RIFE(backend, graph, model.weights, plan, input, timestep, (w, h))
+    plan = planfor(model.device, graph, model.weights, (;))
+    input = KA.allocate(model.backend, Float32, w, h, 6, 1)
+    timestep = KA.allocate(model.backend, Float32, 1, 1, 1, 1)
+    return RIFE(model.backend, graph, model.weights, plan, input, timestep, (w, h))
 end
 
 """

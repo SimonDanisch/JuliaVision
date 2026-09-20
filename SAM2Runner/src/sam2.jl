@@ -77,7 +77,7 @@ struct SAM2
 end
 
 function SAM2(graphs::AbstractDict, weights::AbstractDict;
-              backend=KernelAbstractions.CPU(), res::Int=1024, maxpoints::Int=16,
+              backend=nothing, device=nothing, res::Int=1024, maxpoints::Int=16,
               cacheinputs::Bool=true, replaydecode::Bool=true,
               segmenttie::Real=0.1f0)
     # Accepted and ignored: a plan replays by construction, so there is nothing
@@ -98,7 +98,11 @@ function SAM2(graphs::AbstractDict, weights::AbstractDict;
     # is that no op may read device memory on the host mid-graph, and the
     # encoder's 16 `index.Tensor`s keep their index on the device for exactly
     # that reason.
-    m = Model(graphs, weights; backend, record = true)
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
+    target = device === nothing ?
+             (backend === nothing ? KernelAbstractions.CPU() : backend) : device
+    m = Model(graphs, weights; device = Mantle.todevice(target), record = true)
     enc, dec = m.graphs["sam2_encoder"], m.graphs["sam2_decoder"]
     # torch order, so the image is (n, c, y, x) and the point list (n, k, 2).
     img = enc.buffers[enc.inputs[1]].shape
@@ -170,7 +174,7 @@ function handover(s::SAM2)
     # against PyTorch on ROCm (`ok=true`, 0 mismatches) and its device answers
     # `recordsplans` with `true`, but `handover` refused it and the whole
     # `runsam2` path was unreachable there.
-    Mantle.recordsplans(Mantle.Device(s.model.backend)) || error(
+    Mantle.recordsplans(s.model.device) || error(
         "SAM2 replays its graphs as recorded Mantle plans, and " *
         "$(typeof(s.model.backend))'s device answers `Mantle.recordsplans` " *
         "with false, so there is nothing to replay. Use a backend that records.")

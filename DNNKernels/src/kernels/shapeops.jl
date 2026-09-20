@@ -12,6 +12,25 @@ mapreduce workspace as well. Neither is in any plan.
 """
 
 """
+    rowbias!(out, bias, n, Val(rows))
+
+Add a dense matrix's row bias in place.  GEMM output is column-major here, so
+the row index is simply the linear index modulo `rows`; keeping this as a
+dedicated kernel avoids the rank-wide coordinate decomposition in the generic
+broadcast kernel for what is one modulo and two contiguous memory accesses.
+
+`rows` is a `Val` because it is a graph shape.  GPU compilers can therefore
+strength-reduce the modulo, including the common power-of-two widths, without
+making this kernel backend-specific.
+"""
+function rowbias!(out, bias, n::Int, ::Val{ROWS}) where {ROWS}
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[i] = out[i] + bias[(i - 1) % ROWS + 1]
+    return
+end
+
+"""
     tilecopy!(out, od, a, id)
 
 `out = repeat(a, reps)`: element `i` of the output reads its source coordinate
@@ -339,4 +358,139 @@ function stridedcopy32!(out, exts, a, ast::NTuple{N,Int32}, off::Int32,
     end
     @inbounds out[i] = a[o + Int32(1)]
     return
+end
+
+"""
+    transposecast_f32_f16!(out, src, M, N)
+
+Transpose each dense `N × M` plane into an `M × N` plane while narrowing
+Float32 to Float16.  The padded shared tile makes both global-memory directions
+coalesced; the generic strided elementwise path necessarily leaves one side of
+this transpose strided.
+"""
+@kernel cpu=false function transposecast_f32_f16!(out, @Const(src),
+                                                   M::Int32, N::Int32)
+    tile = @localmem Float32 (33, 32)
+    tx, ty = @index(Local, NTuple)
+    gx, gy, gz = @index(Group, NTuple)
+    n0 = Int32(gx - 1) * Int32(32)
+    m0 = Int32(gy - 1) * Int32(32)
+    base = Int32(gz - 1) * M * N
+    @inbounds begin
+        for j in Int32(0):Int32(7)
+            n = n0 + Int32(tx)
+            m = m0 + Int32(ty) + Int32(4) * j
+            tile[tx, ty + 4j] = n <= N && m <= M ?
+                src[base + (m - Int32(1)) * N + n] : 0.0f0
+        end
+        @synchronize
+        for j in Int32(0):Int32(7)
+            m = m0 + Int32(tx)
+            n = n0 + Int32(ty) + Int32(4) * j
+            m <= M && n <= N &&
+                (out[base + (n - Int32(1)) * M + m] =
+                    Float16(tile[ty + 4j, tx]))
+        end
+    end
+end
+
+# Literal shared-memory element types are required by the GPU compiler, so the
+# two same-type transpose kernels are generated rather than parameterised by a
+# run-time type value.
+for T in (Float16, Float32)
+    @eval @kernel cpu=false function $(Symbol("transposecopy_", nameof(T), "!"))(
+            out, @Const(src), M::Int32, N::Int32)
+        tile = @localmem $(nameof(T)) (33, 32)
+        tx, ty = @index(Local, NTuple)
+        gx, gy, gz = @index(Group, NTuple)
+        n0 = Int32(gx - 1) * Int32(32)
+        m0 = Int32(gy - 1) * Int32(32)
+        base = Int32(gz - 1) * M * N
+        @inbounds begin
+            for j in Int32(0):Int32(7)
+                n = n0 + Int32(tx)
+                m = m0 + Int32(ty) + Int32(4) * j
+                tile[tx, ty + 4j] = n <= N && m <= M ?
+                    src[base + (m - Int32(1)) * N + n] : zero($(nameof(T)))
+            end
+            @synchronize
+            for j in Int32(0):Int32(7)
+                m = m0 + Int32(tx)
+                n = n0 + Int32(ty) + Int32(4) * j
+                m <= M && n <= N &&
+                    (out[base + (n - Int32(1)) * M + m] = tile[ty + 4j, tx])
+            end
+        end
+    end
+end
+
+transposecopykernel(::Type{Float16}) = transposecopy_Float16!
+transposecopykernel(::Type{Float32}) = transposecopy_Float32!
+
+"""
+    transposeadd_f16_f32_f32!(out, a, b, M, N)
+
+Transpose matching dense planes while adding an fp16 and an fp32 source into
+an fp32 destination.  Positional embedding addition has precisely this shape:
+the generic elementwise kernel otherwise performs a full coordinate division
+chain and leaves both reads strided.  One fp32 shared tile holds the sum, so
+both reads and the destination write are coalesced.
+"""
+@kernel cpu=false function transposeadd_f16_f32_f32!(out, @Const(a), @Const(b),
+                                                      M::Int32, N::Int32)
+    tile = @localmem Float32 (33, 32)
+    tx, ty = @index(Local, NTuple)
+    gx, gy, gz = @index(Group, NTuple)
+    n0 = Int32(gx - 1) * Int32(32)
+    m0 = Int32(gy - 1) * Int32(32)
+    base = Int32(gz - 1) * M * N
+    @inbounds begin
+        for j in Int32(0):Int32(7)
+            n = n0 + Int32(tx)
+            m = m0 + Int32(ty) + Int32(4) * j
+            tile[tx, ty + 4j] = n <= N && m <= M ?
+                Float32(a[base + (m - Int32(1)) * N + n]) +
+                Float32(b[base + (m - Int32(1)) * N + n]) : 0.0f0
+        end
+        @synchronize
+        for j in Int32(0):Int32(7)
+            m = m0 + Int32(tx)
+            n = n0 + Int32(ty) + Int32(4) * j
+            m <= M && n <= N &&
+                (out[base + (n - Int32(1)) * M + m] = tile[ty + 4j, tx])
+        end
+    end
+end
+
+"""
+Transpose one fp16 plane while adding an already destination-ordered fp16 plane.
+The transposed source is staged; the dense operand and destination are touched
+coalesced after the tile turns. This is the residual-add layout between SAM 2's
+window stages.
+"""
+@kernel cpu=false function transposeadd_f16_dense_f16!(out, @Const(a), @Const(b),
+                                                        M::Int32, N::Int32)
+    tile = @localmem Float16 (33, 32)
+    tx, ty = @index(Local, NTuple)
+    gx, gy, gz = @index(Group, NTuple)
+    n0 = Int32(gx - 1) * Int32(32)
+    m0 = Int32(gy - 1) * Int32(32)
+    base = Int32(gz - 1) * M * N
+    @inbounds begin
+        for j in Int32(0):Int32(7)
+            n = n0 + Int32(tx)
+            m = m0 + Int32(ty) + Int32(4) * j
+            tile[tx, ty + 4j] = n <= N && m <= M ?
+                a[base + (m - Int32(1)) * N + n] : zero(Float16)
+        end
+        @synchronize
+        for j in Int32(0):Int32(7)
+            m = m0 + Int32(tx)
+            n = n0 + Int32(ty) + Int32(4) * j
+            if m <= M && n <= N
+                i = base + (n - Int32(1)) * M + m
+                out[i] = tile[ty + 4j, tx] + b[i]
+            end
+        end
+    end
 end

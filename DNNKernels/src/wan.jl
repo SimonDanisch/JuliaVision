@@ -78,6 +78,7 @@ struct WanPipeline
     ditweights::Dict{String,Any}
     vae::Graph
     vaeweights::Dict{String,Any}
+    device::Any
     backend::Any
     # graph name -> `RecordedPlan`. Built on first call and reused: the plan
     # depends only on the graph, and the transformer runs `2 * steps` times off
@@ -86,11 +87,13 @@ struct WanPipeline
 end
 
 function WanPipeline(enc, encw, dit, ditw, vae, vaew, backend)
+    dev = Mantle.todevice(backend)
+    backend = Mantle.backend(dev)
     enc, encw = prepare(enc, encw)
     dit, ditw = prepare(dit, ditw)
     vae, vaew = prepare(vae, vaew)
     WanPipeline(enc, todevice(enc, encw, backend), dit, todevice(dit, ditw, backend),
-                vae, todevice(vae, vaew, backend), backend, Dict{String,Any}())
+                vae, todevice(vae, vaew, backend), dev, backend, Dict{String,Any}())
 end
 
 """
@@ -216,7 +219,7 @@ this function.
 """
 planned(pipe::WanPipeline, name::AbstractString, g::Graph, weights::AbstractDict) =
     get!(pipe.scratch, name) do
-        planfor(Mantle.Device(pipe.backend), g, weights, (;))
+        planfor(pipe.device, g, weights, (;))
     end
 
 """

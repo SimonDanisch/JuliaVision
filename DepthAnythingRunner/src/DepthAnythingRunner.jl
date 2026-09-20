@@ -190,9 +190,9 @@ function depthanything(; backend = Mantle.LavaBackend())
     # of Mantle's phases over the whole graph, so placement, aliasing and
     # barriers are decided before a byte is touched. `planfor` is the same one
     # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
-    plan = planfor(Mantle.Device(backend), graph, model.weights, (;))
-    input = KA.allocate(backend, Float32, INPUT_RES, INPUT_RES, 3, 1)
-    return DepthAnything(backend, graph, model.weights, plan, input)
+    plan = planfor(model.device, graph, model.weights, (;))
+    input = KA.allocate(model.backend, Float32, INPUT_RES, INPUT_RES, 3, 1)
+    return DepthAnything(model.backend, graph, model.weights, plan, input)
 end
 
 """

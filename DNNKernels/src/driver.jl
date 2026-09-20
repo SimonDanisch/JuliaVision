@@ -24,9 +24,13 @@ Four variants, matching the trace:
 # package that adds methods throws them away and everything inferred through them
 # with it. Measured: `KA.__run` alone was 4 062 of the 20 200 extra CodeInstances
 # rejected when SAM 2's image loads after VideoEditor.
-struct Model{B}
+struct Model{D,B}
     graphs::Dict{String,Graph}
     weights::Dict{String,Any}
+    # The owner of the stream, pool, capability record and recording state.
+    # Keep it for the lifetime of the model; a KA backend is only a launch
+    # descriptor and, notably on ROCm, contains no device identity at all.
+    device::D
     backend::B
     memevery::Int
     memframes::Int
@@ -52,14 +56,17 @@ end
 # for it to take. The keyword is still ACCEPTED and ignored, because four call
 # sites in the runners and the tools pass it and a model that asks for the only
 # behaviour there is should not be an error.
-Model(graphs, weights, backend, memevery, memframes, topk;
-      record::Bool = true, record_maxpasses = Dict{String,Int}()) =
-    Model(graphs, weights, backend, memevery, memframes, topk, Dict{Any,Any}(),
+function Model(graphs, weights, target, memevery, memframes, topk;
+               record::Bool = true, record_maxpasses = Dict{String,Int}())
+    Model(graphs, weights, target, memevery, memframes, topk, Dict{Any,Any}();
+          record, record_maxpasses)
+end
+function Model(graphs, weights, target, memevery, memframes, topk, scratch;
+               record::Bool = true, record_maxpasses = Dict{String,Int}())
+    dev = M.todevice(target)
+    Model(graphs, weights, dev, M.backend(dev), memevery, memframes, topk, scratch,
           Diagnostics(), Dict{String,Int}(record_maxpasses))
-Model(graphs, weights, backend, memevery, memframes, topk, scratch;
-      record::Bool = true, record_maxpasses = Dict{String,Int}()) =
-    Model(graphs, weights, backend, memevery, memframes, topk, scratch,
-          Diagnostics(), Dict{String,Int}(record_maxpasses))
+end
 
 """
     toback(backend, a) -> array
@@ -186,7 +193,7 @@ And there is exactly one way to hand a model its weights, rather than a path
 form and a dict form that drift.
 """
 function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
-               backend=KernelAbstractions.CPU(), memevery=5, memframes=5, topk=30,
+               backend=nothing, device=nothing, memevery=5, memframes=5, topk=30,
                # Off is how the fusion passes get checked: build the model twice
                # and compare the numbers. Every other pass here is verified
                # against an invariant or a PyTorch reference, but a fusion is
@@ -205,6 +212,13 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # of preconditions, and a model that does not meet them comes out
                # WRONG rather than slow.
                record::Bool = false, record_maxpasses = Dict{String,Int}())
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
+    # Resolve the convenience `backend` spelling exactly once, at this public
+    # boundary. Everything below receives and retains the actual owner.
+    dev = M.todevice(device === nothing ?
+                     (backend === nothing ? KernelAbstractions.CPU() : backend) : device)
+    backend = M.backend(dev)
     # Host-side graph preparation, in order. Folding runs *before* the casts are
     # hoisted so it sees the fp32 master weights through `weightsource` and
     # rounds to the declared dtype exactly once; hoisting then turns every
@@ -310,7 +324,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # upload and works on the device weights: constant subgraphs, not just the
     # nullary constants `hoistconstants` took above. Then the same sweep again,
     # because folding a subgraph orphans whatever only it read.
-    graphs, weights, nsub = hoistconstants(graphs, weights, backend)
+    graphs, weights, nsub = hoistconstants(graphs, weights, dev)
     if nsub > 0
         graphs, nsubdead = dropdead(graphs)
         live2 = livekeys(graphs)
@@ -348,7 +362,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     tfuse = (time_ns() - t0) / 1e9 - thost - tupload
     @info "Model: built in $(round(thost + tupload + tfuse, digits=1)) s" host_passes_s =
         round(thost, digits=1) upload_s = round(tupload, digits=1) fusion_s = round(tfuse, digits=1)
-    Model(graphs, weights, backend, memevery, memframes, topk; record, record_maxpasses)
+    Model(graphs, weights, dev, memevery, memframes, topk; record, record_maxpasses)
 end
 
 """
@@ -573,7 +587,7 @@ with, which is why `call` copies into it rather than rebinding.
 """
 planfor(m::Model, g::Graph, name::AbstractString, dims,
         clampattn::Bool, noise::NoiseSource) =
-    planfor(Mantle.Device(m.backend), g, m.weights, dims;
+    planfor(m.device, g, m.weights, dims;
             maxpasses = get(m.record_maxpasses, name, 0))
 
 function planfor(dev, g::Graph, weights::AbstractDict, dims; maxpasses::Int = 0)
@@ -686,7 +700,7 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
             # previous mask value is reused directly
             first(call(m, "pixel_fusion", pixfeat, s.lastmskvalue, s.sensory, s.lastmask; dims))
         else
-            visual = readmemory(Ctx(m.backend; diag=m.diag), s.bank, key, selection,
+            visual = readmemory(Ctx(m.device; diag=m.diag), s.bank, key, selection,
                                 dims.w, dims.h; topk=m.topk)
             # temporal-sparsity blend (memory_manager.py:249). Slices go through
             # `view` + broadcast rather than `getindex`; see `materialize`.

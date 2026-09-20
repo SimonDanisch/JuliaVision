@@ -527,12 +527,16 @@ defaults to a fresh one with everything off. Pass the same object to two runs to
 accumulate over both, or two different ones to measure two things at once.
 """
 function execute!(graph::Graph, inputs::AbstractDict, weights::AbstractDict;
-                  dims, backend=KernelAbstractions.CPU(),
+                  dims, backend=nothing, device=nothing,
                   overrides::AbstractDict=Dict{String,Any}(),
                   slab=nothing, plan=nothing, ws=nothing, lazy=nothing, rec=nothing,
                   diag::Diagnostics=Diagnostics(), clampattn::Bool=false,
                   noise::NoiseSource=RandomNoise())
-    ctx = Ctx(Dict{String,Any}(), graph, dims, backend;
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
+    dev = M.todevice(device === nothing ?
+                     (backend === nothing ? KernelAbstractions.CPU() : backend) : device)
+    ctx = Ctx(Dict{String,Any}(), graph, dims, dev;
               slab, plan, ws, lazy, rec, diag, clampattn, noise)
     for id in graph.order
         b = graph.buffers[id]

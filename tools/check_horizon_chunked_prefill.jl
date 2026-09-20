@@ -59,7 +59,7 @@ function check_horizon_chunked_prefill(m, reference_graphs; tokens = 1024, maxne
     names = unique(["horizon32b_prefill_bucket_$(chunkargs(m, prompt, s, k, v)[2])"
                     for s in 0:m.prefill:(tokens - 1)])
     reference = DNNKernels.Model(Dict(n => reference_graphs[n] for n in names),
-        base.weights, base.backend, base.memevery, base.memframes, base.topk;
+        base.weights, base.device, base.memevery, base.memframes, base.topk;
         record = false)
     function runchunks(model)
         fill!(k, 0); fill!(v, 0)
@@ -88,7 +88,7 @@ function check_horizon_chunked_prefill(m, reference_graphs; tokens = 1024, maxne
             prompt = [mod(i, 1000) + 1 for i in 1:tokens]
             refmodel = DNNKernels.Model(Dict(n => reference_graphs[n]
                                              for n in keys(reference_graphs)),
-                base.weights, base.backend, base.memevery, base.memframes, base.topk;
+                base.weights, base.device, base.memevery, base.memframes, base.topk;
                 record = false)
             refrunner = Horizon32B(m.backend, refmodel, m.maxlen, m.prefill, m.vocab)
             want = generate(refrunner, prompt; maxnew)

@@ -488,6 +488,47 @@ capture a value rather than a box.
 biasact(::typeof(identity)) = +
 biasact(f) = (c, b) -> f(c + b)
 
+function transposecastshape(od::Dims, st, off::Integer)
+    off == 0 || return nothing
+    # Find the non-trivial axis that is contiguous in the source but not in the
+    # dense destination. Axes before it form M; it forms N; axes after it are
+    # independent batch planes.
+    j = findfirst(k -> od[k] > 1 && st[k] == 1, eachindex(od))
+    (j === nothing || j == 1) && return nothing
+    mrows = prod(od[1:j-1])
+    ncols = od[j]
+    nbatch = prod(od[j+1:end]; init = 1)
+    for k in 1:j-1
+        st[k] == ncols * prod(od[1:k-1]; init = 1) || return nothing
+    end
+    for k in j+1:length(od)
+        st[k] == prod(od[1:k-1]; init = 1) || return nothing
+    end
+    max(mrows, ncols, mrows * ncols * nbatch) <= typemax(Int32) || return nothing
+    return (mrows, ncols, nbatch)
+end
+
+"""Recognise `(M, spatial..., B)` read from dense `(spatial..., M, B)` storage."""
+function fronttransposeshape(od::Dims, st)
+    length(od) >= 3 || return nothing
+    mrows = od[1]
+    ncols = prod(od[2:end-1])
+    nbatch = od[end]
+    st[1] == ncols || return nothing
+    for k in 2:length(od)-1
+        st[k] == prod(od[2:k-1]; init = 1) || return nothing
+    end
+    st[end] == mrows * ncols || return nothing
+    max(mrows, ncols, mrows * ncols * nbatch) <= typemax(Int32) || return nothing
+    return (mrows, ncols, nbatch)
+end
+
+"""Whether `st` is contiguous for `od`, ignoring strides of singleton axes."""
+densestrides(od::Dims, st) = begin
+    dense = colstrides(od)
+    all(k -> od[k] == 1 || st[k] == dense[k], eachindex(od))
+end
+
 """
     stridedcopydispatch!(ctx, out, od, src, ast, off; name)
 
@@ -500,12 +541,28 @@ cannot be reached by different callers under different rules.
 """
 function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
                               ast::Dims, off::Int; name::AbstractString)
+    if eltype(out) === eltype(src) && eltype(out) in (Float16, Float32)
+        tshape = transposecastshape(od, ast, off)
+        if tshape !== nothing
+            mrows, ncols, nbatch = tshape
+            M.dispatch!(emitctx.g, transposecopykernel(eltype(out)),
+                        (out, src, Int32(mrows), Int32(ncols)),
+                        (32 * cld(ncols, 32), 4 * cld(mrows, 32), nbatch);
+                        group = (32, 4, 1), name)
+            return out
+        end
+    end
     n = prod(od)
     hi = off + sum((od[k] - 1) * ast[k] for k in eachindex(od); init = 0)
     if n <= typemax(Int32) && hi + 1 <= typemax(Int32)
+        # Lava's unconstrained occupancy chooser selects 1024 here.  These
+        # rank-4/6 copies carry a FastDiv32 coordinate chain, and four waves per
+        # workgroup keep more independent groups resident on gfx1151: across
+        # 200 interleaved whole-SAM runs, 256 saved 0.29 ms mean / 0.68 ms p50.
         M.dispatch!(emitctx.g, stridedcopy32!,
                     (out, M.broadcastextents(od), src, map(Int32, ast),
-                     Int32(off), Int32(n)), n; name)
+                     Int32(off), Int32(n)), n;
+                    group = min(256, M.caps(emitctx.dev).workgrouplimit), name)
     else
         M.dispatch!(emitctx.g, stridedcopy!, (out, od, src, ast, off), n; name)
     end
@@ -990,6 +1047,29 @@ element reads.
 function ewdispatch!(emitctx::EmitCtx, out, od::Dims, ops::Tuple, sts::Tuple, f;
                      name::AbstractString)
     n = prod(od)
+    if n <= typemax(Int32) && length(ops) == 2
+        dense1, dense2 = densestrides(od, sts[1]), densestrides(od, sts[2])
+        function biasaxis(st)
+            axes = [k for k in eachindex(od) if od[k] > 1 && st[k] != 0]
+            length(axes) == 1 && st[only(axes)] == 1 ? only(axes) : nothing
+        end
+        d1, d2 = biasaxis(sts[1]), biasaxis(sts[2])
+        if dense1 && d2 !== nothing
+            M.dispatch!(emitctx.g, axisbias!,
+                        (out, ops[1], ops[2], f, Val(false),
+                         Val(prod(od[1:d2-1]; init=1)), Val(od[d2]), Int32(n)), n; name)
+            return out
+        elseif dense2 && d1 !== nothing
+            M.dispatch!(emitctx.g, axisbias!,
+                        (out, ops[2], ops[1], f, Val(true),
+                         Val(prod(od[1:d1-1]; init=1)), Val(od[d1]), Int32(n)), n; name)
+            return out
+        end
+    end
+    if n <= typemax(Int32) && all(st -> densestrides(od, st), sts)
+        M.dispatch!(emitctx.g, denseew!, (out, ops, f, Int32(n)), n; name)
+        return out
+    end
     hi(st) = 1 + sum((od[k] - 1) * st[k] for k in eachindex(od); init = 0)
     if n <= typemax(Int32) && all(st -> hi(st) <= typemax(Int32), sts)
         M.dispatch!(emitctx.g, ew32!,
@@ -1113,6 +1193,54 @@ function binary!(emitctx::EmitCtx, op::Op, f0)
     # Composed and not a second dispatch, because that is what folding bought.
     g = actfn(Symbol(get(op.attrs, "act", "none")))
     f = g === identity ? f0 : (x, y) -> g(f0(x, y))
+    # A strict tiled route for the positional-embedding add: two equally
+    # transposed planes, fp16 + fp32 -> fp32.  The windows incorporate view
+    # offsets, while `transposecastshape` proves that each remaining plane is
+    # dense and that the same M/N decomposition describes both operands.
+    if f0 === (+) && g === identity && eltype(dest(emitctx)) === Float32 &&
+       a isa StridedOperand && b isa StridedOperand &&
+       ((eltype(a) === Float16 && eltype(b) === Float32) ||
+        (eltype(a) === Float32 && eltype(b) === Float16))
+        wa, wb = stridedwindow(a, od), stridedwindow(b, od)
+        if wa !== nothing && wb !== nothing
+            ta = fronttransposeshape(od, wa[2])
+            tb = fronttransposeshape(od, wb[2])
+            if ta !== nothing && ta == tb
+                mrows, ncols, nbatch = ta
+                ah, bh = eltype(a) === Float16 ? (wa[1], wb[1]) : (wb[1], wa[1])
+                out = dest(emitctx)
+                M.dispatch!(emitctx.g, transposeadd_f16_f32_f32!,
+                            (out, ah, bh, Int32(mrows), Int32(ncols)),
+                            (32 * cld(ncols, 32), 4 * cld(mrows, 32), nbatch);
+                            group = (32, 4, 1), name = op.id)
+                return out
+            end
+        end
+    end
+    # One transposed feature plane plus one plane already in destination order.
+    # Both are fp16 and the sum rounds once, exactly like the generic add.
+    if f0 === (+) && g === identity && eltype(dest(emitctx)) === Float16 &&
+       isresource(a) && isresource(b) &&
+       eltype(a) === Float16 && eltype(b) === Float16 &&
+       (a isa StridedOperand || b isa StridedOperand)
+        wa = a isa StridedOperand ? stridedwindow(a, od) : (a, bcstrides(od, size(a)))
+        wb = b isa StridedOperand ? stridedwindow(b, od) : (b, bcstrides(od, size(b)))
+        if wa !== nothing && wb !== nothing
+            ta, tb = fronttransposeshape(od, wa[2]), fronttransposeshape(od, wb[2])
+            chosen = ta !== nothing && densestrides(od, wb[2]) ? (ta, wa[1], wb[1]) :
+                     tb !== nothing && densestrides(od, wa[2]) ? (tb, wb[1], wa[1]) : nothing
+            if chosen !== nothing
+                shape, transposed, dense = chosen
+                mrows, ncols, nbatch = shape
+                out = dest(emitctx)
+                M.dispatch!(emitctx.g, transposeadd_f16_dense_f16!,
+                            (out, transposed, dense, Int32(mrows), Int32(ncols)),
+                            (32 * cld(ncols, 32), 4 * cld(mrows, 32), nbatch);
+                            group = (32, 4, 1), name = op.id)
+                return out
+            end
+        end
+    end
     isresource(a) && isresource(b) && return elementwise!(emitctx, op, f, a, b)
     isresource(a) && return elementwise!(emitctx, op, Base.Fix2(f, b), a)
     isresource(b) && return elementwise!(emitctx, op, Base.Fix1(f, a), b)
@@ -1124,7 +1252,34 @@ end
 
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx, op, *)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
-emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")}) = binary!(emitctx, op, +)
+
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")})
+    # Fuse only a direct add -> norm edge.  Extending this through view aliases
+    # catches the 91 transformer residuals, but those sums must still be stored
+    # for the later skip and then read by the norm's variance/output passes: it
+    # removes a dispatch, not a memory stream.  On the recorded Lava plan that
+    # version was 1.00 ms slower over 80 alternating runs.  Timing the two old
+    # passes as separate recordings falsely made it look faster by charging the
+    # old path an extra submit and synchronize.
+    norms = [x for x in emitctx.aten.ops
+             if x.aten == "native_layer_norm.default" && !isempty(x.ins) &&
+                x.ins[1] == op.out]
+    if length(norms) == 1
+        norm = only(norms)
+        n = prod(ints(norm.attrs["arg1"]))
+        sg = M.caps(emitctx.dev).subgroup
+        rowsg = layernormwg(n)
+        if sg > 0 && rowsg <= sg && sg % rowsg == 0
+            a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
+            out = dest(emitctx)
+            if isresource(a) && isresource(b) && size(a) == size(out) && size(b) == size(out)
+                emitctx.res["#deferred-add#$(op.out)"] = (out, a, b)
+                return out
+            end
+        end
+    end
+    binary!(emitctx, op, +)
+end
 
 """
 `aten::clone`, which is a copy.
@@ -1137,6 +1292,8 @@ Otherwise `identity` over one operand, which is the same dispatch as any other
 elementwise op.
 """
 function emitclone!(emitctx::EmitCtx, op::Op)
+    get(emitctx.res, "#fused-window-clone#$(op.id)", false) === true &&
+        return dest(emitctx)
     s = strideview(emitctx, op, 1)
     out = dest(emitctx)
     (s === nothing || size(s) != size(out)) &&
@@ -1214,8 +1371,28 @@ Which conversion is `castfn`'s. Both routes ask that one function, so neither
 can round, truncate or saturate differently from the other.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_to_copy.default")})
+    # A cast already walks every output element, so let that walk address a
+    # view directly. Materialising a permute first is a complete extra pass over
+    # the same bytes; SAM 2's `permute_22 -> _to_copy_598` moved 37.7 MiB twice.
+    # `strideview(..., od)` proves that ew32 can express the window and falls
+    # back to the ordinary dense operand for every view it cannot.
+    out = dest(emitctx)
+    s = strideview(emitctx, op, 1, size(out))
+    if s !== nothing && eltype(s.parent) === Float32 && eltype(out) === Float16
+        tshape = transposecastshape(size(out), strides(s), s.offset)
+        if tshape !== nothing
+            mrows, ncols, nbatch = tshape
+            M.dispatch!(emitctx.g, transposecast_f32_f16!,
+                        (out, s.parent, Int32(mrows), Int32(ncols)),
+                        (32 * cld(ncols, 32), 4 * cld(mrows, 32), nbatch);
+                        group = (32, 4, 1), name = op.id)
+            return out
+        end
+    end
+    s === nothing || return elementwise!(emitctx, op,
+        castfn(eltype(out), eltype(s.parent)), s)
     a = operand(emitctx, op, 1)
-    return elementwise!(emitctx, op, castfn(eltype(dest(emitctx)), eltype(a)), a)
+    return elementwise!(emitctx, op, castfn(eltype(out), eltype(a)), a)
 end
 
 """
@@ -1874,13 +2051,40 @@ stride and padding are `Val`-parameters: they are host constants, and in the
 kernel's type they make its bounds arithmetic compile-time.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max_pool2d_with_indices.default")})
-    x = operand(emitctx, op, 1)
     k = reverse(ints(op.attrs["arg1"]))
     st = haskey(op.attrs, "arg2") ? reverse(ints(op.attrs["arg2"])) : k
     pd = haskey(op.attrs, "arg3") ? reverse(ints(op.attrs["arg3"])) : [0, 0]
     out = dest(emitctx, 0)
-    mapbody!(emitctx, op, maxpool, out, x, Val(k[1]), Val(k[2]),
-             Val(st[1]), Val(st[2]), Val(pd[1]), Val(pd[2]))
+    # Pool straight from a permuted/sliced producer when its view chain is an
+    # offset plus strides. Materialising that view is otherwise a complete
+    # extra memory pass; SAM 2 has three such NCHW permutes feeding this op.
+    s = strideview(emitctx, op, 1)
+    if s !== nothing && ndims(s) == 4
+        xd, od, sst = size(s), size(out), strides(s)
+        tiled = eltype(s.parent) === eltype(out) && eltype(out) in (Float16, Float32) &&
+                k == [2, 2] && st == [2, 2] && pd == [0, 0] &&
+                xd == (2od[1], 2od[2], od[3], od[4]) &&
+                sst[1] >= od[3] && sst[2] == sst[1] * xd[1] && sst[3] == 1 &&
+                0 <= s.offset <= typemax(Int32) &&
+                all(x -> 0 < x <= typemax(Int32), sst) && prod(od) <= typemax(Int32)
+        if tiled
+            ow, oh, channels, batches = od
+            M.dispatch!(emitctx.g, maxpool2transposekernel(eltype(out)),
+                        (out, s.parent, Int32(s.offset), Int32(sst[4]),
+                         Int32(sst[1]), Int32(sst[2]), Int32(ow), Int32(oh),
+                         Int32(channels)),
+                        (32 * cld(channels, 32), 4 * cld(ow * oh, 32), batches);
+                        group = (32, 4, 1), name = op.id)
+            return (out, maybedest(emitctx, 1))
+        end
+        mapbody!(emitctx, op, maxpool_strided, out, s.parent, Val(size(s)),
+                 Val(strides(s)), Val(s.offset), Val(k[1]), Val(k[2]),
+                 Val(st[1]), Val(st[2]), Val(pd[1]), Val(pd[2]))
+    else
+        x = operand(emitctx, op, 1)
+        mapbody!(emitctx, op, maxpool, out, x, Val(k[1]), Val(k[2]),
+                 Val(st[1]), Val(st[2]), Val(pd[1]), Val(pd[2]))
+    end
     return (out, maybedest(emitctx, 1))
 end
 
@@ -1934,6 +2138,39 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
     return out
 end
 
+"""Find the sole narrowing window clone of a layer-norm result, if present."""
+function layernormwindowclone(emitctx::EmitCtx, op::Op, out)
+    function fromout0(id)
+        chain = viewchain(emitctx.aten, id)
+        last(chain) == op.id || return false
+        length(chain) >= 2 || return false
+        tupleindex(emitctx.aten.buffers[chain[end - 1]]) == 0
+    end
+    candidates = Op[]
+    for x in emitctx.aten.ops
+        x.aten == "clone.default" && length(x.ins) == 1 || continue
+        fromout0(x.ins[1]) || continue
+        push!(candidates, x)
+    end
+    length(candidates) == 1 || return nothing
+    clone = only(candidates)
+    readers = [(x.id, id) for x in emitctx.aten.ops for id in x.ins if fromout0(id)]
+    fullwide = readers != [(clone.id, clone.ins[1])] ||
+               any(fromout0, emitctx.aten.outputs) || "$(op.id)#0" in emitctx.esc
+    haskey(emitctx.res, clone.id) || return nothing
+    cloneout = emitctx.res[clone.id]
+    s = stridedoperand(emitctx, clone.ins[1])
+    (s === nothing || s.parent !== out || s.offset != 0 || length(s.dims) != 6 ||
+     size(cloneout) != s.dims) && return nothing
+    C, iw, ih, nx, ny, B = s.dims
+    size(out) == (C, iw * nx, ih * ny, B) || return nothing
+    want = (1, C, C * iw * nx, C * iw,
+            C * iw * nx * ih, C * iw * nx * ih * ny)
+    all(k -> s.dims[k] == 1 || s.strides[k] == want[k], eachindex(s.dims)) ||
+        return nothing
+    return (clone, cloneout, iw, ih, nx, ny, fullwide)
+end
+
 """
 `aten::native_layer_norm`, as ONE dispatch.
 
@@ -1956,7 +2193,9 @@ a graph that never reads them still has them placed, which keeps the op's shape
 honest for `2 * groups` floats.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.default")})
-    a = operand(emitctx, op, 1)
+    normsource = op.ins[1]
+    deferred = get(emitctx.res, "#deferred-add#$normsource", nothing)
+    a = deferred === nothing ? operand(emitctx, op, 1) : deferred[1]
     nshape = ints(op.attrs["arg1"])
     eps = Float32(op.attrs["arg4"])
     n = prod(size(a, i) for i in 1:length(nshape))
@@ -1968,6 +2207,10 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.defau
         "have to be leading and dense here; `hoistpermutes` is what makes them so.")
     out = dest(emitctx, 0)
     groups = length(a) ÷ n
+    rowsg = layernormwg(n)
+    sg = M.caps(emitctx.dev).subgroup
+    usesg = sg > 0 && rowsg <= sg && sg % rowsg == 0
+    wg = usesg ? sg : rowsg
     # The mean and the reciprocal standard deviation are what a backward pass
     # reads, and SAM 2 reads neither -- but the kernel writes them, so they get
     # a destination either way. See `destor`.
@@ -1977,11 +2220,54 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("native_layer_norm.defau
     # kernel indexes it whether or not the `Val` lets it, so a `nothing` would
     # not compile. `a` is always present and already declared read.
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
-    M.dispatch!(emitctx.g, layernorm_kernel!,
-                (out, μ, r, a,
-                 γ === nothing ? dummy : γ, β === nothing ? dummy : β,
-                 Int32(n), eps, Val(γ !== nothing), Val(β !== nothing)),
-                groups * LN_WG; group = LN_WG, name = op.id)
+    if usesg
+        rowspergroup = sg ÷ rowsg
+        wc = layernormwindowclone(emitctx, op, out)
+        if wc === nothing && deferred !== nothing
+            sumout, adda, addb = deferred
+            M.dispatch!(emitctx.g, add_layernorm_shfl_kernel!,
+                        (out, sumout, μ, r, adda, addb,
+                         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+                         Int32(n), Int32(groups), eps, Val(sg), Val(rowsg),
+                         Val(γ !== nothing), Val(β !== nothing)),
+                        cld(groups, rowspergroup) * sg; group = sg, name = op.id)
+        elseif wc === nothing
+            M.dispatch!(emitctx.g, layernorm_shfl_kernel!,
+                        (out, μ, r, a,
+                         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+                         Int32(n), Int32(groups), eps, Val(sg), Val(rowsg),
+                         Val(γ !== nothing), Val(β !== nothing)),
+                        cld(groups, rowspergroup) * sg; group = sg, name = op.id)
+        elseif deferred !== nothing
+            clone, cloneout, iw, ih, nx, ny, fullwide = wc
+            sumout, adda, addb = deferred
+            M.dispatch!(emitctx.g, layernorm_shfl_window4_add_kernel!,
+                        (cloneout, out, sumout, μ, r, adda, addb,
+                         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+                         Int32(n), Int32(groups), eps, Val(sg), Val(rowsg),
+                         Val(iw), Val(ih), Val(nx), Val(ny), Val(true),
+                         Val(fullwide), Val(γ !== nothing), Val(β !== nothing)),
+                        cld(groups, rowspergroup) * sg; group = sg, name = op.id)
+            emitctx.res["#fused-window-clone#$(clone.id)"] = true
+        else
+            clone, cloneout, iw, ih, nx, ny, fullwide = wc
+            M.dispatch!(emitctx.g, layernorm_shfl_window4_add_kernel!,
+                        (cloneout, out, out, μ, r, a, a,
+                         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+                         Int32(n), Int32(groups), eps, Val(sg), Val(rowsg),
+                         Val(iw), Val(ih), Val(nx), Val(ny),
+                         Val(false), Val(fullwide),
+                         Val(γ !== nothing), Val(β !== nothing)),
+                        cld(groups, rowspergroup) * sg; group = sg, name = op.id)
+            emitctx.res["#fused-window-clone#$(clone.id)"] = true
+        end
+    else
+        M.dispatch!(emitctx.g, layernorm_kernel!,
+                    (out, μ, r, a,
+                     γ === nothing ? dummy : γ, β === nothing ? dummy : β,
+                     Int32(n), eps, Val(wg), Val(γ !== nothing), Val(β !== nothing)),
+                    groups * wg; group = wg, name = op.id)
+    end
     return (out, μ, r)
 end
 
@@ -2566,6 +2852,71 @@ function sdpaoperand(emitctx::EmitCtx, op::Op, pos::Int)
 end
 
 """
+The sole `(E,L,H,B) -> (E,H,L,B)` consumer of an attention result, if there is
+one. Flash can write that physical order directly. Registering the permute as a
+dense view then removes the otherwise compulsory full-tensor copy before the
+output projection.
+
+Conservative by construction: the unpermuted result must have no direct op or
+graph-output reader and exactly this one view child.
+"""
+function sdpaoutputpermute(emitctx::EmitCtx, op::Op)
+    gets = [b for b in values(emitctx.aten.buffers)
+            if b.of == op.id && occursin("getitem", b.viewop) &&
+               Int(get(b.attrs, "arg1", -1)) == 0]
+    length(gets) == 1 || return nothing
+    getbuf = only(gets)
+    getbuf.id in emitctx.aten.outputs && return nothing
+    any(getbuf.id in x.ins for x in emitctx.aten.ops) && return nothing
+    children = [b for b in values(emitctx.aten.buffers) if b.of == getbuf.id]
+    length(children) == 1 || return nothing
+    p = only(children)
+    p.viewop == "permute.default" || return nothing
+    Tuple(Int.(p.attrs["arg1"])) == (0, 2, 1, 3) || return nothing
+    return p
+end
+
+"""
+Recognise window attention whose output projection is subsequently restored to
+spatial order by a same-type contiguous clone.  Attention may choose that column
+order before the projection: a GEMM applies the same weights independently to
+every column, so the projection preserves the permutation and the clone becomes
+a dense view.
+"""
+function sdpaoutputwindow(emitctx::EmitCtx, op::Op, outperm, E, L, H, B)
+    outperm === nothing && return nothing
+    uses(id, root) = root in viewchain(emitctx.aten, id)
+    mm = [x for x in emitctx.aten.ops if x.aten == "addmm.default" &&
+          any(id -> uses(id, outperm.id), x.ins)]
+    length(mm) == 1 || return nothing
+    mm = only(mm)
+    aliases = [b for b in values(emitctx.aten.buffers)
+               if b.viewop == "alias.default" && startswith(b.id, "clone") &&
+                  last(viewchain(emitctx.aten, b.of)) == mm.id]
+    length(aliases) == 1 || return nothing
+    alias = only(aliases)
+    # Every read of the projection must pass through this clone marker; changing
+    # the column order is otherwise observable by a second consumer.
+    for x in emitctx.aten.ops, id in x.ins
+        last(viewchain(emitctx.aten, id)) == mm.id || continue
+        alias.id in viewchain(emitctx.aten, id) || return nothing
+    end
+    for id in emitctx.aten.outputs
+        last(viewchain(emitctx.aten, id)) == mm.id || continue
+        alias.id in viewchain(emitctx.aten, id) || return nothing
+    end
+    s = stridedoperand(emitctx, alias.of)
+    (s === nothing || length(s.dims) != 6) && return nothing
+    C, iw, nx, ih, ny, batch = s.dims
+    C == E * H && L == iw * ih && B == nx * ny * batch || return nothing
+    want = (1, C, C * iw * ih, C * iw,
+            C * iw * ih * nx, C * iw * ih * nx * ny)
+    all(k -> s.dims[k] == 1 || s.strides[k] == want[k], eachindex(s.dims)) ||
+        return nothing
+    return (mm, alias, (iw, ih, nx, ny))
+end
+
+"""
     strideview(ctx, op, pos) -> StridedOperand or nothing
 
 Operand `pos` of `op` as a strided read of a resource, for the emits whose kernel
@@ -2624,7 +2975,7 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     scale = sc !== nothing ? Float64(sc) :
             defaultscale !== nothing ? Float64(defaultscale) :
             inv(sqrt(size(q, 1)))
-    caps = M.caps(M.backend(emitctx.dev))
+    caps = M.caps(emitctx.dev)
     E, Lq, H, B = size(q)
     want = (size(v, 1), Lq, H, B)
     # The kernels read `out` at its rank-4 extents. `fused.sdpa` declares a
@@ -2635,6 +2986,7 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
           length(dst) == prod(want) ? M.viewof(dst, want) :
           error("DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(dst)) " *
                 "result where its operands give $(want).")
+    outperm = sdpaoutputpermute(emitctx, op)
     cm2 = flashcm2_plan(caps, q, k, v, bias)
     cm2 isa Decline || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
@@ -2642,6 +2994,10 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
         "shape a port takes.")
     plan = flashcm_plan(caps, q, k, v, bias)
+    if plan isa Decline && bias === nothing && Lq < caps.tile &&
+            size(k, 2) == caps.tile && 4 * Lq >= caps.tile
+        plan = flashcm_plan(caps, q, k, v, bias; clamp = true)
+    end
     if plan isa Decline
         cm = coopmat_sdpa_plan(caps, q, k, v, bias)
         cm isa Decline || error(
@@ -2662,7 +3018,18 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     # plan splits the key axis, so the single-split path declares nothing extra.
     partial = ns == 1 ? out : scratch(emitctx, Float32, size(v, 1), Lq, H, B, ns)
     ml      = ns == 1 ? out : scratch(emitctx, Float32, Lq, H, B, ns, 2)
-    flash_dispatch!(emitctx.g, caps, out, plan, q, k, v, scale, partial, ml; name = op.id)
+    directperm = outperm !== nothing && ns == 1
+    window = directperm ? sdpaoutputwindow(emitctx, op, outperm, E, Lq, H, B) : nothing
+    flash_dispatch!(emitctx.g, caps, out, plan, q, k, v, scale, partial, ml;
+                    name = op.id, outperm = directperm,
+                    outwindow = window === nothing ? (0, 0, 0, 0) : window[3])
+    if directperm
+        emitctx.res[outperm.id] = M.viewof(out, evalshape(outperm.shape, emitctx.dims))
+        if window !== nothing
+            mm, alias = window[1], window[2]
+            emitctx.res["#spatial-addmm#$(mm.id)"] = alias.id
+        end
+    end
     return sdparesults(emitctx, dst)
 end
 
@@ -2763,7 +3130,17 @@ what to check it against.
 """
 function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
     dev = emitctx.dev
-    caps = M.caps(M.backend(dev))
+    caps = M.caps(dev)
+    # A backend library with this exact fused epilogue wins before choosing a
+    # portable kernel.  This is a Mantle capability query, not a ROCm branch:
+    # stream-capture backends can return a callable whose library submissions
+    # become part of the recording, while command-buffer backends return
+    # `nothing` and continue into the declared cooperative-matrix route.
+    lib = M.librarygemm(dev, out, A, B, bias, epi)
+    if lib !== nothing
+        M.dispatch!(emitctx.g, lib, (out, A, B, bias); name = op.id)
+        return out
+    end
     # `Core.Typeof` of the OPERAND, not `devicetype`: what the plan asks is
     # whether the operand is a dense rank-2 matrix of a given element type, which
     # is a property of the operand and which `densematrix` answers for a resource
@@ -2771,7 +3148,39 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     # which is a different question and a different type family.
     plan = mmplan(caps, Core.Typeof(out), Core.Typeof(A), Core.Typeof(B),
                   size(out), size(A), size(B), biasfoldable(bias, size(A, 1)))
+    # A callable library GEMM wins when there is no activation to fuse. Bias
+    # alone does not save enough traffic to offset the portable kernel here;
+    # retain cooperative matrices for GELU and other non-identity epilogues.
+    # `runscalls` makes this backend-independent: command-buffer backends keep
+    # the declared kernel, while any backend able to record its library call
+    # may take the tuned implementation.
+    plan isa MMCoopMatPlan && library_gemm_preferred(dev, epi) &&
+        (plan = Decline(:library_faster))
     if plan isa Decline
+        # A backend whose run path can hold a library call should use the
+        # ecosystem's own dense GEMM. This is deliberately capability-based,
+        # not a ROCm branch: on ROCm the resolved resources are `ROCArray`s and
+        # `mul!` reaches rocBLAS; a walking host graph reaches BLAS; a recorded
+        # command-buffer backend answers `false` and takes the declared kernel
+        # below. Mantle owns the call mechanism and its access declaration.
+        if M.runscalls(dev)
+            M.dispatch!(emitctx.g, mul!, (out, A, B); name = op.id)
+            od = size(out)
+            if bias !== nothing
+                if biasfoldable(bias, size(out, 1))
+                    M.dispatch!(emitctx.g, rowbias!,
+                                (out, bias, length(out), Val(size(out, 1))),
+                                length(out); name = "$(op.id).bias")
+                else
+                    ewdispatch!(emitctx, out, od, (out, bias),
+                        (bcstrides(od, od), bcstrides(od, size(bias))), +;
+                        name = "$(op.id).bias")
+                end
+            end
+            epi === identity || ewdispatch!(emitctx, out, od, (out,),
+                (bcstrides(od, od),), epi; name = "$(op.id).act")
+            return out
+        end
         # Mantle's own scalar GEMM, and NOT a library call: `mul!` on a device
         # array is this backend's kernel, so it is declared like any other
         # dispatch. `astranspose` is not applied because it is the identity for
@@ -2789,9 +3198,17 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         # their own ops. Folding is an optimisation on the tensor-core path,
         # never a correctness requirement.
         od = size(out)
-        bias === nothing || ewdispatch!(emitctx, out, od, (out, bias),
-            (bcstrides(od, od), bcstrides(od, size(bias))), +;
-            name = "$(op.id).bias")
+        if bias !== nothing
+            if biasfoldable(bias, size(out, 1))
+                M.dispatch!(emitctx.g, rowbias!,
+                            (out, bias, length(out), Val(size(out, 1))),
+                            length(out); name = "$(op.id).bias")
+            else
+                ewdispatch!(emitctx, out, od, (out, bias),
+                    (bcstrides(od, od), bcstrides(od, size(bias))), +;
+                    name = "$(op.id).bias")
+            end
+        end
         epi === identity || ewdispatch!(emitctx, out, od, (out,),
             (bcstrides(od, od),), epi; name = "$(op.id).act")
         return out
@@ -2884,7 +3301,13 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("addmm.default")})
     out = dest(emitctx)
     epi = get(op.attrs, "epilogue", nothing)
     f = epi === nothing ? actfn(Symbol(get(op.attrs, "act", "none"))) : epi
-    return gemm!(emitctx, op, out, b, a; bias, epi = f)
+    result = gemm!(emitctx, op, out, b, a; bias, epi = f)
+    aliasid = get(emitctx.res, "#spatial-addmm#$(op.id)", nothing)
+    if aliasid isa AbstractString
+        ab = emitctx.aten.buffers[aliasid]
+        emitctx.res[aliasid] = M.viewof(out, evalshape(ab.shape, emitctx.dims))
+    end
+    return result
 end
 
 """
@@ -2926,6 +3349,59 @@ planeof(emitctx::EmitCtx, x, i::Integer) =
              offset = (i - 1) * size(x, 1) * size(x, 2))
 
 # ── convolution ──────────────────────────────────────────────────────────────
+
+"""
+    emitconvcoopmat!(ctx, op, plan, x, w, bias, out, stride, pad, dil, act) -> out
+
+The convolution as im2col plus one cooperative-matrix GEMM: three passes.
+
+A port of `convolution_coopmat!`, which is where the argument for each piece
+lives — why the reduction axis may be padded (`crsextent`), why the weight's pad
+has to be WRITTEN rather than reserved, and why the epilogue reads the partial
+planes instead of a reduced destination.
+
+The three buffers it needs are declared transients rather than workspace: the
+im2col matrix is the largest thing this op asks for (`MP x CRSP` fp16, 20.0 MiB
+for SAM 2's stem) and as a transient the placer aliases it against the whole
+graph instead of it living in an arena that resets per op.
+"""
+function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
+                          x, w, bias, out, stride, pad, dil, act::Symbol)
+    KWk, KHk, Cin, Cout = size(w)
+    Wid, Hei = size(x, 1), size(x, 2)
+    OW, OH, _, _ = size(out)
+    MP = padgemm(plan.NPQ)
+    CRS, CRSP = plan.CRS, plan.CRSP
+    col = scratch(emitctx, Float16, MP, CRSP)
+    M.dispatch!(emitctx.g, im2col_kernel!,
+                (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
+                 Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
+                 Wid, Hei, OW, OH, plan.NPQ, MP * CRSP, Cin), MP * CRSP;
+                name = "$(op.id).im2col")
+    # The weight as a `(CRS, Cout)` matrix, zero-extended to `CRSP` rows where the
+    # plan padded the reduction axis. Two passes over 21 k elements for the stem,
+    # and they are the reason the pad is sound: a reserved-but-unwritten row would
+    # multiply an arbitrary bit pattern by zero.
+    B = CRSP == CRS ? M.viewof(w, (CRS, Cout)) :
+        let wp = scratch(emitctx, Float16, CRSP, Cout)
+            M.dispatch!(emitctx.g, M.fill_kernel!, (wp, zero(Float16)), length(wp);
+                        name = "$(op.id).wzero")
+            M.dispatch!(emitctx.g, blockcopy!,
+                        (wp, (CRSP, Cout), M.viewof(w, (CRS, Cout)), (CRS, Cout),
+                         (0, 0)), CRS * Cout; name = "$(op.id).wpad")
+            wp
+        end
+    blk_split = M.coopmat_gemm_shape(MP, Cout, CRSP)
+    splitk = blk_split[2]
+    C = scratch(emitctx, Float32, MP, Cout, max(splitk, 1))
+    M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, Cout, CRSP;
+                             blk_split, partials = C, reduce = false, name = op.id)
+    M.dispatch!(emitctx.g, conv_epilogue_kernel!,
+                (out, C, bias, Val(MP), Val(act), Val(splitk),
+                 OW * OH, Cout, length(out), MP * Cout), length(out);
+                name = "$(op.id).epilogue")
+    return out
+end
 
 """
 `aten::convolution`, forward and dense, as the implicit GEMM plus whatever
@@ -3006,7 +3482,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     NPQ = N * OH * OW
     T = eltype(out)
     ACC = accum(eltype(x))
-    caps = M.caps(M.backend(emitctx.dev))
+    caps = M.caps(emitctx.dev)
     cores = caps.cores
 
     # A 1x1 convolution at unit stride is a GEMM on the input as it already lies
@@ -3055,6 +3531,16 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
             return out
         end
     end
+
+    # The tensor cores, through a materialised im2col — the route
+    # `convolution_coopmat!` has taken on the immediate path since the stem was
+    # padded onto them. Same arithmetic as the implicit-GEMM kernel below and
+    # ~30x apart on the layers that dominate this model; SAM 2's `7x7x3` stem
+    # measures 8.62 ms here against the 1.147 recorded there.
+    cm = conv_coopmat_plan(caps, eltype(x), eltype(w), size(out), size(w))
+    cm isa ConvCoopMatPlan &&
+        return emitconvcoopmat!(emitctx, op, cm, x, w, bias, out, stride, pad, dil, act)
+
     BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ = convtiles(Cout, NPQ; cores)
     nbk = cld(Cout, BS_K)
     nbn = cld(NPQ, BS_NPQ)

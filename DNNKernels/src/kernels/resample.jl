@@ -147,6 +147,82 @@ cumsum_dim!(ctx, out, a, d::Integer) = launch!(ctx, cumsum_body, out, a, Val(Int
     end
 end
 
+"""
+`maxpool` over a view described by its root, element offset and strides.
+
+Pooling already visits every input coordinate in its window.  Addressing that
+coordinate in the producer's layout avoids first writing a complete permuted
+copy merely to read it here.  `XD`, `ST` and `OFF` are declaration-time view
+metadata, so they live in the kernel type just like the window parameters do.
+"""
+@inline function maxpool_strided(I, x, ::Val{XD}, ::Val{ST}, ::Val{OFF},
+                                 ::Val{KX}, ::Val{KY}, ::Val{SX}, ::Val{SY},
+                                 ::Val{PX}, ::Val{PY}) where
+                                {XD,ST,OFF,KX,KY,SX,SY,PX,PY}
+    ox, oy, c, n = I
+    @inbounds begin
+        acc = typemin(eltype(x))
+        bx = (ox - 1) * SX - PX
+        by = (oy - 1) * SY - PY
+        cn = OFF + (c - 1) * ST[3] + (n - 1) * ST[4]
+        for ky in 1:KY
+            iy = by + ky
+            (iy < 1 || iy > XD[2]) && continue
+            for kx in 1:KX
+                ix = bx + kx
+                (ix < 1 || ix > XD[1]) && continue
+                acc = max(acc, x[cn + (ix - 1) * ST[1] +
+                                     (iy - 1) * ST[2] + 1])
+            end
+        end
+        acc
+    end
+end
+
+# Pool channel-major `(C, 2W, 2H, B)` storage into dense `(W, H, C, B)` while
+# transposing through a padded tile. Literal local-memory types avoid the GPU
+# compiler bug described beside the attention transpose kernels.
+for T in (Float16, Float32)
+    @eval @kernel cpu=false function $(Symbol("maxpool2transpose_pitched_", nameof(T), "!"))(
+            out, @Const(src), off::Int32, batchstride::Int32,
+            xstride::Int32, ystride::Int32, OW::Int32, OH::Int32, C::Int32)
+        tile = @localmem $(nameof(T)) (33, 32)
+        tx, ty = @index(Local, NTuple)
+        gx, gy, gz = @index(Group, NTuple)
+        c0 = Int32(gx - 1) * Int32(32)
+        m0 = Int32(gy - 1) * Int32(32)
+        M = OW * OH
+        ibase = off + Int32(gz - 1) * batchstride
+        obase = Int32(gz - 1) * C * M
+        @inbounds begin
+            for j in Int32(0):Int32(7)
+                c = c0 + Int32(tx)
+                m = m0 + Int32(ty) + Int32(4) * j
+                if c <= C && m <= M
+                    ox = (m - Int32(1)) % OW
+                    oy = (m - Int32(1)) ÷ OW
+                    p = ibase + c + Int32(2) * ox * xstride +
+                        Int32(2) * oy * ystride
+                    tile[tx, ty + 4j] = max(max(src[p], src[p + xstride]),
+                                            max(src[p + ystride], src[p + ystride + xstride]))
+                else
+                    tile[tx, ty + 4j] = typemin($(nameof(T)))
+                end
+            end
+            @synchronize
+            for j in Int32(0):Int32(7)
+                m = m0 + Int32(tx)
+                c = c0 + Int32(ty) + Int32(4) * j
+                m <= M && c <= C &&
+                    (out[obase + (c - Int32(1)) * M + m] = tile[ty + 4j, tx])
+            end
+        end
+    end
+end
+
+maxpool2transposekernel(::Type{Float16}) = maxpool2transpose_pitched_Float16!
+maxpool2transposekernel(::Type{Float32}) = maxpool2transpose_pitched_Float32!
+
 maxpool2d!(ctx, out, x, k, s, p) = launch!(ctx, maxpool, out, x, Val(k[1]), Val(k[2]),
                                            Val(s[1]), Val(s[2]), Val(p[1]), Val(p[2]))
 

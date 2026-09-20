@@ -233,7 +233,7 @@ end
 
 
 """
-    hoistconstants(graphs, weights, backend) -> (graphs, weights, nfolded)
+    hoistconstants(graphs, weights, device) -> (graphs, weights, nfolded)
 
 The transitive form: fold whole *subgraphs* whose inputs are all weights.
 
@@ -269,7 +269,7 @@ which is also why this needs no `dims` in order to run.
 subgraph whose result is bigger than its intermediates is a loss. The guard
 compares the two directly rather than assuming SAM 2's 7:1 ratio generalises.
 
-Unlike every other pass here this one *executes*, so it runs on `backend` after
+Unlike every other pass here this one *executes*, so it runs on `device` after
 the upload rather than on the host: one encode's worth of those ops, 11.7 ms of
 device time, paid once instead of per frame. The CPU backend was the obvious
 alternative and is the wrong one — the same 164 ops take 6.5 s there, 5.5 s of it
@@ -283,19 +283,25 @@ encode at all is what matters — folding moves the folded ops' JIT to load time
 A keyword rather than a global: it is read in one place, and an A/B that mutates
 module state cannot run two ways at once.
 """
-function hoistconstants(graphs::AbstractDict, weights::AbstractDict, backend;
+function hoistconstants(graphs::AbstractDict, weights::AbstractDict, device;
                         enabled::Bool = true)
     enabled || return (Dict{String,Graph}(graphs), Dict{String,Any}(weights), 0)
+    dev = Mantle.todevice(device)
     w = Dict{String,Any}(weights)
     out = Dict{String,Graph}()
     n = 0
     for (name, g) in graphs
-        g2, k = hoistconstants(g, w, backend)
+        g2, k = hoistconstants(g, w, dev)
         out[name] = g2
         n += k
     end
     (out, w, n)
 end
+
+# Compatibility for callers folding one graph directly. Normalisation belongs
+# at this public boundary; the implementation below accepts only an owner.
+hoistconstants(g::Graph, weights::Dict{String,Any}, target) =
+    hoistconstants(g, weights, Mantle.todevice(target))
 
 """Extents all known now, rather than at a resolution — see `hoistconstants`."""
 concreteshape(b::Buffer) = all(x -> x isa Integer, b.shape)
@@ -408,7 +414,7 @@ function constsubgraph(g::Graph, ops::Set{String}, outs::Vector{String})
           [id for id in g.order if id in need], keep, Vector{Vector{String}}())
 end
 
-function hoistconstants(g::Graph, weights::Dict{String,Any}, backend)
+function hoistconstants(g::Graph, weights::Dict{String,Any}, dev::Mantle.Device)
     ops = constops(g)
     isempty(ops) && return (g, 0)
     esc = constescaping(g, ops)
@@ -434,7 +440,6 @@ function hoistconstants(g::Graph, weights::Dict{String,Any}, backend)
     # goes into `weights` for the life of the model. The gate above bounds how
     # much this copies -- a fold that materialises more than it frees is refused.
     sub = constsubgraph(g, ops, sort(collect(esc)))
-    dev = Mantle.Device(backend)
     mantlegraph, emitctx = emitgraph(dev, sub, residentweights(dev, sub, weights),
                                      NamedTuple())
     plan = Mantle.Plan(mantlegraph)

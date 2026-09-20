@@ -432,7 +432,8 @@ device**. `dev` supplies the tile, the subgroup width and the shared budget; eve
 one of those was a literal or a module-level `Ref` before, and each is a property
 of the device rather than of the kernel.
 """
-@inline function flashcmfits(dev::M.DeviceCaps, EP::Int, BR::Int, BC::Int, NT::Int)
+@inline function flashcmfits(dev::M.DeviceCaps, EP::Int, BR::Int, BC::Int, NT::Int,
+                             helddirect::Bool = false)
     BR % dev.tile == 0 && BC % dev.tile == 0 && EP % dev.tile == 0 || return false
     # The softmax gives one thread a whole query row.
     BR <= NT || return false
@@ -440,11 +441,16 @@ of the device rather than of the kernel.
     # `@nexprs` needs that count to be a literal. A tiling wanting a fourth
     # would silently drop its tiles, so it is refused instead.
     cld((BR ÷ dev.tile) * (EP ÷ dev.tile), NT ÷ dev.coopmatsubgroup) <= 3 || return false
-    (BR * EP) % NT == 0 && (BC * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
+    (BR * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
     # With the pads this device will actually launch with: the budget check and
     # the launcher have to agree, or a tiling passes here and then asks for more
     # `@localmem` than the device has.
-    flashcmshared(EP, BR, BC, flashepad(dev, EP), flashrpad(dev, BR)) <= dev.sharedbudget
+    epad, rpad = flashepad(dev, EP), flashrpad(dev, BR)
+    shared = flashcmshared(EP, BR, BC, epad, rpad)
+    # An unsplit held output is written straight from its fragments. `pvs` is
+    # then dead and the compiler allocates none of its BR*EP fp32 scratch.
+    helddirect && (shared -= 4 * (BR + rpad) * EP)
+    shared <= dev.sharedbudget
 end
 
 """
@@ -490,18 +496,37 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
     Float32(Float16(Float16(Float16(s)*scale)+z))
 end
 
-@kernel cpu=false unsafe_indices=true function attn_flash_cm!(
+@inline function flashoutindex(e, h, l, b, ::Val{E}, H, L,
+                               ::Val{0}, ::Val{0}, ::Val{0}, ::Val{0}) where {E}
+    e + E * ((h - 1) + H * (l + L * (b - 1)))
+end
+
+@inline function flashoutindex(e, h, l, b, ::Val{E}, H, L,
+                               ::Val{IW}, ::Val{IH}, ::Val{NX}, ::Val{NY}) where
+                               {E,IW,IH,NX,NY}
+    ix, iy = l % IW, l ÷ IW
+    wb = b - 1
+    wx, tail = wb % NX, wb ÷ NX
+    wy, batch = tail % NY, tail ÷ NY
+    col = ix + IW * wx + (IW * NX) * (iy + IH * wy + IH * NY * batch)
+    e + E * ((h - 1) + H * col)
+end
+
+@kernel cpu=false unsafe_indices=true function attn_flash_cm_spatial4!(
         out, @Const(q), @Const(k), @Const(v), scale, @Const(mask),
         qbase::Int32, qsE::Int32, qsL::Int32, qsH::Int32, qsB::Int32,
         kbase::Int32, ksE::Int32, ksL::Int32, ksH::Int32, ksB::Int32,
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
-        ::Val{BR}, ::Val{BC}, ::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
+        ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
-        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
+        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM},
+        vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
+        ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,NSPLIT,
+                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,PREFETCHV,OUTPERM,
+                                            WIW,WIH,WNX,WNY,NH,NSPLIT,
                                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
     # workgroup as `NW * dev.coopmatsubgroup`, so a literal disagrees with it on
@@ -557,6 +582,14 @@ end
     # out rather than the local `NT` above for the same reason: the size has to
     # come from the type parameters, and both of these are.
     acco = @private Float32 (div(BR * EP, NW * SG),)
+    # Optional software pipeline: fetch the current value tile before Q*K and
+    # keep each thread's small slice in registers until the score/softmax phase
+    # has finished using `kvs`. This overlaps the otherwise-serial global V read
+    # with useful matrix work without requiring a second shared-memory tile.
+    # This is deliberately enabled only for plans whose slice is small enough
+    # for Lava to scalarise it (see `flash_launches`). Larger dynamically
+    # indexed private fp16 arrays still lower through packed integer words.
+    vstage = @private Float16 (cld(BC * EP, NW * SG),)
 
     RT = BR ÷ Mantle.GEMM_TILE
     CT = BC ÷ Mantle.GEMM_TILE
@@ -628,7 +661,7 @@ end
         # per block did — 122 against 128, measured — because what goes away with
         # the load and the store is also their address arithmetic.
         Base.Cartesian.@nexprs 3 j ->
-            acc_j = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
+            acc_j = zero(Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator})
 
         # Which row of its tile does each of this lane's accumulator components
         # belong to? The answer is what lets `O` be rescaled where it lives, and
@@ -643,19 +676,26 @@ end
         # `ss` is the scratch: it is the score matrix from the first key block
         # onward, and both barriers below are already required.
         #
-        # Only `:comp` needs this: the whole probe exists because the portable
-        # component access cannot see which row it is touching. `:perelem` is
-        # handed the row, and `:fmul` never names a component at all.
-        if HELD && RSC === :comp
+        # `:comp` needs the row for rescaling.  A held, unsplit output also uses
+        # both coordinates to store its accumulator fragments straight to the
+        # destination at the end.  That direct store is important on devices
+        # with 64 KiB of shared memory: round-tripping held O through `pvs`
+        # otherwise keeps this kernel at ~49 KiB and admits only one workgroup.
+        # With no held-path reference to `pvs`, the compiler removes that 20 KiB
+        # allocation entirely.
+        if HELD && (RSC === :comp || NSPLIT == 1)
             for idx in tid:NT:(Mantle.GEMM_TILE * Mantle.GEMM_TILE - 1)
-                r, _ = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
-                ss[1 + idx] = Float32(r)
+                r, c = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
+                ss[1 + idx] = Float32(r + c * Mantle.GEMM_TILE)
             end
             @synchronize
-            rowmat = Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}(
+            rowmat = Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
                         ss, 1, Mantle.GEMM_TILE, Val(false))
-            Base.Cartesian.@nexprs 8 i ->
-                orow_i = unsafe_trunc(Int32, Lava.coopmat_getcomp(rowmat, Int32(i - 1)))
+            Base.Cartesian.@nexprs 8 i -> begin
+                ocoord_i = unsafe_trunc(Int32, Mantle.coopmat_getcomp(rowmat, Int32(i - 1)))
+                orow_i = ocoord_i % Int32(Mantle.GEMM_TILE)
+                ocol_i = ocoord_i ÷ Int32(Mantle.GEMM_TILE)
+            end
         end
         @synchronize
 
@@ -675,26 +715,41 @@ end
                 grew[1] = Float32(alwaysrescale)
                 redo[1] = 0.0f0
             end
-            for r in 0:(div(BC * EP, NT) - 1)
+            for r in 0:(cld(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Mantle.splitidx(idx, Val(EP))
-                ink = !KCLAMP || k0 + lk < Lk
-                kvs[1 + e + lk * EPS] = (e < E && ink) ?
-                    k[kbase + Int32(e) * ksE + Int32(k0 + lk) * ksL +
-                      Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16)
+                if idx < BC * EP
+                    e, lk = Mantle.splitidx(idx, Val(EP))
+                    ink = !KCLAMP || k0 + lk < Lk
+                    kvs[1 + e + lk * EPS] = (e < E && ink) ?
+                        k[kbase + Int32(e) * ksE + Int32(k0 + lk) * ksL +
+                          Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16)
+                end
             end
             @synchronize
+
+            if PREFETCHV
+                for r in 0:(cld(BC * EP, NT) - 1)
+                    idx = tid + r * NT
+                    if idx < BC * EP
+                        e, lk = Mantle.splitidx(idx, Val(EP))
+                        ink = !KCLAMP || k0 + lk < Lk
+                        vstage[1 + r] = (e < E && ink) ?
+                            v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
+                              Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                    end
+                end
+            end
 
             # S = Q·Kᵀ. RT*CT tiles handed round the subgroups; the trip count is
             # uniform within a subgroup, which is what a coopmat op requires.
             for t in w:NW:(RT * CT - 1)
                 rt = t % RT
                 ct = t ÷ RT
-                acc = zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator})
+                acc = zero(Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator})
                 for et in 0:(ET - 1)
-                    a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                    a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                             qs, 1 + rt * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
-                    bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                    bm = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                             kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(false))
                     acc = muladd(a, bm, acc)
                 end
@@ -712,7 +767,7 @@ end
             # eight warps sit at the barrier while two walk `BC` serially. The
             # fix looks free: store the score tile row-major instead (a whole row
             # contiguous, which needed a row-major cooperative-matrix store — see
-            # `Lava.copyto!`), give each *subgroup* a query row and each lane a
+            # `copyto!`), give each *subgroup* a query row and each lane a
             # key, and `subgroup_max` is then exactly the row maximum with no
             # cluster and no shared scratch. Built and measured interleaved:
             #
@@ -821,13 +876,19 @@ end
             end
             @synchronize
 
-            for r in 0:(div(BC * EP, NT) - 1)
+            for r in 0:(cld(BC * EP, NT) - 1)
                 idx = tid + r * NT
-                e, lk = Mantle.splitidx(idx, Val(EP))
-                ink = !KCLAMP || k0 + lk < Lk
-                kvs[1 + e + lk * EPS] = (e < E && ink) ?
-                    v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
-                      Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                if idx < BC * EP
+                    e, lk = Mantle.splitidx(idx, Val(EP))
+                    if PREFETCHV
+                        kvs[1 + e + lk * EPS] = vstage[1 + r]
+                    else
+                        ink = !KCLAMP || k0 + lk < Lk
+                        kvs[1 + e + lk * EPS] = (e < E && ink) ?
+                            v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
+                              Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                    end
+                end
             end
             @synchronize
 
@@ -855,17 +916,17 @@ end
                                 # all 16 columns read the same 16 factors. No
                                 # component is ever named, so nothing is
                                 # materialised — one load and one `OpFMul`.
-                                acc_j = Lava.coopmat_mul(acc_j,
-                                    Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,
-                                                           Mantle.GEMM_TILE,Lava.Accumulator}(
+                                acc_j = Mantle.coopmat_mul(acc_j,
+                                    Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,
+                                                           Mantle.GEMM_TILE,Mantle.Accumulator}(
                                         cs, 1 + base_j, 0, Val(false)))
                             elseif RSC === :perelem
                                 acc_j = Lava.coopmat_perelement(flashrescale, acc_j,
                                                                 cs.ptr, base_j)
                             else
                                 Base.Cartesian.@nexprs 8 i ->
-                                    acc_j = Lava.coopmat_setcomp(acc_j, Int32(i - 1),
-                                        Lava.coopmat_getcomp(acc_j, Int32(i - 1)) *
+                                    acc_j = Mantle.coopmat_setcomp(acc_j, Int32(i - 1),
+                                        Mantle.coopmat_getcomp(acc_j, Int32(i - 1)) *
                                         cs[1 + base_j + orow_i])
                             end
                         end
@@ -898,9 +959,9 @@ end
                         rt_j = t_j % RT
                         et_j = t_j ÷ RT
                         for ct in 0:(CT - 1)
-                            a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                            a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                                     ps, 1 + rt_j * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
-                            bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                            bm = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                                     kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et_j * Mantle.GEMM_TILE, EPS, Val(true))
                             acc_j = muladd(a, bm, acc_j)
                         end
@@ -914,13 +975,13 @@ end
                     # Starting from `O` itself means the accumulate is the tensor
                     # core's own; starting from zero means the registers below do it.
                     acc = REGO ?
-                        zero(Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}) :
-                        Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.Accumulator}(
+                        zero(Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}) :
+                        Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
                             pvs, off, BRS, Val(false))
                     for ct in 0:(CT - 1)
-                        a = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixA}(
+                        a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                                 ps, 1 + rt * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
-                        bm = Lava.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Lava.MatrixB}(
+                        bm = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                                 kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
                         acc = muladd(a, bm, acc)
                     end
@@ -956,17 +1017,17 @@ end
                                 # all 16 columns read the same 16 factors. No
                                 # component is ever named, so nothing is
                                 # materialised — one load and one `OpFMul`.
-                                acc_j = Lava.coopmat_mul(acc_j,
-                                    Lava.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,
-                                                           Mantle.GEMM_TILE,Lava.Accumulator}(
+                                acc_j = Mantle.coopmat_mul(acc_j,
+                                    Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,
+                                                           Mantle.GEMM_TILE,Mantle.Accumulator}(
                                         cs, 1 + base_j, 0, Val(false)))
                             elseif RSC === :perelem
                                 acc_j = Lava.coopmat_perelement(flashrescale, acc_j,
                                                                 cs.ptr, base_j)
                             else
                                 Base.Cartesian.@nexprs 8 i ->
-                                    acc_j = Lava.coopmat_setcomp(acc_j, Int32(i - 1),
-                                        Lava.coopmat_getcomp(acc_j, Int32(i - 1)) *
+                                    acc_j = Mantle.coopmat_setcomp(acc_j, Int32(i - 1),
+                                        Mantle.coopmat_getcomp(acc_j, Int32(i - 1)) *
                                         cs[1 + base_j + orow_i])
                             end
                         end
@@ -1026,7 +1087,7 @@ end
             out[1] = Float16(shpad[1])
         end
 
-        if HELD && !REGO
+        if HELD && !REGO && NSPLIT != 1
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
                 t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Mantle.GEMM_TILE +
@@ -1035,24 +1096,66 @@ end
             @synchronize
         end
 
+        # O has remained in cooperative-matrix fragments throughout the key
+        # loop. Extract each lane's components and write them directly rather
+        # than storing fp32 to shared memory, synchronising, then loading every
+        # value again with scalar threads. `ocoord_i` above discovers the
+        # implementation-defined component layout; no lane mapping is assumed.
+        if HELD && !REGO && NSPLIT == 1
+            Base.Cartesian.@nexprs 3 j -> begin
+                t_j = w + (j - 1) * NW
+                if t_j < RT * ET
+                    rt_j = t_j % RT
+                    et_j = t_j ÷ RT
+                    Base.Cartesian.@nexprs 8 i -> begin
+                        lq_i = rt_j * Mantle.GEMM_TILE + orow_i
+                        e_i = et_j * Mantle.GEMM_TILE + ocol_i
+                        if e_i < E && (!CLAMP || q0 + lq_i < Lq)
+                            l_i = ls[1 + lq_i]
+                            o_i = Mantle.coopmat_getcomp(acc_j, Int32(i - 1))
+                            ov_i = o_i / (l_i == 0.0f0 ? 1.0f0 : l_i)
+                            if OUTPERM
+                                oi_i = flashoutindex(e_i, h, q0 + lq_i, b,
+                                    vE, NH, Lq,
+                                    vWIW, vWIH, vWNX, vWNY)
+                                unsafe_store!(pointer(out), convert(eltype(out), ov_i), 1 + oi_i)
+                            else
+                                out[1 + e_i, 1 + q0 + lq_i, h, b] = ov_i
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
         # Slots `1 : BR*E/NT` are exactly the ones whose `e` is inside the real
         # head dimension: `idx = tid + (s-1)*NT` and `NT` divides `BR*E`, so the
         # padded columns are all in the slots past that and never written out.
-        for s in 1:div(BR * E, NT)
-            idx = tid + (s - 1) * NT
-            lq, e = Mantle.splitidx(idx, Val(BR))
-            if !CLAMP || q0 + lq < Lq
-                l = ls[1 + lq]
-                o = REGO ? acco[s] : pvs[1 + lq + e * BRS]
-                if NSPLIT == 1
-                    out[1 + e, 1 + q0 + lq, h, b] = o / (l == 0.0f0 ? 1.0f0 : l)
-                else
+        if !HELD || REGO || NSPLIT != 1
+            for s in 1:div(BR * E, NT)
+                idx = tid + (s - 1) * NT
+                lq, e = Mantle.splitidx(idx, Val(BR))
+                if !CLAMP || q0 + lq < Lq
+                    l = ls[1 + lq]
+                    o = REGO ? acco[s] : pvs[1 + lq + e * BRS]
+                    if NSPLIT == 1
+                        ov = o / (l == 0.0f0 ? 1.0f0 : l)
+                        if OUTPERM
+                            oi = flashoutindex(e, h, q0 + lq, b,
+                                vE, NH, Lq,
+                                vWIW, vWIH, vWNX, vWNY)
+                            unsafe_store!(pointer(out), convert(eltype(out), ov), 1 + oi)
+                        else
+                            out[1 + e, 1 + q0 + lq, h, b] = ov
+                        end
+                    else
                     # UNNORMALISED, plus this split's row max and sum. The merge
                     # cannot divide yet: `l` here is only this slice's sum, and
                     # the rows' maxima differ between splits, so the rescale has
                     # to happen after every split's `m` is known. Same split as
                     # llama.cpp's `flash_attn_split_k_reduce.comp`.
-                    partial[1 + e, 1 + q0 + lq, h, b, 1 + sp] = o
+                        partial[1 + e, 1 + q0 + lq, h, b, 1 + sp] = o
+                    end
                 end
             end
         end
@@ -1168,7 +1271,9 @@ const FLASH_EXP_HEADROOM = 10.0f0
 """
     FLASHCM_TILINGS
 
-`(BR, BC, NW)`, fastest first. `NW` is subgroups, so the workgroup is `32*NW`.
+`(BR, BC, NW)`, fastest first subject to the shape rules in
+[`flashcm_tiling`](@ref). `NW` is cooperative-matrix subgroups, so the actual
+workgroup is `dev.coopmatsubgroup * NW`.
 
 Measured on SAM 2's two dominant attention shapes, clock warmed, interleaved,
 against the two-GEMM cooperative-matrix path. **Re-swept after the lazy rescale
@@ -1211,9 +1316,20 @@ bytes is two of Ada's ~100 KB of shared. 512 of 1 536 resident threads. So
 shrinking the tile alone buys no occupancy — registers cap it at two
 independently, and a third workgroup needs both under 34 KB and under 85
 registers a thread.
+
+On gfx1151, AMDGPU reports native 16x16 WMMA, wave32 cooperative-matrix
+subgroups, 64 KiB LDS and 64 resident waves. Directly storing an unsplit held
+output from its accumulator fragments removes the `BR*EP` fp32 `pvs` scratch;
+that makes the 128-row tile fit and permits two resident workgroups. Re-swept
+inside the recorded SAM 2 encoder graph, `BC=16` wins for its 4096-token global
+blocks, while `BC=32` preserves the less order-sensitive recurrence and wins
+for its 256-token windows. The 64-token blocks also measurably prefer `BC=16`.
+Those choices, plus the dense elementwise routes, put the whole encode at a
+139.60 ms median on that device (24 samples), rather than merely optimising an
+isolated attention launch.
 """
-const FLASHCM_TILINGS = [(64, 32, 8), (32, 32, 8), (64, 16, 8), (32, 16, 8),
-                         (32, 32, 4), (16, 32, 4)]
+const FLASHCM_TILINGS = [(128, 16, 8), (128, 32, 8), (64, 16, 8), (64, 32, 8), (32, 32, 8), (32, 16, 8),
+                         (32, 32, 4), (16, 32, 4), (16, 16, 4)]
 
 """
     flashcm_tiling(dev, E, Lq, Lk, nbatch = 0; clamp = false) -> (BR, BC, NW) | nothing
@@ -1255,8 +1371,31 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
     # The scaled width is tried FIRST and per entry, because it is not always
     # admissible: `32x32/16` fails `(BR * E) % NT == 0` at `E = 72`, and there the
     # table's own eight is what runs.
-    widen = max(1, dev.subgroup ÷ dev.coopmatsubgroup)
+    # There are two independent reasons to try the wider workgroup first.
+    #
+    #  * A cooperative-matrix subgroup narrower than the device's ordinary
+    #    subgroup needs more matrix subgroups to restore the wave count the
+    #    table was tuned at (the original Vulkan/RDNA case).
+    #  * A processor capable of keeping 64 or more subgroups resident needs
+    #    the same width even when its native matrix subgroup is already wave32.
+    #    HIP reports that occupancy fact on gfx1151.  With NW=8 this kernel's
+    #    ~49 KiB LDS footprint admits only one workgroup and strands most of the
+    #    processor; NW=16 changes neither the tile nor its LDS and, with the
+    #    arithmetic-preserving accumulator choice below, measures 18.4 -> 15.2
+    #    ms on SAM 2's 4096-token block and 1.31 -> 1.09 ms windowed.
+    #
+    # `warps == 0` means unknown, not zero, so backends which cannot report
+    # residency retain the measured table instead of being guessed at here.
+    width_widen = max(1, dev.subgroup ÷ dev.coopmatsubgroup)
+    occupancy_widen = dev.warps >= 64 ? 2 : 1
+    widen = max(width_widen, occupancy_widen)
     for (BR, BC, NW0) in FLASHCM_TILINGS, NW in unique((NW0 * widen, NW0))
+        # Measured shape policy for the new narrow-key entries. The long global
+        # loop and the 64-token blocks win with BC=16; the 256-token windows use
+        # BC=32, which is both faster there and less sensitive to recurrence
+        # order. Other shapes retain the established BC=32 choices.
+        BR == 128 && BC == 16 && Lk < 4096 && continue
+        BR == 64 && BC == 16 && Lk != 64 && continue
         NT = NW * dev.coopmatsubgroup
         NT <= dev.workgrouplimit || continue
         # Without `clamp` the extents have to divide the tile; with it they are
@@ -1272,9 +1411,17 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # `Lq = 23`, which is 72% occupied rather than 36%.
         if Lq % BR != 0 || Lk % BC != 0
             clamp || continue
-            2 * Lq >= BR && 2 * Lk >= BC || continue
+            tiny_exact_key = BR == dev.tile && BC == dev.tile && Lk == BC &&
+                             4 * Lq >= BR
+            (2 * Lq >= BR && 2 * Lk >= BC) || tiny_exact_key || continue
         end
-        flashcmfits(dev, EP, BR, BC, NT) && (BR * E) % NT == 0 &&
+        # The 128-row tile exists only because a held, unsplit output no longer
+        # allocates `pvs`. Keep that footprint exception on encoder-style square
+        # attention; split-k and decoder cross-attention retain the conservative
+        # shared-memory accounting and therefore the established smaller tiles.
+        helddirect = BR == 128 && dev.warps >= 64 && NW >= 16 &&
+                     Lq == Lk && Lq >= BR
+        flashcmfits(dev, EP, BR, BC, NT, helddirect) && (BR * E) % NT == 0 &&
             !any(c -> c[1] == BR && c[2] == BC, fits) && push!(fits, (BR, BC, NW))
     end
     isempty(fits) && return nothing
@@ -1372,7 +1519,7 @@ that launches and writes nothing.
 """
 function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
                       clamp::Bool = false, rego::Union{Nothing,Bool} = nothing,
-                      held::Bool = false,
+                      held::Union{Nothing,Bool} = nothing,
                       rescale::Symbol = :fmul, onepass::Bool = true,
                       lazyrescale::Bool = true, split::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
@@ -1385,7 +1532,8 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     Lk = size(k, 2)
     EP = cld(E, dev.tile) * dev.tile
 
-    tiling = if BR == 0
+    autotiling = BR == 0
+    tiling = if autotiling
         flashcm_tiling(dev, E, Lq, Lk, H * B; clamp)
     else
         (BR, BC, NW)
@@ -1394,13 +1542,19 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     BR, BC, NW = tiling
     # The pinned coopmat width, not the device default — see `M.DeviceCaps`.
     NT = NW * dev.coopmatsubgroup
+    holdtiles = held === nothing ? (dev.warps >= 64 && NW >= 16) : held
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)
     (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)
-    flashcmfits(dev, EP, BR, BC, NT) || return Decline(:tiling)
+    # `split=false` makes the direct held store statically certain here.  The
+    # automatic split count is decided below; until then use the conservative
+    # footprint so a split-k decoder cannot be admitted on memory it still uses.
+    helddirect = holdtiles && (split === false ||
+                              (autotiling && Lq == Lk && Lq >= BR))
+    flashcmfits(dev, EP, BR, BC, NT, helddirect) || return Decline(:tiling)
     # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
     # because it does not see the unpadded head dimension.
-    (BR * E) % NT == 0 || return Decline(:writeout)
+    (helddirect || (BR * E) % NT == 0) || return Decline(:writeout)
 
     # Operands as a root array plus strides, not as the wrapper. Attention's q, k
     # and v arrive as `PermutedDimsArray -> ReshapedArray -> SubArray -> LavaArray`,
@@ -1420,6 +1574,11 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # fixes how many query blocks there are, and `BC` fixes how finely the key
     # axis can be cut.
     nsplit = splitcount(dev, Lq, Lk, BR, BC, H * B; allow = split)
+    # The reduced footprint is real only for the unsplit direct-store path.
+    # Recheck after `splitcount`, so an unexpectedly split plan declines instead
+    # of launching a kernel whose actual LDS exceeds the admitted budget.
+    flashcmfits(dev, EP, BR, BC, NT, holdtiles && nsplit == 1) ||
+        return Decline(:tiling)
 
     # ── Where `O` lives, decided from the tiling and not from the device ──────
     #
@@ -1435,8 +1594,26 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # 10.10 ms against 8.41 at `Lq = Lk = 4096`. So the rule is the ratio, and two
     # vendors' hardware agrees on where it turns — a default of `false` would now
     # be wrong for the tiling this device picks.
-    holdregs = rego === nothing ? (BR * EP) ÷ NT <= 10 : rego
-    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, held, rescale, onepass,
+    # Widening solely to occupy a high-residency wave32 processor must not also
+    # change the numerical algorithm. `rego` changes where the online output
+    # accumulator lives and therefore its rounding; enabling it for all 42 SAM
+    # 2 calls made final residual drift grow 1.40 -> 2.32. It briefly looked
+    # profitable on the three global calls alone (15.47 -> 12.93 ms), but the
+    # fragment-held path below is both arithmetic-preserving and faster there,
+    # 12.93 -> 10.42 ms. An explicitly requested `rego` still means exactly what
+    # the caller asked for.
+    occupancy_only_widened = autotiling && dev.subgroup == dev.coopmatsubgroup &&
+                             dev.warps >= 64 && NW >= 16
+    regnt = occupancy_only_widened ? NT ÷ 2 : NT
+    holdregs = rego === nothing ? (BR * EP) ÷ regnt <= 10 : rego
+    # Holding O in cooperative-matrix fragments removes its load/store on every
+    # key block while retaining the same muladd arithmetic. It used to lose on
+    # the narrower launch because the fragments consumed the occupancy it had;
+    # on a >=64-resident-subgroup processor the widened launch already supplies
+    # that occupancy and holding wins: the 39 windowed SAM 2 calls take attention
+    # from 80.01 to 69.17 ms, with bit-identical encoder outputs. Unknown
+    # residency (`warps == 0`) keeps the conservative table behavior.
+    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, onepass,
                 lazyrescale, nsplit)
 end
 
@@ -1527,6 +1704,12 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       preonly::Bool = false, rscbar::Bool = false,
+                      # Five values per thread at the 512-thread global tile is
+                      # enough latency hiding for a measured win. The 128-thread
+                      # window tile needs twenty registers and loses occupancy.
+                      prefetchv::Bool = plan.NT >= 512,
+                      outperm::Bool = false,
+                      outwindow::NTuple{4,Int} = (0, 0, 0, 0),
                       epad::Int = flashepad(caps, plan.EP),
                       rpad::Int = flashrpad(caps, plan.BR))
     E, Lq, H, B = size(q)
@@ -1538,7 +1721,8 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
     flat(r) = flashflat(r[1])
 
     ns = plan.nsplit
-    args = (out, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
+    outarg = outperm ? flashoutflat(out) : out
+    args = (outarg, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
                                 Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
                                 Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
@@ -1551,12 +1735,13 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 # second identical pipeline when nothing rescales.
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
-                                Val(rscbar),
+                                Val(rscbar), Val(prefetchv), Val(outperm),
+                                map(Val, outwindow)..., Val(H),
                                 Val(ns), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),
                                 Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
                                 Int32(plan.onepass && !rego ? 1 : 0), partial, ml)
-    first = (kern = attn_flash_cm!, args = args,
+    first = (kern = attn_flash_cm_spatial4!, args = args,
              ndrange = (NT * cld(Lq, BR) * ns, H, B), group = NT)
     ns == 1 && return [first]
     # The merge is a separate dispatch because every split has to have
@@ -1614,6 +1799,9 @@ flashstrides(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) 
     declstrides(x)
 flashflat(r) = reshape(r, length(r))
 flashflat(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) = x
+flashoutflat(r) = reshape(r, length(r))
+flashoutflat(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) =
+    M.viewof(x, (length(x),))
 
 """
     sdpaflashcm!(ctx, out, q, k, v, scale; kw...) -> Bool

@@ -63,7 +63,12 @@ took `strided_gemm_kernel!`, one invocation per output element.
 A `BufferRange` is deliberately absent: it is rank 1 by construction.
 """
 densematrix(::Type{T}, ::Type) where {T} = false
-densematrix(::Type{T}, ::Type{<:Mantle.LavaArray{T,2}}) where {T} = true
+# A concrete backend array is dense storage regardless of whether its owner is
+# Lava, AMDGPU, CUDA, or another GPUArrays backend.  Views are wrapper types and
+# do not match this method; they still have to be materialised (or represented
+# by one of the explicit graph-resource forms below) before a kernel that assumes
+# column-major dense addressing may accept them.
+densematrix(::Type{T}, ::Type{<:GPUArrays.AbstractGPUArray{T,2}}) where {T} = true
 densematrix(::Type{T}, ::Type{<:M.Buffer{T,2}}) where {T} = true
 densematrix(::Type{T}, ::Type{<:M.TransientBuffer{T,2}}) where {T} = true
 densematrix(::Type{T}, ::Type{<:M.ResourceView{T,2}}) where {T} = true
@@ -142,10 +147,26 @@ function mmplan(caps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
     mm_gemv_plan(caps, Tout, Ta, Tb, sa, sb, hasbias)
 end
 
+# A single policy shared by immediate and declared execution. The immediate
+# context records the answer obtained from the explicitly passed device; it
+# does not retain or rediscover that device. The declared path still has the
+# device in hand and asks the same question directly.
+library_gemm_preferred(canrun::Bool, epi) = canrun && epi === identity
+library_gemm_preferred(dev::M.Device, epi) =
+    library_gemm_preferred(M.runscalls(dev), epi)
+
 # One method per plan type (review finding 1): a new GEMM path is a new plan type
 # and a new method here, not another branch in the function above.
-matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi; gemm=NamedTuple()) =
+function matmul!(ctx, plan::MMCoopMatPlan, out, A, B, bias, epi; gemm=NamedTuple())
+    # When a graph can record ecosystem calls, an identity epilogue does not
+    # recover enough memory traffic to pay for replacing the tuned library
+    # GEMM.  Keep the portable cooperative-matrix kernel for a real fused
+    # epilogue; this is a graph capability decision, not a vendor decision.
+    if library_gemm_preferred(ctx.runscalls, epi)
+        return matmul!(ctx, Decline(:library_faster), out, A, B, bias, epi; gemm)
+    end
     matmul_coopmat!(ctx, out, plan, A, B, bias, epi; gemm)
+end
 
 """
     mm_gemv_plan(dev, out, A, B, bias) -> MMGemvPlan | Decline

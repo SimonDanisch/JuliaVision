@@ -6,7 +6,7 @@ function check_horizon_optimized_prefill(m,reference_graphs;tokens=512)
     recorded=HorizonRunner.bucketmodel(m,name)
     base=m.model
     reference=DNNKernels.Model(Dict(name=>reference_graphs[name]),base.weights,
-        base.backend,base.memevery,base.memframes,base.topk;record=false)
+        base.device,base.memevery,base.memframes,base.topk;record=false)
     k,v=get!(base.scratch,(:horizon_generation_cache,)) do
         HorizonRunner.newcache(m)
     end

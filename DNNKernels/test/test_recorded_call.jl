@@ -14,6 +14,22 @@
 
 using Test, DNNKernels, Mantle, KernelAbstractions
 
+@testset "a model retains its execution device" begin
+    DK = DNNKernels
+    dev = Mantle.Device(Mantle.LavaBackend())
+    g = DK.Graph("empty", String[], String[], String[], Dict{String,DK.Buffer}(),
+                 String[], DK.Op[])
+    m = DK.Model(Dict("empty" => g), Dict{String,Any}(), dev, 1, 1, 1)
+    # A backend is not enough to recover ownership (ROCm's is empty). Planning,
+    # folding and capability queries must receive this exact object instead of
+    # looking a process-global device up again.
+    @test m.device === dev
+    @test m.backend === Mantle.backend(dev)
+    @test DK.Ctx(m.device).dev == Mantle.caps(dev)
+    @test_throws ArgumentError DK.Model(Dict("empty" => g), Dict{String,Any}();
+                                        backend = m.backend, device = dev)
+end
+
 @testset "a replayed plan carries its dtype conversions" begin
     DK = DNNKernels
     backend = Mantle.LavaBackend()

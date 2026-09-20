@@ -86,8 +86,33 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     # verification run took this path and handed host `Array`s to the SPIR-V
     # compiler.
     x isa Mantle.LavaArray && w isa Mantle.LavaArray || return Decline(:host)
-    eltype(x) === Float16 && eltype(w) === Float16 || return Decline(:eltype)
-    KW, KH, Cin, Cout = size(w)
+    return conv_coopmat_plan(dev, eltype(x), eltype(w), size(out), size(w);
+                             crspad, im2colcap)
+end
+
+"""
+    conv_coopmat_plan(dev, Tx, Tw, outsize, wsize; kw...) -> ConvCoopMatPlan | Decline
+
+The same question asked of extents and element types alone, for a caller whose
+operands are graph resources rather than arrays.
+
+Everything above reads `size` and `eltype` and nothing else, so this is the whole
+decision and the array method is a wrapper on it. Split because a DECLARED
+convolution has no `LavaArray` to hand over — the `:host` guard there is about a
+host array reaching a SPIR-V compiler, which cannot happen to a resource — and
+because `mmplan` already answers its half of the same question this way.
+
+`im2colcap` defaults to the ceiling rather than to the driver's free-memory
+share: a declared im2col is a transient the placer aliases against the whole
+graph, so what it costs is decided by the plan and not by what happens to be free
+when the graph is built.
+"""
+function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
+                           outsize::Dims, wsize::Dims; crspad::Float64 = 1.25,
+                           im2colcap::Int = IM2COL_CAP[]) where {Tx,Tw}
+    Tx === Float16 && Tw === Float16 || return Decline(:eltype)
+    out, w = outsize, wsize
+    KW, KH, Cin, Cout = wsize
     CRS = Cin * KH * KW
     # Before any test that divides by `dev.tile`: a device with no matrix
     # hardware reports no tile, and those would throw instead of declining.
@@ -138,7 +163,7 @@ function conv_coopmat_plan(dev::M.DeviceCaps, out, x, w; crspad::Float64 = 1.25,
     # 90.2 -> 102.3 steps/s**. Cout=16 is a legal single N-tile, and the cap has
     # to clear the 35 MB those layers ask for.
     Cout >= dev.tile || return Decline(:reuse)
-    NPQ = size(out, 4) * size(out, 2) * size(out, 1)
+    NPQ = out[4] * out[2] * out[1]
     # `CRSP`, not `padtile(CRS)` — the scratch is allocated at the extent the plan
     # chose, so budgeting the narrower one would under-count the allocation.
     padgemm(NPQ) * CRSP * sizeof(Float16) <= im2colcap || return Decline(:im2colsize)

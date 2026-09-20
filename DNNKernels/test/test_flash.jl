@@ -12,6 +12,33 @@ import Mantle
 using Mantle: LavaBackend
 const KA = KernelAbstractions
 
+@testset "subgroup flash uses Mantle's portable cooperative-matrix surface" begin
+    src = read(joinpath(pkgdir(DNNKernels), "src", "kernels", "extern", "flash.jl"),
+               String)
+    portable_lava_name = r"Lava\.(AcceleratedMatrix|Accumulator|MatrixA|MatrixB|coopmat_(load|store|muladd|mul|add|zero|undef|convert|length|getcomp|setcomp))"
+    @test match(portable_lava_name, src) === nothing
+    # Per-element callbacks are not part of the portable eleven-operation floor:
+    # this one remains the explicitly gated VK_NV_cooperative_matrix2 route.
+    @test occursin("Lava.coopmat_perelement", src)
+end
+
+@testset "flash output can land directly in spatial window order" begin
+    E, H, IW, IH, NX, NY, B = 3, 2, 4, 2, 3, 2, 2
+    L = IW * IH
+    seen = Int[]
+    for b in 1:(NX * NY * B), h in 1:H, l in 0:(L - 1), e in 0:(E - 1)
+        got = DNNKernels.flashoutindex(e, h, l, b, Val(E), H, L,
+                                        Val(IW), Val(IH), Val(NX), Val(NY))
+        ix, iy = l % IW, l ÷ IW
+        wx, tail = (b - 1) % NX, (b - 1) ÷ NX
+        wy, batch = tail % NY, tail ÷ NY
+        col = ix + IW * wx + (IW * NX) * (iy + IH * wy + IH * NY * batch)
+        @test got == e + E * ((h - 1) + H * col)
+        push!(seen, got)
+    end
+    @test sort(seen) == collect(0:(E * H * IW * NX * IH * NY * B - 1))
+end
+
 function attnref(qh, kh, vh, scale)
     E, Lq, H, B = size(qh); Lk = size(kh, 2)
     out = zeros(Float32, E, Lq, H, B)
@@ -137,6 +164,14 @@ end
                 # only once it names which of the two widths it means.
                 NW * dev.coopmatsubgroup <= dev.workgrouplimit || continue
                 L % BR == 0 && L % BC == 0 || continue
+                # The table also contains high-residency candidates whose
+                # reduced footprint exists only for an automatically selected,
+                # unsplit held-output plan. This exhaustive switch test calls
+                # the explicit conservative planner, so those are not admissible
+                # on devices whose full `pvs` footprint exceeds the budget.
+                EP = cld(E, dev.tile) * dev.tile
+                NT = NW * dev.coopmatsubgroup
+                DNNKernels.flashcmfits(dev, EP, BR, BC, NT) || continue
                 o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
                 @test DNNKernels.sdpaflashcm!(ctx, o, q, k, v, scale;
                                               BR, BC, NW, rego, lazyrescale, held)
@@ -146,6 +181,19 @@ end
                 @test maximum(abs, got .- ref) / maximum(abs, ref) < 5e-3
                 o = nothing
             end
+            # The graph emitter can remove the sole `(E,L,H,B) -> (E,H,L,B)`
+            # materialisation after attention by asking flash to write that
+            # physical order itself. The array keeps the logical input shape at
+            # the kernel boundary, so reinterpret its bytes with the consumer's
+            # shape before comparing.
+            plan = DNNKernels.flashcm_plan(dev, q, k, v, nothing; split = false)
+            @test plan isa DNNKernels.FlashCMPlan
+            o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
+            DNNKernels.sdpaflashcm!(ctx, o, plan, q, k, v, scale; outperm = true)
+            KA.synchronize(back)
+            gotperm = reshape(Array(o), E,H,L,B)
+            @test maximum(abs, gotperm .- permutedims(ref, (1,3,2,4))) /
+                  maximum(abs, ref) < 5e-3
             q = k = v = nothing; GC.gc()
         end
 
@@ -159,22 +207,23 @@ end
             # needs twice the subgroups for the same waves in flight, and
             # `flashcm_tiling` says so with the measurement. `widen` is 1 where
             # the two agree, which is where the table was measured.
-            widen = max(1, dev.subgroup ÷ dev.coopmatsubgroup)
+            widen = max(max(1, dev.subgroup ÷ dev.coopmatsubgroup),
+                        dev.warps >= 64 ? 2 : 1)
             @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096) == (64, 32, 8 * widen)
             @test DNNKernels.flashcm_tiling(dev, 72, 256, 256) == (64, 32, 8 * widen)
-            # A query count no tiling divides is taken clamped — but only when
-            # the padding earns its place. `Lq = 4` would be 94% waste at any
-            # tiling, so it still falls back; `Lq = 23` is taken at `BR = 32`
-            # (72% occupied) rather than `BR = 64` (36%).
+            # A query count no tiling divides is taken clamped only when the
+            # padding earns its place. Clamping remains opt-in here; the planner
+            # enables it for the exact one-key-tile case below.
             @test DNNKernels.flashcm_tiling(dev, 72, 4, 16) === nothing
             # Clamping is off by default, so a non-dividing extent is refused
             # until the caller asks for it — which only the decoder does.
             @test DNNKernels.flashcm_tiling(dev, 16, 23, 4096) === nothing
             @test DNNKernels.flashcm_tiling(dev, 16, 23, 4096; clamp=true)[1] == 32
             @test DNNKernels.flashcm_tiling(dev, 16, 23, 23; clamp=true) == (32, 32, 8 * widen)
-            # …and padding still has to earn its place: 4 queries is 94% waste
-            # at any tiling.
-            @test DNNKernels.flashcm_tiling(dev, 72, 4, 16; clamp=true) === nothing
+            # Four queries against exactly one 16-key tile are the measured
+            # exception: a quarter-full fused tile is still cheaper than two
+            # padded GEMMs plus score, softmax and apply passes.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4, 16; clamp=true) == (16, 16, 4)
             # Every shipped tiling must satisfy the write-out loop's own
             # divisibility, which `flashcmfits` cannot see (it takes the padded
             # head dimension, and the write-out uses the real one).
@@ -322,7 +371,9 @@ end
     # `1 * H*B` = 8 workgroups on 48 SMs and the kernel measures 0.10 TFLOP/s.
     # Below one workgroup per shader core the chooser therefore picks for grid
     # size instead.
-    dev = DNNKernels.caps(LavaBackend())
+    # Capabilities belong to the concrete execution device.  A KA backend is
+    # only a launch descriptor and deliberately carries no device identity.
+    dev = DNNKernels.Ctx(LavaBackend()).dev
     tiling(args...) = DNNKernels.flashcm_tiling(dev, args...; clamp = true)
 
     # Without a batch count it must behave exactly as it always did.
@@ -402,6 +453,40 @@ end
     @test p64 isa DNNKernels.FlashCMPlan
     @test p64.NT == p64.NW * 32              # …not * 64
     @test w64.subgroup == 64                 # the device default is still 64
+
+    # Native wave32 does not mean a narrow workgroup is the occupancy winner.
+    # A backend that reports 64 resident subgroups takes the measured 16-wave
+    # form without pretending its subgroup width is 64.
+    # One synthetic core keeps this test about the workgroup-width choice; a
+    # many-core device with this deliberately tiny `qkv` would instead exercise
+    # the decoder rule above and choose a smaller BR to create more workgroups.
+    resident64 = DNNKernels.M.DeviceCaps(true, 16, 32, 32, 65536, 1024, 1, 64)
+    @test DNNKernels.flashcm_tiling(resident64, 72, 4096, 4096) == (128, 16, 16)
+    @test DNNKernels.flashcm_tiling(resident64, 72, 256, 256) == (128, 32, 16)
+    @test DNNKernels.flashcm_tiling(resident64, 72, 64, 64) == (64, 16, 16)
+    pr64 = DNNKernels.flashcm_plan(resident64, q, k, v, nothing)
+    @test pr64 isa DNNKernels.FlashCMPlan
+    @test pr64.NW == 16
+    @test pr64.NT == 512
+    @test !pr64.rego
+    @test pr64.held
+    # The selected 128-row tile fits only because the held direct store removes
+    # `pvs`; explicitly disabling that algorithm makes this candidate decline
+    # instead of launching beyond its shared-memory budget.
+    @test DNNKernels.flashcm_plan(resident64, q, k, v, nothing;
+                                  held = false).reason === :tiling
+    # Explicit tuning still opts into the algorithm associated with that width;
+    # only the automatic occupancy widening preserves the table's arithmetic.
+    @test DNNKernels.flashcm_plan(resident64, q, k, v, nothing;
+                                  BR = 64, BC = 32, NW = 16).rego
+
+    # A long global key loop keeps the same arithmetic too: fragment holding,
+    # not the scalar register accumulator, is the measured winner there.
+    qlong = KA.allocate(back, Float16, E, 4096, H, B)
+    plong = DNNKernels.flashcm_plan(resident64, qlong, qlong, qlong, nothing)
+    @test plong isa DNNKernels.FlashCMPlan
+    @test !plong.rego
+    @test plong.held
 
     # ── The clamp is per run, not per process. Two contexts, opposite policies,
     # both alive at once — which the `Ref` it replaced could not express, and

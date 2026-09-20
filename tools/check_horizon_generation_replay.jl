@@ -3,7 +3,7 @@ using HorizonRunner, DNNKernels, Test
 
 function check_generation_replay(reference)
     m = reference.model
-    recordedmodel = DNNKernels.Model(m.graphs, m.weights, m.backend,
+    recordedmodel = DNNKernels.Model(m.graphs, m.weights, m.device,
         m.memevery, m.memframes, m.topk; record=true,
         record_maxpasses=m.record_maxpasses)
     recorded = Horizon32B(reference.backend, recordedmodel, reference.maxlen,

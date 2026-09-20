@@ -110,8 +110,12 @@ whose buffers a garbage collection between two clicks could free underneath it.
 The decoder is a recorded Mantle plan, which holds references to everything it
 names, so there is no such fault to work around.
 """
-function sam2model(; backend = Mantle.LavaBackend(), res::Int = 1024, kw...)
-    return SAM2(sam2graphs(), sam2weights(); backend, res, kw...)
+function sam2model(; backend = nothing, device = nothing, res::Int = 1024, kw...)
+    backend !== nothing && device !== nothing &&
+        throw(ArgumentError("pass either `device` or `backend`, not both"))
+    target = device === nothing ?
+             (backend === nothing ? Mantle.LavaBackend() : backend) : device
+    return SAM2(sam2graphs(), sam2weights(); device = Mantle.todevice(target), res, kw...)
 end
 
 # ── What callers outside this package may ask for ────────────────────────────
