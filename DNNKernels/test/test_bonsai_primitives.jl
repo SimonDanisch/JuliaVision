@@ -119,7 +119,8 @@ end
 
 @testset "PTQ1 packed kernels and signed Hadamard" begin
     backend = Mantle.LavaBackend(); ctx = DNNKernels.Ctx(backend)
-    rng = MersenneTwister(91); M,K,N = 7,256,3
+    # Five columns exercises one full four-column PTQ prefill tile and its tail.
+    rng = MersenneTwister(91); M,K,N = 7,256,5
     bytes, W = pack_ptq1(randn(rng,Float32,M,K))
     db = KernelAbstractions.allocate(backend,UInt8,length(bytes)); copyto!(db,bytes)
     A = PTQ1Matrix(db,M,K)
