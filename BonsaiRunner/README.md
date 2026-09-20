@@ -8,8 +8,7 @@ expanded into a dense 27B matrix set.
 ```julia
 using BonsaiRunner, Mantle
 
-model = Bonsai2("Ternary-Bonsai-2-27B-PTQ1_0.gguf";
-                device=Mantle.device("nvidia"))
+model = Bonsai2(device=Mantle.device("nvidia"))
 s = session(model)
 prompt = chatprompt(["user" => "Explain Vulkan barriers."])
 print(generate(s, prompt; max_tokens=256))
@@ -20,9 +19,17 @@ session can use another device in the same process because the backend and all
 state belong to the model:
 
 ```julia
-amd = Bonsai2(path; device=Mantle.device("radeon"), context=4096)
-cpu = Bonsai2(path; device=Mantle.device("lavapipe"), context=256)
+amd = Bonsai2(device=Mantle.device("radeon"), context=4096)
+cpu = Bonsai2(device=Mantle.device("lavapipe"), context=256)
 ```
+
+The no-path constructor resolves the official PTQ1 GGUF from four lazy Julia
+artifacts attached to JuliaVision's `assets-v1` release. Four parts are required
+because the 5.95 GB checkpoint exceeds GitHub's 2 GiB per-asset limit. On first
+use BonsaiRunner downloads and verifies each part, assembles the original GGUF
+in its Scratch.jl cache, and verifies the upstream SHA-256. Allow about 12 GB of
+local storage for the artifact parts plus the assembled mmap-ready file. An
+explicit `Bonsai2(path; ...)` still selects a local checkpoint.
 
 The runtime has batch-one greedy decode, the 48 Gated DeltaNet states, the
 checkpoint's byte-level Qwen tokenizer, and the complete 64-layer forward pass.

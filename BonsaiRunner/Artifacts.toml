@@ -1,0 +1,31 @@
+[bonsai2-ptq1-p1]
+git-tree-sha1 = "b46bd9414018d610cf574e663eb1137c30023c02"
+lazy = true
+
+    [[bonsai2-ptq1-p1.download]]
+    sha256 = "017f5ac42f5abe2f8c08fefa9c362c41456c33af4990f0a846a5ce8654003763"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/bonsai2-ptq1-p1.tar.gz"
+
+[bonsai2-ptq1-p2]
+git-tree-sha1 = "0f0a04fefe895c6083a7b750bc69ebcc4a84210c"
+lazy = true
+
+    [[bonsai2-ptq1-p2.download]]
+    sha256 = "8b541d37a8ecac14532f4707094f66e55d72957b142f0135020a3c4bf13a5812"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/bonsai2-ptq1-p2.tar.gz"
+
+[bonsai2-ptq1-p3]
+git-tree-sha1 = "eb662cc76ca673101aa403c6357d9a60b2e3698c"
+lazy = true
+
+    [[bonsai2-ptq1-p3.download]]
+    sha256 = "394696f2c1961ead78af02bb7baabecccd0863ad542e39a3ac639d19c06c9f85"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/bonsai2-ptq1-p3.tar.gz"
+
+[bonsai2-ptq1-p4]
+git-tree-sha1 = "2de1a9e981384b5ad297e839986bf8478b084fc3"
+lazy = true
+
+    [[bonsai2-ptq1-p4.download]]
+    sha256 = "f685503faa82f2a17ba90bfd1e0b8822150437f7d98d20118cea557acd9c6896"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/bonsai2-ptq1-p4.tar.gz"

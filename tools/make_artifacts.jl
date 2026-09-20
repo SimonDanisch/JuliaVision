@@ -162,6 +162,14 @@ const SHARDS = Dict(
     "hunyuan3d-dit-w2" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-2of4.safetensors"),
     "hunyuan3d-dit-w3" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-3of4.safetensors"),
     "hunyuan3d-dit-w4" => ("Hunyuan3DRunner", "hunyuan3d-dit", "weights-4of4.safetensors"),
+    # Bonsai's official PTQ1 GGUF is 5.95 GB, also above GitHub's per-asset
+    # limit. These are byte ranges rather than tensor shards: BonsaiRunner
+    # concatenates them once into Scratch.jl's cache and verifies the original
+    # upstream SHA-256 before the mmap-based GGUF reader sees it.
+    "bonsai2-ptq1-p1" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-1of4"),
+    "bonsai2-ptq1-p2" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-2of4"),
+    "bonsai2-ptq1-p3" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-3of4"),
+    "bonsai2-ptq1-p4" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-4of4"),
 )
 
 function packshard(name::AbstractString, tag::AbstractString)
@@ -420,7 +428,8 @@ for n in names
         haskey(FIXTURES, n) || haskey(SHARDS, n) || error(
         "unknown target $n; known: " *
         join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)),
-                       collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)))), ", "))
+                       collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)),
+                       collect(keys(SHARDS)))), ", "))
 end
 
 println("binding artifacts against release tag `$tag`\n")
