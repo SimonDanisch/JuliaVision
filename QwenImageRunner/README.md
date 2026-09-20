@@ -18,7 +18,7 @@ Until those formats are implemented in DNNKernels, the exporter uses the
 official BF16 model as the numerical reference. Exported assets can be selected
 with `JULIA_QWENIMAGE21_ASSETS`.
 
-The denoiser exporter has a download-free smoke mode. Current Diffusers main is
+The denoiser and VAE exporters have a download-free smoke mode. Current Diffusers main is
 needed until its Qwen-Image 2.1 implementation reaches a release. Its current
 dependency floor is `huggingface-hub>=1.31` and `transformers>=5.17`:
 

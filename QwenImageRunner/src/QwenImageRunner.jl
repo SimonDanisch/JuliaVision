@@ -26,6 +26,7 @@ import Mantle
 
 export QWEN_IMAGE_21, assetdir, ready, qwenimagegraph, qwenimageweights
 export QwenTransformer, qwenimagetransformer, denoise!
+export QwenVAEDecoder, qwenimagevae, decode!
 export packlatents, unpacklatents, image_sequence_length
 export calculate_shift, qwen_schedule, euler_step!
 
@@ -141,6 +142,41 @@ function denoise!(model::QwenTransformer, latents, prompt_embeddings, timestep)
     first(replay!(model.plan, "qwenimage21_transformer",
                   (latents, prompt_embeddings, timestep)))
 end
+
+"""A prepared Qwen-Image 2.1 VAE decoder and its recorded execution plan."""
+struct QwenVAEDecoder{B,G,W,P}
+    backend::B
+    graph::G
+    weights::W
+    plan::P
+end
+
+"""
+    qwenimagevae(; backend=Mantle.LavaBackend(), dir=assetdir())
+
+Load and prepare the VAE decoder. Latent mean/std normalization is part of the
+exported graph, so its input is directly the normalized diffusion state.
+"""
+function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir())
+    ready(:vae_decoder; dir) || throw(ArgumentError(
+        "no Qwen-Image 2.1 VAE export at $dir — run " *
+        "`tools/export_qwenimage21.py --component vae` first"))
+    graph = qwenimagegraph(:vae_decoder; dir)
+    weights = qwenimageweights(:vae_decoder; dir)
+    model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend)
+    prepared = model.graphs["qwenimage21_vae_decoder"]
+    plan = planfor(model.device, prepared, model.weights, (;))
+    QwenVAEDecoder(model.backend, prepared, model.weights, plan)
+end
+
+"""
+    decode!(model, latents)
+
+Decode normalized latents in Julia order `(64, width, height, 1, batch)` to an
+RGB image `(width*16, height*16, 3, batch)` on the same backend.
+"""
+decode!(model::QwenVAEDecoder, latents) =
+    first(replay!(model.plan, "qwenimage21_vae_decoder", (latents,)))
 
 """
     image_sequence_length(width, height) -> Int

@@ -40,7 +40,9 @@ end
 
 @testset "export discovery" begin
     @test !ready(dir="")
-    @test_throws ErrorException assetdir()
+    withenv("JULIA_QWENIMAGE21_ASSETS" => nothing) do
+        @test_throws ErrorException assetdir()
+    end
     @test_throws ArgumentError qwenimagegraph(:not_a_component; dir=".")
     mktempdir() do dir
         touch(joinpath(dir, "qwenimage21_transformer.json"))

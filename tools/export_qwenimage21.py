@@ -46,7 +46,8 @@ def import_qwen21(diffusers_source: Path | None):
             raise SystemExit(f"--diffusers-source must contain diffusers/, got {source}")
         sys.path.insert(0, str(source))
     try:
-        import diffusers.models.transformers.transformer_qwenimage21 as module
+        import diffusers.models.transformers.transformer_qwenimage21 as transformer_module
+        import diffusers.models.autoencoders.autoencoder_kl_qwenimage21 as vae_module
     except (ImportError, ModuleNotFoundError) as exc:
         raise SystemExit(
             "Qwen-Image 2.1 needs a Diffusers build containing "
@@ -55,7 +56,7 @@ def import_qwen21(diffusers_source: Path | None):
             "huggingface-hub>=1.31 and transformers>=5.17. Original error: "
             f"{exc}"
         ) from exc
-    return module
+    return transformer_module, vae_module
 
 
 def real_rotary(x, freqs_cis, **_kwargs):
@@ -228,6 +229,95 @@ def export_transformer(module, args):
     print(f"  wrote {out}")
 
 
+class NormalizedVAEDecoder(torch.nn.Module):
+    """Decode scheduler-space latents and return the single image frame."""
+
+    def __init__(self, vae):
+        super().__init__()
+        self.vae = vae
+        dtype = next(vae.parameters()).dtype
+        self.latents_mean = torch.tensor(vae.config.latents_mean, dtype=dtype).view(1, vae.config.z_dim, 1, 1, 1)
+        self.latents_std = torch.tensor(vae.config.latents_std, dtype=dtype).view(1, vae.config.z_dim, 1, 1, 1)
+
+    def forward(self, latents):
+        latents = latents * self.latents_std + self.latents_mean
+        return self.vae.decode(latents, return_dict=False)[0][:, :, 0]
+
+
+def build_vae(module, args):
+    if args.smoke:
+        vae = module.AutoencoderKLQwenImage21(
+            base_dim=32,
+            decoder_base_dim=32,
+            z_dim=4,
+            dim_mult=[1, 2],
+            num_res_blocks=1,
+            temperal_downsample=[False],
+            latents_mean=[0.0] * 4,
+            latents_std=[1.0] * 4,
+            is_residual=False,
+            in_channels=3,
+            out_channels=3,
+            scale_factor_temporal=1,
+            scale_factor_spatial=2,
+        ).eval()
+        latent_height = latent_width = 2
+    else:
+        vae = module.AutoencoderKLQwenImage21.from_pretrained(
+            args.model,
+            subfolder="vae",
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+        ).eval()
+        if args.height % 16 or args.width % 16:
+            raise SystemExit("--height and --width must be divisible by the VAE stride, 16")
+        latent_height, latent_width = args.height // 16, args.width // 16
+    wrapper = NormalizedVAEDecoder(vae).eval()
+    dtype = next(vae.parameters()).dtype
+    example = torch.randn(1, vae.config.z_dim, 1, latent_height, latent_width, dtype=dtype)
+    return wrapper, example, (latent_height, latent_width)
+
+
+def export_vae(module, args):
+    torch.manual_seed(0)
+    wrapper, example, shape = build_vae(module, args)
+    with torch.no_grad():
+        reference = wrapper(example)
+        program = torch.export.export(wrapper, (example,), strict=False).run_decompositions()
+
+    graph = EG.convert(program, ({},), "qwenimage21_vae_decoder")
+    out = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "qwenimage21_vae_decoder.json").write_text(json.dumps(graph, indent=1))
+
+    available = {key: value.detach().cpu().contiguous() for key, value in wrapper.state_dict().items()}
+    available.update(
+        {key: value.detach().cpu().contiguous() for key, value in EG.save_constants(program).items()}
+    )
+    requested = {buffer["key"] for buffer in graph["buffers"] if buffer["kind"] == "weight"}
+    missing = sorted(requested - available.keys())
+    if missing:
+        raise SystemExit(f"exported VAE graph references {len(missing)} unsaved weights: {missing[:5]}")
+    tensors = {key: available[key] for key in requested}
+    save_file(tensors, str(out / "vae.safetensors"))
+    save_file(
+        {"latents": example.cpu().contiguous(), "image": reference.cpu().contiguous()},
+        str(out / "vae_reference.safetensors"),
+    )
+
+    histogram = {}
+    for op in graph["ops"]:
+        histogram[op["aten"]] = histogram.get(op["aten"], 0) + 1
+    (out / "vae_op_histogram.json").write_text(json.dumps(histogram, indent=1, sort_keys=True))
+    lh, lw = shape
+    print(
+        f"qwenimage21_vae_decoder: {len(graph['ops'])} ops, "
+        f"{sum(value.numel() for value in tensors.values()) / 1e6:.2f}M saved parameters"
+    )
+    print(f"  latent {lh}x{lw}, output {tuple(reference.shape)}")
+    print(f"  wrote {out}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, default=ROOT / "gen" / "graphs" / "qwenimage21")
@@ -235,11 +325,16 @@ def main():
     parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--context-tokens", type=int, default=256)
+    parser.add_argument("--component", choices=("transformer", "vae", "all"), default="all")
     parser.add_argument("--layers", type=int, default=None, help="export only the first N real blocks for bring-up")
     parser.add_argument("--smoke", action="store_true", help="small random one-block export; downloads no weights")
     parser.add_argument("--diffusers-source", type=Path, default=None, help="path to a Diffusers src/ checkout")
     args = parser.parse_args()
-    export_transformer(import_qwen21(args.diffusers_source), args)
+    transformer_module, vae_module = import_qwen21(args.diffusers_source)
+    if args.component in ("transformer", "all"):
+        export_transformer(transformer_module, args)
+    if args.component in ("vae", "all"):
+        export_vae(vae_module, args)
 
 
 if __name__ == "__main__":
