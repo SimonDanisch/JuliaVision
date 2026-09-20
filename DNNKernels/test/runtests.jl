@@ -56,6 +56,7 @@ include(joinpath(@__DIR__, "test_stridedview.jl"))
 include(joinpath(@__DIR__, "test_plan.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
+include(joinpath(@__DIR__, "test_fusegroupedrms.jl"))
 # The one rewrite that runs the ops it folds — here on the CPU backend.
 include(joinpath(@__DIR__, "test_constfold.jl"))
 # Instrumentation rides on the context: two runs, two measurements, no crosstalk.

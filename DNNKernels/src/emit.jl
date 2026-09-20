@@ -2756,7 +2756,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.groupedrms")})
         "values for $NG groups of $C, but received $(length(γ)).")
     groups = length(a) ÷ C
     M.dispatch!(emitctx.g, groupedrms_kernel!,
-                (out, a, γ, Int32(C), Int32(NG), ε),
+                (out, a, γ, Int32(C), Int32(NG), ε,
+                 Val(Bool(get(op.attrs, "midround", false)))),
                 groups * LN_WG; group = LN_WG, name = op.id)
     return out
 end
