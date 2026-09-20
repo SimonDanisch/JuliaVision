@@ -3297,49 +3297,56 @@ sdparesults(emitctx::EmitCtx, dst) =
     (dst, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
 
 """
-The three-pass path: always available, always right, and the slowest.
+The three-pass path: always available and always right.
 
 `scores` and `sums` are working storage and are declared transients, so the
 placer aliases them against the whole graph — `Workspace` could only ever reuse
 them within this one op, and on SAM 2's global blocks the score matrix is the
 largest thing the graph asks for.
 
-`q` is transposed to `(L, E, H, B)`, which is the layout `attn_scores` reads;
-`k` and `v` need no `densify` because a declared operand is already dense (see
-`viewstrides`). The three launches are the same bodies and the same blocked
-kernels the immediate path picks, through the selectors that decision was split
-into.
+Recordable native batched GEMMs are tried for the score contraction.  Their
+interface is Mantle's, so this planning is shared by every backend: unsupported
+shapes fall back to the portable blocked kernels.  The native score product
+transposes `q` in its matrix descriptor and therefore also removes the separate
+`(E,L,H,B) -> (L,E,H,B)` copy.  Apply stays on the portable blocked kernel,
+which also preserves softmax's one-pass normalization.
 """
 function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     T = accum(eltype(q))
-    qt = scratch(emitctx, eltype(q), Lq, E, H, B)
-    transposeLE_dispatch!(emitctx.g, qt, q; name = "$(op.id).toLE")
-    ST = eltype(qt)
+    ST = eltype(q)
     scores = scratch(emitctx, ST, Lq, Lk, H, B)
-    tk = blockfor(Lk, Lq)
-    if tk > 1
-        nd = (Lq, Lk ÷ tk, H, B)
-        M.dispatch!(emitctx.g, scoresblocked!kernel(tk),
-                    (scores, qt, k, bias, T(scale)), nd;
-                    group = launchgroup(nd), name = "$(op.id).scores")
-    else
-        mapbody!(emitctx, op, attn_scores, scores, qt, k, bias, scale;
-                 name = "$(op.id).scores")
+    native_scores = bias === nothing && M.native_batched_gemm_dispatch!(
+        emitctx.dev, emitctx.g, scores, q, k; transpose_a = true,
+        alpha = T(scale), name = "$(op.id).scores")
+    if !native_scores
+        qt = scratch(emitctx, eltype(q), Lq, E, H, B)
+        transposeLE_dispatch!(emitctx.g, qt, q; name = "$(op.id).toLE")
+        tk = blockfor(Lk, Lq)
+        if tk > 1
+            nd = (Lq, Lk ÷ tk, H, B)
+            M.dispatch!(emitctx.g, scoresblocked!kernel(tk),
+                        (scores, qt, k, bias, T(scale)), nd;
+                        group = launchgroup(nd), name = "$(op.id).scores")
+        else
+            mapbody!(emitctx, op, attn_scores, scores, qt, k, bias, scale;
+                     name = "$(op.id).scores")
+        end
     end
-    # Normalises `scores` IN PLACE and writes the sums, which nothing reads --
-    # they are declared because the kernel writes them, not because they are
-    # wanted.
+    # Exponentiates `scores` IN PLACE and writes its row sums.  Apply divides by
+    # them rather than adding another full normalization pass over `scores`.
     sums = scratch(emitctx, T, Lq, H, B)
     mapbody!(emitctx, op, attn_softmax, sums, scores; name = "$(op.id).softmax")
     tq = blockfor(Lq, Lk)
     if tq > 1
         nd = (size(v, 1), Lq ÷ tq, H, B)
-        M.dispatch!(emitctx.g, applyblocked!kernel(tq), (out, scores, v, sums), nd;
+        M.dispatch!(emitctx.g, applyblocked!kernel(tq),
+                    (out, scores, v, sums), nd;
                     group = launchgroup(nd), name = "$(op.id).apply")
     else
-        mapbody!(emitctx, op, attn_apply, out, scores, v, sums; name = "$(op.id).apply")
+        mapbody!(emitctx, op, attn_apply, out, scores, v, sums;
+                 name = "$(op.id).apply")
     end
     return (out, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
 end
