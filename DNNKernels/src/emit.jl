@@ -627,6 +627,25 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
     end
     n = prod(od)
     hi = off + sum((od[k] - 1) * ast[k] for k in eachindex(od); init = 0)
+    # Which ORDER to walk the elements in. `stridedcopy32!` walks the
+    # destination, so a copy whose source strides do not ascend with the
+    # destination's axes reads scattered and writes sequentially, and a
+    # scattered read is the expensive one: Qwen-Image 2.1's `(E, H, L) -> (E, L,
+    # H)` attention operands measured 21 GB/s that way and 115 the other. A
+    # singleton axis has no order to contribute, so it does not vote.
+    perm = sortperm(collect(eachindex(od));
+                    by = k -> (od[k] == 1 ? typemax(Int) : ast[k]))
+    if perm != collect(eachindex(od)) && n <= typemax(Int32) && hi + 1 <= typemax(Int32)
+        ost = colstrides(od)
+        pd  = ntuple(j -> od[perm[j]], length(od))
+        pas = ntuple(j -> Int32(ast[perm[j]]), length(od))
+        pos = ntuple(j -> Int32(ost[perm[j]]), length(od))
+        M.dispatch!(emitctx.g, stridedcopy32perm!,
+                    (out, M.broadcastextents(pd), pos, src, pas,
+                     Int32(off), Int32(n)), n;
+                    group = min(256, M.caps(emitctx.dev).workgrouplimit), name)
+        return out
+    end
     if n <= typemax(Int32) && hi + 1 <= typemax(Int32)
         # Lava's unconstrained occupancy chooser selects 1024 here.  These
         # rank-4/6 copies carry a FastDiv32 coordinate chain, and four waves per

@@ -359,6 +359,41 @@ function blockcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
 end
 
 """
+    stridedcopy32perm!(out, exts, ost, a, ast, off, n)
+
+The same copy as [`stridedcopy32!`](@ref), walked in the SOURCE's memory order
+rather than the destination's.
+
+`stridedcopy32!` gives thread `i` destination element `i`, so its writes are
+sequential and its reads carry whatever stride the view has. For a permutation
+that keeps a run contiguous and reorders the runs -- `(E, H, L) -> (E, L, H)`,
+which is every attention operand in Qwen-Image 2.1 -- that makes each thread
+group read 256-byte runs 8 KiB apart, and the copy runs at 21 GB/s where the
+device does 128.
+
+Turned around, reads are sequential and the WRITES carry the stride, which the
+same copy does at **115 GB/s**: 3.18 ms to 0.59 for `(128, 32, 4118)` fp16.
+Write-combining absorbs a scattered store; nothing absorbs a scattered load.
+
+The host hands both strides already permuted into ascending source order, so
+this kernel is the general one and the ordering decision is not in it.
+"""
+function stridedcopy32perm!(out, exts, ost::NTuple{N,Int32}, a,
+                            ast::NTuple{N,Int32}, off::Int32, n::Int32) where {N}
+    i = KI.get_global_id().x
+    i <= n || return
+    c = M.cart32(UInt32(i - 1), exts)
+    o = off
+    d = Int32(0)
+    @inbounds for k in 1:N
+        o += Int32(c[k] - 1) * ast[k]
+        d += Int32(c[k] - 1) * ost[k]
+    end
+    @inbounds out[d + Int32(1)] = a[o + Int32(1)]
+    return
+end
+
+"""
     interleave2!(out, a, b, n)
 
 Two parts joined along an axis that is INNERMOST in the output and unit in each
