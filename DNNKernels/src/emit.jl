@@ -3395,9 +3395,12 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     # native device GEMM whose dispatch is recordable.  Metal chooses its
     # fastest recordable matrix kernel here, with bias and activation kept as
     # declared follow-up passes when they cannot be folded into that kernel.
-    if M.native_gemm_dispatch!(dev, emitctx.g, out, A, B; name = op.id)
+    nativebias = bias !== nothing && biasfoldable(bias, size(out, 1)) ? bias : nothing
+    native = M.native_gemm_dispatch!(dev, emitctx.g, out, A, B;
+                                     bias = nativebias, epilogue = epi, name = op.id)
+    if native !== nothing
         od = size(out)
-        if bias !== nothing
+        if bias !== nothing && !native.bias
             if biasfoldable(bias, size(out, 1))
                 M.dispatch!(emitctx.g, rowbias!,
                             (out, bias, length(out), Val(size(out, 1))),
@@ -3408,7 +3411,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                     name = "$(op.id).bias")
             end
         end
-        epi === identity || ewdispatch!(emitctx, out, od, (out,),
+        (epi === identity || native.epilogue) || ewdispatch!(emitctx, out, od, (out,),
             (bcstrides(od, od),), epi; name = "$(op.id).act")
         return out
     end
@@ -3714,8 +3717,9 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
     # fp32, so there is no Vulkan split-K layout to construct or reduce.
     if M.native_gemm_available(emitctx.dev, eltype(col), eltype(B), Float32)
         Cnative = scratch(emitctx, Float32, MP, Cout)
-        M.native_gemm_dispatch!(emitctx.dev, emitctx.g, Cnative, col, B;
-                                name = "$(op.id).gemm") || error(
+        native = M.native_gemm_dispatch!(emitctx.dev, emitctx.g, Cnative, col, B;
+                                         name = "$(op.id).gemm")
+        native === nothing && error(
             "native GEMM capability changed while declaring $(op.id)")
         M.dispatch!(emitctx.g, conv_epilogue_kernel!,
                     (out, Cnative, bias, Val(MP), Val(act), Val(1),
