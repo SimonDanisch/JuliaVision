@@ -224,6 +224,19 @@ end
             # exception: a quarter-full fused tile is still cheaper than two
             # padded GEMMs plus score, softmax and apply passes.
             @test DNNKernels.flashcm_tiling(dev, 72, 4, 16; clamp=true) == (16, 16, 4)
+            # A 128-wide head: the 32-key block wants 71816 bytes of shared
+            # against 65536, so the narrow-key entry is the only 64-row tile
+            # that fits, and it is worth taking — 63.3 ms against 104.2 for
+            # `(32, 32)` on Qwen-Image 2.1's joint attention.
+            @test !DNNKernels.flashcmfits(dev, 128, 64, 32, 16 * dev.coopmatsubgroup)
+            @test DNNKernels.flashcmfits(dev, 128, 64, 16, 16 * dev.coopmatsubgroup)
+            @test DNNKernels.flashcm_tiling(dev, 128, 4096, 4118, 32; clamp=true) ==
+                  (64, 16, 8 * widen)
+            # And only there: at `E = 72` the wider block fits and is faster
+            # (7.67 ms against 7.89), so that shape keeps it.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096, 8) == (64, 32, 8 * widen)
+            # The 64-token key axis the narrow entry was added for is unmoved.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 64, 8) == (64, 16, 8 * widen)
             # Every shipped tiling must satisfy the write-out loop's own
             # divisibility, which `flashcmfits` cannot see (it takes the padded
             # head dimension, and the write-out uses the real one).

@@ -1395,9 +1395,20 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # BC=32, which is both faster there and less sensitive to recurrence
         # order. Other shapes retain the established BC=32 choices.
         BR == 128 && BC == 16 && Lk < 4096 && continue
-        BR == 64 && BC == 16 && Lk != 64 && continue
         NT = NW * dev.coopmatsubgroup
         NT <= dev.workgrouplimit || continue
+        # `(64, 16)` was for a 64-token key axis and nothing else. It is also
+        # what a WIDE HEAD needs: the staging is `BR * EP` fp16 for q and
+        # `BR * EP` fp32 for `O`, so at `E = 128` the 32-wide block wants 71816
+        # bytes against a 65536 budget and the chooser fell to `(32, 32)` —
+        # 104.2 ms on Qwen-Image 2.1's joint attention where `(64, 16)` runs it
+        # in 63.3. Only where the wider block does not fit: at `E = 72` it does,
+        # and there it is the faster of the two (7.67 ms against 7.89 at
+        # 4096 x 4096), which is the measurement this entry was added on.
+        # `helddirect = false` in that question: the footprint exception below
+        # is for the 128-row tile, so a 64-row block is accounted with `pvs`.
+        BR == 64 && BC == 16 && Lk != 64 &&
+            flashcmfits(dev, EP, BR, 32, NT, false) && continue
         # Without `clamp` the extents have to divide the tile; with it they are
         # padded and masked, which is what puts the decoder's 23-token
         # attentions on this path at all.
