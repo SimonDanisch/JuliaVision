@@ -111,9 +111,13 @@ Set `JULIA_QWENIMAGE21_ASSETS` to the export directory,
 - Classifier-free guidance. The checkpoint's default is `true_cfg_scale = 1.0`
   — "Qwen-Image 2.1 is meant to be sampled without guidance" — so a generation
   is one denoiser evaluation per step, and a negative prompt would be two.
-- A recorded VAE decode. Its mid-block attention is a single head 1152 wide,
-  which has no declared plan, and the unfused form then runs one submission past
-  the driver's limit. Interpreted it is 34.9 s of the 413.6.
+- A recorded VAE decode — because replaying one is SLOWER than interpreting it,
+  not because it cannot be done. At 1024² on an 8060S: 12.8 s interpreted
+  against 16.0 s replayed, and the plan costs 0.5 s to build on top, for one
+  decode an image. The two agree to 9.3e-5 rms of a [-1, 1] range.
+  `qwenimagevae(record = true)` builds it anyway, with the mid-block attention
+  left unfused — it is a single head 1152 wide, which `flashcm_plan` declines
+  and `coopmat_sdpa_plan` takes, and that plan has no declared form.
 
 Upstream model: <https://huggingface.co/Qwen/Qwen-Image-2.1>
 Compact checkpoint: <https://huggingface.co/Comfy-Org/Qwen-Image-2.1>
