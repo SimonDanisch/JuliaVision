@@ -291,6 +291,40 @@ with the copies. It also shrinks what the placer has to fit — the layer's aren
 requirement falls from **391.03 MB to 352.89 MB** — which is most of why the two
 changes are super-additive.
 
+### And the other half of the LOAD is Julia compiling itself
+
+Preparing the 20B denoiser takes **117 s**, against 95 s for the twenty
+denoising steps it exists to run. `@time` reports the compilation fraction
+directly, and it is most of it:
+
+| | s | compilation |
+| --- | --- | --- |
+| `Model` (host passes, upload, fusion) | 68.7 | **47.9%** |
+| `emitgraph` | 23.5 | **97.2%** |
+| `Mantle.Plan` | 9.2 | 72.2% |
+| `Mantle.record!` | 11.2 | **99.6%** |
+
+**73 s of the 117 is Julia inference and codegen**, and the second call to each
+in the same process is 0.4 s, 2.5 s and 0.0 s. So there is no algorithm to
+improve here: it is one specialisation of `emitop!` per aten kind — this graph
+has 25 of the 97 the package declares — and one `Mantle.dispatch!` per distinct
+kernel and argument tuple, inferred from scratch in every process.
+
+**Plain `precompile` directives do not fix it, measured.** Adding one per
+declared `emitop!` tag plus `emitgraph` and `residentweights` costs 12.5 s of
+package precompilation (6.3 s to 18.8) and buys 3 s at run time: `emitgraph`
+23.5 s to 20.7, still 96.9% compilation. The reason is that the tree under
+`emitop!` is mostly `Mantle` and `KernelAbstractions` method instances, and a
+bare `precompile` call caches only what the package OWNS. Catching external
+code is exactly what `PrecompileTools`' `@compile_workload` does differently,
+and it needs two things this repository has not decided on: a new dependency,
+and a live Vulkan device during package precompilation — `emitgraph` takes a
+`Mantle.LavaDevice`, so the workload cannot run without one, and a package that
+cannot precompile on a machine with no GPU is a worse package.
+
+So this is the largest single item left in a generation, it is worth ~35% of
+one, and what it needs is a decision rather than a measurement.
+
 ### The other half of a generation is the LOAD, and it is driver-bound
 
 A cold 1024² generation is ~287 s, of which the 20 denoising steps are ~107.
