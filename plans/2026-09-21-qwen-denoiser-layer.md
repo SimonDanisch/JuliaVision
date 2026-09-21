@@ -203,9 +203,10 @@ old bound already.
 **Layer-confirmed**: 163.9 ms against 169.1 with the old bound, and the pass
 itself went 44.65 ms to 38.97.
 
-One number did come from the layer, sideways: with the SwiGLU reading in
-place, the layer's arena requirement fell from **391.03 MB to 352.89 MB**. That
-is the two materialised halves no longer needing to be placed.
+The SwiGLU reading in place is confirmed the same way: 164.3 ms against 169.1
+with the copies. It also shrinks what the placer has to fit — the layer's arena
+requirement falls from **391.03 MB to 352.89 MB** — which is most of why the two
+changes are super-additive.
 
 ### A session-scale thing that will bite a generation loop
 
