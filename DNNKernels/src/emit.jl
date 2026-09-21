@@ -3228,16 +3228,32 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     # Use native GEMM through threepass! on this route. Portable scalar flash
     # is available explicitly, but regresses the full SAM 2 encoder on Metal.
     if M.native_gemm_available(emitctx.dev, eltype(q), eltype(k), Float32)
-        qd = q isa StridedOperand ? operand(emitctx, op, 1) : q
-        kd = k isa StridedOperand ? operand(emitctx, op, 2) : k
-        vd = v isa StridedOperand ? operand(emitctx, op, 3) : v
         # A recordable FUSED attention first, where the backend has one: it never
-        # materialises the scores, which is what the three passes below spend their time
-        # on. No bias input, so an op that has one goes the long way.
-        fused = bias === nothing &&
-            M.native_attention_dispatch!(emitctx.dev, emitctx.g, out, qd, kd, vd;
+        # materialises the scores, which is what the three passes below spend their time on.
+        # No bias input, so an op that has one goes the long way.
+        #
+        # Asked with the operands UNMATERIALISED. q/k/v reach attention permuted — SAM 2.1's
+        # projection leaves them `(E, H, L, B)` and this wants `(E, L, H, B)` — and a backend
+        # that reads a leading dimension takes the view where it lies, which is three 4.7 MiB
+        # transposes per op that never run. One that cannot says so, and then they are
+        # materialised for the three passes below exactly as before.
+        wantflash = bias === nothing
+        fused = wantflash &&
+            M.native_attention_dispatch!(emitctx.dev, emitctx.g, out,
+                                         stridedview(q), stridedview(k), stridedview(v);
                                          scale = Float32(scale), name = "$(op.id).flash")
-        fused || threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
+        if !fused
+            qd = q isa StridedOperand ? operand(emitctx, op, 1) : q
+            kd = k isa StridedOperand ? operand(emitctx, op, 2) : k
+            vd = v isa StridedOperand ? operand(emitctx, op, 3) : v
+            # Refusing the VIEW is not refusing the operation: a backend may read a dense
+            # operand and not a strided one. Materialised, it is asked again, so the copies are
+            # paid only where they buy the fused kernel — two of SAM 2.1's 48 attention ops.
+            fused = wantflash &&
+                M.native_attention_dispatch!(emitctx.dev, emitctx.g, out, qd, kd, vd;
+                                             scale = Float32(scale), name = "$(op.id).flash")
+            fused || threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
+        end
         return sdparesults(emitctx, dst)
     end
     outperm = sdpaoutputpermute(emitctx, op)
@@ -3299,6 +3315,18 @@ export gave this op a `"#0"` result at all.
 sdparesults(emitctx::EmitCtx, dst) =
     maybedest(emitctx, 0) === nothing ? dst :
     (dst, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
+
+"""
+A strided operand as the shape [`Mantle.native_attention_dispatch!`](@ref) takes it, or the
+operand itself when it is already dense.
+
+`(; res, dims, strides, offset)` is Mantle's spelling for "this view, where it lies". It is a
+named tuple and not a [`StridedOperand`](@ref) because the type is DNNKernels' and the
+interface is Mantle's; a backend reading `.strides` needs neither.
+"""
+stridedview(x::StridedOperand) =
+    (; res = x.parent, dims = x.dims, strides = x.strides, offset = x.offset)
+stridedview(x) = x
 
 """
     scalarflash_dispatch!(emitctx, op, out, q, k, v, bias, scale) -> Bool
