@@ -130,11 +130,30 @@ as slow as it likes.
 Two things that are NOT worth it, measured: `(64, 32)` with the held store is
 68.5 ms against 70.1 for the chooser's `(64, 16)`, and `rego` is 73.5.
 
-### Still there, and small
+### Where the 169.2 ms that is left actually sits
 
-`mm_16` takes 7.2 ms for a product that runs at 5.4 standalone, and
-`view_77`/`view_79` are 2.8 ms of slicing the stacked MLP result. Between those
-and the attention there is nothing above 1.5 ms left.
+Serialised, after everything above:
+
+| | ms | |
+| --- | --- | --- |
+| the four products | 87.0 | 51%, and at the device's fp16 ceiling |
+| the attention, three passes | 55.5 | 33%, at 6 TFLOP/s |
+| 130 passes under 1.6 ms each | 26.7 | 16% |
+
+There is no third thing. The long tail is 130 dispatches averaging 0.15 ms, of
+which launch overhead is ~13 us apiece, so it is small real work in small
+kernels rather than overhead; taking a useful bite out of it means fusing more
+of them, and each individual win there is under a millisecond.
+
+## A note on measuring this
+
+The isolated attention launch is ~60 ms and its run-to-run spread reached
+**10%** after a day of benchmarking — enough to make a 5% effect look like
+either sign, which is how `held` first looked worth taking and how the score
+pass count first looked worth skipping. The LAYER replay is 171 ms of sustained
+work and repeats to 0.3%. Decide at the layer, not at the kernel: the pass-count
+rule was confirmed there (174.3 ms against 170.5 for the same code with the old
+default) after the microbenchmark had said both things.
 
 ## A trap this measurement fell into
 
