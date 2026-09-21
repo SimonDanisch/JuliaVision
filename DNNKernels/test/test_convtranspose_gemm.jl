@@ -142,7 +142,9 @@ One 1x1 convolution as a declared plan, through the real `emitop!`.
 Through the emit and not through `gemm!` directly, because what is at stake is
 the ROUTE: which of the two lowerings `emitop!` picks, and whether the bias and
 the folded activation survive it. `kernels` comes back so the test can say the
-implicit-GEMM kernel was not the one that ran.
+implicit-GEMM kernel was not the one that ran, and `calls` beside it because a backend
+that answers `librarygemm` declares the product as a library CALL — which has no kernel
+at all, so its absence from `kernels` is not evidence of anything.
 """
 function onebyoneplan(dev, x, w, bias, od; act::Symbol = :none)
     g = MC.Graph(dev)
@@ -163,11 +165,13 @@ function onebyoneplan(dev, x, w, bias, od; act::Symbol = :none)
     MC.record!(plan)
     kernels = String[string(nameof(d.kernel)) for pp in plan.passes
                      for d in pp.pass.dispatches if d.kernel isa Function]
+    calls = String[string(nameof(typeof(d.kernel))) for pp in plan.passes
+                   for d in pp.pass.dispatches if !(d.kernel isa Function)]
     MC.run!(plan)
     MC.waitidle(dev)
     got = Array(MC.storage(res["c"]))
     MC.free!(plan)
-    return got, kernels
+    return got, kernels, calls
 end
 
 # `(W, H, Cin, N)` times `(1, 1, Cin, Cout)`, on the host, with the bias and the
@@ -202,13 +206,16 @@ end
         hx = Float16.(randn(Float32, Wi, Wi, Cin, N) .* 0.2f0)
         hw = Float16.(randn(Float32, 1, 1, Cin, Cout) .* 0.2f0)
         hb = Float16.(randn(Float32, Cout) .* 0.2f0)
-        got, kernels = onebyoneplan(dev, hx, hw, hb, (Wi, Wi, Cout, N); act)
+        got, kernels, calls = onebyoneplan(dev, hx, hw, hb, (Wi, Wi, Cout, N); act)
         ref = onebyoneref(hx, hw, hb, act)
         @test !any(==("conv2d_igemm_ki!"), kernels)
-        # Vulkan lowers this to its cooperative-matrix GEMM; Metal records the
-        # native simdgroup GEMM.  The contract here is the GEMM route, not one
-        # backend's kernel name.
-        @test any(k -> occursin("gemm", k), kernels)
+        # The contract here is the PRODUCT route, not one backend's evidence of it.
+        # Vulkan lowers this to its cooperative-matrix GEMM and Metal recorded its
+        # simdgroup one, both kernels whose name says gemm; a backend that answers
+        # `librarygemm` declares a call instead, which is the same route through
+        # something with no kernel to name.
+        @test any(k -> occursin("gemm", k), kernels) ||
+              any(c -> occursin("Gemm", c), calls)
         @test maximum(abs, Float32.(got) .- ref) / maximum(abs, ref) < 5e-3
         act === :relu && @test minimum(Float32.(got)) >= 0f0
         GC.gc()

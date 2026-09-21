@@ -3887,6 +3887,43 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(length(stride))-D, and only " *
         "the 1-D and 2-D convolutions are declared. 3-D has `convolution3d!` and " *
         "needs an `emitop!` of its own.")
+    # A backend library with its own direct convolution wins before any of the four
+    # lowerings below: they all materialise something — an im2col matrix, a padded
+    # reduction axis, split-K planes to sum — and a library convolution materialises
+    # nothing. Asked before the `groups` refusal on purpose: a grouped convolution the
+    # library covers is one this path can declare, where the kernels here cannot.
+    #
+    # NOT for a 1x1 at unit stride. That is a GEMM on the input as it already lies and
+    # `onebyone` below routes it to one, which on a backend with a library product is
+    # the library anyway — SAM 2.1's six cost 1.2 ms that way, and asking here instead
+    # only swaps one library call for a less specific one.
+    #
+    # `Mantle.activationkind` is what lets the activation travel with it without the
+    # backend knowing whose function `geluexact` is.
+    convact = actfn(act)
+    convnative = onebyone(w, stride, pad, dil, groups) ? nothing :
+        M.native_conv2d_dispatch!(emitctx.dev, emitctx.g, out, x, w;
+                                  bias, stride = (stride[1], stride[2]),
+                                  pad = (pad[1], pad[2]),
+                                  dilation = (dil[1], dil[2]), groups,
+                                  epilogue = convact, name = op.id)
+    if convnative !== nothing
+        od = size(out)
+        needbias = bias !== nothing && !convnative.bias
+        needact = convact !== identity && !convnative.epilogue
+        if needbias
+            # Per output CHANNEL, which is axis 3 of `(OW, OH, Cout, N)`.
+            bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
+            ewdispatch!(emitctx, out, od, (out, bias),
+                        (bcstrides(od, od), bcstrides(od, bd)),
+                        needact ? biasact(convact) : +; name = "$(op.id).bias")
+        elseif needact
+            ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),), convact;
+                        name = "$(op.id).act")
+        end
+        return out
+    end
+
     groups == 1 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) has $(groups) groups, and only " *
         "the dense convolution is declared. `convolution_direct!` is the " *
