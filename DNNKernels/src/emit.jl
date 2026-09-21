@@ -621,6 +621,9 @@ function walkstreams(pd::Dims, st::Dims)
     r = 1
     for j in eachindex(pd)
         pd[j] == 1 && continue
+        # A broadcast axis re-reads one address, which is the best locality
+        # there is: it neither breaks the run nor extends it.
+        st[j] == 0 && continue
         st[j] == r || return pd[j]
         r *= pd[j]
     end
@@ -1012,7 +1015,28 @@ The views whose mapping is an offset and a per-axis stride, so a kernel that
 takes strides can read them in place. Anything else moves elements and is
 materialised — see [`viewfor`](@ref).
 """
-const STRIDEDVIEWS = ("permute.default", "slice.Tensor", "select.int")
+const STRIDEDVIEWS = ("permute.default", "slice.Tensor", "select.int",
+                      "expand.default")
+
+# `expand.default` is here because a repeated axis IS a zero stride, which is
+# what `bcstrides` already builds for every broadcast operand — `viewstrides`
+# has answered for it all along and nothing asked.
+#
+# What it cost: the Qwen-Image 2.1 VAE broadcasts a `(1, 1, 1, H, W)` plane
+# across channels before dividing by it, 43 times. Materialising that is 639 ms
+# of a 4.9 s decode — `expand_37` alone writes 1.2 GB from 4 MB and takes 169
+# ms — while the `div` that reads it is 4 ms. With the view described rather
+# than built, the consumer reads the one plane over and over out of cache and
+# the pass does not exist.
+#
+# Safe because `strideview` is only consulted by emits whose kernel takes
+# per-axis strides, and a zero is a stride like any other to them. Anything
+# that needs a RESOURCE still materialises, through the same `stridedcopy` it
+# used before. The recorded decode goes **4915 ms to 4308** and the `div` that
+# reads them gets faster too (145 ms to 121), reading one cached plane instead
+# of a gigabyte. Against the interpreted decode the image is unchanged where it
+# matters: 3.4e-4 rms of a [-1, 1] range, 53 pixels of 4.2 M past 3.8 levels of
+# 8-bit.
 
 """
     stridedoperand(ctx, id) -> StridedOperand or nothing
@@ -1058,6 +1082,9 @@ function stridedoperand(emitctx::EmitCtx, id::AbstractString)
         st === nothing && return nothing
         return StridedOperand(root, od, st, poff)
     end
+    # `viewstrides` reads an expand off the SHAPES, so it needs the level below
+    # it dense; a composed chain need not be. Decline rather than let it throw.
+    b.viewop == "expand.default" && pst != colstrides(ps) && return nothing
     st, off = viewstrides(emitctx, b, ps, pst, od)
     return StridedOperand(root, od, st, poff + off)
 end
