@@ -640,10 +640,10 @@ end
         ls = DNNKernels.flash_launches(dev, q, plan, q, k, v, scale, partial, ml)
         @test length(ls) == 3
         @test ls[3].kern === DNNKernels.attn_flash_cm_merge!
-        # `..., Lq, keys, lazyrescale, onepass, partial, ml`: what each launch
-        # was told its key axis is. Together they are the whole of it, and only
-        # the second one is ragged.
-        keysof(l) = Int(l.args[end - 4])
+        # `..., Lq, keys, lazyrescale, partial, ml`: what each launch was told
+        # its key axis is. Together they are the whole of it, and only the
+        # second one is ragged.
+        keysof(l) = Int(l.args[end - 3])
         @test keysof(ls[1]) + keysof(ls[2]) == Lk
         @test keysof(ls[1]) % plan.BC == 0
         @test keysof(ls[1]) == div(Lk, plan.BC) * plan.BC
@@ -700,23 +700,24 @@ end
     end
 end
 
-# The deferred rescale site exists only for the one-pass softmax, and a plan
-# that is not one-pass should not compile it.
+# Which softmax a plan takes reaches the kernel as a `Val`, not as a uniform
+# argument.
 #
-# `PREONLY` forces the early placement. When `onepass` is off, `onep` is false
-# for every block anyway, so the flag changes no arithmetic — only how much of
-# the kernel exists — and the launcher's own `&& !plan.onepass` is what keeps
-# that true. Measured on an 8060S at Qwen-Image 2.1's attention (`Lq = 4096`,
-# `Lk = 4118` clamped, `E = 128`, 32 heads): 36.6 ms against 38.6 interleaved,
-# and the whole 20B denoising step 5.85 s against 6.02, bit-identical output.
-@testset "a two-pass plan does not compile the deferred rescale" begin
+# That is what lets a two-pass plan lose the one-pass loop AND the deferred
+# rescale that only the one-pass form reaches: `onep` is statically false, so
+# `pre` is a compile-time `true`. As an `Int32` neither folded, because the
+# dead loop's stores go to shared memory. Measured on an 8060S at Qwen-Image
+# 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped, `E = 128`, 32 heads):
+# 36.6 ms against 38.6 interleaved, and the whole 20B denoising step 5.85 s
+# against 6.02, with bit-identical output.
+@testset "the softmax form is compiled in, not passed in" begin
     back = LavaBackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
     if dev.coopmat
-        # `..., PREONLY, rscbar, prefetchv, outperm, outwindow..., H, nsp,
-        # partout, epad, rpad, SG, Lq, keys, lazyrescale, onepass, partial, ml`
-        preonlyof(l) = l.args[end - 19] isa Val{true}
+        # `..., ONEPASS, rscbar, prefetchv, outperm, outwindow..., H, nsp,
+        # partout, epad, rpad, SG, Lq, keys, lazyrescale, partial, ml`
+        onepassof(l) = l.args[end - 18]
         E, Lq, H = 128, 1024, 8
         rng = MersenneTwister(7)
         mk(E) = DNNKernels.toback(back, Float16.(randn(rng, Float32, E, Lq, H, 1) .* 0.3f0))
@@ -724,32 +725,29 @@ end
         part = KA.allocate(back, Float32, E, Lq, H, 1, 2)
         ml = KA.allocate(back, Float32, Lq, H, 1, 2, 2)
         # The merge launch carries none of these arguments, so ask the spatial
-        # ones. This grid fills the device and there is no merge, which is also
-        # what makes the two runs below comparable.
-        launches(p, q, k, v; kw...) =
+        # ones. This grid fills the device, so there is no merge to filter out
+        # at all, which is what the first assertion checks.
+        launches(p, q, k, v) =
             filter(l -> l.kern === DNNKernels.attn_flash_cm_spatial4!,
-                   DNNKernels.flash_launches(dev, q, p, q, k, v, scale, part, ml; kw...))
+                   DNNKernels.flash_launches(dev, q, p, q, k, v, scale, part, ml))
 
         q, k, v = mk(E), mk(E), mk(E)
         two = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
         @test two isa DNNKernels.FlashCMPlan && !two.onepass
-        @test !isempty(launches(two, q, k, v))
-        @test all(preonlyof, launches(two, q, k, v))
-        # The keyword is the A/B and only turns it off.
-        @test !any(preonlyof, launches(two, q, k, v; preonly = false))
+        @test length(launches(two, q, k, v)) == 1
+        @test all(l -> onepassof(l) === Val(false), launches(two, q, k, v))
 
-        # A one-pass plan needs the deferred site and must not get the flag,
-        # whatever the caller asks for.
         one = DNNKernels.flashcm_plan(dev, q, k, v, nothing; onepass = true)
         @test one.onepass
-        @test !any(preonlyof, launches(one, q, k, v))
+        @test all(l -> onepassof(l) === Val(true), launches(one, q, k, v))
 
-        # Same arithmetic, so the same bits.
-        out = KA.allocate(back, Float32, E, Lq, H, 1)
-        runout(; kw...) = (fill!(out, 0f0);
-                           DNNKernels.sdpaflashcm!(ctx, out, two, q, k, v, scale; kw...);
-                           KA.synchronize(back); Array(out))
-        @test runout() == runout(preonly = false)
+        # No runtime flag is left to disagree with the `Val`: the trailing
+        # arguments are `Lq`, `keys`, `lazyrescale` and the two split buffers.
+        @test all(a -> !(a isa Int32), last(launches(two, q, k, v)).args[end-1:end])
+        @test last(launches(two, q, k, v)).args[end - 2] isa Int32
+
+        # That the two forms agree numerically is its own testset above; this
+        # one is about which of them the kernel is compiled for.
     else
         @test_skip false
     end

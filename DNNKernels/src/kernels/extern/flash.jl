@@ -519,15 +519,15 @@ end
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
         ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
-        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM},
+        ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
         ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
-        onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,PREFETCHV,OUTPERM,
-                                            WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
-                                            EPAD,RPAD,SG}
+        partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
+                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,
+                            WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
+                            EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
     # workgroup as `NW * dev.coopmatsubgroup`, so a literal disagrees with it on
     # any device where Lava cannot pin a 32-lane subgroup: the launch would ask
@@ -796,7 +796,7 @@ end
             # is `-Inf` for every row on the first key block and finite for every
             # row after — but this form is uniform across *all* threads, including
             # the ones with no row, which is what lets `pre` below be uniform.
-            onep = onepass != 0 && kb > 0
+            onep = ONEPASS && kb > 0
             mb = -Inf32
             sm = 0.0f0
             if onep && tid < BR
@@ -828,21 +828,22 @@ end
             # block. `onep` is uniform already: `mo` is `-Inf` for every row on
             # the first key block and finite for every row after it, which is
             # what `kb > 0` says without reading `ms`.
-            # `PREONLY` forces the early placement, which makes the deferred
-            # rescale site below statically dead. Only correct when `onepass` is
-            # off — then `onep` is always false and `pre` is always true anyway,
-            # so this changes no arithmetic, only how much of the kernel exists.
-            # `flash_launches` sets it for every plan that is not one-pass, and
-            # the launcher's `&& !plan.onepass` is what keeps that safe.
+            # **`ONEPASS` is a `Val` and not a uniform argument, and that is
+            # worth 5-6% at the clamped shape.** A two-pass plan then has
+            # `onep` statically false, which deletes the one-pass loop above
+            # and makes `pre` a compile-time `true`, so the deferred site below
+            # never exists either. As a runtime `Int32` neither folded: the
+            # dead loop's stores land in shared memory, which nothing may
+            # eliminate on the chance another thread reads them.
             #
-            # It began as the probe for whether *two* rescale sites are what
-            # costs the second resident workgroup, and the answer was yes: the
-            # output is bit-identical either way and the clamped Qwen shape
-            # measures **36.6 ms against 38.6** interleaved, -5 to -6% over
-            # fifteen rounds. The unclamped `Lk = 4096` shape is within noise
-            # (+1%), which fits — `KCLAMP` is the version near the register
-            # cliff, so it is the one that gains from a smaller kernel.
-            pre = PREONLY || !onep || redo[1] != 0.0f0
+            # The arithmetic is untouched — the output is bit-identical — and
+            # Qwen-Image 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped,
+            # `E = 128`, 32 heads) measures **36.6 ms against 38.6**
+            # interleaved over fifteen rounds, the whole 20B denoising step
+            # 5.85 s against 6.02. The unclamped `Lk = 4096` shape is within
+            # noise (+1%), which fits: `KCLAMP` is the version near the
+            # register cliff, so it is the one a smaller kernel buys.
+            pre = !onep || redo[1] != 0.0f0
             if pre && tid < BR
                 mo = ms[1 + tid]
                 mb = -Inf32
@@ -1005,7 +1006,7 @@ end
             # multiplies inside the accumulator, and **no barrier**, which is what
             # turned this path from a 15-19% loss into a win. `grew` still keeps
             # it off the blocks where every factor is one.
-            if !REGO && !PREONLY && !pre && grew[1] != 0.0f0
+            if !REGO && !pre && grew[1] != 0.0f0
                 if HELD
                     # NOTE: hoisting the factor matrix out of this loop is
                     # correct — `t_j % RT == w % RT` for all three tiles whenever
@@ -1237,7 +1238,15 @@ against its own maximum at two-pass cost, and its `O` is converted in place by
 the one thread that owns it rather than by the sweep. `mo = -Inf`, which is every
 row on the first key block, always takes that path.
 
-Exact either way: the tests compare the two settings with `==`.
+Exact in exact arithmetic, and a tolerance rather than `==` in fp16: the two
+forms exponentiate against different references, so `ps` rounds at a
+different scale. The tests compare them at 1e-3 of the output's own range.
+
+**It reaches the kernel as a `Val`.** Which form a plan wants is settled before
+the launch, and a two-pass plan that says so statically loses both the one-pass
+loop and the deferred rescale that goes with it: 36.6 ms against 38.6 at
+Qwen-Image 2.1's attention, 5.85 s against 6.02 for the whole denoising step.
+See the comment at `pre` in the kernel.
 =#
 
 
@@ -1793,8 +1802,7 @@ end
 # `ballast`, `shpad`, `nrsc` and `rscbar` are the diagnostics from the held-`O`
 # investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords rather
 # than plan fields because they describe an experiment, not a routing decision,
-# and nothing in the library sets them. `preonly` is no longer one of them: it
-# is on by default and the keyword only turns it off. See `flash_launches`.
+# and nothing in the library sets them.
 
 """
     flash_launches(caps, out, plan, q, k, v, scale, partial, ml; …) -> Vector
@@ -1812,11 +1820,7 @@ nothing would report.
 function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, ml;
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
-                      # A plan that is not one-pass never reaches the deferred
-                      # rescale, and saying so statically is worth 5-6% at the
-                      # clamped shape. `false` keeps the runtime branch, which is
-                      # what the A/B in `test_flash.jl` compares.
-                      preonly::Bool = true, rscbar::Bool = false,
+                      rscbar::Bool = false,
                       # Five values per thread at the 512-thread global tile is
                       # enough latency hiding for a measured win. The 128-thread
                       # window tile needs twenty registers and loses occupancy.
@@ -1862,13 +1866,13 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 # Normalised, so a `rescale` setting cannot key a
                                 # second identical pipeline when nothing rescales.
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
-                                Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
+                                Val(shpad), Val(nrsc), Val(plan.onepass && !rego),
                                 Val(rscbar), Val(prefetchv), Val(outperm),
                                 map(Val, outwindow)..., Val(H),
                                 Val(nsp), Val(partout), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),
                                 Int32(Lq), Int32(keys), Int32(plan.lazyrescale ? 0 : 1),
-                                Int32(plan.onepass && !rego ? 1 : 0), partial, ml)
+                                partial, ml)
     launch(keys, k0, nsp, partout) =
         (kern = attn_flash_cm_spatial4!, args = mkargs(keys, k0, nsp, partout),
          ndrange = (NT * cld(Lq, BR) * nsp, H, B), group = NT)
@@ -1958,7 +1962,7 @@ device cannot make; ask [`flashcm_plan`](@ref) directly to find out *which* rule
 refused.
 """
 function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
-                      nrsc::Int = 3, preonly::Bool = true, rscbar::Bool = false,
+                      nrsc::Int = 3, rscbar::Bool = false,
                       epad::Union{Nothing,Int} = nothing,
                       rpad::Union{Nothing,Int} = nothing,
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
@@ -1968,7 +1972,7 @@ function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0
     plan = flashcm_plan(ctx.dev, q, k, v, nothing; BR, BC, NW, kw...)
     plan isa Decline && return false
     sdpaflashcm!(ctx, out, plan, q, k, v, scale;
-                 ballast, shpad, nrsc, preonly, rscbar,
+                 ballast, shpad, nrsc, rscbar,
                  epad = something(epad, flashepad(ctx.dev, plan.EP)),
                  rpad = something(rpad, flashrpad(ctx.dev, plan.BR)))
     return true
