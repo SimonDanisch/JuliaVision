@@ -52,7 +52,8 @@ bit-identical or at fp16 rounding:
 | a contiguous slab copied as one run | 174.6 |
 | the score pass count by head width | 171.1 |
 | the interleaved rotary fused | 167.1 |
-| the stacked-projection tile, and the SwiGLU in place | **156.0** |
+| the stacked-projection tile, and the SwiGLU in place | 156.0 |
+| `O` held in fragments, and the 32-wide key block it lets fit | **see below** |
 
 The last two were A/B'd in one fresh session, which is why their rows are worth
 more than the microbenchmarks predicted:
@@ -101,7 +102,33 @@ attempted.
 
 ## What is left, in order
 
-### The attention's own efficiency, which is now the whole of it
+### The attention: `O` was in shared memory the whole time
+
+`bmm_7.1` was 44 ms of the layer at about 6 TFLOP/s, and the reason was `pvs` —
+a 64x128 fp32 accumulator living in shared memory, read and written on every
+key block whose maximum moved. The kernel could already hold it in the
+cooperative-matrix fragments instead. That path had never run: the switch was
+`dev.warps >= 64`, the resident-wave count a processor reports, which **HIP
+reports and Vulkan does not**, so it was 0 on every launch here.
+
+Turning it on is worth two things. Holding costs no `pvs`, which is half the
+shared budget, so the 32-wide key block fits where it could not — 42.69 ms
+against 49.27 at `Lq = Lk = 4096`, `E = 128`. And a held output no longer has
+to be unsplit, because the fragments are now written straight to `partial` as
+well as to `out`, so the tail split keeps the wider tile.
+
+| | |
+| --- | --- |
+| the attention standalone, 4118 keys | 58.47 ms -> **46.44** |
+| the pass inside a layer | 44.04 ms -> **36.68** |
+| the real 20B model, back to back | 5.59 s/step -> **5.37** |
+| SAM 2's global attention, same tile, now held | 7.77 ms -> **7.47** |
+
+The 128-row tile is NOT granted the same exception: it is first in the table,
+and at `E = 72` it displaces `(64, 32)` and runs 70% slower — 12.29 ms against
+7.24. Fitting is not the same as being worth it.
+
+### The attention's remaining efficiency
 
 `bmm_7.1` is ~46 ms for 276 GFLOP, about 6 TFLOP/s, against 21-26 for the
 products in the same layer. That is the kernel at `E = 128` and not the ragged
@@ -150,15 +177,15 @@ as slow as it likes.
 Two things that are NOT worth it, measured: `(64, 32)` with the held store is
 68.5 ms against 70.1 for the chooser's `(64, 16)`, and `rego` is 73.5.
 
-### Where the 150.4 ms that is left actually sits
+### Where the 143.6 ms that is left actually sits
 
 Serialised, after everything above (223.1 at the start):
 
 | | ms | |
 | --- | --- | --- |
-| the four products | 81.9 | 54%, and at the device's fp16 ceiling |
-| the attention, three passes | 50.0 | 33%, at ~6 TFLOP/s |
-| everything else | 18.5 | 12%, of which 120 passes are under 1 ms |
+| the four products | 81.0 | 56%, and at the device's fp16 ceiling |
+| the attention, three passes | 41.3 | 29%, at ~7.5 TFLOP/s |
+| everything else | 21.3 | 15%, nothing in it above 2.2 ms |
 
 There is no third big thing. What is left above a millisecond, and what each
 would take:

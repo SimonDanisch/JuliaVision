@@ -24,7 +24,7 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | VAE decode, including its build | 40.2 s |
 
 The denoiser row is the one the changes below move, and re-measured on the real
-model after them it is **110 s (5.50 s/step)** — 28 s off a generation. The
+model after them it is **107 s (5.37 s/step)** — 31 s off a generation. The
 other three rows are from the original run and are untouched by this work.
 
 A denoising step was 12.5 s when the model first ran. Where the rest went:
@@ -56,7 +56,11 @@ and it iterates in a quarter of a second instead of a minute. It went to
 | the interleaved rotary fused | 167.1 |
 | the stacked-projection tile, and the SwiGLU reading in place | **156.0** |
 
-On the real model that is 6.89 s/step to **5.50**. The layer harness shows a
+A ninth change holds the attention's output in cooperative-matrix fragments
+rather than shared memory, which also lets a 32-wide key block fit: the pass
+goes 44.0 ms to 36.7 and the real model 5.59 s/step to **5.37**, back to back.
+
+On the real model the whole of it is 6.89 s/step to **5.37**. The layer harness shows a
 larger share (-33% against -20%) because it runs plain int8 weights: the compact
 checkpoint's four ConvRot transforms a layer, and the step's non-layer work, are
 untouched by any of this and dilute it.
