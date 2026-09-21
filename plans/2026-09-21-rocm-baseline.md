@@ -50,6 +50,93 @@ attention on RDNA3 accumulates the score product in fp16, which is 2x the
 fp16→fp32 WMMA rate this tree's kernel uses — so it is not a like-for-like
 kernel, but it IS what the ecosystem delivers on this silicon.
 
+## The gap, per shape, re-runnable
+
+`tools/gap_vs_rocm.jl` states the shapes and times them here; `preload.sh
+tools/gap_vs_rocm.py` times the same ones in torch and prints the ratio. One
+JSON between them so the shapes are written down once.
+
+    kind       name                     ours ms  torch ms     gap  ours TF  torch TF
+    attention  qwen-denoiser              41.40      8.82   4.69x     6.68     31.34
+    attention  qwen-denoiser-square       37.71      8.83   4.27x     7.29     31.11
+    attention  sam2-encoder-global         5.63      1.18   4.79x     6.10     29.21
+    conv3x3    vae-288-1024              200.50     72.99   2.75x     7.81     21.45
+    conv3x3    vae-144-1024               88.78     10.93   8.13x     4.41     35.82
+    conv3x3    vae-288-144-1024          164.71     36.52   4.51x     4.75     21.43
+    conv3x3    vae-576-512               137.68     64.06   2.15x    11.37     24.44
+    conv3x3    vae-1152-256              114.44     64.63   1.77x    13.68     24.22
+    conv3x3    vae-1152-128               37.95     10.61   3.58x    10.31     36.90
+    gemm-fp16  square-4096                 6.80      5.65   1.20x    20.21     24.31
+    gemm-fp16  denoiser-qkv               24.97     19.44   1.28x    17.03     21.87
+    gemm-fp16  denoiser-gateup            48.74     39.84   1.22x    17.45     21.35
+    copy       copy-fp16-512MiB            5.06      5.06   1.00x
+    copy       copy-fp32-512MiB            5.05      5.06   1.00x
+
+Three things to read off it.
+
+**The copy is at parity**, 1.00x on both element types. An earlier draft of this
+file said 1.1-1.4x from a `copyto!` on differently shaped arrays; on the same
+512 MiB buffer the two are the same number. Every "at bandwidth" claim in
+`2026-09-21-qwen-denoiser-layer.md` is therefore sound as written.
+
+**Attention is 4.3-4.8x off on every shape tried**, including SAM 2's, so it is
+the kernel and not the Qwen-Image shape.
+
+**Convolution ranges 1.77x to 8.13x**, and the worst is not the biggest: `144 ->
+144 @ 1024²` is 88.78 ms against 10.93, where torch reaches 35.8 TFLOP/s — above
+the dense fp16 GEMM rate, so MIOpen is running an algorithm this tree does not
+have for 3x3 (Winograd, or an fp16 accumulate). The im2col route's cost is
+proportional to `CRS`, and at `Cin = 144` there is the least arithmetic to
+amortise writing the matrix over.
+
+## Where the missing time actually is, for THIS product
+
+| | share of a generation | gap | recoverable |
+| --- | --- | --- | --- |
+| denoiser attention | ~28 s of 234.6 | 4.7x | **~22 s** |
+| denoiser products (`q8gemm`, int8 weights) | ~62 s | ~parity | ~0 |
+| VAE convolution | ~2-3 s | ~3x | ~1.5-2 s |
+| everything else | ~40 s | 1.0x | ~0 |
+| model builds (Julia compilation) | ~100 s | n/a | blocked, see the other file |
+
+So for Qwen-Image the prize is **attention, by an order of magnitude over
+convolution** — the VAE is only 2% of a generation once its convolutions took
+today's 7x. Convolution is the prize for the conv-heavy models instead:
+DepthAnything, RIFE, ProPainter, BasicVSR++, SAM 2's encoder.
+
+Note the products row: the denoiser does NOT use `Mantle.coopmat_gemm`, it uses
+`DNNKernels.q8gemm` over int8 weights, which measures 22.5 TOP/s against
+torch's 21.4-24.3 fp16. The 1.2x in the table is the fp16 library GEMM, which
+the denoiser does not run.
+
+## There is already a ROCm backend, and convolution is the hole in it
+
+`AMDGPU.jl` is installed and `Mantle` has a `MantleROCmExt` — 1224 lines —
+whose whole purpose is this: `deviceview` hands back a genuine borrowed
+`ROCArray` over a Mantle region, so **rocBLAS, MIOpen and rocFFT can read a
+planned graph's transients with no copy**, and `LibOp` is how a library call
+becomes a pass in the graph.
+
+What it wires up today is rocBLAS (and hipBLASLt for a bias epilogue). Its own
+comment says the rest:
+
+> rocBLAS remains the fallback library GEMM, and convolution still uses
+> DNNKernels where no suitable vendor plan is integrated.
+
+Its recorded four-model comparison against Lava, steady state, same GPU:
+
+    DepthAnything  ViT + DPT, conv-heavy       85 ms  against  131 ms
+    RIFE           optical flow, 1920x1152    162 ms  against  141 ms
+    NeuralLUT      26 ops, 33^3 output       1.57 ms  against 2.00 ms
+    SAM 2.1        encoder, 1082 passes       322 ms  against  269 ms
+
+DepthAnything is already 1.5x there **without** MIOpen convolution — that is
+rocBLAS on its GEMMs alone. Adding a MIOpen `LibOp` for `convolution.default`
+is the smallest step to the numbers in the table above, and it costs nothing in
+portability: the extension is not `src/`, so it is not vendor-conditional code
+in the sense `CLAUDE.md` forbids — Lava keeps its own kernel and the ROCm
+backend calls the vendor's.
+
 ## What this changes
 
 **The products were the honest claim.** `q8gemm` at 22.5 TOP/s against
