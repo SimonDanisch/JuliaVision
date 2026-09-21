@@ -1997,6 +1997,20 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
             "caller's own pass."))
         # Everything that fills a key tile, then what is left of it. Only the
         # second launch compiles the bounds check, and it is one block of 258.
+        #
+        # **Three launches and not two**, which is not obvious: the tail could
+        # read the slot the bulk wrote and normalise both into `out` itself,
+        # which halves the bytes — 201 MB against 335 — and drops a dispatch.
+        # Built with a `PARTOUT == -2` write-out mode, it is exactly as accurate
+        # (2.264e-05 against one clamped launch, the same as the merge) and
+        # **43.70 ms against 37.08**. The extra bytes the merge moves are
+        # sequential; the ones the fused form saves are not. A held accumulator
+        # hands each lane components at fixed tile coordinates, so reading
+        # `partial` there is 256-byte pieces with a 512-byte stride, and paying
+        # that on the read side as well as the write side costs more than a
+        # linear pass over 134 MB. Staging through shared memory would fix the
+        # pattern and there is no room: 38 KB is already live and the tile needs
+        # 32 more.
         nfull = div(Lk, BC) * BC
         return [launch(nfull, 0, 1, 0), launch(Lk - nfull, nfull, 1, 1), merge]
     end
