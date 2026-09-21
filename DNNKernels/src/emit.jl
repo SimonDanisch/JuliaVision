@@ -714,10 +714,22 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
         pd  = ntuple(j -> od[perm[j]], length(od))
         pas = ntuple(j -> Int32(ast[perm[j]]), length(od))
         pos = ntuple(j -> Int32(ost[perm[j]]), length(od))
-        M.dispatch!(emitctx.g, stridedcopy32perm!,
-                    (out, M.broadcastextents(pd), pos, src, pas,
-                     Int32(off), Int32(n)), n;
-                    group = min(256, M.caps(emitctx.dev).workgrouplimit), name)
+        gsz = min(256, M.caps(emitctx.dev).workgrouplimit)
+        # The two are ORTHOGONAL and compose: the order decides which side reads
+        # sequentially, `V` decides how many elements one `cart32` chain serves. Walking
+        # in source order and still paying the chain per element left 3.6 ms of SAM 2.1's
+        # `clone` passes on the table.
+        V = runvecwidth(pd[1])
+        if V === nothing
+            M.dispatch!(emitctx.g, stridedcopy32perm!,
+                        (out, M.broadcastextents(pd), pos, src, pas,
+                         Int32(off), Int32(n)), n; group = gsz, name)
+        else
+            M.dispatch!(emitctx.g, stridedcopy32permrun!,
+                        (out, M.broadcastextents(pd), pos, src, pas,
+                         Int32(off), Int32(n ÷ V), Val(V)), n ÷ V;
+                        group = gsz, name)
+        end
         return out
     end
     if n <= typemax(Int32) && hi + 1 <= typemax(Int32)
@@ -3518,18 +3530,25 @@ other three empty, and they are handed back so the tuple's shape is honest.
 """
 function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
                    defaultscale = nothing)
-    q = sdpaoperand(emitctx, op, 1)
-    k = sdpaoperand(emitctx, op, 2)
-    v = sdpaoperand(emitctx, op, 3)
+    # The operands AS THEY LIE, before `sdpaoperand` decides whether to copy one.
+    # `flashplanar` refuses a head-interleaved permute because `attn_flash_cm!` reads it
+    # as one burst per row — its own measurement, 170 ms a layer in place against 113
+    # from a copy — but that is a fact about THAT kernel. A backend with its own fused
+    # attention answers for itself, and MPSGraph narrows exactly that window inside the
+    # graph for nothing. So the native hook is offered the view first and `sdpaoperand`
+    # is only asked when it declines, which is what keeps both measurements true.
+    qv = let s = strideview(emitctx, op, 1); s === nothing ? operand(emitctx, op, 1) : s end
+    kv = let s = strideview(emitctx, op, 2); s === nothing ? operand(emitctx, op, 2) : s end
+    vv = let s = strideview(emitctx, op, 3); s === nothing ? operand(emitctx, op, 3) : s end
     bias = length(op.ins) >= 4 ? operand(emitctx, op.ins[4]) : nothing
     sc = get(op.attrs, "scale", nothing)
     scale = sc !== nothing ? Float64(sc) :
             defaultscale !== nothing ? Float64(defaultscale) :
-            inv(sqrt(size(q, 1)))
+            inv(sqrt(size(qv, 1)))
     scale = kernelnumber(emitctx, scale)
     caps = M.caps(emitctx.dev)
-    E, Lq, H, B = size(q)
-    want = (size(v, 1), Lq, H, B)
+    E, Lq, H, B = size(qv)
+    want = (size(vv, 1), Lq, H, B)
     # The kernels read `out` at its rank-4 extents. `fused.sdpa` declares a
     # rank-3 buffer -- `fuseattention` folds the head axis away, which is the
     # same elements in the same order -- so a `viewof` puts the rank back rather
@@ -3541,7 +3560,7 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     # The cooperative-matrix kernels below require a compatible matrix layout.
     # Use native GEMM through threepass! on this route. Portable scalar flash
     # is available explicitly, but regresses the full SAM 2 encoder on Metal.
-    if M.native_gemm_available(emitctx.dev, eltype(q), eltype(k), Float32)
+    if M.native_gemm_available(emitctx.dev, eltype(qv), eltype(kv), Float32)
         # A recordable FUSED attention first, where the backend has one: it never
         # materialises the scores, which is what the three passes below spend their time on.
         # No bias input, so an op that has one goes the long way.
@@ -3554,9 +3573,14 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         wantflash = bias === nothing
         fused = wantflash &&
             M.native_attention_dispatch!(emitctx.dev, emitctx.g, out,
-                                         stridedview(q), stridedview(k), stridedview(v);
+                                         stridedview(qv), stridedview(kv), stridedview(vv);
                                          scale = Float32(scale), name = "$(op.id).flash")
         if !fused
+            # Declined, so `sdpaoperand` decides — and now `flashplanar` governs what the
+            # portable path is handed, which is what it is for.
+            q = sdpaoperand(emitctx, op, 1)
+            k = sdpaoperand(emitctx, op, 2)
+            v = sdpaoperand(emitctx, op, 3)
             qd = q isa StridedOperand ? operand(emitctx, op, 1) : q
             kd = k isa StridedOperand ? operand(emitctx, op, 2) : k
             vd = v isa StridedOperand ? operand(emitctx, op, 3) : v
@@ -3570,6 +3594,9 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         end
         return sdparesults(emitctx, dst)
     end
+    q = sdpaoperand(emitctx, op, 1)
+    k = sdpaoperand(emitctx, op, 2)
+    v = sdpaoperand(emitctx, op, 3)
     outperm = sdpaoutputpermute(emitctx, op)
     cm2 = flashcm2_plan(caps, q, k, v, bias)
     cm2 isa Decline || error(

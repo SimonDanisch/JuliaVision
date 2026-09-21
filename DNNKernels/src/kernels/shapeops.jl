@@ -573,6 +573,48 @@ function stridedcopyrun32!(out, exts, a, ast::NTuple{N,Int32}, off::Int32,
     return
 end
 
+"""
+    stridedcopy32permrun!(out, exts, ost, a, ast, off, nvec, Val(V))
+
+[`stridedcopy32perm!`](@ref) with `V` elements per thread, which is the two copy
+optimisations composed.
+
+The walk ORDER decides which side reads sequentially — a scattered load is what costs,
+and `walkcost` picks the order. `V` then decides how many elements one address
+computation serves: the `cart32` chain is `N` `FastDiv32` multiply-shifts, paid per
+element by the scalar forms and per `V` here. Both strides are carried, so this is
+correct for either order and for any strides; a run of `V` stays inside axis one
+because `V` divides its extent.
+
+Measured on an M5 over SAM 2.1's 14 distinct copy descriptors, `V = 8` against the
+scalar form of the same walk: 1.46x to 4.42x, the rank-6 window partitions most.
+"""
+function stridedcopy32permrun!(out, exts, ost::NTuple{N,Int32}, a,
+                               ast::NTuple{N,Int32}, off::Int32, nvec::Int32,
+                               ::Val{V}) where {N,V}
+    i = KI.get_global_id().x
+    i <= nvec || return
+    i0 = (Int32(i) - Int32(1)) * Int32(V)
+    c = M.cart32(UInt32(i0), exts)
+    o = off
+    d = Int32(0)
+    @inbounds for k in 1:N
+        o += Int32(c[k] - 1) * ast[k]
+        d += Int32(c[k] - 1) * ost[k]
+    end
+    s1 = @inbounds ast[1]
+    d1 = @inbounds ost[1]
+    @inbounds for v in Int32(0):Int32(V - 1)
+        out[d + v * d1 + Int32(1)] = a[o + v * s1 + Int32(1)]
+    end
+    return
+end
+
+"""The widest vector width that divides `extent`, or `nothing` below four. Measured
+within a few percent between four and eight, and both far from one."""
+runvecwidth(extent::Integer) =
+    extent % 8 == 0 ? 8 : extent % 4 == 0 ? 4 : nothing
+
 """How many elements one thread of [`stridedcopyrun32!`](@ref) should carry, or `nothing`.
 
 Eight where it divides the run, four otherwise — measured within a few percent of each

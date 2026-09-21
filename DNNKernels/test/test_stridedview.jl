@@ -177,7 +177,7 @@ function bothcopies(dev, od, ast, off, T)
                                      for k in eachindex(od); init = 0)]
     end
     (got[1], got[2], want)
-    end
+end
 
 for be in MMs.eachbackend()
     copydev = MMs.todevice(be)
@@ -193,6 +193,8 @@ for be in MMs.eachbackend()
             @test run == want
             @test run == scalar
         end
+    end
+end
 
 # What `toback` hands to `copyto!`, which is the same question one level up.
 #

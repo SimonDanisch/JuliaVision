@@ -57,7 +57,7 @@ function declared_threepass(dev, E, L, H, B)
         DK.Graph("attn", String[], String[], String[],
                  Dict{String,DK.Buffer}(), String[], DK.Op[], Vector{Vector{String}}()),
         graph, dev, NamedTuple(), Dict{String,Any}("attn" => out),
-        Set{String}(), Ref("attn"), Any[])
+        Set{String}(), Ref("attn"), Any[], Dict{String,Any}())
     scale = Float32(inv(sqrt(E)))
     DK.threepass!(emitctx, op, out, q, k, v, nothing, scale)
     npasses = length(graph.passes)

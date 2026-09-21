@@ -34,7 +34,10 @@ function catgraph(pshape, dim, nparts; T = Float32)
 end
 
 @testset "cat on the innermost axis is one interleaving dispatch" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists only
+    # where Lava does, so naming it made this file error out rather than skip on a
+    # machine with a different GPU — and the interleaving it pins is portable.
+    backend = first(Mantle.eachbackend())
     rows, k = 5, 3            # torch (rows, k, 1) x2 -> (rows, k, 2)
     g = catgraph((rows, k, 1), -1, 2)
     model = DKI.Model(Dict("cat" => g), Dict{String,Any}(), backend, 1, 1, 1)
@@ -59,7 +62,10 @@ end
 end
 
 @testset "the shapes it must not take" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists only
+    # where Lava does, so naming it made this file error out rather than skip on a
+    # machine with a different GPU — and the interleaving it pins is portable.
+    backend = first(Mantle.eachbackend())
     # Three parts is not this kernel, and neither is a join on any other axis.
     for (pshape, dim, nparts) in (((4, 3, 1), -1, 3), ((4, 3, 2), -2, 2))
         g = catgraph(pshape, dim, nparts)
