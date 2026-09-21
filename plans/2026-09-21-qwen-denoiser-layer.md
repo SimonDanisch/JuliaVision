@@ -305,7 +305,10 @@ directly, and it is most of it:
 | `Mantle.record!` | 11.2 | **99.6%** |
 
 **73 s of the 117 is Julia inference and codegen**, and the second call to each
-in the same process is 0.4 s, 2.5 s and 0.0 s. So there is no algorithm to
+in the same process is 0.4 s, 2.5 s and 0.0 s. The `Model` build says the same
+thing from the other side: `fusion_s` is 15.9 s cold, 1.8 s for the first build
+in a warm process and **0.1 s for the second**, so the graph passes themselves
+are not what it is spent on. So there is no algorithm to
 improve here: it is one specialisation of `emitop!` per aten kind — this graph
 has 25 of the 97 the package declares — and one `Mantle.dispatch!` per distinct
 kernel and argument tuple, inferred from scratch in every process.
