@@ -520,13 +520,13 @@ end
         ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
         ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM}, ::Val{SMOFF},
-        ::Val{LDOFF},
+        ::Val{LDOFF}, ::Val{S16},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
         ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,
+                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,S16,
                             WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
@@ -553,7 +553,33 @@ end
     # column stride of `BR` fp32. Bank = `(BR·c + r) % 32`, so `BR % 32 == 0` puts
     # every column in one bank — and every shipped tiling has `BR` 32 or 64.
     BRS = BR + RPAD
-    ss  = @localmem Float32 ((BR + RPAD) * BC,)   # (r, c) at c*BRS + r
+    # The SCORE accumulator's width. `Float32` is what this kernel has always
+    # used; `Float16` is what the vendor's flash attention uses, and the device
+    # reports the shape for both (`Float16->Float16 16x16x16` alongside
+    # `Float16->Float32`). It halves this array as well as the accumulator.
+    #
+    # `ss` holds the UNSCALED `q·kᵀ` — `flashscore` applies `scale` on the way
+    # out — so the fp16 range has to cover the raw dot product over `E` terms,
+    # not the softmax input.
+    #
+    # **Off by default, and it is not where the gap is.** It was tried because
+    # torch's flash attention does 31.4 TFLOP/s on this device where the
+    # fp16→fp32 dense GEMM peak is 24.9, which can only be fp16 accumulation —
+    # so the same change here should have been worth ~2x. It is worth **4.3%**:
+    # 40.85 ms against 42.68 at Qwen-Image 2.1's shape, against torch's 8.82.
+    #
+    # Which is consistent with what `SMOFF`/`LDOFF` already price. The matrix
+    # work is ~23% of this kernel; halving the cost of the score half of it
+    # cannot be more than a few percent. The 4.7x is therefore NOT precision —
+    # it is the ~40% spent staging into shared, on barriers and on the
+    # write-out, plus the 29% of K/V bytes. Torch's whole 8.82 ms is about what
+    # this kernel spends on arithmetic alone.
+    #
+    # Numerically it is nearly free: 1.3e-6 rms against the fp32 accumulation on
+    # an output whose own rms is 5.2e-3, i.e. 0.026%. Off anyway, because it
+    # changes the numbers every model gets for 1% of a denoising step.
+    SACC = S16 ? Float16 : Float32
+    ss  = @localmem SACC ((BR + RPAD) * BC,)      # (r, c) at c*BRS + r
     ps  = @localmem Float16 (BC * BR,)            # (r, c) at r*BC + c
     # `REGO == false`: this is `O`, and it persists across key blocks.
     # `REGO == true`:  this is one key block's `P·V`, and `O` lives in `acco`.
@@ -687,10 +713,11 @@ end
         if HELD
             for idx in tid:NT:(Mantle.GEMM_TILE * Mantle.GEMM_TILE - 1)
                 r, c = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
-                ss[1 + idx] = Float32(r + c * Mantle.GEMM_TILE)
+                # Integers to 2048 are exact in fp16, and this tile holds 0..255.
+                ss[1 + idx] = SACC(r + c * Mantle.GEMM_TILE)
             end
             @synchronize
-            rowmat = Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
+            rowmat = Mantle.AcceleratedMatrix{SACC,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
                         ss, 1, Mantle.GEMM_TILE, Val(false))
             Base.Cartesian.@nexprs 8 i -> begin
                 ocoord_i = unsafe_trunc(Int32, Mantle.coopmat_getcomp(rowmat, Int32(i - 1)))
@@ -765,7 +792,7 @@ end
             for t in w:NW:(RT * CT - 1)
                 rt = t % RT
                 ct = t ÷ RT
-                acc = zero(Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator})
+                acc = zero(Mantle.AcceleratedMatrix{SACC,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator})
                 for et in 0:(ET - 1)
                     a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                             qs, 1 + rt * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
@@ -1922,7 +1949,7 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       rscbar::Bool = false, smoff::Bool = false,
-                      ldoff::Int = 0,
+                      ldoff::Int = 0, s16::Bool = false,
                       # Five values per thread at the 512-thread global tile is
                       # enough latency hiding for a measured win. The 128-thread
                       # window tile needs twenty registers and loses occupancy.
@@ -1970,7 +1997,7 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(plan.onepass && !rego),
                                 Val(rscbar), Val(prefetchv), Val(outperm), Val(smoff),
-                                Val(ldoff),
+                                Val(ldoff), Val(s16),
                                 map(Val, outwindow)..., Val(H),
                                 Val(nsp), Val(partout), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),
@@ -2083,7 +2110,7 @@ refused.
 """
 function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
                       nrsc::Int = 3, rscbar::Bool = false, smoff::Bool = false,
-                      ldoff::Int = 0,
+                      ldoff::Int = 0, s16::Bool = false,
                       epad::Union{Nothing,Int} = nothing,
                       rpad::Union{Nothing,Int} = nothing,
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
@@ -2093,7 +2120,7 @@ function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0
     plan = flashcm_plan(ctx.dev, q, k, v, nothing; BR, BC, NW, kw...)
     plan isa Decline && return false
     sdpaflashcm!(ctx, out, plan, q, k, v, scale;
-                 ballast, shpad, nrsc, rscbar, smoff, ldoff,
+                 ballast, shpad, nrsc, rscbar, smoff, ldoff, s16,
                  epad = something(epad, flashepad(ctx.dev, plan.EP)),
                  rpad = something(rpad, flashrpad(ctx.dev, plan.BR)))
     return true
