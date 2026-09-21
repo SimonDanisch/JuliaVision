@@ -1845,6 +1845,15 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
              args = (out, partial, ml, Int32(ns), Int32(H)),
              ndrange = (plan.E, Lq, H * B), group = 0)
     if plan.tailsplit
+        # The merge writes `out` in its own layout, so a caller that wanted the
+        # spatial order written directly would get the other one and no error.
+        # `emitsdpa!` already asks for the direct store only at `nsplit == 1`,
+        # which a tail split is not; this is here so that staying true of it is
+        # not something the next caller has to know.
+        outperm && throw(ArgumentError(
+            "DNNKernels: a tail-split attention cannot write permuted output " *
+            "directly — its merge writes `out`, and the permutation is the " *
+            "caller's own pass."))
         # Everything that fills a key tile, then what is left of it. Only the
         # second launch compiles the bounds check, and it is one block of 258.
         nfull = div(Lk, BC) * BC

@@ -675,6 +675,12 @@ end
         KA.synchronize(back)
         @test maximum(abs, got .- Array(out)) / maximum(abs, ref) < 1e-4
 
+        # Writing the spatial order directly is the one thing a tail split
+        # cannot do: its merge writes `out`, so the permutation would simply
+        # not happen and nothing would say so.
+        @test_throws ArgumentError DNNKernels.flash_launches(
+            dev, q, plan, q, k, v, scale, partial, ml; outperm = true)
+
         # A key axis the tile divides is one launch, as before.
         k2, v2 = mk(512), mk(512)
         plain = DNNKernels.flashcm_plan(dev, q, k2, v2, nothing; clamp = true)
