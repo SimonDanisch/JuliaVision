@@ -136,20 +136,30 @@ as slow as it likes.
 Two things that are NOT worth it, measured: `(64, 32)` with the held store is
 68.5 ms against 70.1 for the chooser's `(64, 16)`, and `rego` is 73.5.
 
-### Where the 169.2 ms that is left actually sits
+### Where the 161.4 ms that is left actually sits
 
-Serialised, after everything above:
+Serialised, after everything above (223.1 at the start):
 
 | | ms | |
 | --- | --- | --- |
-| the four products | 87.0 | 51%, and at the device's fp16 ceiling |
-| the attention, three passes | 55.5 | 33%, at 6 TFLOP/s |
-| 130 passes under 1.6 ms each | 26.7 | 16% |
+| the four products | 86.3 | 53%, and at the device's fp16 ceiling |
+| the attention, three passes | 48.4 | 30%, at ~6 TFLOP/s |
+| everything else | 26.7 | 17%, of which 118 passes are under 0.9 ms |
 
-There is no third thing. The long tail is 130 dispatches averaging 0.15 ms, of
-which launch overhead is ~13 us apiece, so it is small real work in small
-kernels rather than overhead; taking a useful bite out of it means fusing more
-of them, and each individual win there is under a millisecond.
+There is no third big thing. What is left above a millisecond, and what each
+would take:
+
+* `view_77` + `view_79`, **2.8 ms** — the two halves of the stacked MLP product,
+  materialised so `fused.swiglu` can read them. Each is a strided view with a
+  12288-element run per column, so teaching the swiglu emit to take an offset
+  and a stride would remove both copies.
+* `add_17`, **2.9 ms** — a three-operand elementwise over dense fp16, 135 MB at
+  47 GB/s against a 109 GB/s copy. Not obviously broken, but 2.3x off.
+* `permute_35`, **1.4-3.3 ms** — the attention output's layout change. Varies
+  more between plan builds than it should.
+
+Each is worth 1-2% of the layer and each is a change in a path every model
+shares, which is the trade to weigh before taking one.
 
 ## A note on measuring this
 
