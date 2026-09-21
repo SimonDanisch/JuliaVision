@@ -161,6 +161,41 @@ would take:
 Each is worth 1-2% of the layer and each is a change in a path every model
 shares, which is the trade to weigh before taking one.
 
+### The one lead worth more than that: the biggest product's tile
+
+`fuseqkv_mm_17` is the stacked gate+proj, `24576 x 4096 x 4224`, and it runs at
+19.8 TOP/s where the other three products in the same layer reach 23-25. The
+chooser already HAS the tiling it wants — `q8gemm_tile`'s `tall` branch,
+"a stacked projection, like SwiGLU's gate+up", picks `(2,4,2,2,32,8)` — but the
+threshold is `m >= 8k` and Qwen's stacked pair is `m = 6k`, so it falls through
+to `m % 256 == 0` and takes `(4,2,4,2,32,8)`.
+
+Interleaved rounds, minimum of each:
+
+    24576 x 4096    (2,4,2,2) 37.92    (4,2,4,2) 42.74*   -11.3%
+    12288 x 4096    (4,2,2,4) 18.90    (4,2,4,2) 19.91*    -5.1%
+
+**Not taken, because it is not measured well enough.** Two earlier batches of
+the same sweep disagreed by 8% on the same cell and swapped the winner for the
+qkv shape: an isolated 40 ms GEMM is exactly the size this machine's clock
+drift makes unreliable, and the number that matters is the layer. Lowering the
+threshold to `6k` would change every model's stacked projection in the
+`n % 128 == 0` regime, which is not a change to make on a drifting
+microbenchmark. Build the layer both ways and read it there — that repeats to
+0.3%, and 11% of a 44 ms pass is 4.8 ms, far above its noise.
+
+### A session-scale thing that will bite a generation loop
+
+After a day of building and freeing plans, `Mantle`'s pool reported **81.95 GB
+reserved against an 80.89 GB capacity**, so `headroom` was zero and no further
+plan could be placed — with the largest free span at 31 MB and
+`unified_blocks = 1`. Freeing every binding, `collect_for_pool!`,
+`reclaim_empty_pool_blocks!` and `trim_gpu_pool!` moved none of it. Whatever
+pins those blocks, the effect is that a long-lived process which keeps building
+plans eventually cannot build one while its memory is actually free. Worth a
+controlled reproduction: build and free N plans in a fresh session and watch
+`reserved(dev.pool)`.
+
 ## A note on measuring this
 
 The isolated attention launch is ~60 ms and its run-to-run spread reached
