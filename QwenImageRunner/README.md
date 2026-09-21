@@ -14,17 +14,23 @@ decodes to 7.26 GB of INT8 on the device and the Qwen3-VL-8B conditioner to
 another 6.9 GB, which do not fit at once. Each is released as soon as its output
 is in hand.
 
-Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
+Measured, 20 steps at 1024x1024 (`examples/generate.jl`), one run of the script
+against another:
 
-| stage | time |
-| --- | --- |
-| prompt encoding, including building the 36-layer encoder | 74.1 s |
-| denoiser build and record | 56.5 s |
-| 20 denoising steps | 138 s (6.89 s/step) |
-| VAE decode, including its build | 40.2 s |
+| stage | was | now |
+| --- | --- | --- |
+| prompt encoding, including building the 36-layer encoder | 74.1 s | **55.1 s** |
+| denoiser build and record | 56.5 s | **43.0 s** |
+| 20 denoising steps | 138 s (6.89 s/step) | **100.5 s (5.02 s/step)** |
+| VAE decode, including its build | 40.2 s | **34.4 s** |
+| **total** | **314.9 s** | **234.6 s** |
 
-Three of those four rows have moved since, and only one of them is the
-denoiser.
+Every row moved, and only one of them is the denoiser.
+
+Most of what is left in the three build rows is **Julia inference and codegen**,
+not work: `emitgraph` is 97% compilation and `Mantle.record!` 99.6%, and the
+second call to each in one process is 0.4 s and 0.0. `plans/2026-09-21-qwen-denoiser-layer.md`
+has the measurement and why a plain `precompile` directive does not fix it.
 
 **Both checkpoints reach the device through a pack kernel that was a transpose
 done a byte at a time**, and rewriting it takes the denoiser's weight upload
