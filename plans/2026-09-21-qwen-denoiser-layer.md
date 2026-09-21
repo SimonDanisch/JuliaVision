@@ -50,7 +50,8 @@ bit-identical or at fp16 rounding:
 | a ragged key axis split at the last whole tile | 189.5 |
 | permuted copies walked in source order | 180.7 |
 | a contiguous slab copied as one run | 174.6 |
-| the score pass count by head width | **171.1** |
+| the score pass count by head width | 171.1 |
+| the interleaved rotary fused | **167.1** |
 
 The four products are 86.9 ms and they are not the problem: standalone,
 `q8gemm` runs those three shapes at 21.4, 26.1 and 23.4 TOP/s, which is the
@@ -73,11 +74,16 @@ device's fp16 ceiling (see `2026-09-20-int8-tensor-cores.md`).
 * **The score pass count** — one pass over the scores or two is a property of
   the head width, and the kernel had one answer for every shape. Two passes win
   at `E >= 96` and lose below it, six shapes either side of the crossing.
+* **The interleaved rotary** (`fusepairrope`) — `fuserope` only knew the
+  half-rotation spelling, so Qwen's pair rotation stayed eight ops whose cost
+  was two stride-2 materialisations and an interleave, not the arithmetic.
 
-The last three share a shape. **Every one was a memory pass running at a tenth
-of the device's bandwidth for a reason that had nothing to do with memory** —
-two were index arithmetic and one was traversal order. That is worth looking
-for elsewhere before anything clever is attempted.
+Four of the six share a shape. **Every one was a memory pass running at a
+tenth of the device's bandwidth for a reason that had nothing to do with
+memory** — index arithmetic, traversal order, or a layout the consumer could
+not read so a copy was inserted. None was in the arithmetic, and none needed a
+faster kernel. That is worth looking for elsewhere before anything clever is
+attempted.
 
 ## What is left, in order
 
