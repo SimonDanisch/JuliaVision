@@ -192,17 +192,29 @@ longer place a 391 MB plan (below). 44 ms of a 167 ms layer, so build the layer
 both ways and read it there when a session can: that repeats to 0.3%, and 11%
 of that pass is 4.8 ms.
 
+One number did come from the layer, sideways: with the SwiGLU reading in
+place, the layer's arena requirement fell from **391.03 MB to 352.89 MB**. That
+is the two materialised halves no longer needing to be placed.
+
 ### A session-scale thing that will bite a generation loop
 
 After a day of building and freeing plans, `Mantle`'s pool reported **81.95 GB
 reserved against an 80.89 GB capacity**, so `headroom` was zero and no further
 plan could be placed — with the largest free span at 31 MB and
 `unified_blocks = 1`. Freeing every binding, `collect_for_pool!`,
-`reclaim_empty_pool_blocks!` and `trim_gpu_pool!` moved none of it. Whatever
-pins those blocks, the effect is that a long-lived process which keeps building
-plans eventually cannot build one while its memory is actually free. Worth a
-controlled reproduction: build and free N plans in a fresh session and watch
-`reserved(dev.pool)`.
+`reclaim_empty_pool_blocks!` and `trim_gpu_pool!` moved none of it.
+
+What DID move it was freeing a `Model` — its `scratch` holds the `RecordedPlan`
+`call` cached, and that plan's arena is a block. One model was worth 2.2 GB of
+`reserved`. But it did not help: the arena a plan needs is one CONTIGUOUS
+region, and the placer was offered **31.83 MB** — the pool's largest free span —
+while 1.17 GB of the device's budget sat unused. So the pool does not grow a
+new block to satisfy an arena it cannot serve from the blocks it has, and a
+long-lived process that keeps building plans eventually cannot build one with
+its memory both free and under budget.
+
+Worth a controlled reproduction: build and free N plans in a fresh session,
+watching `reserved(dev.pool)` and `largestfree`.
 
 ## A note on measuring this
 
