@@ -120,6 +120,11 @@ include(joinpath(@__DIR__, "test_transposeLE.jl"))
 # `Mantle.eachbackend()` and reached by nothing. Its own header says "a test
 # nothing runs is not a test".
 include(joinpath(@__DIR__, "test_declared_ops.jl"))
+# Which passes the declared attention declares, over every backend: both of its
+# products go through `Mantle.native_batched_gemm_dispatch!` where the device offers
+# one, and the apply product carries softmax's row-sum divide as a fused epilogue —
+# a route the rest of this suite only reaches through `LavaBackend()`.
+include(joinpath(@__DIR__, "test_declared_attention.jl"))
 # `aten::lstm` against torch's definition rather than against the other route:
 # both routes share the kernel, so only an independent reference can check the
 # recurrence.

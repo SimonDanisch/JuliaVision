@@ -3224,16 +3224,14 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
           length(dst) == prod(want) ? M.viewof(dst, want) :
           error("DNNKernels: `$(op.aten)` (op $(op.id)) declares a $(size(dst)) " *
                 "result where its operands give $(want).")
-    # A backend with recordable native GEMM can always use `threepass!`.  Try the
-    # portable scalar flash kernel first when its shared-memory launch fits: it
-    # avoids materialising the Lq-by-Lk score tensor without encoding a vendor
-    # matrix layout.  Cooperative-matrix backends keep their tuned path below.
+    # The cooperative-matrix kernels below require a compatible matrix layout.
+    # Use native GEMM through threepass! on this route. Portable scalar flash
+    # is available explicitly, but regresses the full SAM 2 encoder on Metal.
     if M.native_gemm_available(emitctx.dev, eltype(q), eltype(k), Float32)
         qd = q isa StridedOperand ? operand(emitctx, op, 1) : q
         kd = k isa StridedOperand ? operand(emitctx, op, 2) : k
         vd = v isa StridedOperand ? operand(emitctx, op, 3) : v
-        scalarflash_dispatch!(emitctx, op, out, qd, kd, vd, bias, scale) ||
-            threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
+        threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
         return sdparesults(emitctx, dst)
     end
     outperm = sdpaoutputpermute(emitctx, op)
@@ -3300,13 +3298,13 @@ sdparesults(emitctx::EmitCtx, dst) =
     scalarflash_dispatch!(emitctx, op, out, q, k, v, bias, scale) -> Bool
 
 Declare the portable scalar flash-attention kernel when its exact launch fits
-the device.  The 32x32, 128-thread tile uses 31,128 bytes at SAM 2's E=72, so it
-fits a 32 KiB device while eliminating the 268 MiB global-attention score tensor.
+the device.  The 32x32, 128-thread tile uses 32,128 bytes at SAM 2's E=72, so it
+fits a 32 KiB device while eliminating the 256 MiB global-attention score tensor.
 Selection depends only on `DeviceCaps` and operand shape; backends need no
 attention-specific hook.
 
-The kernel currently has no bias input, and its vector loads require Float16
-Q/K/V.  Return false for those cases so the caller can use `threepass!`.
+This route is validated for Float16 Q/K/V and has no bias input. Return false
+for other cases so the caller can use `threepass!`.
 """
 function scalarflash_dispatch!(emitctx::EmitCtx, op::Op, out, q, k, v,
                                bias, scale)
@@ -3319,7 +3317,9 @@ function scalarflash_dispatch!(emitctx::EmitCtx, op::Op, out, q, k, v,
     size(v, 1) == E || return false
     BQ, BK, NT = 32, 32, 128
     Lq % BQ == 0 && Lk % BK == 0 || return false
-    flashfits(E, BQ, BK, NT, M.caps(emitctx.dev).sharedbudget) || return false
+    caps = M.caps(emitctx.dev)
+    NT <= caps.workgrouplimit || return false
+    flashfits(E, BQ, BK, NT, caps.sharedbudget) || return false
     nd = (NT * div(Lq, BQ), H, B)
     M.dispatch!(emitctx.g, attn_flash!,
                 (out, q, k, v, Float32(scale), Val(BQ), Val(BK), Val(E),
@@ -3336,12 +3336,13 @@ placer aliases them against the whole graph — `Workspace` could only ever reus
 them within this one op, and on SAM 2's global blocks the score matrix is the
 largest thing the graph asks for.
 
-Recordable native batched GEMMs are tried for the score contraction.  Their
-interface is Mantle's, so this planning is shared by every backend: unsupported
-shapes fall back to the portable blocked kernels.  The native score product
-transposes `q` in its matrix descriptor and therefore also removes the separate
-`(E,L,H,B) -> (L,E,H,B)` copy.  Apply stays on the portable blocked kernel,
-which also preserves softmax's one-pass normalization.
+Recordable native batched GEMMs are tried for BOTH contractions.  Their interface
+is Mantle's, so this planning is shared by every backend: unsupported shapes fall
+back to the portable blocked kernels.  The native score product transposes `q` in
+its matrix descriptor and therefore also removes the separate
+`(E,L,H,B) -> (L,E,H,B)` copy.  The apply product reads the scores transposed the
+same way, and takes softmax's row sums as the `coldiv` epilogue, so the one-pass
+normalization survives without a pass of its own.
 """
 function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
     E, Lq, H, B = size(q)
@@ -3370,15 +3371,22 @@ function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
     # them rather than adding another full normalization pass over `scores`.
     sums = scratch(emitctx, T, Lq, H, B)
     mapbody!(emitctx, op, attn_softmax, sums, scores; name = "$(op.id).softmax")
-    tq = blockfor(Lq, Lk)
-    if tq > 1
-        nd = (size(v, 1), Lq ÷ tq, H, B)
-        M.dispatch!(emitctx.g, applyblocked!kernel(tq),
-                    (out, scores, v, sums), nd;
-                    group = launchgroup(nd), name = "$(op.id).apply")
-    else
-        mapbody!(emitctx, op, attn_apply, out, scores, v, sums;
-                 name = "$(op.id).apply")
+    # out[e, q] = sum_k v[e, k] * scores[q, k] / sums[q] — `scores` is stored `[q, k]`, so
+    # the product reads it transposed rather than materialising `[k, q]`.
+    native_apply = M.native_batched_gemm_dispatch!(
+        emitctx.dev, emitctx.g, out, v, scores; transpose_b = true,
+        coldiv = sums, name = "$(op.id).apply")
+    if !native_apply
+        tq = blockfor(Lq, Lk)
+        if tq > 1
+            nd = (size(v, 1), Lq ÷ tq, H, B)
+            M.dispatch!(emitctx.g, applyblocked!kernel(tq),
+                        (out, scores, v, sums), nd;
+                        group = launchgroup(nd), name = "$(op.id).apply")
+        else
+            mapbody!(emitctx, op, attn_apply, out, scores, v, sums;
+                     name = "$(op.id).apply")
+        end
     end
     return (out, maybedest(emitctx, 1), maybedest(emitctx, 2), maybedest(emitctx, 3))
 end

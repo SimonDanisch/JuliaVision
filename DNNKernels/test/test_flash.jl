@@ -128,6 +128,7 @@ end
     end
 
     @testset "scalar flash is a recordable declared pass" begin
+        dev = Mantle.Device(back)
         E, L, H, B = 72, 128, 2, 1
         qh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
         kh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
