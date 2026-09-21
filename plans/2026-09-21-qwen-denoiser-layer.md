@@ -283,6 +283,57 @@ here. Anyone picking it up should start by asking RADV/amdgpu for a cheaper
 commit — memory type flags, `VK_EXT_memory_priority`, or huge pages for the GTT
 mapping — rather than looking anywhere in this tree.
 
+### The same GEMM is 2.4x slower in a worn process, and that is most of the step
+
+The serialized per-pass profile of the whole 20B step (`planfor(...; maxpasses
+= 1, profile = true)`, 4372 passes, 5657 ms) says the products are 66% of it
+and the attention 25%. Inside the products is something that is not a kernel
+question at all:
+
+| | ms each | n |
+| --- | --- | --- |
+| the QKV stack, `12288 x 4096 x 4118` | 19-23 | 32 |
+| the gate+up stack, `24576 x 4096 x 4118` | **41-47** | 15 |
+| the same op, same kernel, same tile | **77-94** | 17 |
+
+Reproducible to `cor = 0.9998` across runs: the same seventeen passes are slow
+every time. They are the same `q8gemm_2_4_2_2_32_8!` at the same `ndrange`,
+writing the same transient at the same arena offset and reading the same input
+— `flash_launches` aside, the ONLY thing that differs is which weight buffer
+they read.
+
+Isolated, outside the plan, swapping one operand at a time:
+
+    slow weight + slow scales   100.1 ms
+    fast weight + fast scales    37.2
+    slow weight + fast scales    97.0
+    fast weight + slow scales    37.5
+
+So it is the 100 MB weight buffer and nothing else. It is **not bandwidth**: a
+device-to-device `copyto!` of those same buffers measures 160.8, 157.3 and
+163.4 GB/s — identical. It is the tiled read: `q8gemm` walks A with a 24 KB
+stride per k step over a 100 MB span, which is the access pattern that cares
+about page size and TLB reach, and a linear copy is the one that does not.
+
+**What actually predicts it is the process, not the address.** In a fresh Julia
+process the first forty-eight 100 MB buffers — 4.8 GB, covering the same device
+addresses the slow ones occupy — all run at **35-37 ms**. In the two-hour-old
+process that had built and freed plans all day, a buffer allocated at that
+moment ran at 84-95 ms, and six in a row did.
+
+Two numbers make this the biggest single item in this file. 35 ms is 23.7
+TOP/s, at the fp16 cooperative-matrix ceiling, so a fresh process is not just
+avoiding the 2.4x cliff — even the "fast" 41 ms in the worn process is 17% off
+what the same GEMM does cold. And the machine had FIVE stale Julia sessions
+holding **105 GiB of GTT against a 112 GiB total**, with swap full; clearing
+them dropped GTT use to 13.8 GiB and system use from 116 GB to 22 GB. That is
+also the real explanation for the pool report below: it was never Mantle's
+allocator.
+
+So before measuring anything here, check `free -g` and
+`/sys/class/drm/card1/device/mem_info_gtt_used`, and prefer a fresh process for
+any number that is going to be written down.
+
 ### A session-scale thing that will bite a generation loop
 
 After a day of building and freeing plans, `Mantle`'s pool reported **81.95 GB
