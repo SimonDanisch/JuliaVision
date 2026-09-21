@@ -285,6 +285,21 @@ required to land on the tile.
 difference is a factor of several: Whisper's 1500 tokens round to 1504, which no
 tiling's 64- or 128-wide block divides, so every one of its 160 matmuls ran on
 the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
+
+**Which block, though, and `gemm_padn` takes the smallest.** Measured on this
+device at `M = 65536, K = 2592`, sweeping the column count alone:
+
+    N        16    32    48    64    96   128   144   160   192   256   288   384
+    TFLOP/s 0.83  2.28  0.70  8.09  1.24 16.40  0.47  1.26  9.32 16.15  1.27 17.29
+
+The 128-wide tiling is about 1.85x the 64-wide one PER COLUMN, so the least
+padding is not the fastest padding: `N = 288` pads to 320 at 9.32 where 384
+would run at 17.29, which is 12.97 against 8.39 for the columns that are real.
+`conv_coopmat_plan` scores by tile width for exactly this reason — see
+[`convcoutpad`](@ref) — and this path does not, because reaching 384 needs more
+slack than `GEMM_PAD_SLACK` allows and that constant is tuned across models this
+repository cannot measure in one session. What is here is the measurement, not
+the change.
 """
 mm_coopmat_plan(dev::M.DeviceCaps, out, A, B) =
     mm_coopmat_plan(dev, typeof(out), typeof(A), typeof(B), size(A), size(B))

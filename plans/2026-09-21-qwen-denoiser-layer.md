@@ -291,8 +291,7 @@ with the copies. It also shrinks what the placer has to fit — the layer's aren
 requirement falls from **391.03 MB to 352.89 MB** — which is most of why the two
 changes are super-additive.
 
-### The VAE decode was 82% convolution, and the convolutions were not on the
-### tensor cores
+### The VAE decode was 82% convolution, and none of it was on the tensor cores
 
 Serialised, the recorded decode is 16.0 s over 564 passes and **13.15 s of it
 is forty-five convolutions**. Eighteen of them take the im2col + cooperative
