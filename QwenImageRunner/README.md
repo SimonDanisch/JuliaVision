@@ -52,12 +52,13 @@ and it iterates in a quarter of a second instead of a minute. It went to
 | permuted copies walked in the source's order | 180.7 |
 | a contiguous slab copied as one run | 174.6 |
 | two passes over the scores where the head is 96 wide or more | 171.1 |
-| the interleaved rotary fused | **167.1** |
+| the interleaved rotary fused | 167.1 |
+| the stacked-projection tile, and the SwiGLU reading in place | **156.0** |
 
-Two further changes are measured on the operation and not yet on the layer: the
-stacked gate+proj product takes the stacked-projection tile (42.7 ms to 37.9),
-and the SwiGLU reads that product's halves in place rather than copying them
-(2.84 ms of copies removed, and the layer's arena fell 391 MB to 353).
+The last row is two changes, A/B'd together in one session: 169.1 ms with
+neither, 163.9 with the tile alone, 164.3 with the SwiGLU alone, 156.0 with
+both. They are super-additive because they relieve the same thing — the arena
+the placer has to fit, which falls from 391 MB to 353.
 
 The harness runs plain int8 weights, so it does NOT include the four ConvRot
 transforms a layer (~5 ms) that the compact checkpoint adds. `plans/2026-09-21-qwen-denoiser-layer.md`

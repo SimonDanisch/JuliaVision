@@ -51,7 +51,21 @@ bit-identical or at fp16 rounding:
 | permuted copies walked in source order | 180.7 |
 | a contiguous slab copied as one run | 174.6 |
 | the score pass count by head width | 171.1 |
-| the interleaved rotary fused | **167.1** |
+| the interleaved rotary fused | 167.1 |
+| the stacked-projection tile, and the SwiGLU in place | **156.0** |
+
+The last two were A/B'd in one fresh session, which is why their rows are worth
+more than the microbenchmarks predicted:
+
+| | layer, ms |
+| --- | --- |
+| neither | 169.1 |
+| the tile alone | 163.9 |
+| the SwiGLU alone | 164.3 |
+| both | **156.0** |
+
+5.2 ms and 4.8 ms apart, 13.1 together: they are super-additive because they
+relieve the same thing, the arena the placer has to fit (391 MB to 353).
 
 The four products are 86.9 ms and they are not the problem: standalone,
 `q8gemm` runs those three shapes at 21.4, 26.1 and 23.4 TOP/s, which is the
@@ -136,15 +150,15 @@ as slow as it likes.
 Two things that are NOT worth it, measured: `(64, 32)` with the held store is
 68.5 ms against 70.1 for the chooser's `(64, 16)`, and `rego` is 73.5.
 
-### Where the 161.4 ms that is left actually sits
+### Where the 150.4 ms that is left actually sits
 
 Serialised, after everything above (223.1 at the start):
 
 | | ms | |
 | --- | --- | --- |
-| the four products | 86.3 | 53%, and at the device's fp16 ceiling |
-| the attention, three passes | 48.4 | 30%, at ~6 TFLOP/s |
-| everything else | 26.7 | 17%, of which 118 passes are under 0.9 ms |
+| the four products | 81.9 | 54%, and at the device's fp16 ceiling |
+| the attention, three passes | 50.0 | 33%, at ~6 TFLOP/s |
+| everything else | 18.5 | 12%, of which 120 passes are under 1 ms |
 
 There is no third big thing. What is left above a millisecond, and what each
 would take:
@@ -179,18 +193,15 @@ Interleaved rounds, minimum of each:
     24576 x 4096    (2,4,2,2) 37.92    (4,2,4,2) 42.74*   -11.3%
     12288 x 4096    (4,2,2,4) 18.90    (4,2,4,2) 19.91*    -5.1%
 
-Taken, as `tall = m >= 6k`. What made it safe to take on a microbenchmark
-after warning against exactly that: the tile being REPLACED measured
-42.86, 43.28 and 42.74 ms across three independent sweeps, and `(2,4,2,2)`
-39.59, 39.36 and 37.92 — the ranking between the two challengers moved, the gap
-to the incumbent did not. The output is bit-identical, the three neighbouring
-products in the same layer do not reach the branch, and Horizon's pinned picks
-are all above the old bound already.
+Taken, as `tall = m >= 6k`. The tile being REPLACED measured 42.86, 43.28 and
+42.74 ms across three independent sweeps, and `(2,4,2,2)` 39.59, 39.36 and
+37.92 — the ranking between the two challengers moved, the gap to the incumbent
+did not. The output is bit-identical, the three neighbouring products in the
+same layer do not reach the branch, and Horizon's pinned picks are all above the
+old bound already.
 
-**It is still not layer-confirmed**, because the session that found it could no
-longer place a 391 MB plan (below). 44 ms of a 167 ms layer, so build the layer
-both ways and read it there when a session can: that repeats to 0.3%, and 11%
-of that pass is 4.8 ms.
+**Layer-confirmed**: 163.9 ms against 169.1 with the old bound, and the pass
+itself went 44.65 ms to 38.97.
 
 One number did come from the layer, sideways: with the SwiGLU reading in
 place, the layer's arena requirement fell from **391.03 MB to 352.89 MB**. That
