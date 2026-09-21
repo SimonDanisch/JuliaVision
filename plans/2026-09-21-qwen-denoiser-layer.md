@@ -324,6 +324,24 @@ That convolution goes **1482 ms to 218**, and the decode **12.24 s to 5.50**
 interpreted, 16.0 s to 5.41 recorded — which also ends the recorded form being
 the slower one.
 
+Two more things went with it, both of which the profile only showed once the
+convolutions stopped hiding them:
+
+* **The expands were being built.** The VAE broadcasts a `(1, 1, 1, H, W)`
+  plane across channels before dividing by it, 43 times; materialising that is
+  639 ms and `expand_37` alone writes 1.2 GB from 4 MB in 169 ms, while the
+  `div` that reads it is 4 ms. `viewstrides` has answered for `expand.default`
+  with a zero stride all along and nothing asked, because it was not in
+  `STRIDEDVIEWS`. With the view described rather than built the pass is gone and
+  the `div` gets faster too (145 ms to 121), reading one cached plane.
+* **The explicit pads were being built.** `F.pad(x, (1,1,1,1))` in front of a
+  `padding=0` convolution is that convolution with `padding=1`, and the kernel
+  has substituted zero outside its input all along. Forty of them, **661 ms**,
+  and `foldconvpad` makes them nothing. Bit-identical output.
+
+Serialised: 16039 ms with neither, 4915 with the convolutions fixed, 4308 with
+the expands, and the interpreted decode **12.24 s to 4.79**.
+
 The chunk size is a speed knob now rather than a refusal, and the two paths
 want different answers: the isolated kernel is fastest at 32 MiB (201.6 ms
 against 234.7 at 512, the GEMM reading the chunk back out of cache), while the

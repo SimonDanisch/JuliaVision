@@ -286,6 +286,11 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     t0 = time_ns()
     graphs, host, nfold = foldbatchnorm(graphs, Dict{String,Any}(weights))
     graphs, nact = foldrelu(graphs)
+    # Before anything that reads a convolution's operands, and before the
+    # weight passes, because it only rewrites one attribute and one input and
+    # every pass after it sees a shorter graph.
+    graphs, npad = foldconvpad(graphs)
+    npad > 0 && @info "foldconvpad: $npad explicit pad(s) -> the convolution's own"
     graphs, host, nhoist = hoistcasts(graphs, host)
     # After the casts: under autocast a weight's transposed view sits on top of
     # its fp16 cast, and hoisting the cast first turns that into a plain weight

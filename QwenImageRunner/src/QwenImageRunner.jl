@@ -253,8 +253,8 @@ exported graph, so its input is directly the normalized diffusion state.
 
 `record = false`, unlike the denoiser, because for this graph a recorded plan
 costs more to build than it saves. At 1024² on an 8060S, decoding one denoised
-latent: **5.50 s interpreted, 5.41 s replayed**, against ~50 s to build the
-plan and one decode per image to amortise it.
+latent: **4.79 s interpreted**, against ~50 s to build the plan and one decode
+per image to amortise it.
 
 Both were three times that — 12.8 and 16.0 s — until the convolutions stopped
 falling off the tensor-core path. Eighty-two percent of this graph is

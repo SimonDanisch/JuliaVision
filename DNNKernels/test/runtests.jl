@@ -117,6 +117,7 @@ include(joinpath(@__DIR__, "test_masked_flash.jl"))
 include(joinpath(@__DIR__, "test_safesoftmax_attention.jl"))
 include(joinpath(@__DIR__, "test_convrot_q8.jl"))
 include(joinpath(@__DIR__, "test_conv_coopmat_chunk.jl"))
+include(joinpath(@__DIR__, "test_foldconvpad.jl"))
 include(joinpath(@__DIR__, "test_w8a8.jl"))
 include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # This file existed and was never listed here, so its assertions had never run —

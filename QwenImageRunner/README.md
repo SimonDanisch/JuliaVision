@@ -38,7 +38,12 @@ matrix is gigabytes, and ran at about 1 TFLOP/s where the eighteen that fit
 reach 19-22; its channel counts (144, 288, 576) also miss the column tile the
 staged GEMM needs, which is worth a factor of thirteen on its own. Chunking the
 pixel axis and padding the channels takes the decode **12.24 s to 5.50**
-interpreted and 16.0 s to 5.41 recorded.
+interpreted and 16.0 s to 5.41 recorded. Two things the convolutions had been
+hiding go with them: the `expand` that broadcasts a plane across channels was
+being materialised 43 times (639 ms, one of them 1.2 GB) and is now read as the
+zero-strided view it is, and the forty explicit `F.pad`s in front of
+zero-padded convolutions are now the convolution's own padding (661 ms). The
+decode ends at **4.79 s**, bit-identical to before the last two.
 
 The denoiser row is the one the changes below move, and re-measured on the real
 model after them it is **95 s (4.74 s/step)** — 43 s off a generation. The
