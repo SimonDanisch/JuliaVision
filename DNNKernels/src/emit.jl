@@ -1551,6 +1551,62 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Scalar")}) = binary!(emitctx, op, *)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
 
+"""
+    bufferuses(aten, id) -> Int
+
+How many times `id` is READ in this graph: once per op that names it as an input,
+once per view declared over it, and once for being a graph output.
+
+A view is the reason this counts more than `ins`. `permute_37` is a permuted view
+of `add_398` and `_to_copy_55` reads the view, so `add_398` never appears in that
+op's `ins` at all — and a fusion that asked only about `ins` concluded it had one
+reader when it had three. Same three terms `foldconvpad` counts, for the same
+reason: a rewrite that drops or moves a buffer's producer has to know about every
+read, not every direct one.
+"""
+function bufferuses(aten::Graph, id::AbstractString)
+    n = 0
+    for op in aten.ops, i in op.ins
+        i == id && (n += 1)
+    end
+    for (_, b) in aten.buffers
+        b.of == id && (n += 1)
+    end
+    for o in aten.outputs
+        o == id && (n += 1)
+    end
+    return n
+end
+
+"""
+    deferrednorm(aten, op) -> Op | Nothing
+
+The `native_layer_norm` an `add.Tensor` may be deferred into, or `nothing`.
+
+Two conditions, and the second is the one that was missing. The norm must read the
+sum as its own first input, and it must be the sum's ONLY reader — counted by
+[`bufferuses`](@ref), so a view counts and so does being a graph output.
+
+The fused kernel does store the sum, but it stores it where the NORM sits in the
+order. MatAnyone's `readout_query` has `add_398` read by `add_403` at pass 147 and,
+through the view `permute_37`, by `_to_copy_55` at 160, while the norm that would
+have computed it is pass 197. Those two read a buffer nothing had written. Zeros
+make that look like an answer, which is why it survived: it is invisible until the
+memory holds something else, and on Metal -- where the placer had given those bytes
+to another transient -- MatAnyone's whole matte came back NaN.
+
+A predicate of its own rather than two clauses in the emit so a test can ask it of
+the shipped graphs without a device.
+"""
+function deferrednorm(aten::Graph, op::Op)
+    norms = [x for x in aten.ops
+             if x.aten == "native_layer_norm.default" && !isempty(x.ins) &&
+                x.ins[1] == op.out]
+    length(norms) == 1 || return nothing
+    bufferuses(aten, op.out) == 1 || return nothing
+    return only(norms)
+end
+
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")})
     # Fuse only a direct add -> norm edge.  Extending this through view aliases
     # catches the 91 transformer residuals, but those sums must still be stored
@@ -1559,11 +1615,22 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")})
     # version was 1.00 ms slower over 80 alternating runs.  Timing the two old
     # passes as separate recordings falsely made it look faster by charging the
     # old path an extra submit and synchronize.
-    norms = [x for x in emitctx.aten.ops
-             if x.aten == "native_layer_norm.default" && !isempty(x.ins) &&
-                x.ins[1] == op.out]
-    if length(norms) == 1
-        norm = only(norms)
+    #
+    # And only when that norm is the sum's ONLY reader. The fused kernel does store
+    # the sum, but it stores it where the NORM is in the order, which can be a long
+    # way after another reader: MatAnyone's `readout_query` has `add_398` read by
+    # `add_403` at pass 147 and by `_to_copy_55` at 160 — through the view
+    # `permute_37`, which is how they hid from a check on `ins` alone — and the norm
+    # that computes it is pass 197. Those two read a buffer nothing had written yet.
+    # Zeros make that look like an answer, so it is invisible until the memory holds
+    # something else: on Metal, where the placer had given those bytes to another
+    # transient, MatAnyone's whole matte came back NaN.
+    #
+    # Counted the way `foldconvpad` counts a sole reader — every op input, every
+    # VIEW declared over the buffer, and the graph's own outputs — because all three
+    # are reads the deferral would be wrong about.
+    norm = deferrednorm(emitctx.aten, op)
+    if norm !== nothing
         n = prod(ints(norm.attrs["arg1"]))
         sg = M.caps(emitctx.dev).subgroup
         rowsg = layernormwg(n)

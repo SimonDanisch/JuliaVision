@@ -121,6 +121,7 @@ include(joinpath(@__DIR__, "test_foldconvpad.jl"))
 # Host-side gates a second backend exposed: which devices the matrix kernels are
 # for, and what a unary op does to an integer operand. Neither needs a device.
 include(joinpath(@__DIR__, "test_coopmat_gate.jl"))
+include(joinpath(@__DIR__, "test_deferred_add.jl"))
 include(joinpath(@__DIR__, "test_int_unary.jl"))
 include(joinpath(@__DIR__, "test_w8a8.jl"))
 include(joinpath(@__DIR__, "test_masked_prefill.jl"))
