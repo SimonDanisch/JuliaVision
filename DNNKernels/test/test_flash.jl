@@ -685,3 +685,33 @@ end
         @test_skip false
     end
 end
+
+# One pass over the scores or two, by head width.
+#
+# One pass reads each score once and redoes the block when a row's maximum grew
+# past the fp16 headroom; two passes read every score twice and never redo.
+# Which wins is a property of `E`, and the default used to be one answer for
+# both halves of it: measured on an 8060S at `Lq = Lk = 4096`, two passes win
+# by 7.6% at `E = 128` and 3.1% at 96, one pass wins by 2.8% at 80 and 3.8% at
+# 64. Qwen-Image 2.1's head is 128.
+@testset "the score pass count follows the head width" begin
+    back = LavaBackend()
+    dev = DNNKernels.Ctx(back).dev
+    if dev.coopmat
+        mk(E) = DNNKernels.toback(back, zeros(Float16, E, 256, 4, 1))
+        plan(E; kw...) = DNNKernels.flashcm_plan(dev, mk(E), mk(E), mk(E), nothing; kw...)
+        wide = plan(128)
+        narrow = plan(64)
+        @test wide isa DNNKernels.FlashCMPlan && narrow isa DNNKernels.FlashCMPlan
+        @test !wide.onepass
+        @test narrow.onepass
+        # The crossing, which is where the measurement put it.
+        @test !plan(96).onepass
+        @test plan(80).onepass
+        # And a caller who asks gets what it asked for, both ways.
+        @test plan(128; onepass = true).onepass
+        @test !plan(64; onepass = false).onepass
+    else
+        @test_skip false
+    end
+end

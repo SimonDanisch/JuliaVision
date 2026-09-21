@@ -1533,7 +1533,10 @@ that launches and writes nothing.
 function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
                       clamp::Bool = false, rego::Union{Nothing,Bool} = nothing,
                       held::Union{Nothing,Bool} = nothing,
-                      rescale::Symbol = :fmul, onepass::Bool = true,
+                      rescale::Symbol = :fmul,
+                      # `nothing` asks for the width rule below; a Bool is the
+                      # caller saying which formulation it wants.
+                      onepass::Union{Nothing,Bool} = nothing,
                       lazyrescale::Bool = true, split::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
     bias === nothing || return Decline(:bias)
@@ -1633,7 +1636,33 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # are uniform and reasoning about both at once buys nothing.
     tailsplit = clamp && Lk % BC != 0 && nsplit == 1 && Lk > BC
     tailsplit && (nsplit = 2)
-    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, onepass,
+    # ── One pass over the scores, or two, decided by the HEAD WIDTH.
+    #
+    # One pass reads each score once, computing the block's maximum and its
+    # weights together against the running maximum, and REDOES the block when a
+    # row's maximum grew past the fp16 headroom. Two passes read every score
+    # twice and never redo.
+    #
+    # Which wins is a property of `E`, measured on an 8060S at `Lq = Lk` with
+    # the tiling the chooser picks (twopass/onepass, ms):
+    #
+    #     E    L=4096  H=32        other points
+    #     128  49.07 / 53.09       L=2048: -10.6%,  H=8: -11.5%,  L=1024: -16.5%
+    #     96   39.68 / 40.94       -3.1%
+    #     80   32.63 / 31.74       +2.8%
+    #     72    8.07 /  7.93       +1.7%  (H=8)
+    #     64   25.92 / 24.98       +3.8%
+    #
+    # Six shapes on each side of a crossing between 80 and 96, so the rule is
+    # the width and the default was one answer for both halves of it. It is
+    # worth 7.6% of Qwen-Image 2.1's attention, whose head is 128.
+    #
+    # NOT the other effect in the same knob: a short key axis makes every block
+    # grow the maximum, and `E = 64, Lk = 256, H = 128` — SAM 2's windowed
+    # attention — wants two passes too, by 17.9%. That is a different rule on a
+    # different variable and it is not measured here beyond the one point.
+    op = onepass === nothing ? E < 96 : onepass
+    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, op,
                 lazyrescale, nsplit, tailsplit)
 end
 
