@@ -80,3 +80,32 @@ end
         end
     end
 end
+
+# Which parts land on ONE run of the destination, which is what lets `cat`,
+# `slice_scatter` and `constant_pad_nd` skip `blockcopy!`'s coordinate
+# arithmetic. That arithmetic cost 9x what moving the bytes did, so the
+# predicate is worth being exactly right about, and the case it must refuse
+# looks almost identical to the case it must take.
+@testset "a part is one run of the destination, or it is not" begin
+    cs = DKI.contiguousslab
+
+    # The `cat` this exists for: joined on the outermost non-singleton axis.
+    @test cs((128, 32, 4118, 1), (128, 32, 4096, 1), (0, 0, 22, 0)) == 22 * 128 * 32
+    @test cs((128, 32, 4118, 1), (128, 32, 22, 1), (0, 0, 0, 0)) == 0
+    # The whole destination, which is a copy.
+    @test cs((4, 5), (4, 5), (0, 0)) == 0
+    # A 1-D run, and one that starts partway in.
+    @test cs((4, 1, 5), (4, 1, 2), (0, 0, 3)) == 12
+
+    # Narrow on a LOW axis is a stride, not a run, however small the gap: this
+    # is `out[1:2, :]`, which skips two elements every two.
+    @test cs((4, 4), (2, 4), (0, 0)) === nothing
+    # Same shape as the rotary interleave, which really is every other element.
+    @test cs((2, 64, 32), (1, 64, 32), (0, 0, 0)) === nothing
+    # Narrow on two axes at once is never one run.
+    @test cs((4, 4, 4), (4, 2, 2), (0, 0, 0)) === nothing
+    # An offset on an axis the part spans in full moves every run, not one.
+    @test cs((4, 4), (4, 2), (1, 0)) === nothing
+    # The conv weight pad: rows padded, columns not.
+    @test cs((72, 128), (64, 128), (0, 0)) === nothing
+end
