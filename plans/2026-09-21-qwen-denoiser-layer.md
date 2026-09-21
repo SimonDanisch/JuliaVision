@@ -49,7 +49,8 @@ bit-identical or at fp16 rounding:
 | the rotary interleave in one dispatch | 205.7 |
 | a ragged key axis split at the last whole tile | 189.5 |
 | permuted copies walked in source order | 180.7 |
-| a contiguous slab copied as one run | **174.6** |
+| a contiguous slab copied as one run | 174.6 |
+| the score pass count by head width | **171.1** |
 
 The four products are 86.9 ms and they are not the problem: standalone,
 `q8gemm` runs those three shapes at 21.4, 26.1 and 23.4 TOP/s, which is the
@@ -69,6 +70,9 @@ device's fp16 ceiling (see `2026-09-20-int8-tensor-cores.md`).
   21 GB/s against 115 for `(E, H, L) -> (E, L, H)`.
 * **Contiguous slabs** (`slabcopy!`) — `blockcopy!`'s coordinate arithmetic cost
   9x what moving the bytes did: 12 GB/s against 109.
+* **The score pass count** — one pass over the scores or two is a property of
+  the head width, and the kernel had one answer for every shape. Two passes win
+  at `E >= 96` and lose below it, six shapes either side of the crossing.
 
 The last three share a shape. **Every one was a memory pass running at a tenth
 of the device's bandwidth for a reason that had nothing to do with memory** —
@@ -79,7 +83,7 @@ for elsewhere before anything clever is attempted.
 
 ### The attention's own efficiency, which is now the whole of it
 
-`bmm_7.1` is 48.4 ms for 276 GFLOP, or 5.7 TFLOP/s, against 21-26 for the
+`bmm_7.1` is ~46 ms for 276 GFLOP, about 6 TFLOP/s, against 21-26 for the
 products in the same layer. That is the kernel at `E = 128` and not the ragged
 axis: a key length the tile divides still runs at 5.4. `O` lives in shared
 memory and is read and written on every key block that moves a row's maximum,
