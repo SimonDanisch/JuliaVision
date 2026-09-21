@@ -29,17 +29,27 @@ numbers mean what they say.
 
 | pass | before | after |
 | --- | --- | --- |
-| `bmm_7` — the fused attention | 67.3 | 69.3 |
-| `fuseqkv_mm_17` — gate+proj, 24576x4096x4118 | 44.2 | 43.9 |
-| `mm_19` — mlp out, 4096x12288x4118 | 19.1 | 18.1 |
-| `fuseqkv_mm_13` — qkv, 12288x4096x4118 | 18.0 | 18.1 |
-| `mm_16` — attn out | 5.6 | 5.9 |
+| `bmm_7` — the fused attention | 67.3 | 54.4 (three passes) |
+| `fuseqkv_mm_17` — gate+proj, 24576x4096x4118 | 44.2 | 43.5 |
+| `mm_19` — mlp out, 4096x12288x4118 | 19.1 | 17.1 |
+| `fuseqkv_mm_13` — qkv, 12288x4096x4118 | 18.0 | 18.3 |
+| `mm_16` — attn out | 5.6 | 7.2 |
 | `mean_3`, `mean_4` — q/k norm reductions | 10.7 | **gone** |
 | `cat_7`, `cat_8` — the rotary interleave | 12.6 | **1.2** |
-| `cat_10` — text ++ image keys | 5.0 | 4.9 |
-| `permute_31/32/33` — attention operands | 8.8 | 8.6 |
-| everything else | 31.8 | 25.2 |
-| **total, serialised** | **223.1** | **195.2** |
+| `cat_10` — text ++ image keys | 5.0 | **0.6** |
+| `permute_31/32/33` — attention operands | 8.8 | **under 1.4 each** |
+
+Five changes, each measured on its own, each leaving the layer's output
+bit-identical or at fp16 rounding:
+
+| | layer, replayed, ms |
+| --- | --- |
+| start | 232.8 |
+| the q/k norm fused | 222.1 |
+| the rotary interleave in one dispatch | 205.7 |
+| a ragged key axis split at the last whole tile | 189.5 |
+| permuted copies walked in source order | 180.7 |
+| a contiguous slab copied as one run | **174.6** |
 
 The four products are 86.9 ms and they are not the problem: standalone,
 `q8gemm` runs those three shapes at 21.4, 26.1 and 23.4 TOP/s, which is the
@@ -52,10 +62,34 @@ device's fp16 ceiling (see `2026-09-20-int8-tensor-cores.md`).
   recognised. 16.5 ms of chain became a 0.95 ms kernel.
 * **The rotary interleave** (`interleave2!`) — a `cat` on the innermost axis
   wrote every other element from each of two dispatches. 12.6 ms became 1.16.
+* **The ragged key axis** (`tailsplit`) — the cliff below, answered with two
+  launches: 70.9 ms to 63.1 standalone, 67.3 to 54.4 in the layer.
+* **Permuted copies** (`stridedcopy32perm!`) — walking the DESTINATION linearly
+  leaves the reads scattered, and a scattered read is the expensive direction:
+  21 GB/s against 115 for `(E, H, L) -> (E, L, H)`.
+* **Contiguous slabs** (`slabcopy!`) — `blockcopy!`'s coordinate arithmetic cost
+  9x what moving the bytes did: 12 GB/s against 109.
+
+The last three share a shape. **Every one was a memory pass running at a tenth
+of the device's bandwidth for a reason that had nothing to do with memory** —
+two were index arithmetic and one was traversal order. That is worth looking
+for elsewhere before anything clever is attempted.
 
 ## What is left, in order
 
-### The attention, and a key length that does not divide the tile
+### The attention's own efficiency, which is now the whole of it
+
+`bmm_7.1` is 48.4 ms for 276 GFLOP, or 5.7 TFLOP/s, against 21-26 for the
+products in the same layer. That is the kernel at `E = 128` and not the ragged
+axis: a key length the tile divides still runs at 5.4. `O` lives in shared
+memory and is read and written on every key block that moves a row's maximum,
+which the kernel's own notes put at two thirds of them, and at `BR = 64`,
+`EP = 128` that is 64 KiB of LDS traffic per 1.05 MFLOP of matrix work. `rego`
+would put it in registers and measures WORSE here (73.5 ms against 70.1), and
+the tiling chooser has no admissible wider tile at this head width. A kernel
+design question rather than a tuning one, and the next big one.
+
+### Solved: a key length that does not divide the tile
 
 `bmm_7` is 30% of the layer and runs at 4 TFLOP/s against the products' 21.
 Most of that is the kernel's own efficiency at `E = 128` (5.4 TFLOP/s even at a
@@ -78,19 +112,25 @@ nothing — `Lk = 4118` was still 73.9 ms against 52.1 for `Lk = 4128` over the
 same allocation, the same strides, the same 258 blocks and the same source. The
 discriminator is `Val{KCLAMP}` itself, which the body no longer reads.
 
-So the fix is not to make the mask cheaper, it is to not need one: split the
-key axis at the last multiple of `BC` and merge. The pieces exist —
-`attn_flash_cm_merge!` already merges partial attentions under their own row
-maxima — but the split inside the kernel is `kbper = cld(nkb, NSPLIT)`, uniform
-slices, and this one is 257 blocks plus 1. Worth ~20 ms a layer, 0.64 s a step.
+Register ballast does not move it either, so it is not an occupancy edge. What
+it follows is `Val{KCLAMP}` itself, and that remains unexplained.
+
+So the fix is not to make the mask cheaper, it is to not need one: one launch
+over the blocks that fill a tile with the check compiled out, one over the
+remainder with it on, and `attn_flash_cm_merge!` to combine them under their
+own row maxima. `PARTOUT` is what made it expressible — which split slot a
+launch writes, so a launch can hand back an unnormalised partial without
+splitting its own key range. The tail launch is one key block of 258 and can be
+as slow as it likes.
 
 Two things that are NOT worth it, measured: `(64, 32)` with the held store is
 68.5 ms against 70.1 for the chooser's `(64, 16)`, and `rego` is 73.5.
 
-### The copies around the attention
+### Still there, and small
 
-`cat_10` and the three `permute`s are 13.5 ms of layout change for operands the
-attention then reads. A contiguous fp16 copy of that size is 0.53 ms.
+`mm_16` takes 7.2 ms for a product that runs at 5.4 standalone, and
+`view_77`/`view_79` are 2.8 ms of slicing the stacked MLP result. Between those
+and the attention there is nothing above 1.5 ms left.
 
 ## A trap this measurement fell into
 
