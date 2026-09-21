@@ -34,12 +34,38 @@ A denoising step was 12.5 s when the model first ran. Where the rest went:
 | a 64-row attention tile, which a 128-wide head has room for | 7.1 |
 | the padded product's destination declared padded, so nothing discards it | 6.9 |
 
-What remains, per layer: one joint attention ~63 ms, the gate/up product 47 ms,
-the QKV product 44 ms, the output and down products 18 ms, four ConvRot
-transforms 5 ms, and ~35 ms of elementwise, norms and column padding. The
-attention still runs at 8.7 TFLOP/s against a card that peaks near 59, and its
-key length divides no tiling — the bounds checks that costs are compiled into
-every key block rather than the last one.
+Then seven more, measured on ONE LAYER rather than on the step. The layer is
+cut out of the exported graph and given random weights of the declared shapes,
+which replays in 232.8 ms against the real step's 215.6 ms a layer — 8% high,
+and it iterates in a quarter of a second instead of a minute. It went to
+**167.1 ms**, which is the same 28% off a step if it carries:
+
+| | layer, ms |
+| --- | --- |
+| the harness, matching the row above | 232.8 |
+| Qwen's per-head q/k RMS norm fused | 222.1 |
+| the rotary interleave in one dispatch | 205.7 |
+| the ragged key axis split at the last whole tile | 189.5 |
+| permuted copies walked in the source's order | 180.7 |
+| a contiguous slab copied as one run | 174.6 |
+| two passes over the scores where the head is 96 wide or more | 171.1 |
+| the interleaved rotary fused | **167.1** |
+
+Two further changes are measured on the operation and not yet on the layer: the
+stacked gate+proj product takes the stacked-projection tile (42.7 ms to 37.9),
+and the SwiGLU reads that product's halves in place rather than copying them
+(2.84 ms of copies removed, and the layer's arena fell 391 MB to 353).
+
+The harness runs plain int8 weights, so it does NOT include the four ConvRot
+transforms a layer (~5 ms) that the compact checkpoint adds. `plans/2026-09-21-qwen-denoiser-layer.md`
+has the pass-by-pass breakdown and what is left.
+
+What remains, per layer, is the products at the device's fp16 ceiling (~53% of
+it) and the attention at ~30%, which runs at about 6 TFLOP/s where the products
+in the same layer reach 21-26. Its key length still divides no tiling, but that
+no longer costs the whole kernel: the bounds check is compiled into a second
+launch over the ragged remainder, and the 257 blocks that fill a tile run
+without it.
 
 ## What is where
 
