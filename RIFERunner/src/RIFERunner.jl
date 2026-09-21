@@ -107,7 +107,11 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
+    # `isdefined`, because `use_frozen_kernels` lives in Mantle's VULKAN tree: without a
+    # Vulkan driver it does not exist, and an unguarded call here is an `InitError` that
+    # stops `using` this package at all. Nothing to read is not an error, it is no cache.
+    isdefined(Mantle, :use_frozen_kernels) &&
+        Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -198,12 +202,12 @@ because the graph's shape is baked.
 framesize(model::RIFE) = model.padded
 
 """
-    rife(; backend = Mantle.LavaBackend(), dir = assetdir()) -> RIFE
+    rife(; backend = Mantle.defaultbackend(), dir = assetdir()) -> RIFE
 
 Load the model. Separate from [`interpolate!`](@ref) so the workload can build it
 in `@setup_workload`, where the loading is not what is being cached.
 """
-function rife(; backend = Mantle.LavaBackend())
+function rife(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
         "no export at $dir — generate it with `uv run tools/export_rife.py`"))
@@ -317,7 +321,7 @@ end
 @setup_workload begin
     if ready()
         try
-            backend = Mantle.LavaBackend()
+            backend = Mantle.defaultbackend()
             # `rife` is inside the workload, not in front of it, and that is not
             # tidiness. `Model`'s last pass is `hoistconstants(graphs, weights,
             # backend)`, which folds constant *subgraphs* by running them on the

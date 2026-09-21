@@ -332,7 +332,11 @@ function mm_coopmat_plan(dev::M.DeviceCaps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb}
     # BEFORE the extent test, which divides by `dev.tile`. A device with no
     # matrix hardware reports no tile, and the extent test would then throw a
     # DivideError instead of declining.
-    dev.coopmat || return Decline(:nocoopmat)
+    #
+    # `coopmatkernels` and not `dev.coopmat`, for the reason given there: this plan
+    # is a promise to call `coopmat_gemm_shape`, which exists only where the
+    # staged kernels do.
+    coopmatkernels(dev) || return Decline(:nocoopmat)
     sa[1] % dev.tile == 0 && sa[2] % dev.tile == 0 || return Decline(:extent)
     MMCoopMatPlan(Mantle.gemm_padn(sa[1], sb[2], sa[2]; tile = dev.tile), dev.tile)
 end

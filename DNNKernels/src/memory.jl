@@ -283,7 +283,13 @@ function readmemory(ctx, m::MemoryBank, qk, qe, w, h; topk::Int=30)
     ms = view(m.shrinkage, 1:n, :, :)
 
     sim = KernelAbstractions.allocate(backend, T, hw, n, bs)
-    launch!(ctx, similarity_body, sim, mk, ms, qk2, qe2, Val(ck), inv(sqrt(ck)))
+    # `T(...)` on the HOST. `inv(sqrt(ck))` is a `Float64`, and passing one made the
+    # scale a double-precision kernel ARGUMENT — which the body then truncated per
+    # thread. A GPU that has no `double` cannot compile that at all, and the failure
+    # is an `InvalidIRError` from `Float32(::Float64)` rather than anything naming a
+    # scale. Rounding here is the same `fptrunc` on the same `Float64`, so the value
+    # is bit-identical; it just happens once instead of per thread.
+    launch!(ctx, similarity_body, sim, mk, ms, qk2, qe2, Val(ck), T(inv(sqrt(ck))))
 
     sums = KernelAbstractions.allocate(backend, T, hw, bs)
     let WG = 64

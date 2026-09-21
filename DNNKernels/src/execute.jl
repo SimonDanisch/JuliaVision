@@ -249,6 +249,24 @@ ints(x::Vector{Int}) = x
 ints(x) = x isa AbstractVector ? Int.(x) : Int(x)
 
 """
+    staticints(x) -> Vector{Int} | Nothing
+
+`ints(x)`, but `nothing` when any element is not a number.
+
+For a HOST-SIDE graph rewrite, which sees an attribute before any `dims` exist and so
+cannot resolve a symbolic one. An exported attribute is `Any[...]` and an entry may be
+a `"\$sym"` reference — a pad amount computed from a sequence length is — and there
+`ints` throws `Int(::String)`. A rewrite that cannot read the number has to decline
+the op, not fail the load, so the answer is `nothing` rather than an error.
+"""
+staticints(x::Vector{Int}) = x
+function staticints(x)
+    x isa AbstractVector || return x isa Number ? [Int(x)] : nothing
+    all(v -> v isa Number, x) || return nothing
+    Int[Int(v) for v in x]
+end
+
+"""
     value(ctx, id)
 
 Resolve a buffer, materialising views lazily and recursively.

@@ -195,7 +195,7 @@ struct QwenTransformer{B,G,W,P}
 end
 
 """
-    qwenimagetransformer(; backend=Mantle.LavaBackend(), dir=assetdir())
+    qwenimagetransformer(; backend=Mantle.defaultbackend(), dir=assetdir())
 
 Load and prepare the exported denoiser. The graph is static in latent resolution
 and prompt length; those are selected when running `tools/export_qwenimage21.py`.
@@ -207,7 +207,7 @@ device loss, and nothing in the Julia frame naming the cause. The completion
 points cost nothing measurable and the barriers between the pieces are still
 the ones the graph derived. `0` restores the single submission.
 """
-function qwenimagetransformer(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
+function qwenimagetransformer(; backend=Mantle.defaultbackend(), dir::AbstractString=assetdir(),
                               compact_dir::Union{Nothing,AbstractString}=nothing,
                               maxpasses::Integer=64)
     graph_path = joinpath(dir, first(COMPONENT_FILES[:transformer]))
@@ -246,7 +246,7 @@ struct QwenVAEDecoder{B,D,G,W,P}
 end
 
 """
-    qwenimagevae(; backend=Mantle.LavaBackend(), dir=assetdir(), record=false)
+    qwenimagevae(; backend=Mantle.defaultbackend(), dir=assetdir(), record=false)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
@@ -277,7 +277,7 @@ Two numbers that were in this docstring and are wrong: the decode is not 38.4 s
 submission does not have to exceed the driver's limit (`maxpasses = 8` records
 and replays; 64 is what times out).
 """
-function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
+function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=assetdir(),
                       record::Bool=false, maxpasses::Integer=8)
     ready(:vae_decoder; dir) || throw(ArgumentError(
         "no Qwen-Image 2.1 VAE export at $dir — run " *

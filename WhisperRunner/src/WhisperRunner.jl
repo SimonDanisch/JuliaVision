@@ -222,7 +222,11 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
+    # `isdefined`, because `use_frozen_kernels` lives in Mantle's VULKAN tree: without a
+    # Vulkan driver it does not exist, and an unguarded call here is an `InitError` that
+    # stops `using` this package at all. Nothing to read is not an error, it is no cache.
+    isdefined(Mantle, :use_frozen_kernels) &&
+        Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -250,7 +254,7 @@ struct WhisperEncoder{B,M}
 end
 
 """
-    whispermodel(; backend = Mantle.LavaBackend(), dir = assetdir()) -> WhisperEncoder
+    whispermodel(; backend = Mantle.defaultbackend(), dir = assetdir()) -> WhisperEncoder
 
 Load the encoder. Downloads the artifact on first use.
 
@@ -258,7 +262,7 @@ Not called at module scope and not cached in a global: a `Model` holds device
 buffers, and a module global holding one is baked into the package image with a
 `VkContext` that is dead by the time anyone loads it.
 """
-function whispermodel(; backend = Mantle.LavaBackend(), precision::Symbol = :fp16)
+function whispermodel(; backend = Mantle.defaultbackend(), precision::Symbol = :fp16)
     ready() || throw(ArgumentError(
         "no export in the whisper artifact — generate it with " *
         "`uv run tools/export_whisper.py`"))
@@ -329,7 +333,7 @@ const decode_tokens = decode
 @setup_workload begin
     if ready()
         try
-            backend = Mantle.LavaBackend()
+            backend = Mantle.defaultbackend()
             # `whispermodel` INSIDE `@compile_workload`, not in front of it —
             # `Model`'s last pass folds constant subgraphs by running them on the
             # device, and building it outside leaves those dispatches unfrozen.

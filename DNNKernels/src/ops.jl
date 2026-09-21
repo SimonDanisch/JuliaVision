@@ -287,6 +287,46 @@ are the same singleton everywhere."""
 rsqrt_(x) = inv(sqrt(x))
 
 """
+    InFloat{T}(f)
+
+`f`, applied to its operand converted to `T` first.
+
+Every float-valued entry in [`UNARY_FUSED`](@ref) — `sqrt`, `log`, `exp`, `tanh`,
+`sin`, `cos`, `inv`, `rsqrt_` — promotes an INTEGER argument through `float(x)`,
+and `float(::Int64)` is `Float64`. A GPU kernel handed that computes in double
+precision: on a device that has no `double` it does not compile at all (Kokoro's
+`rsqrt` of an `Int64` token count is an `InvalidIRError`, "unsupported use of
+double value", from `sqrt` at `math.jl:1544`), and on one that does it silently
+pays for a precision the destination cannot hold. Torch computes such an op in
+the RESULT dtype, which is what converting first does.
+
+A named callable and not `x -> f(T(x))`, for the reason [`rsqrt_`](@ref) is
+named: an anonymous function gets a fresh type per definition site, so the same
+arithmetic would compile and freeze as many kernels as there are places that
+wrote it. `InFloat{Float32}(sqrt)` is one type everywhere.
+"""
+# `T` FIRST, so that `InFloat{Float32}` names the target type and not the function:
+# with the parameters the other way round, `InFloat{Float32}(rsqrt_)` binds `Float32`
+# to the function slot and builds `InFloat{typeof(rsqrt_),typeof(rsqrt_)}`, whose call
+# is `rsqrt_(rsqrt_(x))` — a `MethodError` that on a GPU appears as a throw the
+# compiler cannot emit rather than as an error anybody can read.
+struct InFloat{T,F} <: Function
+    f::F
+end
+InFloat{T}(f::F) where {T,F} = InFloat{T,F}(f)
+@inline (g::InFloat{T,F})(x) where {T,F} = g.f(T(x))
+
+"""
+    infloat(f, Tout, Tin) -> f or InFloat
+
+[`InFloat`](@ref) when a float-valued `f` would otherwise promote an integer operand
+to `Float64`, and `f` itself when it would not. `Bool` is excluded: `!` is in the same
+table, and `!(Float32(x))` is not a function.
+"""
+infloat(f, ::Type{Tout}, ::Type{Tin}) where {Tout,Tin} =
+    (Tout <: AbstractFloat && Tin <: Integer && Tin !== Bool) ? InFloat{Tout}(f) : f
+
+"""
 Every ATen op that is exactly one function of one operand, and which function.
 
 One table, read twice: `runop!` generates a method per entry below, and
@@ -309,7 +349,9 @@ for (name, f) in UNARY_FUSED
     # Writes into the op's planned slab slot instead of returning a fresh array;
     # `opdest` falls back to allocating when the buffer was not planned.
     @eval function runop!(ctx::Ctx, op::Op, ::Val{Symbol($name)})
-        emit(ctx, Base.broadcasted($f, lhs(ctx, op)))
+        a = lhs(ctx, op)
+        emit(ctx, Base.broadcasted(infloat($f, ctx.graph.buffers[op.out].dtype,
+                                            eltype(a)), a))
     end
 end
 

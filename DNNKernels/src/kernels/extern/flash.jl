@@ -1479,7 +1479,10 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
     # `flashcm_plan` checks this before calling, but this is also reached
     # directly — from tests and from the docstring above. Without matrix hardware
     # there is no tile, and `cld(E, 0)` throws instead of reporting "no tiling".
-    dev.coopmat || return nothing
+    # `coopmatkernels`, not `dev.coopmat`: these kernels emit
+    # `Mantle.coopmat_load`, which is defined in the tree that implements it and
+    # is not a name at all on a device with 8-wide matrices. See the predicate.
+    coopmatkernels(dev) || return nothing
     EP = cld(E, dev.tile) * dev.tile
     fits = NTuple{3,Int}[]
     # `NW` scaled to this device's wave, then the table's own. Every number in
@@ -1673,7 +1676,10 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
                       lazyrescale::Bool = true, split::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
     bias === nothing || return Decline(:bias)
-    dev.coopmat || return Decline(:nocoopmat)
+    # `coopmatkernels`, not `dev.coopmat`: these kernels emit
+    # `Mantle.coopmat_load`, which is defined in the tree that implements it and
+    # is not a name at all on a device with 8-wide matrices. See the predicate.
+    coopmatkernels(dev) || return Decline(:nocoopmat)
     eltype(q) === Float16 && eltype(k) === Float16 && eltype(v) === Float16 ||
         return Decline(:eltype)
 

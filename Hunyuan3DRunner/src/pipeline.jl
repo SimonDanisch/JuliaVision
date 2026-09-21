@@ -75,14 +75,14 @@ struct Hunyuan3D{B}
 end
 
 """
-    hunyuan3d(; backend = Mantle.LavaBackend(), root = assetdir()) -> Hunyuan3D
+    hunyuan3d(; backend = Mantle.defaultbackend(), root = assetdir()) -> Hunyuan3D
 
 Load all four graphs. `root` holds the four directories [`PARTS`](@ref) names.
 
 Separate from [`generate`](@ref) so a workload can build it in `@setup_workload`,
 where the loading is not what is being cached.
 """
-function hunyuan3d(; backend = Mantle.LavaBackend())
+function hunyuan3d(; backend = Mantle.defaultbackend())
     # `weights` is explicit because the denoiser's do not sit beside its graph:
     # they are four shard artifacts merged by `hunyuan3dweights`, while the other
     # three parts each keep a `weights.safetensors` in their own artifact.

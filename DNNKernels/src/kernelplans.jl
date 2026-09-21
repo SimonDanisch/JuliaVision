@@ -35,6 +35,62 @@ struct Decline
 end
 
 """
+    coopmatkernels(dev::M.DeviceCaps) -> Bool
+
+Whether a kernel in this tree may use Mantle's **cooperative-matrix intrinsics**
+on this device, and whether Mantle's own staged cooperative-matrix GEMM
+(`coopmat_gemm_shape`, `coopmat_gemm_dispatch!`, the `GEMM_TILINGS` table behind
+them) exists for it.
+
+One predicate for both, because they are one requirement. `coopmat_load` lowers
+to an `llvmcall` whose external symbol is `_lava_coopmat_load_f16_16x16_a`: the
+shape is in the NAME. Every kernel here that multiplies matrices — the staged
+GEMM, `conv_coopmat`, `flashcm`, `coopmat_sdpa` — is emitted against that one
+instruction.
+
+NOT `dev.coopmat`. That flag is a fact about the *hardware*, and `DeviceCaps`
+says so in its own words: it is "a floor, not a promise about every operation …
+a kernel that wants [something narrower] asks separately and carries the
+answer". This is that separate question. A device that multiplies 8x8 matrices
+has cooperative matrices and none of these kernels, and `Mantle.coopmat_load` is
+not merely unavailable there — it is not defined at all, because it is exported
+from the tree that implements it.
+
+The two were the same answer for as long as one backend existed, so the planners
+read `dev.coopmat` and then divided by `dev.tile`. On a device with 8-wide
+matrices that ADMITTED the plan and reached `Mantle.GEMM_TILINGS`, and a
+convolution died with an `UndefVarError` rather than taking the implicit-GEMM
+kernel beside it.
+
+Pinning the tile also closes a hazard Mantle documents from the other side. Its
+`caps` reads `tile` from the driver's shape table precisely because a constant 16
+was wrong: "on a card reporting anything but 16 the kernels strided by 16 and
+read another fragment's registers, and nothing would have crashed." The staged
+kernels are still emitted at 16. So a device whose best square is not 16 has no
+kernel here either, and this says so instead of striding.
+
+`isdefined` is the third term, and is not reflection standing in for a capability.
+The staged kernels are DEFINED in the tree that implements them, so on a build
+without that tree `Mantle.GEMM_TILINGS` and `Mantle.coopmat_load` are not an empty
+table and an unavailable intrinsic — they are not bindings at all. The tile alone
+makes this a claim about the DEVICE that is only conditionally a claim about the
+LIBRARY, and a hand-built 16-wide `DeviceCaps` then admits a plan that reaches an
+undefined name two frames later. It is the guard the runners put on
+`use_frozen_kernels` for the same reason: nothing to ask is not an error, it is no
+kernel. Asked once per plan.
+"""
+coopmatkernels(dev::M.DeviceCaps) =
+    dev.coopmat && dev.tile == COOPMAT_TILE && isdefined(M, :GEMM_TILINGS)
+
+
+"""The one tile extent every cooperative-matrix kernel reachable from here is emitted
+at, which is `Mantle.GEMM_TILE` and the `16x16` in `_lava_coopmat_load_f16_16x16_a`.
+Restated rather than imported: the constant lives in the tree that defines those
+kernels, and the whole point of [`coopmatkernels`](@ref) is to be answerable where
+they do not exist."""
+const COOPMAT_TILE = 16
+
+"""
     FlashCMPlan
 
 Everything the cooperative-matrix flash kernel needs to launch, decided once.

@@ -1627,8 +1627,14 @@ end
 # time, when a fusion emitting `x -> inv(sqrt(x))` was not the `rsqrt.default`
 # anybody had tested.
 for (name, f) in UNARY_FUSED
-    @eval emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol($name)}) =
-        elementwise!(emitctx, op, $f, unaryoperand(emitctx, op))
+    # `infloat`: a float-valued entry in that table promotes an INTEGER operand
+    # through `float(x)`, and `float(::Int64)` is `Float64` — a kernel argument no
+    # GPU here wants and one Metal cannot compile at all. It computes in the
+    # destination's own float type instead, which is the dtype torch gives the op.
+    @eval function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol($name)})
+        x = unaryoperand(emitctx, op)
+        elementwise!(emitctx, op, infloat($f, eltype(dest(emitctx)), eltype(x)), x)
+    end
 end
 
 """

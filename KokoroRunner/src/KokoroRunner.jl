@@ -103,7 +103,7 @@ refsdir() = @artifact_str("kokoro-refs")
 include("g2p.jl")
 
 """
-    Kokoro(; backend = Mantle.LavaBackend(), dir = assetdir()) -> Kokoro
+    Kokoro(; backend = Mantle.defaultbackend(), dir = assetdir()) -> Kokoro
 
 Load the model. Holds device weights and a scratch slab, so build it once and
 keep it — the constructor is the expensive call, [`speak`](@ref) is not.
@@ -121,7 +121,7 @@ struct Kokoro{B,M,V}
     lexicon::Lexicon
 end
 
-function Kokoro(; backend = Mantle.LavaBackend())
+function Kokoro(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
         "Kokoro assets incomplete in $dir. Generate them with " *
@@ -351,7 +351,11 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
+    # `isdefined`, because `use_frozen_kernels` lives in Mantle's VULKAN tree: without a
+    # Vulkan driver it does not exist, and an unguarded call here is an `InitError` that
+    # stops `using` this package at all. Nothing to read is not an error, it is no cache.
+    isdefined(Mantle, :use_frozen_kernels) &&
+        Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 

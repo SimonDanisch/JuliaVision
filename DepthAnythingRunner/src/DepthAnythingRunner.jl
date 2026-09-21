@@ -123,7 +123,11 @@ function __init__()
     # Read the entries the workload froze. Recording stays off: a session that
     # hits a kernel the workload missed should compile it and carry on, not
     # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
+    # `isdefined`, because `use_frozen_kernels` lives in Mantle's VULKAN tree: without a
+    # Vulkan driver it does not exist, and an unguarded call here is an `InitError` that
+    # stops `using` this package at all. Nothing to read is not an error, it is no cache.
+    isdefined(Mantle, :use_frozen_kernels) &&
+        Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -174,12 +178,12 @@ struct DepthAnything{B,G,W,P,I}
 end
 
 """
-    depthanything(; backend = Mantle.LavaBackend(), dir = assetdir()) -> DepthAnything
+    depthanything(; backend = Mantle.defaultbackend(), dir = assetdir()) -> DepthAnything
 
 Load the model. Separate from [`depthmap!`](@ref) so the workload can build it in
 `@setup_workload`, where the loading is not what is being cached.
 """
-function depthanything(; backend = Mantle.LavaBackend())
+function depthanything(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
         "no export at $dir — generate it with `uv run tools/export_depthanything.py`"))
@@ -260,7 +264,7 @@ end
 @setup_workload begin
     if ready()
         try
-            backend = Mantle.LavaBackend()
+            backend = Mantle.defaultbackend()
             # Model construction inside the workload, not in front of it:
             # `Model`'s last pass folds constant subgraphs by *running* them on
             # the device, so building it outside leaves those dispatches

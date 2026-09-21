@@ -128,14 +128,14 @@ struct Whisper{B,ME,MD,C,I2,I1,F}
 end
 
 """
-    whisper(; backend = Mantle.LavaBackend(), dir = assetdir(), decdir = decoderdir())
+    whisper(; backend = Mantle.defaultbackend(), dir = assetdir(), decdir = decoderdir())
         -> Whisper
 
 Load both halves. The decoder artifact is separate from the encoder's — it is a
 different export with different weights, and a caller who only wants embeddings
 should not pay for the autoregressive half.
 """
-function whisper(; backend = Mantle.LavaBackend(),
+function whisper(; backend = Mantle.defaultbackend(),
                    precision::Symbol = :fp16,
                    maxtarget::Int = 448, srclen::Int = 1500,
                    record::Bool = false)

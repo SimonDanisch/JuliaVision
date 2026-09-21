@@ -23,9 +23,12 @@ function padgraph(; amount = [1, 1, 1, 1], value = 0, convpad = [0, 0],
                    transposed = false, extrareader = false)
     W = H = 8
     # torch pads the LAST axis first, so `amount[1:2]` is width and `[3:4]`,
-    # where they exist, is height.
-    dw = amount[1] + amount[2]
-    dh = length(amount) >= 4 ? amount[3] + amount[4] : 0
+    # where they exist, is height. A SYMBOLIC entry contributes nothing to the
+    # shapes here — an exported graph carries the resolved extents and the
+    # attribute is what is still unresolved — so it is skipped rather than added.
+    num(v) = v isa Number ? Int(v) : 0
+    dw = num(amount[1]) + num(amount[2])
+    dh = length(amount) >= 4 ? num(amount[3]) + num(amount[4]) : 0
     bufs = Dict{String,DKP.Buffer}(
         "x"   => padbuf("x", :input, [1, 4, H, W], Float16),
         "pd"  => padbuf("pd", :op, [1, 4, H + dh, W + dw], Float16),
@@ -82,4 +85,29 @@ end
 
     # Padding a non-spatial axis as well is more than `arg4` can carry.
     @test DKP.foldconvpad(padgraph(; amount = [1, 1, 1, 1, 1, 1]))[2] == 0
+end
+
+# A pad amount is not always a number.
+#
+# This pass rewrites the graph at LOAD time, before any `dims` exist, so a pad
+# computed from a sequence length arrives as a `"$sym"` reference rather than an
+# integer. `ints` turned that into `Int(::String)` and took the whole model down:
+# Kokoro pads its vocoder input that way, and `KokoroRunner.speak` could not get
+# past `foldconvpad`. A pad whose amount is unknown here cannot be folded into a
+# static `arg4`, so the pass has to DECLINE it and leave the op standing.
+@testset "a symbolic pad amount is declined, not an error" begin
+    @test DKP.staticints(Any[1, 1, 1, 1]) == [1, 1, 1, 1]
+    @test DKP.staticints(Any[1, 1, "\$sub_12", 1]) === nothing
+    @test DKP.staticints(Int[2, 3]) == [2, 3]
+    @test DKP.staticints(3) == [3]
+    @test DKP.staticints("\$mul_7") === nothing
+
+    # The pad's own amount…
+    g, n = DKP.foldconvpad(padgraph(; amount = Any[1, 1, "\$sub_12", 1]))
+    @test n == 0
+    @test length(g.ops) == 2                      # both still there
+    # …and the convolution's existing padding, read by the same pass.
+    g2, n2 = DKP.foldconvpad(padgraph(; convpad = Any[0, "\$sub_12"]))
+    @test n2 == 0
+    @test length(g2.ops) == 2
 end

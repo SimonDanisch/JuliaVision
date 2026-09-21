@@ -116,7 +116,7 @@ command buffer per dispatch. Prefill recordings use bounded submission sizes.
 On by default HERE and not in `Model`: the preconditions are real
 (`DNNKernels.record`), and this is the model they have been checked against.
 """
-function horizon32b(; backend = Mantle.LavaBackend(), dir::AbstractString = assetdir(),
+function horizon32b(; backend = Mantle.defaultbackend(), dir::AbstractString = assetdir(),
                     quantize::Bool = true, record::Bool = true, bucketdir::AbstractString = dir)
     gs = horizon32bgraphs(; dir, bucketdir)
     # A full 512-token prefill takes over 20 seconds on the 8060S. Give the

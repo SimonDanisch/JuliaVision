@@ -171,7 +171,7 @@ another 7.26 GB, which do not fit at once on an 8060S. Encode first, drop this
 object, then build the denoiser: the prompt is encoded once per image while the
 denoiser runs every step.
 """
-function qwenimagetextencoder(; backend=Mantle.LavaBackend(),
+function qwenimagetextencoder(; backend=Mantle.defaultbackend(),
                               dir::AbstractString=assetdir(),
                               compact_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""),
                               processor_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_PROCESSOR", ""),

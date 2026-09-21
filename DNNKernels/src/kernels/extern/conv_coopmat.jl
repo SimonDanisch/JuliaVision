@@ -117,7 +117,13 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     CRS = Cin * KH * KW
     # Before any test that divides by `dev.tile`: a device with no matrix
     # hardware reports no tile, and those would throw instead of declining.
-    dev.coopmat || return Decline(:nocoopmat)
+    #
+    # `coopmatkernels` and not `dev.coopmat`: what this plan commits to is
+    # `coopmat_gemm_dispatch!` and the `GEMM_TILINGS` table, which exist at one
+    # tile width. A device with 8-wide cooperative matrices passes `dev.coopmat`
+    # and has no staged kernel, and admitting it here reached an undefined name
+    # instead of the implicit-GEMM path below.
+    coopmatkernels(dev) || return Decline(:nocoopmat)
     Cout % dev.tile == 0 || return Decline(:cout)
     #
     # How much padding of the reduction axis a convolution may buy its way onto the

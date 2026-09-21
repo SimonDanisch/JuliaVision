@@ -272,7 +272,7 @@ matanyonegraphs() = Dict(n => loadgraph(joinpath(assetdir(), "$n.json")) for n i
 Load the propagator. Separate from the workload body so the loading is not what
 gets cached.
 """
-function matanyonemodel(; backend = Mantle.LavaBackend())
+function matanyonemodel(; backend = Mantle.defaultbackend())
     return Model(matanyonegraphs(), matanyoneweights(); backend)
 end
 
@@ -326,7 +326,7 @@ loaded, or loading the editor invalidates it again — and since the editor
 depends on this package directly, the editor is that far side.
 """
 function matanyonepropagator(;
-        backend = Mantle.LavaBackend(),
+        backend = Mantle.defaultbackend(),
         # Re-runs of a seeded frame, settling the memory bank before its own matte
         # is read. `inference_matanyone2.py` uses 10 and `DNNKernels.matte` matches
         # it; it is also what makes a single-frame call (the live preview while
@@ -441,7 +441,11 @@ end
 
 
 function __init__()
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
+    # `isdefined`, because `use_frozen_kernels` lives in Mantle's VULKAN tree: without a
+    # Vulkan driver it does not exist, and an unguarded call here is an `InitError` that
+    # stops `using` this package at all. Nothing to read is not an error, it is no cache.
+    isdefined(Mantle, :use_frozen_kernels) &&
+        Mantle.use_frozen_kernels(KERNELS_VERSION)
     return nothing
 end
 
@@ -450,7 +454,7 @@ end
     ready = isdir(dir) && isfile(w) && isfile(joinpath(dir, "encode_image.json"))
     if ready
         try
-            backend = Mantle.LavaBackend()
+            backend = Mantle.defaultbackend()
             model = matanyonemodel(; backend)
             # Small, but a real shape: 16-multiples, and big enough that the
             # memory bank's reductions take their normal paths.

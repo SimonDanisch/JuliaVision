@@ -59,7 +59,15 @@ function foldconvpad(g::Graph)
         length(pad.ins) == 1 || continue
         get(uses, pad.out, 0) == 1 || continue
         Float64(something(get(pad.attrs, "arg2", 0), 0)) == 0.0 || continue
-        amt = ints(pad.attrs["arg1"])
+        # `staticints`, not `ints`: a pad amount may be SYMBOLIC — Kokoro pads its
+        # vocoder input by an expression in the token count, and the attribute then
+        # holds a `"$sub_12"` rather than a number. This pass rewrites the graph
+        # before any `dims` exist, so there is nothing to resolve it against; a pad
+        # whose amount is not known here simply cannot be folded into a static
+        # `arg4`. It used to reach `Int(::String)` and take the whole model down at
+        # load time.
+        amt = staticints(pad.attrs["arg1"])
+        amt === nothing && continue
         # torch pads the LAST axis first, two numbers per axis. Four of them is
         # the two spatial axes of an NCHW tensor; two is the innermost alone.
         (length(amt) == 2 || length(amt) == 4) || continue
@@ -72,7 +80,8 @@ function foldconvpad(g::Graph)
         String(conv.aten) == "convolution.default" || continue
         get(conv.attrs, "arg6", false) == true && continue     # transposed
         isempty(conv.ins) || conv.ins[1] == pad.out || continue
-        cpad = ints(conv.attrs["arg4"])
+        cpad = staticints(conv.attrs["arg4"])
+        cpad === nothing && continue
         all(iszero, cpad) || continue
         length(cpad) == 2 || continue
 

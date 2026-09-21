@@ -702,7 +702,10 @@ function coopmat_sdpa_plan(dev::M.DeviceCaps, q, k, v, bias; chunk::Int = 2048,
     # BEFORE the extent test below, which divides by `dev.tile`: a device with no
     # matrix hardware reports no tile, and dividing by it throws rather than
     # declining. The order only worked while `tile` was a module constant.
-    dev.coopmat || return Decline(:nocoopmat)
+    # `coopmatkernels`, not `dev.coopmat`: these kernels emit
+    # `Mantle.coopmat_load`, which is defined in the tree that implements it and
+    # is not a name at all on a device with 8-wide matrices. See the predicate.
+    coopmatkernels(dev) || return Decline(:nocoopmat)
     Lq % dev.tile == 0 && Lk % dev.tile == 0 || return Decline(:extent)
     # `coopmat_gemm_available` asks the *device*, not the operands. On the CPU
     # backend of a machine that has a Vulkan device — which is every run of
