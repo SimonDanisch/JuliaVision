@@ -38,7 +38,8 @@ measurement of one machine. Host-only: it is the *element function*, and the
 element function is the same expression the GPU epilogue compiles.
 """
 
-using Test, DNNKernels
+using Test
+import Mantle, DNNKernels
 const DKA = DNNKernels
 
 # A grid dense where it matters. gelu's cancellation lives at x < -2, and the
@@ -114,5 +115,21 @@ relrms(a, b) = sqrt(sum(abs2, Float64.(a) .- Float64.(b)) / sum(abs2, Float64.(b
         @test DKA.actfn(:gelu) === DKA.geluexact
         @test DKA.actfn(:relu)(Float16(-1)) === Float16(0)
         @test DKA.actfn(:none) === identity
+    end
+
+    # …and the same table read the other way, for a backend library that has its own
+    # node for one of these. Declared here rather than asked of a backend, so a
+    # backend never has to know whose function `geluexact` is — and NAMED apart from
+    # the tanh form, which is a different function and not a faster one, because the
+    # whole point of the distinction upstream is that folding one in as the other
+    # changes the model's output.
+    @testset "which activation a library is told this is" begin
+        @test Mantle.activationkind(DKA.geluexact) === :gelu
+        @test Mantle.activationkind(DKA.gelutanh) === :gelu_tanh
+        @test Mantle.activationkind(DKA.relu_epi) === :relu
+        @test Mantle.activationkind(identity) === :identity
+        # Undeclared is `:unknown`, and not a licence to guess: a library with no
+        # node for it declines the fused form.
+        @test Mantle.activationkind(sqrt) === :unknown
     end
 end

@@ -2419,6 +2419,17 @@ end
 @inline actfn(name::Symbol) = name === :gelu ? geluexact :
                               name === :relu ? relu_epi : identity
 
+# The same table read the other way, for a backend library that has its own node for
+# one of these. Declared HERE, next to the functions, because which activation
+# `geluexact` is is a property of the function and not of any device — see
+# `Mantle.activationkind`. A library's node is its own arithmetic: Apple's `erf` is a
+# real one where [`erf`](@ref) above is Abramowitz-Stegun 7.1.26, so a backend that
+# takes this route is measured against the reference dump rather than against the
+# kernel it replaces.
+M.activationkind(::typeof(geluexact)) = :gelu
+M.activationkind(::typeof(gelutanh)) = :gelu_tanh
+M.activationkind(::typeof(relu_epi)) = :relu
+
 """
 `gelu` with torch's default (exact) formulation. `approximate = "tanh"` selects
 the approximation, which differs by ~1e-3 and is a different function, not a
