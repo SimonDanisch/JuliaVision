@@ -154,7 +154,11 @@ would take:
   runner always did. The strided kernel is not slower for being strided (2.43
   ms against 2.57), so the copies bought nothing.
 * `add_17`, **2.9 ms** — a three-operand elementwise over dense fp16, 135 MB at
-  47 GB/s against a 109 GB/s copy. Not obviously broken, but 2.3x off.
+  47 GB/s against a 109 GB/s copy. **Not** the index-arithmetic problem the
+  other three were: `ewdispatch!` already routes all-dense operands to
+  `denseew!`, which indexes linearly. What is left is that one thread moves one
+  fp16, so every access is two bytes; widening it is a change to the most-used
+  kernel in the library and wants a layer to confirm.
 * `permute_35`, **1.4-3.3 ms** — the attention output's layout change. Varies
   more between plan builds than it should.
 
