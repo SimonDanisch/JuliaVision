@@ -599,10 +599,14 @@ end
         mh = cat(randn(Float32, Lq, H, B, ns) .* 0.5f0,
                  rand(Float32, Lq, H, B, ns) .+ 1f0; dims = 5)
         out = KA.allocate(back, Float32, E, Lq, H, B); fill!(out, 0f0)
-        DNNKernels.attn_flash_cm_merge!(back)(out, DNNKernels.toback(back, ph),
-                                              DNNKernels.toback(back, mh),
-                                              Int32(ns), Int32(H);
-                                              ndrange = (E, Lq, H * B))
+        # Flat, one element per thread: `n` over `(e, lq, h, b)` and `nrow`
+        # over the `(lq, h, b)` the split bookkeeping is indexed by.
+        g = DNNKernels.FLASH_MERGE_GROUP
+        DNNKernels.attn_flash_cm_merge!(back, g)(out, DNNKernels.toback(back, ph),
+                                                 DNNKernels.toback(back, mh),
+                                                 Val(ns), Val(E),
+                                                 Int32(E * Lq * H * B), Int32(Lq * H * B);
+                                                 ndrange = cld(E * Lq * H * B, g) * g)
         KA.synchronize(back)
         @test maximum(abs, Array(out) .- mergeref(ph, mh)) /
               maximum(abs, mergeref(ph, mh)) < 1f-5

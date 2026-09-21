@@ -1844,30 +1844,52 @@ A runtime bound cannot be unrolled to a constant, and giving `e` its own thread
 removes the inner loop entirely. The `ml` loads stay cheap because they are
 uniform across a wave — every `e` of one row reads the same two floats.
 """
-@kernel cpu=false function attn_flash_cm_merge!(out, @Const(partial), @Const(ml),
-                                                nsplit::Int32, nheads::Int32)
-    # The head and batch axes ride folded in the third grid dimension, so the
-    # first can carry `e` and the launch stays 3-D.
-    e, lq, hb = @index(Global, NTuple)
-    @inbounds begin
-        h = (hb - 1) % nheads + 1
-        b = (hb - 1) ÷ nheads + 1
-        # pass 1: the row's true maximum across splits
-        m = -Inf32
-        for sp in 1:nsplit
-            m = max(m, ml[lq, h, b, sp, 1])
+# One element per thread over a FLAT range, not `(e, lq, h·b)` over a 3-D one,
+# and `nsplit` as a `Val` rather than an argument.
+#
+# The 3-D form cost 3x: it measured **66 GB/s where a copy of the same volume
+# does 193**, and no workgroup shape rescued it (64, 128, 256, and the 2-D
+# shapes, all between 33 and 67). What it was paying for is per-thread index
+# arithmetic — two integer divisions by a runtime `nheads` to unfold the third
+# axis, and a five-dimensional subscript into `partial` — on 16.7 million
+# threads that each move twelve bytes. Flat, the same launch is **1.065 ms
+# against 3.035, 189 GB/s**, and bit-identical. In Qwen-Image 2.1's recorded
+# step, where the merge is the second half of every tail split, the pass goes
+# **3.645 ms to 2.615** — less than the isolated figure, because in a plan it
+# starts behind a barrier and a cold cache.
+#
+# `partial`, `ml` and `out` are all dense, so a linear index addresses them
+# directly: `i` runs over `(e, lq, h, b)`, `row = i ÷ E` is the `(lq, h, b)`
+# the split bookkeeping is indexed by, and a split is one whole `n` or `nrow`
+# further on.
+@kernel cpu=false unsafe_indices=true function attn_flash_cm_merge!(
+        out, @Const(partial), @Const(ml), ::Val{NSPLIT}, ::Val{E},
+        n::Int32, nrow::Int32) where {NSPLIT,E}
+    i = Int32(@index(Global, Linear)) - Int32(1)
+    if i < n
+        @inbounds begin
+            row = i ÷ Int32(E)
+            # pass 1: the row's true maximum across splits
+            m = -Inf32
+            for sp in Int32(0):Int32(NSPLIT - 1)
+                m = max(m, ml[Int32(1) + row + sp * nrow])
+            end
+            # pass 2: the sum and this element's value, every split rescaled onto it
+            L = 0.0f0
+            o = 0.0f0
+            for sp in Int32(0):Int32(NSPLIT - 1)
+                w = exp(ml[Int32(1) + row + sp * nrow] - m)
+                L += w * ml[Int32(1) + row + sp * nrow + nrow * Int32(NSPLIT)]
+                o += w * partial[Int32(1) + i + sp * n]
+            end
+            out[Int32(1) + i] = o * (L == 0.0f0 ? 1.0f0 : 1.0f0 / L)
         end
-        # pass 2: the sum and this element's value, every split rescaled onto it
-        L = 0.0f0
-        o = 0.0f0
-        for sp in 1:nsplit
-            w = exp(ml[lq, h, b, sp, 1] - m)
-            L += w * ml[lq, h, b, sp, 2]
-            o += w * partial[e, lq, h, b, sp]
-        end
-        out[e, lq, h, b] = o * (L == 0.0f0 ? 1.0f0 : 1.0f0 / L)
     end
 end
+
+"""Threads a merge launch puts in a workgroup. 256 and 64 measure the same;
+128 is 7% worse and 512 is twice as slow, so this is not a free choice."""
+const FLASH_MERGE_GROUP = 256
 
 # sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale) -> out
 # 
@@ -1957,9 +1979,12 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
     launch(keys, k0, nsp, partout) =
         (kern = attn_flash_cm_spatial4!, args = mkargs(keys, k0, nsp, partout),
          ndrange = (NT * cld(Lq, BR) * nsp, H, B), group = NT)
+    nelem = plan.E * Lq * H * B
     merge = (kern = attn_flash_cm_merge!,
-             args = (out, partial, ml, Int32(ns), Int32(H)),
-             ndrange = (plan.E, Lq, H * B), group = 0)
+             args = (out, partial, ml, Val(ns), Val(plan.E),
+                     Int32(nelem), Int32(Lq * H * B)),
+             ndrange = cld(nelem, FLASH_MERGE_GROUP) * FLASH_MERGE_GROUP,
+             group = FLASH_MERGE_GROUP)
     if plan.tailsplit
         # The merge writes `out` in its own layout, so a caller that wanted the
         # spatial order written directly would get the other one and no error.
