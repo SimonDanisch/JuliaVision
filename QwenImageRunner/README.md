@@ -23,6 +23,9 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | 20 denoising steps | 138 s (6.89 s/step) |
 | VAE decode, including its build | 40.2 s |
 
+Those four rows are one run and predate the seven changes below, which have not
+been re-measured end to end — the denoiser row is the one they move.
+
 A denoising step was 12.5 s when the model first ran. Where the rest went:
 
 | | s/step |
