@@ -2869,6 +2869,32 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
     return out
 end
 
+"""The interleaved rotary produced by `fusepairrope`, as one declared dispatch."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.pairrope")})
+    x = operand(emitctx, op.ins[1])
+    cs = operand(emitctx, op.ins[2])
+    sn = operand(emitctx, op.ins[3])
+    out = dest(emitctx)
+    P = Int(op.attrs["P"])
+    C = size(x, 1)
+    C == 2P || error(
+        "DNNKernels: `fused.pairrope` (op $(op.id)) rotates $P pairs of a " *
+        "head of $C.")
+    length(out) == length(x) || error(
+        "DNNKernels: `fused.pairrope` (op $(op.id)) writes $(length(out)) " *
+        "elements from $(length(x)).")
+    H = size(x, 2)
+    npair = length(x) ÷ 2
+    # Per token and per component, not per head: the tables are `(P, tokens)`
+    # against `x`'s `(2P, heads, tokens, batch)`.
+    length(cs) >= npair ÷ H && length(sn) >= npair ÷ H || error(
+        "DNNKernels: `fused.pairrope` (op $(op.id)) needs $(npair ÷ H) cosine " *
+        "and sine values, got $(length(cs)) and $(length(sn)).")
+    M.dispatch!(emitctx.g, pairrope_kernel!,
+                (out, x, cs, sn, Val(P), Val(H), Int32(npair)), npair; name = op.id)
+    return out
+end
+
 """RoPE fused with its in-place KV-cache store, declared through Mantle."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.ropecache")})
     x = operand(emitctx, op.ins[1])

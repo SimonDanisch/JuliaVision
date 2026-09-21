@@ -295,6 +295,10 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # visible once the write has been marked in place.
     graphs, nrope = fuserope(graphs)
     nrope > 0 && @info "fuserope: $nrope rotary embedding(s) -> one op each"
+    # The other rotary spelling, which rotates adjacent PAIRS rather than
+    # halves. Same place in the order and for the same reasons.
+    graphs, npair = fusepairrope(graphs)
+    npair > 0 && @info "fusepairrope: $npair interleaved rotary embedding(s) -> one op each"
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes

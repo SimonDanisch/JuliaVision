@@ -648,6 +648,50 @@ end
     end
 end
 
+# The INTERLEAVED rotary, as one op — see `fusepairrope`.
+#
+# One thread per PAIR, so both of a pair's elements are read and written by the
+# same thread and the store is a contiguous 2-element write. `P` and `H` are
+# `Val`s because the only arithmetic here besides the rotation is two integer
+# divisions, and by a runtime divisor those cost more than the rotation does.
+@kernel cpu=false function pairrope_kernel!(out, @Const(x), @Const(cs), @Const(sn),
+                                            ::Val{P}, ::Val{H}, n::Int32) where {P,H}
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            i0 = Int32(i) - Int32(1)
+            j = i0 % Int32(P)                 # position within the half head
+            # `cos`/`sin` are per TOKEN as well as per component and do not
+            # carry the head axis, so the head is divided out rather than
+            # masked off.
+            t = i0 ÷ Int32(P * H)
+            c = j + Int32(P) * t
+            o = Int32(2) * i0
+            a = Float32(x[o + Int32(1)])
+            b = Float32(x[o + Int32(2)])
+            cv = Float32(cs[c + Int32(1)])
+            sv = Float32(sn[c + Int32(1)])
+            out[o + Int32(1)] = eltype(out)(a * cv - b * sv)
+            out[o + Int32(2)] = eltype(out)(a * sv + b * cv)
+        end
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.pairrope")})
+    x = lhs(ctx, op)
+    cv = value(ctx, op.ins[2])
+    sv = value(ctx, op.ins[3])
+    P = Int(op.attrs["P"])
+    ob = ctx.graph.buffers[ctx.outid[]]
+    out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
+    xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
+    npair = length(xd) ÷ 2
+    H = size(xd, 2)
+    pairrope_kernel!(ctx.backend, 256)(out, xd, vec(cv), vec(sv), Val(P), Val(H),
+                                       Int32(npair); ndrange = npair)
+    out
+end
+
 # SwiGLU as one op.
 #
 # The export spells `silu(gate) * up` as a widening cast, a `sigmoid`, a
