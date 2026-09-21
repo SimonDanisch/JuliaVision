@@ -320,6 +320,50 @@ here. Anyone picking it up should start by asking RADV/amdgpu for a cheaper
 commit — memory type flags, `VK_EXT_memory_priority`, or huge pages for the GTT
 mapping — rather than looking anywhere in this tree.
 
+### Where the 4.74 s step sits now, and what each piece is bound by
+
+Serialised, fresh process, 4372 passes:
+
+| | ms | |
+| --- | --- | --- |
+| the products | 2969 | **61.7%** |
+| the attention, three launches | 1338 | **27.8%** |
+| everything else | 502 | 10.4% |
+
+Every one of the three is now at a measured limit rather than an unexamined
+one.
+
+**The products.** Sweeping all twelve registered int8 tiles at the biggest
+shape, `24576 x 4096 x 4224`, puts the shipped pick first:
+
+    (2,4,2,2,32,8)   64x128  wg=128   37.73 ms   22.54 TOP/s   <- shipped
+    (4,2,2,4,32,8)  128x128  wg=256   38.81      21.91
+    (4,2,2,2,32,8)  128x64   wg=128   41.08      20.70
+    (4,2,2,4,32,16) 128x128  wg=256   40.14      21.18
+    (4,2,4,2,32,8)  256x64   wg=256   45.08      18.87
+    (2,2,2,2,64,8)   64x64   wg=128   50.16      16.95
+    (2,1,2,2,32,8)   64x32   wg=128   81.25      10.47
+
+That also settles what it is bound by. The 128x128 tile moves **40% fewer
+bytes** — 9.5 GB against 15.9 for the weight and the activation together — and
+is 3% SLOWER, so the GEMM is not bandwidth-bound; 22.54 of the device's 24.4
+TOP/s is 92% of the cooperative-matrix peak, and the only thing past it is int8
+*activations* (`plans/2026-09-20-int8-tensor-cores.md`).
+
+**The attention** is the section above: 6% softmax, 29% K/V re-reads, no
+admissible taller tile.
+
+**Everything else** is at memory bandwidth, checked rather than assumed. The
+biggest of them measure 165 GB/s (`fused.swiglu`), 166 (`fused.pairrope`), 209
+(`fused.elementwise`) and 122 (the permuted copies, after the walk-order fix),
+against 152-193 GB/s for a `copyto!` of the same volume. The one still below is
+`padB`, 88 GB/s in a plan and 128 isolated; flattening its launch does not move
+it, because the 2-D form's workgroup shape was already right — that was tried
+and reverted.
+
+And the device is not idling: during a step the GPU reports **2850 MHz of a
+2900 MHz maximum and 99% busy**.
+
 ### The same GEMM is 2.4x slower in a worn process, and that is most of the step
 
 The serialized per-pass profile of the whole 20B step (`planfor(...; maxpasses

@@ -24,7 +24,7 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | VAE decode, including its build | 40.2 s |
 
 The denoiser row is the one the changes below move, and re-measured on the real
-model after them it is **97 s (4.85 s/step)** — 41 s off a generation. The
+model after them it is **95 s (4.74 s/step)** — 43 s off a generation. The
 other three rows are from the original run and are untouched by this work.
 
 A denoising step was 12.5 s when the model first ran. Where the rest went:
@@ -60,12 +60,15 @@ A ninth change holds the attention's output in cooperative-matrix fragments
 rather than shared memory, which also lets a 32-wide key block fit: the pass
 goes 44.0 ms to 36.7 and the real model 5.59 s/step to **5.37**, back to back.
 
-Then two more in the attention kernel, both bit-identical to what they replace:
-compiling the softmax form in as a `Val` rather than passing it, which deletes
-the one-pass loop and the deferred rescale a two-pass plan never reaches
-(5.85 s/step against 6.02 interleaved), and merging the two launches of a
-tail-split key axis over a flat range instead of a three-dimensional one (that
-pass 3.645 ms to 2.615).
+Then three more, all bit-identical to what they replace: compiling the softmax
+form into the attention kernel as a `Val` rather than passing it, which deletes
+the one-pass loop and the deferred rescale a two-pass plan never reaches (5.85
+s/step against 6.02 interleaved); merging the two launches of a tail-split key
+axis over a flat range instead of a three-dimensional one (that pass 3.645 ms
+to 2.615); and choosing a permuted copy's walk order by how many memory streams
+it leaves open rather than by source stride alone, which takes the two
+attention-output permutes a layer from 1.474 ms to 0.552 each. The last two
+together are the step's serialised total 4864.6 ms to 4808.9.
 
 **And one that is not a code change at all.** Every number above was measured
 in a Julia session that had been building and freeing plans for hours, and such
@@ -73,10 +76,10 @@ a session hands new buffers memory that runs the same tiled GEMM **2.4x
 slower** — seventeen of the thirty-two gate+up products at 77-94 ms where the
 other fifteen ran at 41-47, reproducible to `cor = 0.9998`, with identical
 streaming bandwidth. In a fresh process every one of them runs at 39-44 ms and
-**the step is 4.85 s**. See `plans/2026-09-21-qwen-denoiser-layer.md`; the
+**the step is 4.74 s**. See `plans/2026-09-21-qwen-denoiser-layer.md`; the
 short version is to check `free -g` before believing a GPU timing.
 
-On the real model the whole of it is 6.89 s/step to **4.85**. The layer harness
+On the real model the whole of it is 6.89 s/step to **4.74**. The layer harness
 shows a larger share (-33% against -20%) because it runs plain int8 weights:
 the compact checkpoint's four ConvRot transforms a layer, and the step's
 non-layer work, are untouched by any of this and dilute it.
