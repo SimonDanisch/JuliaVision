@@ -235,6 +235,35 @@ with the copies. It also shrinks what the placer has to fit — the layer's aren
 requirement falls from **391.03 MB to 352.89 MB** — which is most of why the two
 changes are super-additive.
 
+### The other half of a generation is the LOAD, and it is driver-bound
+
+A cold 1024² generation is ~287 s, of which the 20 denoising steps are ~107.
+Most of the rest is building models, and the denoiser's share of that is one
+number: **`upload_s` is 30 s for a 7.3 GB checkpoint, or 250 MB/s.**
+
+It is not the disk and not the file format. The checkpoint reads at 26 GB/s
+(`dd`), a host-side `sum` of one mmap'd weight takes 1 ms, and the whole host
+load — mmap, slicing, ConvRot wrappers — is **0.1 s**. The packing is already a
+device kernel (14 ms a weight).
+
+It is the first touch of newly allocated device memory. The same weight
+uploaded twice: **0.18 s, then 0.004 s** — 95 MB/s against 4500. Timing 40
+weights into a cold pool gives a bimodal distribution, 0.012-0.019 s when the
+allocation is carved from an existing block and 0.16-0.33 s when it needs a new
+one, and 40 weights took 34 blocks.
+
+The obvious lever does not work. `POOL_BLOCK_SIZE` at 64 MB, 512 MB and 2 GB
+measured 30.2, 25.5/31.8 and 30.3 s — the one good number did not reproduce.
+Nor is the cost per allocation in any simple way: a fresh 4 GB block first
+touches at 85 GB/s while a fresh 16.8 MB one runs at 95 MB/s, which says the
+`fill!` is not what commits the pages. What commits them is the host copy, and
+250 MB/s is what the driver does it at.
+
+So this is a driver cost, not a code one, and it is ~30 s of every cold run
+here. Anyone picking it up should start by asking RADV/amdgpu for a cheaper
+commit — memory type flags, `VK_EXT_memory_priority`, or huge pages for the GTT
+mapping — rather than looking anywhere in this tree.
+
 ### A session-scale thing that will bite a generation loop
 
 After a day of building and freeing plans, `Mantle`'s pool reported **81.95 GB
