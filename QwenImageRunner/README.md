@@ -23,8 +23,9 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | 20 denoising steps | 138 s (6.89 s/step) |
 | VAE decode, including its build | 40.2 s |
 
-Those four rows are one run and predate the seven changes below, which have not
-been re-measured end to end — the denoiser row is the one they move.
+The denoiser row is the one the changes below move, and re-measured on the real
+model after them it is **110 s (5.50 s/step)** — 28 s off a generation. The
+other three rows are from the original run and are untouched by this work.
 
 A denoising step was 12.5 s when the model first ran. Where the rest went:
 
@@ -54,6 +55,11 @@ and it iterates in a quarter of a second instead of a minute. It went to
 | two passes over the scores where the head is 96 wide or more | 171.1 |
 | the interleaved rotary fused | 167.1 |
 | the stacked-projection tile, and the SwiGLU reading in place | **156.0** |
+
+On the real model that is 6.89 s/step to **5.50**. The layer harness shows a
+larger share (-33% against -20%) because it runs plain int8 weights: the compact
+checkpoint's four ConvRot transforms a layer, and the step's non-layer work, are
+untouched by any of this and dilute it.
 
 The last row is two changes, A/B'd together in one session: 169.1 ms with
 neither, 163.9 with the tile alone, 164.3 with the SwiGLU alone, 156.0 with
