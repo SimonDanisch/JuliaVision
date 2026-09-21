@@ -159,6 +159,43 @@ rescale free (`nrsc = 0` measures 43.17 against 43.12), `rego` worse,
 three times slower. What is left in this kernel is the softmax phase, which
 runs on 64 of 512 threads, and that is a redesign.
 
+### Settled: the attention is waiting on K and V, not on the softmax
+
+Two diagnostics in the kernel, `smoff` and `ldoff`, answer what four rounds of
+tiling work could not. `smoff` replaces both softmax passes with a flat fill of
+`ps` and keeps everything else; `ldoff = 1` keeps every staging load
+instruction and drops the key offset from the address, so the launch re-reads
+one cache-resident tile; `ldoff = 2` drops the loads outright. At Qwen-Image
+2.1's attention, interleaved:
+
+| | ms | |
+| --- | --- | --- |
+| as shipped | 41.44 | |
+| softmax off | 39.00 | **-5.9%** |
+| K/V traffic off | 29.37 | **-29.1%** |
+| K/V staging off entirely | 29.14 | -29.7% |
+| both off | 25.55 | -38.4% |
+
+So the softmax is 6% and the K/V reads are 29%, and `ldoff = 1` matching
+`ldoff = 2` to 0.6% says that 29% is BYTES, not load instructions. Two things
+follow, both of which close a line of work:
+
+* **The softmax redesign is not worth building.** The kernel's own note says
+  spreading it over the subgroups measured 5% slower; the reason is simply that
+  there was only 6% there. Staging K into registers before the shared store —
+  the split `PREFETCHV` already gives V — is 43.78 ms against 43.21, so the
+  loads were already deep enough.
+* **The only lever on the 29% is reading K and V fewer times**, i.e. a taller
+  query tile, and both admissible ones lose. `(128, 16)` at `NW = 16` needs a
+  fourth accumulator and spills, at 127 ms. `(128, 16)` at `NW = 32` needs only
+  TWO per subgroup, fewer than the shipped tile's three, and fits 51.8 KB of
+  shared — and it measures **77.31 ms against 42.46**, 82% slower. A
+  1024-thread workgroup with that footprint is one per processor, and halving
+  the key traffic does not pay for it.
+
+The kernel is then ~23% matrix work at the cooperative-matrix peak, 29% K/V
+bytes, 6% softmax, and ~40% staging into shared, barriers and the write-out.
+
 ### Solved: a key length that does not divide the tile
 
 `bmm_7` is 30% of the layer and runs at 4 TFLOP/s against the products' 21.

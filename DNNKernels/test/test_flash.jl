@@ -715,9 +715,11 @@ end
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
     if dev.coopmat
-        # `..., ONEPASS, rscbar, prefetchv, outperm, outwindow..., H, nsp,
-        # partout, epad, rpad, SG, Lq, keys, lazyrescale, partial, ml`
-        onepassof(l) = l.args[end - 18]
+        # `..., ONEPASS, rscbar, prefetchv, outperm, smoff, ldoff, outwindow...,
+        # H, nsp, partout, epad, rpad, SG, Lq, keys, lazyrescale, partial, ml`
+        onepassof(l) = l.args[end - 20]
+        smoffof(l)   = l.args[end - 16]
+        ldoffof(l)   = l.args[end - 15]
         E, Lq, H = 128, 1024, 8
         rng = MersenneTwister(7)
         mk(E) = DNNKernels.toback(back, Float16.(randn(rng, Float32, E, Lq, H, 1) .* 0.3f0))
@@ -745,6 +747,11 @@ end
         # arguments are `Lq`, `keys`, `lazyrescale` and the two split buffers.
         @test all(a -> !(a isa Int32), last(launches(two, q, k, v)).args[end-1:end])
         @test last(launches(two, q, k, v)).args[end - 2] isa Int32
+
+        # The two "what is this kernel waiting on" diagnostics are wrong when
+        # on, so nothing in the library may turn them on.
+        @test all(l -> smoffof(l) === Val(false), launches(two, q, k, v))
+        @test all(l -> ldoffof(l) === Val(0), launches(two, q, k, v))
 
         # That the two forms agree numerically is its own testset above; this
         # one is about which of them the kernel is compiled for.

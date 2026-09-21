@@ -519,13 +519,14 @@ end
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
         ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
-        ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM},
+        ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM}, ::Val{SMOFF},
+        ::Val{LDOFF},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
         ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,
+                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,
                             WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
@@ -715,14 +716,30 @@ end
                 grew[1] = Float32(alwaysrescale)
                 redo[1] = 0.0f0
             end
+            # Staging K into a private array first and storing it to shared in a
+            # second loop — the split `PREFETCHV` already gives V — is **not**
+            # worth it: 43.78 ms against 43.21 at Qwen-Image 2.1's shape,
+            # bit-identical. The loads were already going out deep enough, which
+            # is the same thing `LDOFF == 1` says from the other side.
             for r in 0:(cld(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 if idx < BC * EP
                     e, lk = Mantle.splitidx(idx, Val(EP))
                     ink = !KCLAMP || k0 + lk < Lk
-                    kvs[1 + e + lk * EPS] = (e < E && ink) ?
-                        k[kbase + Int32(e) * ksE + Int32(k0 + lk) * ksL +
-                          Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16)
+                    # `LDOFF` is the companion diagnostic to `SMOFF`, wrong on
+                    # purpose, and it has two settings because the staging has
+                    # two costs. `1` keeps every load instruction and drops the
+                    # key offset from the address, so the whole launch re-reads
+                    # one cache-resident tile: that prices the TRAFFIC. `2`
+                    # drops the load itself, with a value that still depends on
+                    # `kb` so the store cannot be hoisted out of the loop: that
+                    # prices traffic and instructions together.
+                    kvs[1 + e + lk * EPS] =
+                        LDOFF == 2 ? Float16(kb & 1) :
+                        ((e < E && ink) ?
+                            k[kbase + Int32(e) * ksE +
+                              (LDOFF == 1 ? Int32(0) : Int32(k0 + lk) * ksL) +
+                              Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16))
                 end
             end
             @synchronize
@@ -733,9 +750,12 @@ end
                     if idx < BC * EP
                         e, lk = Mantle.splitidx(idx, Val(EP))
                         ink = !KCLAMP || k0 + lk < Lk
-                        vstage[1 + r] = (e < E && ink) ?
-                            v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
-                              Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                        vstage[1 + r] =
+                            LDOFF == 2 ? Float16(kb & 1) :
+                            ((e < E && ink) ?
+                                v[vbase + Int32(e) * vsE +
+                                  (LDOFF == 1 ? Int32(0) : Int32(k0 + lk) * vsL) +
+                                  Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16))
                     end
                 end
             end
@@ -799,7 +819,26 @@ end
             onep = ONEPASS && kb > 0
             mb = -Inf32
             sm = 0.0f0
-            if onep && tid < BR
+            if SMOFF
+                # DIAGNOSTIC, wrong on purpose: what the online softmax costs.
+                # Everything else in the key block stays — both products, the
+                # staging, the rescale and the write-out — and the two passes
+                # over `ss` become a flat fill of `ps` spread over all `NT`
+                # threads (`ps` is exactly `BC * BR` and unpadded).
+                for r in 0:(cld(BR * BC, NT) - 1)
+                    idx = tid + r * NT
+                    idx < BR * BC && (ps[1 + idx] = one(Float16))
+                end
+                if tid < BR
+                    ms[1 + tid] = 0.0f0
+                    ls[1 + tid] = 1.0f0
+                    cs[1 + tid] = 1.0f0
+                end
+                # Keep the rescale in the measurement: without this `grew` stays
+                # at `alwaysrescale` and the diagnostic would be pricing the
+                # softmax and the rescale together.
+                tid == 0 && (grew[1] = 1.0f0)
+            elseif onep && tid < BR
                 mo = ms[1 + tid]
                 for ci in 0:(BC - 1)
                     # A padded key contributes nothing: it is out of the maximum
@@ -844,7 +883,7 @@ end
             # noise (+1%), which fits: `KCLAMP` is the version near the
             # register cliff, so it is the one a smaller kernel buys.
             pre = !onep || redo[1] != 0.0f0
-            if pre && tid < BR
+            if !SMOFF && pre && tid < BR
                 mo = ms[1 + tid]
                 mb = -Inf32
                 for ci in 0:(BC - 1)
@@ -869,7 +908,7 @@ end
                 ls[1 + tid] = ls[1 + tid] * cr + sm
                 cs[1 + tid] = cr
                 cr == 1.0f0 || (grew[1] = 1.0f0)
-            elseif tid < BR
+            elseif !SMOFF && tid < BR
                 # `ps` is relative to `mo`, and so is `O`, so nothing is converted
                 # before the product: the correction applies to the old and the
                 # new contribution alike and is deferred past it. That deferral is
@@ -893,9 +932,12 @@ end
                         kvs[1 + e + lk * EPS] = vstage[1 + r]
                     else
                         ink = !KCLAMP || k0 + lk < Lk
-                        kvs[1 + e + lk * EPS] = (e < E && ink) ?
-                            v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
-                              Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                        kvs[1 + e + lk * EPS] =
+                            LDOFF == 2 ? Float16(kb & 1) :
+                            ((e < E && ink) ?
+                                v[vbase + Int32(e) * vsE +
+                                  (LDOFF == 1 ? Int32(0) : Int32(k0 + lk) * vsL) +
+                                  Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16))
                     end
                 end
             end
@@ -1217,6 +1259,43 @@ to set it all write the same value, and the branch is uniform because every
 thread reads it after the same barrier.
 
 Exact, not approximate — the skipped work is a multiplication by one.
+=#
+
+#=
+── `smoff` and `ldoff`: what this kernel is actually waiting on ────────────────
+
+Two diagnostics, both off by default and both WRONG when on. They exist because
+the kernel sits at ~7 TFLOP/s against the device's 24.4 and four rounds of
+tiling work never said why.
+
+`smoff` replaces both passes of the online softmax with a flat fill of `ps`,
+keeping every product, the staging, the rescale and the write-out. `ldoff` has
+two settings: `1` keeps every staging load instruction and drops the key offset
+from the address, so the launch re-reads one cache-resident tile — that prices
+the TRAFFIC alone; `2` drops the loads, with a value that still depends on `kb`
+so the shared store cannot be hoisted out of the key loop.
+
+Measured at Qwen-Image 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped,
+`E = 128`, 32 heads, `64x32x16`), interleaved:
+
+| | ms | |
+| --- | --- | --- |
+| as shipped | 41.44 | |
+| softmax off | 39.00 | **-5.9%** |
+| K/V traffic off | 29.37 | **-29.1%** |
+| K/V staging off entirely | 29.14 | -29.7% |
+| both off | 25.55 | -38.4% |
+
+**The softmax is 6% and the K/V reads are 29%**, and `ldoff == 1` and
+`ldoff == 2` agreeing to 0.6% says the 29% is bytes and not instructions. That
+closes two questions this file spent a long time on. The idle warps at the
+softmax barrier were never worth chasing — "spreading it is slower" was right
+for the wrong reason, because there was only 6% there to win. And the way to
+move the 29% is to read K and V FEWER times, which means a taller query tile;
+both admissible ones lose more than they gain (see `FLASHCM_TILINGS`).
+
+What is left is ~23% of matrix work at the cooperative-matrix peak and ~40% of
+staging into shared, barriers and the write-out.
 =#
 
 #=
@@ -1820,7 +1899,8 @@ nothing would report.
 function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, ml;
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
-                      rscbar::Bool = false,
+                      rscbar::Bool = false, smoff::Bool = false,
+                      ldoff::Int = 0,
                       # Five values per thread at the 512-thread global tile is
                       # enough latency hiding for a measured win. The 128-thread
                       # window tile needs twenty registers and loses occupancy.
@@ -1867,7 +1947,8 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 # second identical pipeline when nothing rescales.
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(plan.onepass && !rego),
-                                Val(rscbar), Val(prefetchv), Val(outperm),
+                                Val(rscbar), Val(prefetchv), Val(outperm), Val(smoff),
+                                Val(ldoff),
                                 map(Val, outwindow)..., Val(H),
                                 Val(nsp), Val(partout), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),
@@ -1962,7 +2043,8 @@ device cannot make; ask [`flashcm_plan`](@ref) directly to find out *which* rule
 refused.
 """
 function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
-                      nrsc::Int = 3, rscbar::Bool = false,
+                      nrsc::Int = 3, rscbar::Bool = false, smoff::Bool = false,
+                      ldoff::Int = 0,
                       epad::Union{Nothing,Int} = nothing,
                       rpad::Union{Nothing,Int} = nothing,
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
@@ -1972,7 +2054,7 @@ function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0
     plan = flashcm_plan(ctx.dev, q, k, v, nothing; BR, BC, NW, kw...)
     plan isa Decline && return false
     sdpaflashcm!(ctx, out, plan, q, k, v, scale;
-                 ballast, shpad, nrsc, rscbar,
+                 ballast, shpad, nrsc, rscbar, smoff, ldoff,
                  epad = something(epad, flashepad(ctx.dev, plan.EP)),
                  rpad = something(rpad, flashrpad(ctx.dev, plan.BR)))
     return true
