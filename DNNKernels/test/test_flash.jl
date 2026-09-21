@@ -225,13 +225,21 @@ end
             # padded GEMMs plus score, softmax and apply passes.
             @test DNNKernels.flashcm_tiling(dev, 72, 4, 16; clamp=true) == (16, 16, 4)
             # A 128-wide head: the 32-key block wants 71816 bytes of shared
-            # against 65536, so the narrow-key entry is the only 64-row tile
-            # that fits, and it is worth taking — 63.3 ms against 104.2 for
-            # `(32, 32)` on Qwen-Image 2.1's joint attention.
+            # against 65536 **when `O` is accounted in shared memory**, which is
+            # where the narrow-key entry came from. Held in cooperative-matrix
+            # fragments there is no `pvs` and the wider block fits, which is
+            # worth 13.4% — 42.69 ms against 49.27 at `Lq = Lk = 4096`, and
+            # 58.47 to 46.44 on Qwen-Image 2.1's own 4118-key shape.
             @test !DNNKernels.flashcmfits(dev, 128, 64, 32, 16 * dev.coopmatsubgroup)
+            @test DNNKernels.flashcmfits(dev, 128, 64, 32, 16 * dev.coopmatsubgroup, true)
             @test DNNKernels.flashcmfits(dev, 128, 64, 16, 16 * dev.coopmatsubgroup)
             @test DNNKernels.flashcm_tiling(dev, 128, 4096, 4118, 32; clamp=true) ==
-                  (64, 16, 8 * widen)
+                  (64, 32, 8 * widen)
+            # The 128-row tile is NOT granted the same exception. It is first in
+            # the table, and at `E = 72` it displaces `(64, 32)` and runs 70%
+            # slower: 12.29 ms against 7.24 on SAM 2's global attention. Fitting
+            # is not the same as being worth it.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096) == (64, 32, 8 * widen)
             # And only there: at `E = 72` the wider block fits and is faster
             # (7.67 ms against 7.89), so that shape keeps it.
             @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096, 8) == (64, 32, 8 * widen)

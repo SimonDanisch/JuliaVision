@@ -683,7 +683,7 @@ end
         # otherwise keeps this kernel at ~49 KiB and admits only one workgroup.
         # With no held-path reference to `pvs`, the compiler removes that 20 KiB
         # allocation entirely.
-        if HELD && (RSC === :comp || (NSPLIT == 1 && PARTOUT < 0))
+        if HELD
             for idx in tid:NT:(Mantle.GEMM_TILE * Mantle.GEMM_TILE - 1)
                 r, c = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
                 ss[1 + idx] = Float32(r + c * Mantle.GEMM_TILE)
@@ -1087,21 +1087,13 @@ end
             out[1] = Float16(shpad[1])
         end
 
-        if HELD && !REGO && (NSPLIT != 1 || PARTOUT >= 0)
-            Base.Cartesian.@nexprs 3 j -> begin
-                t_j = w + (j - 1) * NW
-                t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Mantle.GEMM_TILE +
-                                         (t_j ÷ RT) * Mantle.GEMM_TILE * BRS, BRS, acc_j)
-            end
-            @synchronize
-        end
-
         # O has remained in cooperative-matrix fragments throughout the key
         # loop. Extract each lane's components and write them directly rather
         # than storing fp32 to shared memory, synchronising, then loading every
         # value again with scalar threads. `ocoord_i` above discovers the
         # implementation-defined component layout; no lane mapping is assumed.
-        if HELD && !REGO && NSPLIT == 1 && PARTOUT < 0
+        if HELD
+            slotd = 1 + sp + (PARTOUT < 0 ? 0 : PARTOUT)
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
                 if t_j < RT * ET
@@ -1111,16 +1103,25 @@ end
                         lq_i = rt_j * Mantle.GEMM_TILE + orow_i
                         e_i = et_j * Mantle.GEMM_TILE + ocol_i
                         if e_i < E && (!CLAMP || q0 + lq_i < Lq)
-                            l_i = ls[1 + lq_i]
                             o_i = Mantle.coopmat_getcomp(acc_j, Int32(i - 1))
-                            ov_i = o_i / (l_i == 0.0f0 ? 1.0f0 : l_i)
-                            if OUTPERM
-                                oi_i = flashoutindex(e_i, h, q0 + lq_i, b,
-                                    vE, NH, Lq,
-                                    vWIW, vWIH, vWNX, vWNY)
-                                unsafe_store!(pointer(out), convert(eltype(out), ov_i), 1 + oi_i)
+                            if NSPLIT == 1 && PARTOUT < 0
+                                l_i = ls[1 + lq_i]
+                                ov_i = o_i / (l_i == 0.0f0 ? 1.0f0 : l_i)
+                                if OUTPERM
+                                    oi_i = flashoutindex(e_i, h, q0 + lq_i, b,
+                                        vE, NH, Lq,
+                                        vWIW, vWIH, vWNX, vWNY)
+                                    unsafe_store!(pointer(out), convert(eltype(out), ov_i), 1 + oi_i)
+                                else
+                                    out[1 + e_i, 1 + q0 + lq_i, h, b] = ov_i
+                                end
                             else
-                                out[1 + e_i, 1 + q0 + lq_i, h, b] = ov_i
+                                # UNNORMALISED, exactly as the `pvs` route wrote
+                                # it: the merge divides once it knows every
+                                # split's maximum. Straight from the fragments,
+                                # so `pvs` is never allocated and the tile that
+                                # needs its 32 KiB fits.
+                                partial[1 + e_i, 1 + q0 + lq_i, h, b, slotd] = o_i
                             end
                         end
                     end
@@ -1131,7 +1132,7 @@ end
         # Slots `1 : BR*E/NT` are exactly the ones whose `e` is inside the real
         # head dimension: `idx = tid + (s-1)*NT` and `NT` divides `BR*E`, so the
         # padded columns are all in the slots past that and never written out.
-        if !HELD || REGO || NSPLIT != 1 || PARTOUT >= 0
+        if !HELD
             for s in 1:div(BR * E, NT)
                 idx = tid + (s - 1) * NT
                 lq, e = Mantle.splitidx(idx, Val(BR))
@@ -1407,10 +1408,12 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # in 63.3. Only where the wider block does not fit: at `E = 72` it does,
         # and there it is the faster of the two (7.67 ms against 7.89 at
         # 4096 x 4096), which is the measurement this entry was added on.
-        # `helddirect = false` in that question: the footprint exception below
-        # is for the 128-row tile, so a 64-row block is accounted with `pvs`.
+        # Asked with the HELD footprint, because that is what the wider block
+        # will run under: at `E = 128` the 32-wide block does not fit beside a
+        # `pvs` and does fit without one, and it is 13.4% faster than the
+        # 16-wide (42.69 ms against 49.27 at `Lq = Lk = 4096`, 32 heads).
         BR == 64 && BC == 16 && Lk != 64 &&
-            flashcmfits(dev, EP, BR, 32, NT, false) && continue
+            flashcmfits(dev, EP, BR, 32, NT, NW >= 16) && continue
         # Without `clamp` the extents have to divide the tile; with it they are
         # padded and masked, which is what puts the decoder's 23-token
         # attentions on this path at all.
@@ -1428,12 +1431,19 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
                              4 * Lq >= BR
             (2 * Lq >= BR && 2 * Lk >= BC) || tiny_exact_key || continue
         end
-        # The 128-row tile exists only because a held, unsplit output no longer
-        # allocates `pvs`. Keep that footprint exception on encoder-style square
-        # attention; split-k and decoder cross-attention retain the conservative
-        # shared-memory accounting and therefore the established smaller tiles.
-        helddirect = BR == 128 && dev.warps >= 64 && NW >= 16 &&
-                     Lq == Lk && Lq >= BR
+        # A held output does not allocate `pvs` — no longer only when it is
+        # unsplit, since the fragments are now written straight to `partial`
+        # too. So the footprint exception is "is this launch held", `NW >= 16`.
+        #
+        # EXCEPT for the 128-row tile, which keeps the conditions it shipped
+        # with. Granting it the same exception admits it at `E = 72`, where it
+        # is first in the table and **70% slower** than the tile it displaces:
+        # SAM 2's global attention measured 12.29 ms at `(128, 16)` against
+        # 7.24 at `(64, 32)`. Fitting is not the same as being worth it, and
+        # what the 128 rows were measured to need is a processor that reports
+        # its residency.
+        helddirect = NW >= 16 &&
+                     (BR < 128 || (dev.warps >= 64 && Lq == Lk && Lq >= BR))
         flashcmfits(dev, EP, BR, BC, NT, helddirect) && (BR * E) % NT == 0 &&
             !any(c -> c[1] == BR && c[2] == BC, fits) && push!(fits, (BR, BC, NW))
     end
@@ -1558,15 +1568,24 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     BR, BC, NW = tiling
     # The pinned coopmat width, not the device default — see `M.DeviceCaps`.
     NT = NW * dev.coopmatsubgroup
-    holdtiles = held === nothing ? (dev.warps >= 64 && NW >= 16) : held
+    # Hold `O` in cooperative-matrix fragments whenever the launch is the wide
+    # one. It was `dev.warps >= 64 && NW >= 16`, and `warps` is the count of
+    # resident waves a processor reports — which HIP does and **Vulkan does
+    # not**, so on this path it was always 0 and the fragments were never held.
+    # Measured on an 8060S at `Lq = Lk = 4096`, `E = 128`, 32 heads, same tile:
+    # 45.48 ms held against 49.27 through shared memory, and holding is also
+    # what makes the 32-wide key block fit at all (42.69 ms).
+    holdtiles = held === nothing ? NW >= 16 : held
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)
     (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)
     # `split=false` makes the direct held store statically certain here.  The
     # automatic split count is decided below; until then use the conservative
     # footprint so a split-k decoder cannot be admitted on memory it still uses.
-    helddirect = holdtiles && (split === false ||
-                              (autotiling && Lq == Lk && Lq >= BR))
+    # Held means no `pvs`, full stop: the fragments are written straight to
+    # `out` when this launch owns the whole key axis and straight to `partial`
+    # when it does not.
+    helddirect = holdtiles
     flashcmfits(dev, EP, BR, BC, NT, helddirect) || return Decline(:tiling)
     # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
     # because it does not see the unpadded head dimension.
@@ -1593,8 +1612,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # The reduced footprint is real only for the unsplit direct-store path.
     # Recheck after `splitcount`, so an unexpectedly split plan declines instead
     # of launching a kernel whose actual LDS exceeds the admitted budget.
-    flashcmfits(dev, EP, BR, BC, NT, holdtiles && nsplit == 1) ||
-        return Decline(:tiling)
+    flashcmfits(dev, EP, BR, BC, NT, holdtiles) || return Decline(:tiling)
 
     # ── Where `O` lives, decided from the tiling and not from the device ──────
     #
