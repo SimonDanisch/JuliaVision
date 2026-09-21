@@ -95,8 +95,41 @@ function toback(backend, a::AbstractArray)
     # It also silently defeated mmap-backed weights: the mapping costs nothing
     # to read, and `collect` faulted every page into anonymous memory anyway.
     # A strided or lazy source still needs materialising, so only those collect.
-    copyto!(d, a isa DenseArray ? a : collect(a))
+    # `GC.@preserve`, because `uploadsource` may hand back a wrapper that
+    # points INTO `a` without referencing it, and `a` is dead to the compiler
+    # the moment that call returns.
+    GC.@preserve a copyto!(d, uploadsource(a))
     d
+end
+
+"""
+The bytes `toback` hands to `copyto!`: the array itself wherever its elements
+already lie the way a dense upload wants them.
+
+A `DenseArray` obviously does. So does a CONTIGUOUS view of one, and that is
+not a corner case: a compact Qwen-Image 2.1 checkpoint arrives as 224 column
+slices of mmap'd `Matrix{Int8}`, 6.5 GiB of them, and a `SubArray` is not a
+`DenseArray`, so every one used to be `collect`ed into anonymous memory first —
+exactly the mmap defeat the comment above is about, reintroduced through the
+other branch.
+
+Contiguity is checked against the strides a dense array of that size would
+have, not inferred from the index types: `view(A, 1:3, 1:5)` of a 10x10 is a
+`FastContiguousSubArray` and its columns are seven elements apart.
+
+This is about MEMORY, not time — `upload_s` does not move, because what it is
+spent on is the device allocation and not the host copy. What it buys is that
+the checkpoint stays a mapping: 6.5 GiB that used to be faulted into anonymous
+memory, on a unified-memory machine where the host and the device share one
+pool and the 64 GiB model in the comment above is already at the edge of it.
+"""
+@inline function uploadsource(a::AbstractArray)
+    a isa DenseArray && return a
+    if a isa SubArray && parent(a) isa DenseArray && isbitstype(eltype(a)) &&
+       strides(a) == Base.size_to_strides(1, size(a)...)
+        return unsafe_wrap(Array, pointer(a), size(a))
+    end
+    collect(a)
 end
 
 """

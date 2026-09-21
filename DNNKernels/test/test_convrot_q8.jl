@@ -133,6 +133,57 @@ end
 # Pinned here on shapes that exercise both tail guards, because the packing is
 # what every weight in a compact checkpoint goes through and a wrong byte is
 # not something a later test would localise.
+# The conditioner's W4A8 pack has the same shape of problem and takes the same
+# fix. At Qwen3-VL-8B's `4096 x 12288` it measured **121.59 ms against 4.43**,
+# bit for bit the same words, and that decode runs once per weight over a 6.9
+# GB checkpoint.
+@testset "the W4A8 checkpoint decodes into the same words, stacked or not" begin
+    backend = Mantle.LavaBackend()
+    caps = DNNKernels.caps(backend)
+    if caps.coopmat
+        rng = MersenneTwister(13)
+        # `M` a multiple of four and not; a stacked part at a non-zero group
+        # offset; a group size that is not the k-block.
+        for (K, M, GS, goff, mgd) in ((512, 1024, 128, 0, 256),
+                                      (512, 1020, 128, 0, 255),
+                                      (256, 260, 64, 7, 72))
+            q  = rand(rng, UInt8, K ÷ 2, M)
+            # `f8e4m3fn`'s NaN encoding is `x & 0x7f == 0x7f`, and a NaN scale
+            # reaches `unsafe_trunc(Int8, NaN)`, which is undefined and need not
+            # agree between the host and the device. A checkpoint has none.
+            sr = rand(rng, UInt8, K ÷ GS, M)
+            sr[(sr .& 0x7f) .== 0x7f] .= 0x00
+            cb = Float32.(randn(rng, 16))
+            packed = KernelAbstractions.allocate(backend, UInt32, mgd, K)
+            fill!(packed, UInt32(0))
+            DKA.w4a8pack!(backend, packed, DKA.toback(backend, reinterpret(Int8, q)),
+                          DKA.toback(backend, sr), DKA.toback(backend, cb),
+                          K, M, GS, mgd, goff)
+            KernelAbstractions.synchronize(backend)
+            got = Array(packed)
+
+            mg = cld(M, 4)
+            ref = zeros(UInt32, mgd, K)
+            for k in 0:(K - 1), rg in 0:(mg - 1)
+                w = UInt32(0)
+                for r in 0:3
+                    m = 4rg + r
+                    m < M || continue
+                    byte = q[(k ÷ 2) + 1, m + 1]
+                    code = iseven(k) ? (byte & 0x0f) : (byte >> 4)
+                    s = DKA.f8e4m3fn(sr[(k ÷ GS) + 1, m + 1])
+                    v = round(clamp(cb[Int(code) + 1] * s, -127f0, 127f0))
+                    w |= UInt32(reinterpret(UInt8, unsafe_trunc(Int8, v))) << (8r)
+                end
+                ref[rg + goff + 1, k + 1] = w
+            end
+            @test got == ref
+        end
+    else
+        @test_skip false
+    end
+end
+
 @testset "the int8 checkpoint packs four rows to a word, whatever the tail" begin
     backend = Mantle.LavaBackend()
     caps = DNNKernels.caps(backend)

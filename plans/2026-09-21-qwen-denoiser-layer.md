@@ -358,9 +358,19 @@ output, and the whole denoiser's step output reproduces to the digit
 preparing the denoiser 120.7 s -> 92.8. That is 28 s off every generation, next
 to 95 s of denoising.
 
-What is left in the upload is real: ~35 ms a weight of `collect` (a contiguous
-`SubArray` of the checkpoint is not a `DenseArray`, so `toback` copies it) plus
-`copyto!` plus a fresh pool block.
+**The conditioner has the same kernel and the same fix.** Qwen3-VL-8B's
+weights are W4A8 and `w4a8_pack_kernel!` was written the same way; at its
+`4096 x 12288` it measures **121.59 ms against 4.43**, bit for bit identical,
+and building the 36-layer encoder's model back to back in one process is
+`upload_s` **14.2 s against 1.0**. So the pair is worth about 42 s of a
+generation that was 314.9.
+
+What is left in the denoiser's upload is the device allocation, not the host
+copy: skipping the `collect` that a contiguous `SubArray` of the checkpoint
+used to force does not move `upload_s` at all. It is still worth doing — it
+keeps 6.5 GiB as a mapping instead of faulting it into anonymous memory on a
+machine where the host and the device share one pool — but it is a memory fix
+and not a time one.
 
 ### The other half of a generation is the LOAD, and it is driver-bound
 

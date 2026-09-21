@@ -192,16 +192,20 @@ toback(backend, A::ConvRotQInt8HostMatrix) =
     sign * (1f0 + Float32(mantissa) * 0.125f0) * exp2(Float32(exponent - 7))
 end
 
+# `Q8PACK_WORDS` consecutive words a thread with `k` fast, for the reason
+# `checkpoint_q8pack_kernel!` gives: the destination is contiguous in the row
+# group and the source in `k`, so a thread per word with the group fast uses
+# one byte of every line it fetches.
 @kernel cpu=false function w4a8_pack_kernel!(q32, @Const(q), @Const(srel),
-                                              @Const(codebook), K::Int32, M::Int32,
-                                              MG::Int32, GS::Int32, MGD::Int32,
-                                              GOFF::Int32)
-    i = @index(Global, Linear)
-    if i <= MG * K
-        @inbounds begin
-            l = Int32(i) - Int32(1)
-            rg = l % MG
-            k = l ÷ MG
+                                             @Const(codebook), K::Int32, M::Int32,
+                                             MG::Int32, GS::Int32, MGD::Int32,
+                                             GOFF::Int32, ::Val{GPT}) where {GPT}
+    kk, gg = @index(Global, NTuple)
+    k = Int32(kk) - Int32(1)
+    gb = (Int32(gg) - Int32(1)) * Int32(GPT)
+    @inbounds for w in Int32(0):Int32(GPT - 1)
+        rg = gb + w
+        if rg < MG
             word = UInt32(0)
             Base.Cartesian.@nexprs 4 r -> begin
                 m = rg * Int32(4) + Int32(r - 1)
@@ -247,9 +251,10 @@ end
 function w4a8pack!(backend, packed, q, s_rel, codebook, K::Integer, M::Integer,
                    group_size::Integer, mgdest::Integer, goff::Integer)
     mg = cld(M, Q8ROWS)
-    w4a8_pack_kernel!(backend, 256)(packed, q, s_rel, codebook, Int32(K), Int32(M),
-                                     Int32(mg), Int32(group_size), Int32(mgdest),
-                                     Int32(goff); ndrange=mg*K)
+    w4a8_pack_kernel!(backend, (256, 1))(
+        packed, q, s_rel, codebook, Int32(K), Int32(M),
+        Int32(mg), Int32(group_size), Int32(mgdest), Int32(goff),
+        Val(Q8PACK_WORDS); ndrange = (K, cld(mg, Q8PACK_WORDS)))
     packed
 end
 
