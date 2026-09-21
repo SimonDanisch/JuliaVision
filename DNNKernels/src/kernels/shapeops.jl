@@ -359,6 +359,26 @@ function blockcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
 end
 
 """
+    slabcopy!(out, a, off, n)
+
+`blockcopy!` for the case where the part lands on ONE contiguous run of the
+destination: `out[off + i] = a[i]`.
+
+Which is every `cat` that joins on its outermost non-singleton axis, and that
+is most of them. `blockcopy!` has to be general, so it converts `i` to
+coordinates with a runtime `%` and `÷` per axis and back again, and on
+`(128, 32, 4096)` fp16 into a `(128, 32, 4118)` destination that arithmetic
+costs 5.65 ms against **0.61** for moving the same bytes: 12 GB/s against 109.
+The copy was never the expensive part of the copy.
+"""
+function slabcopy!(out, a, off::Int32, n::Int32)
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[off + i] = a[i]
+    return
+end
+
+"""
     stridedcopy32perm!(out, exts, ost, a, ast, off, n)
 
 The same copy as [`stridedcopy32!`](@ref), walked in the SOURCE's memory order

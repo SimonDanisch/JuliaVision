@@ -662,6 +662,52 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
 end
 
 """
+    contiguousslab(od, pd, off) -> offset | nothing
+
+Where a `pd`-shaped part sits in an `od`-shaped destination when it sits on ONE
+run of it, and `nothing` when it does not.
+
+Contiguous means: full extents below the axis the part does not span, nothing
+above it, and an offset on that axis alone. A part that is narrow on a LOW axis
+is a stride, not a run, however small the gap.
+"""
+function contiguousslab(od::Dims{N}, pd::Dims{N}, off::NTuple{N,Int}) where {N}
+    d = 0
+    for k in N:-1:1
+        if pd[k] != od[k]
+            d = k
+            break
+        end
+    end
+    d == 0 && return all(iszero, off) ? 0 : nothing
+    all(k -> od[k] == 1, (d + 1):N) || return nothing
+    all(k -> pd[k] == od[k], 1:(d - 1)) || return nothing
+    all(k -> k == d || off[k] == 0, 1:N) || return nothing
+    off[d] * prod(ntuple(k -> od[k], d - 1); init = 1)
+end
+
+"""
+    blockcopydispatch!(ctx, out, od, part, pd, off; name)
+
+Declare one part's copy into its box of `out`, as a run where it is one.
+
+See [`slabcopy!`](@ref) for the measurement: `blockcopy!`'s coordinate
+arithmetic is 9x the cost of the bytes it moves, and a `cat` on its outermost
+axis never needed it.
+"""
+function blockcopydispatch!(emitctx::EmitCtx, out, od::Dims{N}, part, pd::Dims{N},
+                            off::NTuple{N,Int}; name::AbstractString) where {N}
+    n = length(part)
+    o = contiguousslab(od, pd, off)
+    if o !== nothing && n <= typemax(Int32) && o + n <= typemax(Int32)
+        M.dispatch!(emitctx.g, slabcopy!, (out, part, Int32(o), Int32(n)), n; name)
+    else
+        M.dispatch!(emitctx.g, blockcopy!, (out, od, part, pd, off), n; name)
+    end
+    return out
+end
+
+"""
     materialise(ctx, id) -> resource
 
 View `id` with storage of its own, in ONE pass wherever the chain allows it.
@@ -2139,9 +2185,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("slice_scatter.default")
     ewdispatch!(emitctx, out, od, (a,), (bcstrides(od, size(a)),), identity;
                 name = "$(op.id).self")
     length(src) == 0 && return out
-    M.dispatch!(emitctx.g, blockcopy!,
-                (out, od, src, size(src), ntuple(k -> k == d ? lo : 0, n)),
-                length(src); name = op.id)
+    blockcopydispatch!(emitctx, out, od, src, size(src),
+                       ntuple(k -> k == d ? lo : 0, n); name = op.id)
     return out
 end
 
@@ -2184,9 +2229,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("constant_pad_nd.default
                                    something(get(op.attrs, "arg2", nothing), 0));
               name = "$(op.id).border")
     length(a) == 0 && return out
-    M.dispatch!(emitctx.g, blockcopy!,
-                (out, size(out), a, ntuple(k -> size(a, k), n), los),
-                length(a); name = "$(op.id).inner")
+    blockcopydispatch!(emitctx, out, size(out), a, ntuple(k -> size(a, k), n),
+                       los; name = "$(op.id).inner")
     return out
 end
 
@@ -2355,10 +2399,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
     for (j, p) in enumerate(parts)
         len = size(p, d)
         len == 0 && continue
-        M.dispatch!(emitctx.g, blockcopy!,
-                    (out, od, p, ntuple(k -> size(p, k), n),
-                     ntuple(k -> k == d ? off : 0, n)),
-                    length(p); name = "$(op.id).$j")
+        blockcopydispatch!(emitctx, out, od, p, ntuple(k -> size(p, k), n),
+                           ntuple(k -> k == d ? off : 0, n); name = "$(op.id).$j")
         off += len
     end
     return out
@@ -3832,9 +3874,9 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
         let wp = scratch(emitctx, Float16, CRSP, Cout)
             M.dispatch!(emitctx.g, M.fill_kernel!, (wp, zero(Float16)), length(wp);
                         name = "$(op.id).wzero")
-            M.dispatch!(emitctx.g, blockcopy!,
-                        (wp, (CRSP, Cout), M.viewof(w, (CRS, Cout)), (CRS, Cout),
-                         (0, 0)), CRS * Cout; name = "$(op.id).wpad")
+            blockcopydispatch!(emitctx, wp, (CRSP, Cout),
+                               M.viewof(w, (CRS, Cout)), (CRS, Cout), (0, 0);
+                               name = "$(op.id).wpad")
             wp
         end
     blk_split = M.coopmat_gemm_shape(MP, Cout, CRSP)
