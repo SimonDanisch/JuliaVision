@@ -3231,7 +3231,13 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         qd = q isa StridedOperand ? operand(emitctx, op, 1) : q
         kd = k isa StridedOperand ? operand(emitctx, op, 2) : k
         vd = v isa StridedOperand ? operand(emitctx, op, 3) : v
-        threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
+        # A recordable FUSED attention first, where the backend has one: it never
+        # materialises the scores, which is what the three passes below spend their time
+        # on. No bias input, so an op that has one goes the long way.
+        fused = bias === nothing &&
+            M.native_attention_dispatch!(emitctx.dev, emitctx.g, out, qd, kd, vd;
+                                         scale = Float32(scale), name = "$(op.id).flash")
+        fused || threepass!(emitctx, op, out, qd, kd, vd, bias, scale)
         return sdparesults(emitctx, dst)
     end
     outperm = sdpaoutputpermute(emitctx, op)

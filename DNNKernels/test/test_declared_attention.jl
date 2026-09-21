@@ -71,6 +71,27 @@ function declared_threepass(dev, E, L, H, B)
     (; err, npasses, wrote = maximum(abs, got) > 1e-4)
 end
 
+"""One declared `native_attention_dispatch!`, recorded, replayed, and read back."""
+function declared_fused(dev, E, L, H, B)
+    qh = Float16.(reshape(0.4 .* sin.(range(0, 9, E*L*H*B)), E, L, H, B))
+    kh = Float16.(reshape(0.4 .* cos.(range(0, 7, E*L*H*B)), E, L, H, B))
+    vh = Float16.(reshape(0.4 .* sin.(range(0, 5, E*L*H*B)), E, L, H, B))
+    q = MM.Buffer(dev, qh); k = MM.Buffer(dev, kh); v = MM.Buffer(dev, vh)
+    out = MM.Buffer(dev, Float16, (E, L, H, B))
+    graph = MM.Graph(dev)
+    scale = Float32(inv(sqrt(E)))
+    MM.native_attention_dispatch!(dev, graph, out, q, k, v; scale, name = "flash") ||
+        return nothing
+    npasses = length(graph.passes)
+    plan = MM.Plan(graph)
+    MM.record!(plan); MM.run!(plan); MM.waitidle(dev)
+    got = Float32.(Array(MM.storage(out)))
+    MM.free!(plan)
+    ref = attn_host(qh, kh, vh, scale)
+    (; err = maximum(abs, got .- ref) / max(maximum(abs, ref), eps(Float32)),
+       npasses, wrote = maximum(abs, got) > 1e-4)
+end
+
 function declaredattention(dev, label)
     @testset "declared three-pass attention — $label" begin
         E, H, B = 72, 2, 1
@@ -101,6 +122,18 @@ function declaredattention(dev, label)
         @test r2.wrote
         @test r2.err < 3e-3
         @test r2.npasses == 4
+
+        # And the FUSED route, which `emitsdpa!` prefers over all three passes where the
+        # backend has one. Declared through the same interface into a recorded plan, so
+        # this covers the access walk and the replay, not just the kernel's arithmetic.
+        rf = declared_fused(dev, E, 128, H, B)
+        if rf === nothing
+            @info "no recordable fused attention on $label"
+        else
+            @test rf.npasses == 1
+            @test rf.wrote
+            @test rf.err < 3e-3
+        end
     end
 end
 
