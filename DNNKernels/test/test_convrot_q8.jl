@@ -118,3 +118,51 @@ const DKA = DNNKernels
         @test_skip false
     end
 end
+
+# The checkpoint's `(K, M)` int8 becomes the GEMM's `(M/4, K)` packed words, and
+# the two disagree on which axis is contiguous.
+#
+# A thread per output word with the word index fast reads four bytes `K` apart
+# and, across a wave, sixty-four groups of those `4K` apart: one byte of every
+# line fetched. Qwen-Image 2.1's `12288 x 4096` measured 189.9 ms, 505 MB/s, and
+# 224 such weights are what made loading the 20B denoiser 39 s. Each thread now
+# takes `Q8PACK_WORDS` CONSECUTIVE words with `k` fast, which makes the write a
+# full line and every read coalesced: 3.62 ms, 26.5 GB/s, and the whole upload
+# 39.2 s to 10.3.
+#
+# Pinned here on shapes that exercise both tail guards, because the packing is
+# what every weight in a compact checkpoint goes through and a wrong byte is
+# not something a later test would localise.
+@testset "the int8 checkpoint packs four rows to a word, whatever the tail" begin
+    backend = Mantle.LavaBackend()
+    caps = DNNKernels.caps(backend)
+    if caps.coopmat
+        rng = MersenneTwister(11)
+        # `M` a multiple of four and not; `M/4` a multiple of the words a thread
+        # takes and not; `K` beyond one workgroup.
+        for (K, M) in ((512, 1024), (512, 1022), (256, 132), (768, 4 * 32 * 3))
+            q = rand(rng, Int8, K, M)
+            scale = rand(rng, Float32, M) .+ 0.5f0
+            A = DKA.convrotqint8(backend, q, scale; group_size = 256)
+            KernelAbstractions.synchronize(backend)
+            got = Array(A.q)
+            MG = cld(M, 4)
+            @test size(got) == (MG, K)
+            ref = zeros(UInt32, MG, K)
+            for k in 1:K, g in 0:(MG - 1)
+                w = UInt32(0)
+                for r in 0:3
+                    m = 4g + r
+                    m < M || continue
+                    w |= UInt32(reinterpret(UInt8, q[k, m + 1])) << (8r)
+                end
+                ref[g + 1, k] = w
+            end
+            @test got == ref
+            @test size(A) == (M, K)
+            @test Array(A.scale) ≈ scale
+        end
+    else
+        @test_skip false
+    end
+end

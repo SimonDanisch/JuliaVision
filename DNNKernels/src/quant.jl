@@ -114,14 +114,41 @@ toback(backend, A::ConvRotQInt8Matrix) =
 # Rows per packed word. Fixed at four by `UInt32`; named so the arithmetic reads.
 const Q8ROWS = 4
 
-@kernel cpu=false function checkpoint_q8pack_kernel!(q32, @Const(q),
-                                                      K::Int32, M::Int32, MG::Int32)
-    i = @index(Global, Linear)
-    if i <= MG * K
-        @inbounds begin
-            l = Int32(i) - Int32(1)
-            g = l % MG
-            k = l ÷ MG
+"""
+Output words one thread packs, which is how this kernel stops being a
+transpose done a byte at a time.
+
+The checkpoint stores `q` as `(K, M)` — `K` contiguous — and the GEMM wants
+`(M/4, K)` with the packed rows contiguous, so the two disagree on which axis
+is fast and SOMETHING has to cross that. A thread per output word with the
+word index fast reads four bytes `K` apart and, across a wave, sixty-four
+groups of those `4K` apart: one byte used of every cache line fetched, 48 MB of
+weight turning into ~6 GB of traffic. Qwen-Image 2.1's `12288 x 4096` measured
+**189.9 ms, 505 MB/s**.
+
+Giving each thread `GPT` CONSECUTIVE output words and making `k` the fast axis
+fixes both sides at once. The thread writes `GPT * 4` contiguous bytes, so at
+32 that is a full 128-byte line; and for each of the four bytes in a word,
+consecutive threads read consecutive `k`, so every read is coalesced too. Same
+kernel, same output bit for bit: **3.62 ms, 26.5 GB/s, 52x**.
+
+    GPT      8      16      32      64
+    ms    9.28    5.36    3.62    3.97
+"""
+const Q8PACK_WORDS = 32
+
+@kernel cpu=false function checkpoint_q8pack_kernel!(q32, @Const(q), K::Int32,
+                                                     M::Int32, MG::Int32,
+                                                     ::Val{GPT}) where {GPT}
+    # A 2-D range, so recovering `k` and the word group costs no integer
+    # division by a runtime extent — which is its own 3x elsewhere in this
+    # package (see `attn_flash_cm_merge!`).
+    kk, gg = @index(Global, NTuple)
+    k = Int32(kk) - Int32(1)
+    gb = (Int32(gg) - Int32(1)) * Int32(GPT)
+    @inbounds for w in Int32(0):Int32(GPT - 1)
+        g = gb + w
+        if g < MG
             word = UInt32(0)
             Base.Cartesian.@nexprs 4 r -> begin
                 m = g * Int32(4) + Int32(r - 1)
@@ -130,7 +157,7 @@ const Q8ROWS = 4
                     word |= UInt32(byte) << (8 * (r - 1))
                 end
             end
-            q32[i] = word
+            q32[Int32(1) + g + k * MG] = word
         end
     end
 end
@@ -147,8 +174,9 @@ function convrotqint8(backend, q::AbstractMatrix{Int8}, scale;
     ds = toback(backend, Float32.(vec(scale)))
     MG = cld(M, Q8ROWS)
     packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    checkpoint_q8pack_kernel!(backend, 256)(packed, dq, Int32(K), Int32(M), Int32(MG);
-                                              ndrange=MG*K)
+    checkpoint_q8pack_kernel!(backend, (256, 1))(
+        packed, dq, Int32(K), Int32(M), Int32(MG), Val(Q8PACK_WORDS);
+        ndrange = (K, cld(MG, Q8PACK_WORDS)))
     ConvRotQInt8Matrix(packed, ds, M, Int(group_size))
 end
 

@@ -325,6 +325,43 @@ cannot precompile on a machine with no GPU is a worse package.
 So this is the largest single item left in a generation, it is worth ~35% of
 one, and what it needs is a decision rather than a measurement.
 
+### Taken: most of the load was a transpose done a byte at a time
+
+The 7.3 GB checkpoint took **39.2 s** to reach the device, which the note below
+attributes to the driver's first touch of new memory at 250 MB/s. That is not
+what it was. 224 of the 301 weights are `ConvRotQInt8HostMatrix`, and each one
+goes through `convrotqint8`, which uploads the raw int8 and then repacks it
+with `checkpoint_q8pack_kernel!`. For the `12288 x 4096` weight, measured:
+
+    upload of q        107.1 ms      (48 MB, collect + copyto! + a fresh block)
+    scale               25.8 ms
+    allocate packed      8.3 ms
+    PACK KERNEL        189.9 ms      48 MB in, 48 MB out -> 505 MB/s
+
+The checkpoint stores `q` as `(K, M)` with `K` contiguous and the GEMM wants
+`(M/4, K)` with the packed rows contiguous, so the pack is a transpose. It was
+written as a thread per output word with the word index fast, which reads four
+bytes `K` apart and, across a wave, sixty-four groups of those `4K` apart: one
+byte used of every cache line fetched, 48 MB of weight turning into ~6 GB of
+traffic.
+
+Giving each thread **32 consecutive output words** with `k` fast fixes both
+sides at once — the thread writes a full 128-byte line, and for each of the
+four bytes in a word consecutive threads read consecutive `k`. Bit-identical
+output, and the whole denoiser's step output reproduces to the digit
+(rms 1.5885369):
+
+    GPT      8      16      32      64
+    ms    9.28    5.36    3.62    3.97      against 189.9
+
+**`upload_s` 39.2 s -> 10.3 s**, the `Model` build 55.4 s -> 26.9, and
+preparing the denoiser 120.7 s -> 92.8. That is 28 s off every generation, next
+to 95 s of denoising.
+
+What is left in the upload is real: ~35 ms a weight of `collect` (a contiguous
+`SubArray` of the checkpoint is not a `DenseArray`, so `toback` copies it) plus
+`copyto!` plus a fresh pool block.
+
 ### The other half of a generation is the LOAD, and it is driver-bound
 
 A cold 1024² generation is ~287 s, of which the 20 denoising steps are ~107.
