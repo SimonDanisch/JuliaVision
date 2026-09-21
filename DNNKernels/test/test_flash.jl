@@ -700,6 +700,61 @@ end
     end
 end
 
+# The deferred rescale site exists only for the one-pass softmax, and a plan
+# that is not one-pass should not compile it.
+#
+# `PREONLY` forces the early placement. When `onepass` is off, `onep` is false
+# for every block anyway, so the flag changes no arithmetic — only how much of
+# the kernel exists — and the launcher's own `&& !plan.onepass` is what keeps
+# that true. Measured on an 8060S at Qwen-Image 2.1's attention (`Lq = 4096`,
+# `Lk = 4118` clamped, `E = 128`, 32 heads): 36.6 ms against 38.6 interleaved,
+# and the whole 20B denoising step 5.85 s against 6.02, bit-identical output.
+@testset "a two-pass plan does not compile the deferred rescale" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+    if dev.coopmat
+        # `..., PREONLY, rscbar, prefetchv, outperm, outwindow..., H, nsp,
+        # partout, epad, rpad, SG, Lq, keys, lazyrescale, onepass, partial, ml`
+        preonlyof(l) = l.args[end - 19] isa Val{true}
+        E, Lq, H = 128, 1024, 8
+        rng = MersenneTwister(7)
+        mk(E) = DNNKernels.toback(back, Float16.(randn(rng, Float32, E, Lq, H, 1) .* 0.3f0))
+        scale = Float32(1 / sqrt(E))
+        part = KA.allocate(back, Float32, E, Lq, H, 1, 2)
+        ml = KA.allocate(back, Float32, Lq, H, 1, 2, 2)
+        # The merge launch carries none of these arguments, so ask the spatial
+        # ones. This grid fills the device and there is no merge, which is also
+        # what makes the two runs below comparable.
+        launches(p, q, k, v; kw...) =
+            filter(l -> l.kern === DNNKernels.attn_flash_cm_spatial4!,
+                   DNNKernels.flash_launches(dev, q, p, q, k, v, scale, part, ml; kw...))
+
+        q, k, v = mk(E), mk(E), mk(E)
+        two = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
+        @test two isa DNNKernels.FlashCMPlan && !two.onepass
+        @test !isempty(launches(two, q, k, v))
+        @test all(preonlyof, launches(two, q, k, v))
+        # The keyword is the A/B and only turns it off.
+        @test !any(preonlyof, launches(two, q, k, v; preonly = false))
+
+        # A one-pass plan needs the deferred site and must not get the flag,
+        # whatever the caller asks for.
+        one = DNNKernels.flashcm_plan(dev, q, k, v, nothing; onepass = true)
+        @test one.onepass
+        @test !any(preonlyof, launches(one, q, k, v))
+
+        # Same arithmetic, so the same bits.
+        out = KA.allocate(back, Float32, E, Lq, H, 1)
+        runout(; kw...) = (fill!(out, 0f0);
+                           DNNKernels.sdpaflashcm!(ctx, out, two, q, k, v, scale; kw...);
+                           KA.synchronize(back); Array(out))
+        @test runout() == runout(preonly = false)
+    else
+        @test_skip false
+    end
+end
+
 # One pass over the scores or two, by head width.
 #
 # One pass reads each score once and redoes the block when a row's maximum grew

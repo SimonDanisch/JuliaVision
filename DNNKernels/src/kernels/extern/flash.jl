@@ -832,8 +832,16 @@ end
             # rescale site below statically dead. Only correct when `onepass` is
             # off — then `onep` is always false and `pre` is always true anyway,
             # so this changes no arithmetic, only how much of the kernel exists.
-            # It is the probe for whether *two* rescale sites are what costs the
-            # second resident workgroup.
+            # `flash_launches` sets it for every plan that is not one-pass, and
+            # the launcher's `&& !plan.onepass` is what keeps that safe.
+            #
+            # It began as the probe for whether *two* rescale sites are what
+            # costs the second resident workgroup, and the answer was yes: the
+            # output is bit-identical either way and the clamped Qwen shape
+            # measures **36.6 ms against 38.6** interleaved, -5 to -6% over
+            # fifteen rounds. The unclamped `Lk = 4096` shape is within noise
+            # (+1%), which fits — `KCLAMP` is the version near the register
+            # cliff, so it is the one that gains from a smaller kernel.
             pre = PREONLY || !onep || redo[1] != 0.0f0
             if pre && tid < BR
                 mo = ms[1 + tid]
@@ -1782,10 +1790,11 @@ end
 # here would run *after* the caller has allocated `out` and committed to the
 # fused path, and would have to agree with a predicate that already said yes.
 # 
-# `ballast`, `shpad`, `nrsc`, `preonly` and `rscbar` are the diagnostics from the
-# held-`O` investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords
-# rather than plan fields because they describe an experiment, not a routing
-# decision, and nothing in the library sets them.
+# `ballast`, `shpad`, `nrsc` and `rscbar` are the diagnostics from the held-`O`
+# investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords rather
+# than plan fields because they describe an experiment, not a routing decision,
+# and nothing in the library sets them. `preonly` is no longer one of them: it
+# is on by default and the keyword only turns it off. See `flash_launches`.
 
 """
     flash_launches(caps, out, plan, q, k, v, scale, partial, ml; …) -> Vector
@@ -1803,7 +1812,11 @@ nothing would report.
 function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, ml;
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
-                      preonly::Bool = false, rscbar::Bool = false,
+                      # A plan that is not one-pass never reaches the deferred
+                      # rescale, and saying so statically is worth 5-6% at the
+                      # clamped shape. `false` keeps the runtime branch, which is
+                      # what the A/B in `test_flash.jl` compares.
+                      preonly::Bool = true, rscbar::Bool = false,
                       # Five values per thread at the 512-thread global tile is
                       # enough latency hiding for a measured win. The 128-thread
                       # window tile needs twenty registers and loses occupancy.
@@ -1945,7 +1958,7 @@ device cannot make; ask [`flashcm_plan`](@ref) directly to find out *which* rule
 refused.
 """
 function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
-                      nrsc::Int = 3, preonly::Bool = false, rscbar::Bool = false,
+                      nrsc::Int = 3, preonly::Bool = true, rscbar::Bool = false,
                       epad::Union{Nothing,Int} = nothing,
                       rpad::Union{Nothing,Int} = nothing,
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
