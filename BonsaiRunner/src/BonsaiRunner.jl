@@ -9,10 +9,13 @@ module BonsaiRunner
 
 using DNNKernels
 using KernelAbstractions
+using LazyArtifacts
+using Scratch
+using SHA
 import Mantle
 
 export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, prefill!, generate
-export encode, decode, chatprompt, loadweights!
+export encode, decode, chatprompt, loadweights!, checkpointpath
 
 include("tokenizer.jl")
 include("kernels.jl")
@@ -21,6 +24,69 @@ const WIDTH = 5120
 const FFN = 17408
 const NLAYERS = 64
 const EPS = 1f-6
+
+const CHECKPOINT_NAME = "Ternary-Bonsai-2-27B-PTQ1_0.gguf"
+const CHECKPOINT_BYTES = 5_946_648_928
+const CHECKPOINT_SHA256 =
+    "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3"
+const CHECKPOINT_PART_FILES = ntuple(
+    i -> "Ternary-Bonsai-2-27B-PTQ1_0-part-$(i)of4", 4)
+const CHECKPOINT_ARTIFACTS = ntuple(i -> "bonsai2-ptq1-p$i", 4)
+
+# Literal artifact names are intentional: `@artifact_str` resolves against the
+# Artifacts.toml beside this package at macro expansion. Each tree is lazy, so
+# importing BonsaiRunner downloads nothing.
+_checkpointpart(::Val{1}) = @artifact_str("bonsai2-ptq1-p1")
+_checkpointpart(::Val{2}) = @artifact_str("bonsai2-ptq1-p2")
+_checkpointpart(::Val{3}) = @artifact_str("bonsai2-ptq1-p3")
+_checkpointpart(::Val{4}) = @artifact_str("bonsai2-ptq1-p4")
+
+function _copyall!(out, src::AbstractString)
+    open(src, "r") do input
+        buf = Vector{UInt8}(undef, 16 * 1024 * 1024)
+        while !eof(input)
+            n = readbytes!(input, buf)
+            write(out, view(buf, 1:n))
+        end
+    end
+end
+
+"""
+    checkpointpath() -> String
+
+Resolve the four lazy artifacts containing Bonsai's 5.95 GB PTQ1 checkpoint and
+assemble their byte-exact concatenation once in Scratch.jl's package cache.
+
+GitHub release assets are capped at 2 GiB, so the upstream GGUF cannot be one
+release asset. Each part is independently checked by Julia's artifact system;
+the assembled file is additionally checked against upstream's SHA-256 before it
+is made visible. Subsequent calls reuse the size- and digest-versioned result.
+"""
+function checkpointpath()
+    root = Scratch.get_scratch!(BonsaiRunner, "checkpoint-$CHECKPOINT_SHA256")
+    path = joinpath(root, CHECKPOINT_NAME)
+    isfile(path) && filesize(path) == CHECKPOINT_BYTES && return path
+
+    tmp = path * ".tmp-$(getpid())-$(Threads.threadid())"
+    try
+        open(tmp, "w") do out
+            for i in 1:4
+                part = joinpath(_checkpointpart(Val(i)), CHECKPOINT_PART_FILES[i])
+                isfile(part) || error("Bonsai checkpoint artifact part $i has no $(CHECKPOINT_PART_FILES[i])")
+                _copyall!(out, part)
+            end
+        end
+        filesize(tmp) == CHECKPOINT_BYTES || error(
+            "assembled Bonsai checkpoint is $(filesize(tmp)) bytes, expected $CHECKPOINT_BYTES")
+        digest = bytes2hex(open(SHA.sha256, tmp))
+        digest == CHECKPOINT_SHA256 || error(
+            "assembled Bonsai checkpoint SHA-256 is $digest, expected $CHECKPOINT_SHA256")
+        mv(tmp, path; force=true)
+    finally
+        isfile(tmp) && rm(tmp)
+    end
+    return path
+end
 
 """A loaded Bonsai checkpoint and the device selected for it."""
 struct Bonsai2{B,C}
@@ -86,6 +152,9 @@ function Bonsai2(path::AbstractString; device=Mantle.device(), context=nothing,
     loadweights && loadweights!(model; progress)
     model
 end
+
+"""Load Bonsai from the package's lazy, content-addressed checkpoint artifacts."""
+Bonsai2(; kw...) = Bonsai2(checkpointpath(); kw...)
 
 function _loadsigns!(model::Bonsai2)
     widths = Int.(model.file.metadata["prism.hadamard.sign_widths"])

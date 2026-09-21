@@ -454,7 +454,8 @@ end
 # Identical to `rmsnorm_kernel!` except that `γ` is indexed by position within the
 # ROW rather than within the group, which is the only thing "grouped" changes.
 @kernel cpu=false function groupedrms_kernel!(out, @Const(a), @Const(γ), C::Int32,
-                                              NG::Int32, eps::Float32)
+                                              NG::Int32, eps::Float32,
+                                              ::Val{MIDROUND} = Val(false)) where {MIDROUND}
     red = @localmem Float32 (LN_WG,)
     g = @index(Group, Linear) - 1
     t = @index(Local, Linear) - 1
@@ -485,7 +486,16 @@ end
 
     i = t
     @inbounds while i < C
-        out[base + i + 1] = eltype(out)(Float32(a[base + i + 1]) * r * Float32(γ[gof + i + 1]))
+        y = Float32(a[base + i + 1]) * r
+        # `MIDROUND` is where the export put its cast. Qwen-Image 2.1 normalises
+        # in fp32, narrows to fp16, and multiplies the fp16 gain into the fp16
+        # value; K2 Horizon multiplies first and narrows once. The two differ by
+        # a rounding, and a fusion that is not told which one it is replacing
+        # silently changes the model it was meant to speed up.
+        if MIDROUND
+            y = Float32(eltype(out)(y))
+        end
+        out[base + i + 1] = eltype(out)(y * Float32(γ[gof + i + 1]))
         i += LN_WG
     end
 end

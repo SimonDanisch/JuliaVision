@@ -53,6 +53,13 @@ struct EmitCtx{G,D}
     # weights and host scalars, and
     # the emit knows what it allocated.
     owned::Vector{Any}
+    # Destinations declared WIDER than the buffer they stand for: the packed
+    # int8 GEMM runs at a padded column count, and columns `1..N` of an
+    # `Mm x NP` buffer are its first `Mm*N` elements, so the op's result is a
+    # dense view of one of these rather than a copy out of it. Keyed by the
+    # buffer id, filled by `declare!`, read by `gemm!` — which needs the padded
+    # extent, while everything downstream reads `res` and sees the real one.
+    padded::Dict{String,Any}
 end
 
 # Host scalar attributes are commonly decoded as Float64, while some GPU
@@ -98,8 +105,12 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
-    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[])
+    emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[],
+                      Dict{String,Any}())
     shapes = resultshapes(aten)
+    # Which op makes each buffer, so `declare!` can ask what is about to be
+    # emitted into one. Built once here rather than scanned per buffer.
+    producers = Dict{String,Op}(op.out => op for op in aten.ops)
     # A REFUSAL must not leak what it had already allocated. `declare!` gives
     # every escaping buffer storage before the first op is emitted, so an op
     # without an `emitop!` -- the refusal this path exists to give -- throws with
@@ -108,7 +119,7 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     # answer, and only the cleanup is added.
     try
         for id in aten.order
-            declare!(emitctx, aten.buffers[id], weights, live, shapes)
+            declare!(emitctx, aten.buffers[id], weights, live, shapes, producers)
         end
         for op in aten.ops
             op.out in skip && continue
@@ -217,7 +228,8 @@ The kinds are the export's, and the decision each one makes is Mantle's:
     may hand to something else at its last use.
 """
 function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict,
-                  live::Set{String}, shapes::Dict{String,Any})
+                  live::Set{String}, shapes::Dict{String,Any},
+                  producers::AbstractDict = Dict{String,Op}())
     b.kind === :view && return                      # `viewfor`, on demand
     if b.kind === :weight
         haskey(weights, b.key) || error("missing weight $(b.key)")
@@ -243,7 +255,53 @@ function declare!(emitctx::EmitCtx, b::Buffer, weights::AbstractDict,
         return
     end
     b.id in live || return
-    emitctx.res[b.id] = make(emitctx, b.id, b.dtype, evalshape(b.shape, emitctx.dims))
+    dims = evalshape(b.shape, emitctx.dims)
+    np = paddedcolumns(emitctx, b, dims, weights, producers)
+    if np !== nothing
+        # The wide one is what the GEMM writes; `res` is the view every reader
+        # sees. Both are this buffer — the padding is arithmetic nobody asked
+        # for, not a second value.
+        wide = make(emitctx, b.id, b.dtype, (dims[1], np))
+        emitctx.padded[b.id] = wide
+        emitctx.res[b.id] = M.viewof(wide, dims)
+        return
+    end
+    emitctx.res[b.id] = make(emitctx, b.id, b.dtype, dims)
+end
+
+"""
+    paddedcolumns(emitctx, b, dims, weights, producers) -> np | nothing
+
+The column count to declare `b` at when the op that writes it is a packed int8
+product whose own column count is padded — see `q8gemm_columns`.
+
+Declaring it wide is what turns the discard of those columns into a rename. The
+alternative is a copy of the real columns into a second buffer, which at
+Qwen-Image 2.1's widest product is 202 MB read and written per layer.
+
+`nothing` for everything else, and deliberately for a buffer that ESCAPES: an
+output's storage is the caller's, handed back by `planfor`, and handing back a
+view of something wider is a different promise than the one the graph makes.
+"""
+function paddedcolumns(emitctx::EmitCtx, b::Buffer, dims::Dims,
+                       weights::AbstractDict, producers::AbstractDict)
+    length(dims) == 2 || return nothing
+    (b.id in emitctx.esc || b.id in emitctx.aten.outputs) && return nothing
+    op = get(producers, b.id, nothing)
+    op === nothing && return nothing
+    op.aten in ("mm.default", "addmm.default") || return nothing
+    # `mm(a, b)` is `b * a` reversed, so the MATRIX operand is the last input.
+    # Read from the weight table and not from `res`: declarations run in the
+    # graph's order and the weight need not have been declared yet.
+    wb = get(emitctx.aten.buffers, last(op.ins), nothing)
+    (wb === nothing || wb.kind !== :weight) && return nothing
+    w = get(weights, wb.key, nothing)
+    (w isa QInt8Matrix || w isa ConvRotQInt8Matrix) || return nothing
+    Mm, K = size(w)
+    Mm == dims[1] || return nothing
+    np = q8gemm_columns(dims[2])
+    np == dims[2] && return nothing
+    q8gemm_tiling(M.caps(emitctx.dev), b.dtype, Mm, K, np) === nothing ? nothing : np
 end
 
 """
@@ -565,6 +623,41 @@ densestrides(od::Dims, st) = begin
 end
 
 """
+    walkstreams(pd, st) -> Int
+
+How many separate places a walk in order `pd` touches before it comes back near
+where it started, on the side whose strides are `st`.
+
+The walk runs the first axis innermost. While `st[j]` is exactly the product of
+the extents before it the addresses simply continue, and that side is linear; at
+the first axis where it is not, the walk starts cycling through `pd[j]` places
+that are far apart and keeps cycling. That count, not the size of each piece, is
+what a copy between two layouts pays: a 256-byte write every 8 KB across 4096
+open streams is three times slower than the same write across 32.
+
+`1` means the side never breaks. A singleton axis moves nothing and is skipped.
+"""
+function walkstreams(pd::Dims, st::Dims)
+    r = 1
+    for j in eachindex(pd)
+        pd[j] == 1 && continue
+        # A broadcast axis re-reads one address, which is the best locality
+        # there is: it neither breaks the run nor extends it.
+        st[j] == 0 && continue
+        st[j] == r || return pd[j]
+        r *= pd[j]
+    end
+    return 1
+end
+
+"""Streams the worse side of a walk order leaves open; lower is better."""
+function walkcost(od::Dims, ast::Dims, ost::Dims, perm)
+    pd = ntuple(j -> od[perm[j]], length(od))
+    max(walkstreams(pd, ntuple(j -> ast[perm[j]], length(od))),
+        walkstreams(pd, ntuple(j -> ost[perm[j]], length(od))))
+end
+
+"""
     stridedcopydispatch!(ctx, out, od, src, ast, off; name)
 
 Declare the copy that fills `out` from a strided read of `src`.
@@ -589,6 +682,44 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
     end
     n = prod(od)
     hi = off + sum((od[k] - 1) * ast[k] for k in eachindex(od); init = 0)
+    # Which ORDER to walk the elements in. `stridedcopy32!` walks the
+    # destination, so a copy whose source strides do not ascend with the
+    # destination's axes reads scattered and writes sequentially, and a
+    # scattered read is the expensive one: Qwen-Image 2.1's `(E, H, L) -> (E, L,
+    # H)` attention operands measured 21 GB/s that way and 115 the other. A
+    # singleton axis has no order to contribute, so it does not vote.
+    #
+    # But the source's own order is not always the right one, and the same model
+    # has the counterexample: the attention OUTPUT is the inverse permutation,
+    # `(E, L, H) -> (E, H, L)`, and walking the source in order there measured
+    # **46 GB/s against 122** for its mirror image. Both orders leave one side
+    # perfectly linear and the other in 256-byte chunks, so chunk size is not
+    # what separates them — [`walkstreams`](@ref) is. Decide between the two
+    # candidates on it rather than assuming.
+    #
+    # Only ever a fallback TO the destination order, which is what this function
+    # did before the source-order branch existed, so a copy the branch was right
+    # about keeps it. In the 20B denoiser the two attention-output permutes a
+    # layer go **1.474 ms to 0.552** each, the model's permutes 99.6 ms to 68.5,
+    # and the step's serialised total 4839.4 to 4808.9 with bit-identical
+    # output.
+    ost = colstrides(od)
+    ident = collect(eachindex(od))
+    perm = sortperm(ident; by = k -> (od[k] == 1 ? typemax(Int) : ast[k]))
+    if perm != ident && walkcost(od, ast, ost, perm) > walkcost(od, ast, ost, ident)
+        perm = ident
+    end
+    if perm != ident && n <= typemax(Int32) && hi + 1 <= typemax(Int32)
+        ost = colstrides(od)
+        pd  = ntuple(j -> od[perm[j]], length(od))
+        pas = ntuple(j -> Int32(ast[perm[j]]), length(od))
+        pos = ntuple(j -> Int32(ost[perm[j]]), length(od))
+        M.dispatch!(emitctx.g, stridedcopy32perm!,
+                    (out, M.broadcastextents(pd), pos, src, pas,
+                     Int32(off), Int32(n)), n;
+                    group = min(256, M.caps(emitctx.dev).workgrouplimit), name)
+        return out
+    end
     if n <= typemax(Int32) && hi + 1 <= typemax(Int32)
         # Lava's unconstrained occupancy chooser selects 1024 here.  These
         # rank-4/6 copies carry a FastDiv32 coordinate chain, and four waves per
@@ -611,6 +742,52 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
         end
     else
         M.dispatch!(emitctx.g, stridedcopy!, (out, od, src, ast, off), n; name)
+    end
+    return out
+end
+
+"""
+    contiguousslab(od, pd, off) -> offset | nothing
+
+Where a `pd`-shaped part sits in an `od`-shaped destination when it sits on ONE
+run of it, and `nothing` when it does not.
+
+Contiguous means: full extents below the axis the part does not span, nothing
+above it, and an offset on that axis alone. A part that is narrow on a LOW axis
+is a stride, not a run, however small the gap.
+"""
+function contiguousslab(od::Dims{N}, pd::Dims{N}, off::NTuple{N,Int}) where {N}
+    d = 0
+    for k in N:-1:1
+        if pd[k] != od[k]
+            d = k
+            break
+        end
+    end
+    d == 0 && return all(iszero, off) ? 0 : nothing
+    all(k -> od[k] == 1, (d + 1):N) || return nothing
+    all(k -> pd[k] == od[k], 1:(d - 1)) || return nothing
+    all(k -> k == d || off[k] == 0, 1:N) || return nothing
+    off[d] * prod(ntuple(k -> od[k], d - 1); init = 1)
+end
+
+"""
+    blockcopydispatch!(ctx, out, od, part, pd, off; name)
+
+Declare one part's copy into its box of `out`, as a run where it is one.
+
+See [`slabcopy!`](@ref) for the measurement: `blockcopy!`'s coordinate
+arithmetic is 9x the cost of the bytes it moves, and a `cat` on its outermost
+axis never needed it.
+"""
+function blockcopydispatch!(emitctx::EmitCtx, out, od::Dims{N}, part, pd::Dims{N},
+                            off::NTuple{N,Int}; name::AbstractString) where {N}
+    n = length(part)
+    o = contiguousslab(od, pd, off)
+    if o !== nothing && n <= typemax(Int32) && o + n <= typemax(Int32)
+        M.dispatch!(emitctx.g, slabcopy!, (out, part, Int32(o), Int32(n)), n; name)
+    else
+        M.dispatch!(emitctx.g, blockcopy!, (out, od, part, pd, off), n; name)
     end
     return out
 end
@@ -869,7 +1046,28 @@ The views whose mapping is an offset and a per-axis stride, so a kernel that
 takes strides can read them in place. Anything else moves elements and is
 materialised — see [`viewfor`](@ref).
 """
-const STRIDEDVIEWS = ("permute.default", "slice.Tensor", "select.int")
+const STRIDEDVIEWS = ("permute.default", "slice.Tensor", "select.int",
+                      "expand.default")
+
+# `expand.default` is here because a repeated axis IS a zero stride, which is
+# what `bcstrides` already builds for every broadcast operand — `viewstrides`
+# has answered for it all along and nothing asked.
+#
+# What it cost: the Qwen-Image 2.1 VAE broadcasts a `(1, 1, 1, H, W)` plane
+# across channels before dividing by it, 43 times. Materialising that is 639 ms
+# of a 4.9 s decode — `expand_37` alone writes 1.2 GB from 4 MB and takes 169
+# ms — while the `div` that reads it is 4 ms. With the view described rather
+# than built, the consumer reads the one plane over and over out of cache and
+# the pass does not exist.
+#
+# Safe because `strideview` is only consulted by emits whose kernel takes
+# per-axis strides, and a zero is a stride like any other to them. Anything
+# that needs a RESOURCE still materialises, through the same `stridedcopy` it
+# used before. The recorded decode goes **4915 ms to 4308** and the `div` that
+# reads them gets faster too (145 ms to 121), reading one cached plane instead
+# of a gigabyte. Against the interpreted decode the image is unchanged where it
+# matters: 3.4e-4 rms of a [-1, 1] range, 53 pixels of 4.2 M past 3.8 levels of
+# 8-bit.
 
 """
     stridedoperand(ctx, id) -> StridedOperand or nothing
@@ -915,6 +1113,9 @@ function stridedoperand(emitctx::EmitCtx, id::AbstractString)
         st === nothing && return nothing
         return StridedOperand(root, od, st, poff)
     end
+    # `viewstrides` reads an expand off the SHAPES, so it needs the level below
+    # it dense; a composed chain need not be. Decline rather than let it throw.
+    b.viewop == "expand.default" && pst != colstrides(ps) && return nothing
     st, off = viewstrides(emitctx, b, ps, pst, od)
     return StridedOperand(root, od, st, poff + off)
 end
@@ -1030,6 +1231,22 @@ that asked for it.
 """
 scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
     M.Transient.Buffer(emitctx.g, T, map(Int, dims))
+
+"""Declare the radix-4 regular-Hadamard ConvRot transform — see
+[`convrot_kernel!`](@ref) for why it is one pass and not one per stage."""
+function convrot(emitctx::EmitCtx, input, group_size::Integer; name::AbstractString="convrot")
+    out = scratch(emitctx, eltype(input), size(input)...)
+    strides, sets, ndrange = convrot_passes(input, group_size)
+    n = Int64(length(input))
+    src = input
+    for (i, S) in enumerate(strides)
+        M.dispatch!(emitctx.g, convrot_pass_kernel!,
+                    (out, src, Val(S), Val(sets), Val(Int(group_size)), n),
+                    ndrange; group=256, name="$name.$i")
+        src = out
+    end
+    out
+end
 
 """Declare a fresh uniform or normal draw that remains fresh under replay."""
 function emitnoise!(emitctx::EmitCtx, op::Op, noise::RandomNoise)
@@ -1319,6 +1536,7 @@ end
 # ── the ops ──────────────────────────────────────────────────────────────────
 
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx, op, *)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Scalar")}) = binary!(emitctx, op, *)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
 
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Tensor")})
@@ -2079,9 +2297,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("slice_scatter.default")
     ewdispatch!(emitctx, out, od, (a,), (bcstrides(od, size(a)),), identity;
                 name = "$(op.id).self")
     length(src) == 0 && return out
-    M.dispatch!(emitctx.g, blockcopy!,
-                (out, od, src, size(src), ntuple(k -> k == d ? lo : 0, n)),
-                length(src); name = op.id)
+    blockcopydispatch!(emitctx, out, od, src, size(src),
+                       ntuple(k -> k == d ? lo : 0, n); name = op.id)
     return out
 end
 
@@ -2124,9 +2341,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("constant_pad_nd.default
                                    something(get(op.attrs, "arg2", nothing), 0));
               name = "$(op.id).border")
     length(a) == 0 && return out
-    M.dispatch!(emitctx.g, blockcopy!,
-                (out, size(out), a, ntuple(k -> size(a, k), n), los),
-                length(a); name = "$(op.id).inner")
+    blockcopydispatch!(emitctx, out, size(out), a, ntuple(k -> size(a, k), n),
+                       los; name = "$(op.id).inner")
     return out
 end
 
@@ -2278,14 +2494,25 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("cat.default")})
     total == od[d] ||
         error("DNNKernels: `cat` (op $(op.id)) joins $(total) along axis $d and " *
               "its output holds $(od[d]).")
+    # The interleave, as one dispatch. See `interleave2!`: on the innermost
+    # axis the per-part block copy writes every other element, which is half of
+    # every cache line twice.
+    if d == 1 && n >= 1 && od[1] == 2 && length(parts) == 2 &&
+       all(p -> size(p, 1) == 1, parts) &&
+       length(parts[1]) == length(parts[2]) &&
+       length(out) == 2 * length(parts[1]) &&
+       eltype(out) === eltype(parts[1]) === eltype(parts[2])
+        M.dispatch!(emitctx.g, interleave2!,
+                    (out, parts[1], parts[2], length(parts[1])),
+                    length(parts[1]); name = "$(op.id).ilv")
+        return out
+    end
     off = 0
     for (j, p) in enumerate(parts)
         len = size(p, d)
         len == 0 && continue
-        M.dispatch!(emitctx.g, blockcopy!,
-                    (out, od, p, ntuple(k -> size(p, k), n),
-                     ntuple(k -> k == d ? off : 0, n)),
-                    length(p); name = "$(op.id).$j")
+        blockcopydispatch!(emitctx, out, od, p, ntuple(k -> size(p, k), n),
+                           ntuple(k -> k == d ? off : 0, n); name = "$(op.id).$j")
         off += len
     end
     return out
@@ -2715,16 +2942,39 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.groupedrms")})
         "values for $NG groups of $C, but received $(length(γ)).")
     groups = length(a) ÷ C
     M.dispatch!(emitctx.g, groupedrms_kernel!,
-                (out, a, γ, Int32(C), Int32(NG), ε),
+                (out, a, γ, Int32(C), Int32(NG), ε,
+                 Val(Bool(get(op.attrs, "midround", false)))),
                 groups * LN_WG; group = LN_WG, name = op.id)
     return out
 end
 
 """The fused SwiGLU produced by `fuseswiglu`, as one declared dispatch."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
+    out = dest(emitctx)
+    # In place off whatever the halves are views OF, which is what the
+    # interpreted `runop!` has always done and the declared path did not.
+    # `fuseqkv` stacks the gate and the up projection into ONE product, so both
+    # operands are strided windows of it — and `operand` resolving them means
+    # two copies of 101 MB, 1.41 ms each, before a kernel that then runs no
+    # faster on the dense copies than on the windows (2.43 ms against 2.57 at
+    # Qwen-Image 2.1's `12288 x 4118`).
+    sg = stridedoperand(emitctx, op.ins[1])
+    su = stridedoperand(emitctx, op.ins[2])
+    if sg !== nothing && su !== nothing && sg.dims == su.dims &&
+       length(sg.dims) == length(su.dims) &&
+       prod(sg.dims) == length(out) &&
+       max(length(sg.parent), length(su.parent)) <= typemax(Int32) &&
+       max(sg.offset, su.offset) + 1 <= typemax(Int32)
+        M.dispatch!(emitctx.g, swiglu_strided_kernel!,
+                    (M.viewof(out, sg.dims), swiglustridedflat(sg.parent),
+                     swiglustridedflat(su.parent),
+                     Int32(sg.offset + 1), Int32(su.offset + 1),
+                     map(Int32, sg.strides), map(Int32, su.strides)),
+                    sg.dims; name = op.id)
+        return out
+    end
     gate = operand(emitctx, op.ins[1])
     up = operand(emitctx, op.ins[2])
-    out = dest(emitctx)
     size(gate) == size(up) == size(out) || error(
         "DNNKernels: `fused.swiglu` (op $(op.id)) needs equal gate, up and " *
         "output shapes, got $(size(gate)), $(size(up)) and $(size(out)).")
@@ -2733,6 +2983,11 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
                 name = op.id)
     return out
 end
+
+"""The 1-D form of a SwiGLU operand's root, which the strided kernel indexes."""
+swiglustridedflat(r) = reshape(r, length(r))
+swiglustridedflat(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) =
+    M.viewof(x, (length(x),))
 
 """The fused rotary embedding produced by `fuserope`, declared once for every backend."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
@@ -2750,6 +3005,32 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
     M.dispatch!(emitctx.g, rope_kernel!,
                 (out, x, cs, sn, Int32(H), Int32(H ÷ 2), Int32(HT),
                  Int64(length(x))), length(x); name = op.id)
+    return out
+end
+
+"""The interleaved rotary produced by `fusepairrope`, as one declared dispatch."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.pairrope")})
+    x = operand(emitctx, op.ins[1])
+    cs = operand(emitctx, op.ins[2])
+    sn = operand(emitctx, op.ins[3])
+    out = dest(emitctx)
+    P = Int(op.attrs["P"])
+    C = size(x, 1)
+    C == 2P || error(
+        "DNNKernels: `fused.pairrope` (op $(op.id)) rotates $P pairs of a " *
+        "head of $C.")
+    length(out) == length(x) || error(
+        "DNNKernels: `fused.pairrope` (op $(op.id)) writes $(length(out)) " *
+        "elements from $(length(x)).")
+    H = size(x, 2)
+    npair = length(x) ÷ 2
+    # Per token and per component, not per head: the tables are `(P, tokens)`
+    # against `x`'s `(2P, heads, tokens, batch)`.
+    length(cs) >= npair ÷ H && length(sn) >= npair ÷ H || error(
+        "DNNKernels: `fused.pairrope` (op $(op.id)) needs $(npair ÷ H) cosine " *
+        "and sine values, got $(length(cs)) and $(length(sn)).")
+    M.dispatch!(emitctx.g, pairrope_kernel!,
+                (out, x, cs, sn, Val(P), Val(H), Int32(npair)), npair; name = op.id)
     return out
 end
 
@@ -3096,7 +3377,29 @@ operands dense.
 """
 function sdpaoperand(emitctx::EmitCtx, op::Op, pos::Int)
     s = strideview(emitctx, op, pos)
-    return s === nothing ? operand(emitctx, op, pos) : s
+    (s === nothing || !flashplanar(s)) && return operand(emitctx, op, pos)
+    return s
+end
+
+"""
+    flashplanar(s) -> Bool
+
+Whether a strided attention operand is one the kernel should read in place.
+
+Free where the view only picks a head, a batch or a range of tokens out of a
+larger tensor: the `(E, L)` plane the kernel walks is still contiguous, and
+`attn_flash_cm!` takes a root and four strides precisely so that costs nothing.
+
+Not free where the permute interleaves the heads with the tokens, which is what
+a QKV projection reshaped to `[B, L, H, E]` gives: consecutive tokens are then
+`E * H` apart, so every row of every tile is its own burst. Qwen-Image 2.1's
+joint attention measured **170 ms a layer read in place against 113 ms from a
+dense copy** of the same values — three copies cost 1.4 ms and the result is
+bit-identical.
+"""
+function flashplanar(s::StridedOperand)
+    length(s.dims) >= 2 || return false
+    s.strides[1] == 1 && s.strides[2] == s.dims[1]
 end
 
 """
@@ -3275,10 +3578,11 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
         "shape a port takes.")
     plan = flashcm_plan(caps, q, k, v, bias)
-    if plan isa Decline && bias === nothing && Lq < caps.tile &&
-            size(k, 2) == caps.tile && 4 * Lq >= caps.tile
-        plan = flashcm_plan(caps, q, k, v, bias; clamp = true)
-    end
+    # The same padded retry the immediate path takes — see `flashcm_padded_plan`.
+    # Without it a key length no tile divides falls through to `threepass!`,
+    # which is the score matrix this kernel exists to avoid.
+    plan isa Decline && bias === nothing &&
+        (plan = flashcm_padded_plan(caps, q, k, v, bias))
     if plan isa Decline
         cm = coopmat_sdpa_plan(caps, q, k, v, bias)
         cm isa Decline || error(
@@ -3589,6 +3893,11 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                          bias, epilogue = epi, name = op.id)
         return out
     end
+    if plan isa MMConvRotInt8Plan
+        B = convrot(emitctx, B, A.group_size; name="$(op.id).convrot")
+        A = QInt8Matrix(A.q, A.scale, A.m)
+        plan = MMInt8Plan()
+    end
     if plan isa MMInt8Plan
         Mm, K = size(A)
         N = size(B, 2)
@@ -3627,10 +3936,59 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             return out
         end
 
-        # Prompt products reuse the ordinary fp16 planner after one declared
-        # unpack pass.  This is the portable fallback of the immediate path:
-        # backends with callable libraries reach their GEMM library, while
-        # command-buffer backends reach the cooperative-matrix declaration.
+        # The packed cooperative-matrix GEMM, which reads the int8 weight
+        # directly: no 100 MB fp16 copy of it per product, and twice the rate
+        # where a wide column tile fits. `q8gemm_columns` is what makes it
+        # reachable at a sequence length no tile divides — see its docstring for
+        # the measurement that pays for the padding.
+        #
+        # `bias === nothing` only. The kernel takes a bias by POINTER, and
+        # whether the access walk reads that as a dispatch input has not been
+        # checked; a bias keeps the path below until it has been.
+        NP = q8gemm_columns(N)
+        tiling = bias === nothing && eltype(B) === Float16 ?
+            q8gemm_tiling(caps, eltype(out), Mm, K, NP) : nothing
+        if tiling !== nothing
+            stm, stn, wm, wn, bk, _ = tiling
+            bm, bn, wg = 16stm*wm, 16stn*wn, 32wm*wn
+            Bp = B
+            if NP != N
+                Bp = scratch(emitctx, Float16, K, NP)
+                M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
+                            name = "$(op.id).padB")
+            end
+            # `declare!` may already have made the destination wide, in which
+            # case `out` is a view of it and there is nothing to discard.
+            declared = get(emitctx.padded, op.out, nothing)
+            dst = NP == N ? out : (declared === nothing ?
+                                   scratch(emitctx, eltype(out), Mm, NP) : declared)
+            M.dispatch!(emitctx.g, Q8_GEMM_KERNELS[tiling],
+                        (dst, A.q, A.scale, Bp, nothing, epi,
+                         Val(Mm), Val(NP), Val(K)),
+                        (Mm ÷ bm) * (NP ÷ bn) * wg; group = wg, name = op.id)
+            # Columns 1..N of an `Mm x NP` buffer ARE its first `Mm * N`
+            # elements, so this is a linear copy rather than a gather — the same
+            # argument the fp16 path below makes for its own padding.
+            #
+            # It should be a RENAME and is not: at Qwen-Image 2.1's widest
+            # product it reads and writes 202 MB for nothing, 10 ms a layer over
+            # the four products. Registering `res[op.out]` as a view of `dst`
+            # works and then leaves the destination `declare!` already made with
+            # no pass to give it an interval, which `Mantle.Liveness` refuses by
+            # name. The fix is for `declare!` to make the padded buffer in the
+            # first place, which means it has to know the tiling.
+            if NP != N && declared === nothing
+                od = size(out)
+                ewdispatch!(emitctx, out, od, (M.viewof(dst, od),),
+                            (bcstrides(od, od),), identity; name = "$(op.id).unpad")
+            end
+            return out
+        end
+
+        # Otherwise the ordinary fp16 planner after one declared unpack pass.
+        # This is the portable fallback of the immediate path: backends with
+        # callable libraries reach their GEMM library, while command-buffer
+        # backends reach the cooperative-matrix declaration.
         W = scratch(emitctx, Float16, Mm, K)
         M.dispatch!(emitctx.g, q8dequant_kernel!,
                     (W, A.q, A.scale, Int32(Mm), Int32(MG), Int64(MG) * K),
@@ -3640,7 +3998,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     plan isa MMCoopMatPlan || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
         "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
-        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMInt8Plan` and `Decline` are " *
+        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMConvRotInt8Plan`, `MMInt8Plan` and `Decline` are " *
         "ported. Port the plan rather than widening this branch.")
     Mm, K = size(A)
     N = size(B, 2)
@@ -3782,52 +4140,62 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
                           x, w, bias, out, stride, pad, dil, act::Symbol)
     KWk, KHk, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)
-    OW, OH, _, _ = size(out)
-    MP = padgemm(plan.NPQ)
-    CRS, CRSP = plan.CRS, plan.CRSP
+    OW, OH, _, N = size(out)
+    NPQ, ROWS = plan.NPQ, plan.rows
+    MP = padgemm(ROWS)
+    CRS, CRSP, CoutP = plan.CRS, plan.CRSP, plan.CoutP
     col = scratch(emitctx, Float16, MP, CRSP)
-    M.dispatch!(emitctx.g, im2col_kernel!,
-                (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
-                 Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
-                 Wid, Hei, OW, OH, plan.NPQ, MP * CRSP, Cin), MP * CRSP;
-                name = "$(op.id).im2col")
-    # The weight as a `(CRS, Cout)` matrix, zero-extended to `CRSP` rows where the
-    # plan padded the reduction axis. Two passes over 21 k elements for the stem,
-    # and they are the reason the pad is sound: a reserved-but-unwritten row would
-    # multiply an arbitrary bit pattern by zero.
-    B = CRSP == CRS ? M.viewof(w, (CRS, Cout)) :
-        let wp = scratch(emitctx, Float16, CRSP, Cout)
+    # The weight as a `(CRS, Cout)` matrix, zero-extended to `CRSP` rows and
+    # `CoutP` columns where the plan padded the reduction axis or the output
+    # channels. Two passes over 21 k elements for the stem, and they are the
+    # reason the pad is sound: a reserved-but-unwritten row would multiply an
+    # arbitrary bit pattern by zero.
+    B = (CRSP == CRS && CoutP == Cout) ? M.viewof(w, (CRS, Cout)) :
+        let wp = scratch(emitctx, Float16, CRSP, CoutP)
             M.dispatch!(emitctx.g, M.fill_kernel!, (wp, zero(Float16)), length(wp);
                         name = "$(op.id).wzero")
-            M.dispatch!(emitctx.g, blockcopy!,
-                        (wp, (CRSP, Cout), M.viewof(w, (CRS, Cout)), (CRS, Cout),
-                         (0, 0)), CRS * Cout; name = "$(op.id).wpad")
+            blockcopydispatch!(emitctx, wp, (CRSP, CoutP),
+                               M.viewof(w, (CRS, Cout)), (CRS, Cout), (0, 0);
+                               name = "$(op.id).wpad")
             wp
         end
-    # A backend-native matrix kernel can consume the same im2col matrices.  On
-    # Metal this is the recordable SIMD-group GEMM, accumulating directly into
-    # fp32, so there is no Vulkan split-K layout to construct or reduce.
-    if M.native_gemm_available(emitctx.dev, eltype(col), eltype(B), Float32)
-        Cnative = scratch(emitctx, Float32, MP, Cout)
-        native = M.native_gemm_dispatch!(emitctx.dev, emitctx.g, Cnative, col, B;
-                                         name = "$(op.id).gemm")
-        native === nothing && error(
-            "native GEMM capability changed while declaring $(op.id)")
-        M.dispatch!(emitctx.g, conv_epilogue_kernel!,
-                    (out, Cnative, bias, Val(MP), Val(act), Val(1),
-                     OW * OH, Cout, length(out), MP * Cout), length(out);
-                    name = "$(op.id).epilogue")
-        return out
-    end
-    blk_split = M.coopmat_gemm_shape(MP, Cout, CRSP)
+    # A backend-native matrix kernel can consume the same im2col matrices. On Metal
+    # this is the recordable SIMD-group GEMM, which accumulates directly into fp32 —
+    # so there is no split-K layout to construct and `splitk` is one, but everything
+    # else about the chunked walk below is the same and it stays in the loop.
+    native = M.native_gemm_available(emitctx.dev, eltype(col), Float16, Float32)
+    blk_split = native ? (nothing, 1) : M.coopmat_gemm_shape(MP, CoutP, CRSP)
     splitk = blk_split[2]
-    C = scratch(emitctx, Float32, MP, Cout, max(splitk, 1))
-    M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, Cout, CRSP;
-                             blk_split, partials = C, reduce = false, name = op.id)
-    M.dispatch!(emitctx.g, conv_epilogue_kernel!,
-                (out, C, bias, Val(MP), Val(act), Val(splitk),
-                 OW * OH, Cout, length(out), MP * Cout), length(out);
-                name = "$(op.id).epilogue")
+    C = scratch(emitctx, Float32, MP, CoutP, max(splitk, 1))
+    # One chunk of pixels at a time through the same two buffers. `plan.rows` is
+    # `NPQ` whenever the whole matrix fits the budget, and then this is exactly
+    # the three passes it was before.
+    nchunk = cld(NPQ, ROWS)
+    for c in 0:(nchunk - 1)
+        p0 = c * ROWS
+        npqc = min(ROWS, NPQ - p0)
+        sfx = nchunk == 1 ? "" : ".$(c + 1)"
+        M.dispatch!(emitctx.g, im2col_kernel!,
+                    (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
+                     Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
+                     Wid, Hei, OW, OH, npqc, MP * CRSP, Cin, p0), MP * CRSP;
+                    name = "$(op.id).im2col$(sfx)")
+        if native
+            M.native_gemm_dispatch!(emitctx.dev, emitctx.g,
+                                    M.viewof(C, (MP, CoutP)), col, B;
+                                    name = "$(op.id).gemm$(sfx)") === nothing &&
+                error("native GEMM capability changed while declaring $(op.id)")
+        else
+            M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, CoutP, CRSP;
+                                     blk_split, partials = C, reduce = false,
+                                     name = "$(op.id)$(sfx)")
+        end
+        M.dispatch!(emitctx.g, conv_epilogue_kernel!,
+                    (out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
+                     OW * OH, Cout, npqc, p0, MP * CoutP),
+                    (cld(npqc, 256) * 256, Cout); group = (256, 1),
+                    name = "$(op.id).epilogue$(sfx)")
+    end
     return out
 end
 

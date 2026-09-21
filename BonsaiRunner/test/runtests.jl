@@ -1,4 +1,15 @@
-using Test, BonsaiRunner, DNNKernels
+using Test, BonsaiRunner, DNNKernels, Artifacts
+
+@testset "checkpoint artifact bindings" begin
+    toml = joinpath(pkgdir(BonsaiRunner), "Artifacts.toml")
+    @test isfile(toml)
+    @test BonsaiRunner.CHECKPOINT_BYTES == 5_946_648_928
+    @test BonsaiRunner.CHECKPOINT_SHA256 ==
+          "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3"
+    for name in BonsaiRunner.CHECKPOINT_ARTIFACTS
+        @test artifact_hash(name, toml) !== nothing
+    end
+end
 
 @testset "Qwen35 GGUF tokenizer" begin
     enc, _ = BonsaiRunner._bytemap()

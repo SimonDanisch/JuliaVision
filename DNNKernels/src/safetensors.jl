@@ -69,6 +69,10 @@ const DTYPES = Dict("F64" => Float64, "F32" => Float32, "F16" => Float16,
                     "I16" => Int16, "I8" => Int8, "U8" => UInt8, "BOOL" => Bool,
                     # sdpa's philox seed/offset come back as empty u64 tensors
                     "U64" => UInt64, "U32" => UInt32, "U16" => UInt16,
+                    # Julia has no Base Float8 type. Keep E4M3FN as raw bits;
+                    # quantized-weight constructors decode it while packing the
+                    # checkpoint, without widening the whole file in memory.
+                    "F8_E4M3" => UInt8,
                     # Complex: the rotary embeddings and Kokoro's iSTFT both have
                     # complex buffers in the graph, so a reference dump of their
                     # intermediates has complex tensors in it. Without these the

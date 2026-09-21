@@ -254,6 +254,27 @@ end
             # exception: a quarter-full fused tile is still cheaper than two
             # padded GEMMs plus score, softmax and apply passes.
             @test DNNKernels.flashcm_tiling(dev, 72, 4, 16; clamp=true) == (16, 16, 4)
+            # A 128-wide head: the 32-key block wants 71816 bytes of shared
+            # against 65536 **when `O` is accounted in shared memory**, which is
+            # where the narrow-key entry came from. Held in cooperative-matrix
+            # fragments there is no `pvs` and the wider block fits, which is
+            # worth 13.4% — 42.69 ms against 49.27 at `Lq = Lk = 4096`, and
+            # 58.47 to 46.44 on Qwen-Image 2.1's own 4118-key shape.
+            @test !DNNKernels.flashcmfits(dev, 128, 64, 32, 16 * dev.coopmatsubgroup)
+            @test DNNKernels.flashcmfits(dev, 128, 64, 32, 16 * dev.coopmatsubgroup, true)
+            @test DNNKernels.flashcmfits(dev, 128, 64, 16, 16 * dev.coopmatsubgroup)
+            @test DNNKernels.flashcm_tiling(dev, 128, 4096, 4118, 32; clamp=true) ==
+                  (64, 32, 8 * widen)
+            # The 128-row tile is NOT granted the same exception. It is first in
+            # the table, and at `E = 72` it displaces `(64, 32)` and runs 70%
+            # slower: 12.29 ms against 7.24 on SAM 2's global attention. Fitting
+            # is not the same as being worth it.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096) == (64, 32, 8 * widen)
+            # And only there: at `E = 72` the wider block fits and is faster
+            # (7.67 ms against 7.89), so that shape keeps it.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 4096, 8) == (64, 32, 8 * widen)
+            # The 64-token key axis the narrow entry was added for is unmoved.
+            @test DNNKernels.flashcm_tiling(dev, 72, 4096, 64, 8) == (64, 16, 8 * widen)
             # Every shipped tiling must satisfy the write-out loop's own
             # divisibility, which `flashcmfits` cannot see (it takes the padded
             # head dimension, and the write-out uses the real one).
@@ -284,6 +305,37 @@ end
                 pl isa DNNKernels.Decline && continue
                 @test pl.rego == ((BR * pl.EP) ÷ pl.NT <= 10)
             end
+        end
+
+        @testset "a key length no tiling divides still takes flash" begin
+            # Qwen-Image 2.1 at 1024x1024 over a 22-token prompt: 4096 image
+            # queries against 4096 + 22 keys. 4118 is 2 x 29 x 71, so no tile
+            # divides it, the strict plan declines, and the declared path fell
+            # through to writing a 4096 x 4118 score matrix per layer — 40.2 s
+            # per denoising step against 9.6 s at a key length that divides.
+            f16(E, L, H, B) = DNNKernels.toback(back, zeros(Float16, E, L, H, B))
+            q, k = f16(128, 4096, 32, 1), f16(128, 4118, 32, 1)
+            @test DNNKernels.flashcm_plan(dev, q, k, k, nothing) isa DNNKernels.Decline
+            padded = DNNKernels.flashcm_padded_plan(dev, q, k, k, nothing)
+            @test padded isa DNNKernels.FlashCMPlan
+            @test padded.clamp
+            # The padding is what it costs: one tile of 4118 keys, 0.3%.
+            @test cld(4118, padded.BC) * padded.BC <= 1.01 * 4118
+            q = k = nothing; GC.gc()
+
+            # And it stays refused where padding is not cheap. Seventeen queries
+            # take a 32-row tile and throw away 88% of it — the kind of waste
+            # that measured +2.12 ms of SAM 2 encode for nothing.
+            q, k = f16(128, 17, 32, 1), f16(128, 4096, 32, 1)
+            @test DNNKernels.flashcm_plan(dev, q, k, k, nothing) isa DNNKernels.Decline
+            @test DNNKernels.flashcm_padded_plan(dev, q, k, k, nothing) isa DNNKernels.Decline
+            q = k = nothing; GC.gc()
+
+            # The one shape padded at any occupancy: a query shorter than a tile
+            # against exactly one key tile.
+            q, k = f16(72, 4, 1, 1), f16(72, 16, 1, 1)
+            @test DNNKernels.flashcm_padded_plan(dev, q, k, k, nothing) isa DNNKernels.FlashCMPlan
+            q = k = nothing; GC.gc()
         end
 
         @testset "clamped: extents that do not divide the tile" begin
@@ -577,12 +629,197 @@ end
         mh = cat(randn(Float32, Lq, H, B, ns) .* 0.5f0,
                  rand(Float32, Lq, H, B, ns) .+ 1f0; dims = 5)
         out = KA.allocate(back, Float32, E, Lq, H, B); fill!(out, 0f0)
-        DNNKernels.attn_flash_cm_merge!(back)(out, DNNKernels.toback(back, ph),
-                                              DNNKernels.toback(back, mh),
-                                              Int32(ns), Int32(H);
-                                              ndrange = (E, Lq, H * B))
+        # Flat, one element per thread: `n` over `(e, lq, h, b)` and `nrow`
+        # over the `(lq, h, b)` the split bookkeeping is indexed by.
+        g = DNNKernels.FLASH_MERGE_GROUP
+        DNNKernels.attn_flash_cm_merge!(back, g)(out, DNNKernels.toback(back, ph),
+                                                 DNNKernels.toback(back, mh),
+                                                 Val(ns), Val(E),
+                                                 Int32(E * Lq * H * B), Int32(Lq * H * B);
+                                                 ndrange = cld(E * Lq * H * B, g) * g)
         KA.synchronize(back)
         @test maximum(abs, Array(out) .- mergeref(ph, mh)) /
               maximum(abs, mergeref(ph, mh)) < 1f-5
+    end
+end
+
+# A key axis that does not divide the tile, as two launches.
+#
+# The clamped path costs 40% of this kernel and not because of what the mask
+# does: at `Lq = 4096`, `E = 128`, 32 heads, `BC = 16`, every `Lk` between 4096
+# and 4128 runs 67-74 ms while the two ends run 51-53, and ONE masked column
+# costs what fifteen do. So the bulk of the work gets a launch with the bounds
+# check compiled out, the ragged remainder gets its own, and
+# `attn_flash_cm_merge!` combines them under their own row maxima.
+@testset "a ragged key axis is split at the last whole tile" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+    if dev.coopmat && dev.coopmatsubgroup == 32
+        E, Lq, Lk, H = 128, 512, 530, 8
+        rng = MersenneTwister(5)
+        mk(L) = DNNKernels.toback(back, Float16.(randn(rng, Float32, E, L, H, 1) .* 0.3f0))
+        q, k, v = mk(Lq), mk(Lk), mk(Lk)
+        scale = Float32(1 / sqrt(E))
+        plan = DNNKernels.flashcm_plan(dev, q, k, v, nothing; clamp = true)
+        @test plan isa DNNKernels.FlashCMPlan
+        @test Lk % plan.BC != 0
+        @test plan.tailsplit
+        # It rides on the split count so that every caller's scratch and the
+        # merge dispatch already do the right thing.
+        @test plan.nsplit == 2
+
+        partial = KA.allocate(back, Float32, E, Lq, H, 1, 2)
+        ml = KA.allocate(back, Float32, Lq, H, 1, 2, 2)
+        ls = DNNKernels.flash_launches(dev, q, plan, q, k, v, scale, partial, ml)
+        @test length(ls) == 3
+        @test ls[3].kern === DNNKernels.attn_flash_cm_merge!
+        # `..., Lq, keys, lazyrescale, partial, ml`: what each launch was told
+        # its key axis is. Together they are the whole of it, and only the
+        # second one is ragged.
+        keysof(l) = Int(l.args[end - 3])
+        @test keysof(ls[1]) + keysof(ls[2]) == Lk
+        @test keysof(ls[1]) % plan.BC == 0
+        @test keysof(ls[1]) == div(Lk, plan.BC) * plan.BC
+        @test 0 < keysof(ls[2]) < plan.BC
+        # Both query the same rows; the ranges differ in the key axis alone.
+        @test ls[1].ndrange == ls[2].ndrange
+
+        out = KA.allocate(back, Float32, E, Lq, H, 1); fill!(out, 0f0)
+        DNNKernels.sdpaflashcm!(ctx, out, plan, q, k, v, scale)
+        KA.synchronize(back)
+        got = Array(out)
+
+        ref = zeros(Float32, E, Lq, H, 1)
+        for h in 1:H
+            qh = Float32.(Array(q)[:, :, h, 1])
+            kh = Float32.(Array(k)[:, :, h, 1])
+            vh = Float32.(Array(v)[:, :, h, 1])
+            s = (qh' * kh) .* scale
+            for i in 1:Lq
+                p = exp.(s[i, :] .- maximum(s[i, :]))
+                ref[:, i, h, 1] = vh * (p ./ sum(p))
+            end
+        end
+        @test maximum(abs, got .- ref) / maximum(abs, ref) < 5e-3
+
+        # And the same numbers as one clamped launch over the whole axis, which
+        # is what it replaced. Not bit-identical and cannot be: the merge sums
+        # the two slices' contributions under a common maximum, so the fp32
+        # accumulation is reassociated. Two orders of magnitude inside the fp16
+        # output's own resolution is the claim.
+        one = DNNKernels.FlashCMPlan(plan.BR, plan.BC, plan.NW, plan.NT, plan.E,
+                                     plan.EP, plan.clamp, plan.rego, plan.held,
+                                     plan.rescale, plan.onepass, plan.lazyrescale,
+                                     1, false)
+        fill!(out, 0f0)
+        DNNKernels.sdpaflashcm!(ctx, out, one, q, k, v, scale)
+        KA.synchronize(back)
+        @test maximum(abs, got .- Array(out)) / maximum(abs, ref) < 1e-4
+
+        # Writing the spatial order directly is the one thing a tail split
+        # cannot do: its merge writes `out`, so the permutation would simply
+        # not happen and nothing would say so.
+        @test_throws ArgumentError DNNKernels.flash_launches(
+            dev, q, plan, q, k, v, scale, partial, ml; outperm = true)
+
+        # A key axis the tile divides is one launch, as before.
+        k2, v2 = mk(512), mk(512)
+        plain = DNNKernels.flashcm_plan(dev, q, k2, v2, nothing; clamp = true)
+        @test !plain.tailsplit
+        @test length(DNNKernels.flash_launches(dev, q, plain, q, k2, v2, scale,
+                                               partial, ml)) == 1
+    else
+        @test_skip false
+    end
+end
+
+# Which softmax a plan takes reaches the kernel as a `Val`, not as a uniform
+# argument.
+#
+# That is what lets a two-pass plan lose the one-pass loop AND the deferred
+# rescale that only the one-pass form reaches: `onep` is statically false, so
+# `pre` is a compile-time `true`. As an `Int32` neither folded, because the
+# dead loop's stores go to shared memory. Measured on an 8060S at Qwen-Image
+# 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped, `E = 128`, 32 heads):
+# 36.6 ms against 38.6 interleaved, and the whole 20B denoising step 5.85 s
+# against 6.02, with bit-identical output.
+@testset "the softmax form is compiled in, not passed in" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+    if dev.coopmat
+        # `..., ONEPASS, rscbar, prefetchv, outperm, smoff, ldoff, outwindow...,
+        # H, nsp, partout, epad, rpad, SG, Lq, keys, lazyrescale, partial, ml`
+        onepassof(l) = l.args[end - 20]
+        smoffof(l)   = l.args[end - 16]
+        ldoffof(l)   = l.args[end - 15]
+        E, Lq, H = 128, 1024, 8
+        rng = MersenneTwister(7)
+        mk(E) = DNNKernels.toback(back, Float16.(randn(rng, Float32, E, Lq, H, 1) .* 0.3f0))
+        scale = Float32(1 / sqrt(E))
+        part = KA.allocate(back, Float32, E, Lq, H, 1, 2)
+        ml = KA.allocate(back, Float32, Lq, H, 1, 2, 2)
+        # The merge launch carries none of these arguments, so ask the spatial
+        # ones. This grid fills the device, so there is no merge to filter out
+        # at all, which is what the first assertion checks.
+        launches(p, q, k, v) =
+            filter(l -> l.kern === DNNKernels.attn_flash_cm_spatial4!,
+                   DNNKernels.flash_launches(dev, q, p, q, k, v, scale, part, ml))
+
+        q, k, v = mk(E), mk(E), mk(E)
+        two = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
+        @test two isa DNNKernels.FlashCMPlan && !two.onepass
+        @test length(launches(two, q, k, v)) == 1
+        @test all(l -> onepassof(l) === Val(false), launches(two, q, k, v))
+
+        one = DNNKernels.flashcm_plan(dev, q, k, v, nothing; onepass = true)
+        @test one.onepass
+        @test all(l -> onepassof(l) === Val(true), launches(one, q, k, v))
+
+        # No runtime flag is left to disagree with the `Val`: the trailing
+        # arguments are `Lq`, `keys`, `lazyrescale` and the two split buffers.
+        @test all(a -> !(a isa Int32), last(launches(two, q, k, v)).args[end-1:end])
+        @test last(launches(two, q, k, v)).args[end - 2] isa Int32
+
+        # The two "what is this kernel waiting on" diagnostics are wrong when
+        # on, so nothing in the library may turn them on.
+        @test all(l -> smoffof(l) === Val(false), launches(two, q, k, v))
+        @test all(l -> ldoffof(l) === Val(0), launches(two, q, k, v))
+
+        # That the two forms agree numerically is its own testset above; this
+        # one is about which of them the kernel is compiled for.
+    else
+        @test_skip false
+    end
+end
+
+# One pass over the scores or two, by head width.
+#
+# One pass reads each score once and redoes the block when a row's maximum grew
+# past the fp16 headroom; two passes read every score twice and never redo.
+# Which wins is a property of `E`, and the default used to be one answer for
+# both halves of it: measured on an 8060S at `Lq = Lk = 4096`, two passes win
+# by 7.6% at `E = 128` and 3.1% at 96, one pass wins by 2.8% at 80 and 3.8% at
+# 64. Qwen-Image 2.1's head is 128.
+@testset "the score pass count follows the head width" begin
+    back = LavaBackend()
+    dev = DNNKernels.Ctx(back).dev
+    if dev.coopmat
+        mk(E) = DNNKernels.toback(back, zeros(Float16, E, 256, 4, 1))
+        plan(E; kw...) = DNNKernels.flashcm_plan(dev, mk(E), mk(E), mk(E), nothing; kw...)
+        wide = plan(128)
+        narrow = plan(64)
+        @test wide isa DNNKernels.FlashCMPlan && narrow isa DNNKernels.FlashCMPlan
+        @test !wide.onepass
+        @test narrow.onepass
+        # The crossing, which is where the measurement put it.
+        @test !plan(96).onepass
+        @test plan(80).onepass
+        # And a caller who asks gets what it asked for, both ways.
+        @test plan(128; onepass = true).onepass
+        @test !plan(64; onepass = false).onepass
+    else
+        @test_skip false
     end
 end

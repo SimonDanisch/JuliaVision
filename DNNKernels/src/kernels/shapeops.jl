@@ -163,15 +163,44 @@ function folddims!(out, od::NTuple{N,Int}, a, id::NTuple{N,Int}, f, combine, ini
         r = r ÷ od[k]
     end
     rd = ntuple(k -> od[k] == 1 ? id[k] : 1, Val(N))
-    acc = init
-    @inbounds for j in 0:(prod(rd) - 1)
-        off = base
-        q = j
-        for k in 1:N
-            off += (q % rd[k]) * ist[k]
-            q = q ÷ rd[k]
+    # ONE reduced axis is a walk, not a coordinate decomposition, and it is
+    # almost every reduction there is: a norm or a sum over channels, `any` over
+    # a dimension, `mean` over the last. The general loop below re-derives the
+    # coordinate from `j` on every element, which is `N` integer divisions by a
+    # runtime extent EACH TIME — 288 channels over a five-dimensional shape is
+    # 1440 divisions per output, and the Qwen-Image 2.1 VAE has a million
+    # outputs per norm. It measured **35 GB/s where a copy of the same volume
+    # does 212**, and the pass goes **17.10 ms to 1.37** — 598.6 ms to 47.8
+    # over the Qwen-Image 2.1 VAE's thirty-five norms.
+    #
+    # The branch is on shapes, so it is uniform across the workgroup.
+    nred = 0
+    kred = 1
+    @inbounds for k in 1:N
+        if rd[k] > 1
+            nred += 1
+            kred = k
         end
-        acc = combine(acc, f(a[off + 1]))
+    end
+    acc = init
+    if nred <= 1
+        st = @inbounds ist[kred]
+        n = @inbounds rd[kred]
+        off = base
+        @inbounds for _ in 1:n
+            acc = combine(acc, f(a[off + 1]))
+            off += st
+        end
+    else
+        @inbounds for j in 0:(prod(rd) - 1)
+            off = base
+            q = j
+            for k in 1:N
+                off += (q % rd[k]) * ist[k]
+                q = q ÷ rd[k]
+            end
+            acc = combine(acc, f(a[off + 1]))
+        end
     end
     # In the SAME kernel, and in the accumulator's type rather than a second
     # elementwise pass: `mean`'s count and a norm's order are host scalars the
@@ -355,6 +384,87 @@ function blockcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
         r = r ÷ pd[k]
     end
     @inbounds out[o + 1] = part[i]
+    return
+end
+
+"""
+    slabcopy!(out, a, off, n)
+
+`blockcopy!` for the case where the part lands on ONE contiguous run of the
+destination: `out[off + i] = a[i]`.
+
+Which is every `cat` that joins on its outermost non-singleton axis, and that
+is most of them. `blockcopy!` has to be general, so it converts `i` to
+coordinates with a runtime `%` and `÷` per axis and back again, and on
+`(128, 32, 4096)` fp16 into a `(128, 32, 4118)` destination that arithmetic
+costs 5.65 ms against **0.61** for moving the same bytes: 12 GB/s against 109.
+The copy was never the expensive part of the copy.
+"""
+function slabcopy!(out, a, off::Int32, n::Int32)
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[off + i] = a[i]
+    return
+end
+
+"""
+    stridedcopy32perm!(out, exts, ost, a, ast, off, n)
+
+The same copy as [`stridedcopy32!`](@ref), walked in the SOURCE's memory order
+rather than the destination's.
+
+`stridedcopy32!` gives thread `i` destination element `i`, so its writes are
+sequential and its reads carry whatever stride the view has. For a permutation
+that keeps a run contiguous and reorders the runs -- `(E, H, L) -> (E, L, H)`,
+which is every attention operand in Qwen-Image 2.1 -- that makes each thread
+group read 256-byte runs 8 KiB apart, and the copy runs at 21 GB/s where the
+device does 128.
+
+Turned around, reads are sequential and the WRITES carry the stride, which the
+same copy does at **115 GB/s**: 3.18 ms to 0.59 for `(128, 32, 4118)` fp16.
+Write-combining absorbs a scattered store; nothing absorbs a scattered load.
+
+The host hands both strides already permuted into ascending source order, so
+this kernel is the general one and the ordering decision is not in it.
+"""
+function stridedcopy32perm!(out, exts, ost::NTuple{N,Int32}, a,
+                            ast::NTuple{N,Int32}, off::Int32, n::Int32) where {N}
+    i = KI.get_global_id().x
+    i <= n || return
+    c = M.cart32(UInt32(i - 1), exts)
+    o = off
+    d = Int32(0)
+    @inbounds for k in 1:N
+        o += Int32(c[k] - 1) * ast[k]
+        d += Int32(c[k] - 1) * ost[k]
+    end
+    @inbounds out[d + Int32(1)] = a[o + Int32(1)]
+    return
+end
+
+"""
+    interleave2!(out, a, b, n)
+
+Two parts joined along an axis that is INNERMOST in the output and unit in each
+part: `out[2i-1] = a[i]`, `out[2i] = b[i]`.
+
+`blockcopy!` writes one part per dispatch, and a part that owns one of the two
+innermost slots writes every other element: half of each cache line, and then
+the other half on the second dispatch. Qwen-Image 2.1's rotary embedding is
+exactly this cat -- `stack((-x2, x1), -1)` over `(1, 4118, 32, 64)` fp32, twice
+a layer -- and the four dispatches measured 12.6 ms of a 222 ms layer against
+the 2.2 ms the traffic itself costs.
+
+One thread writes both elements, so the store is a contiguous pair and the
+reads are two contiguous streams. Same linear indexing of the parts as
+`blockcopy!`, and the same requirement behind it: each part is read in its own
+order.
+"""
+function interleave2!(out, a, b, n::Int)
+    i = KI.get_global_id().x
+    i <= n || return
+    @inbounds out[2i - 1] = a[i]
+    @inbounds out[2i] = b[i]
     return
 end
 

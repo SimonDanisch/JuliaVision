@@ -315,6 +315,26 @@ struct FlashCMPlan
     # Re-deriving from the chunk is what keeps the key range a multiple of `BC`,
     # so the last split is not a ragged remainder.
     nsplit::Int
+
+    # ── Two launches, because a partial last key block costs 40% of the kernel.
+    #
+    # Measured on an 8060S at `Lq = 4096`, `E = 128`, 32 heads, `BC = 16`: 50.8
+    # ms at `Lk = 4096`, 53.5 at 4128, and 67-74 at EVERY length in between.
+    # One masked column costs the same as fifteen, so it is not the masking
+    # work: rewriting the mask as selects, clamping the load address so staging
+    # is unconditional, and finally deleting every `KCLAMP` effect from the body
+    # so that both cases compile the same program all left the cliff exactly
+    # where it was. What it follows is `Val{KCLAMP}` itself.
+    #
+    # So the fix is to not ask for it on the bulk of the work: one launch over
+    # the `div(Lk, BC)` blocks that fill a tile with `KCLAMP` off, one over the
+    # ragged remainder with it on, and `attn_flash_cm_merge!` to combine them.
+    # The second launch is one key block of 258 and can be as slow as it likes.
+    #
+    # Rides on `nsplit = 2` so that every caller's scratch allocation and the
+    # merge dispatch already do the right thing; what differs is that the two
+    # launches carry their own key ranges rather than halving one.
+    tailsplit::Bool
 end
 
 """
@@ -399,17 +419,28 @@ fp16 GEMM, and both of those are decided from the operands.
 """
 struct MMInt8Plan end
 
+"""A ConvRot weight: rotate activations, then use the ordinary packed INT8 path."""
+struct MMConvRotInt8Plan end
+
 """
     ConvCoopMatPlan
 
-The tensor-core convolution: whether it applies, and the padded reduction axis it
-runs at. `kernel-library-review.md` finding 2, the same shape as `FlashCMPlan`.
+The tensor-core convolution: whether it applies, and the shape it runs at.
+
+THREE extents are padded and each for its own reason. `CRSP` pads the reduction
+so the staged GEMM has a `bk` that divides it. `CoutP` pads the output channels
+onto a column tile, because the GEMM's rate falls off a cliff without one — see
+[`convcoutpad`](@ref). `rows` is not padding at all: it is how many pixels one
+im2col chunk covers, which is what lets a convolution whose whole im2col matrix
+would be gigabytes run on the tensor cores anyway.
 """
 struct ConvCoopMatPlan
     CRS::Int         # the weight's own reduction extent
     CRSP::Int        # …padded onto the tile
-    Cout::Int
+    Cout::Int        # the weight's own output channels
+    CoutP::Int       # …padded onto a column tile the staged GEMM has
     NPQ::Int
+    rows::Int        # pixels per im2col chunk; `NPQ` when it fits at once
 end
 
 """

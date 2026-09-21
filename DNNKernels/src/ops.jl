@@ -502,8 +502,12 @@ end
 `bmm -> softmax -> [clone] -> bmm` into.
 
 Its operands are `(q, k, v)` as `(D, S, H, B)`, which is what `sdpa` wants and
-what the exporter's own 4-D buffers already are. The scale is **not** applied
-here: the `mul` that scaled q is left in the graph, so this runs at `scale = 1`.
+what the exporter's own 4-D buffers already are. The scale is usually **not**
+applied here: the `mul` that scaled q is left in the graph, so the default is
+`scale = 1`. A fusion that had to reach past that `mul` to find an fp16 operand
+carries the product it folded as the op's `scale`, and then this reads it — the
+declared form takes the same attribute, and the two paths disagreeing about it
+is a `rel 1.8` difference in the attention output that nothing else reports.
 
 The declared output keeps the second `bmm`'s shape, `(H, S, D)` in torch order
 and `(D, S, H)` in Julia's — the same elements as `sdpa`'s `(D, S, H, B)` with
@@ -548,7 +552,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.maskedattention")})
             if short && nk >= 512
                 p = plan
                 plan = FlashCMPlan(p.BR,p.BC,p.NW,p.NT,p.E,p.EP,p.clamp,
-                    p.rego,p.held,p.rescale,p.onepass,p.lazyrescale,8)
+                    p.rego,p.held,p.rescale,p.onepass,p.lazyrescale,8,false)
             end
         end
     end
@@ -580,8 +584,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.sdpa")})
     # a constant. Two different guesses at the destination both produced the
     # bit-identical wrong answer, which is what said the fault was the slot and
     # not the dtype.
-    o = sdpa(ctx, qc, kc, vc, nothing, 1.0)
-    FUSEATTENTIONCHECK[] && checksdpa(qc, kc, vc, o)
+    scale = Float64(get(op.attrs, "scale", 1.0))
+    o = sdpa(ctx, qc, kc, vc, nothing, scale)
+    FUSEATTENTIONCHECK[] && checksdpa(qc, kc, vc, o, scale)
     reshape(o, size(o, 1), size(o, 2), size(o, 3))
 end
 
@@ -599,10 +604,10 @@ bytes.
 """
 const FUSEATTENTIONCHECK = Ref(false)
 
-function checksdpa(q, k, v, o)
+function checksdpa(q, k, v, o, scale = 1.0)
     Q = Float32.(Array(q)[:, :, 1, 1]); K = Float32.(Array(k)[:, :, 1, 1])
     V = Float32.(Array(v)[:, :, 1, 1])
-    S = K' * Q
+    S = (K' * Q) .* Float32(scale)
     S .-= maximum(S; dims = 1)
     P = exp.(S); P ./= sum(P; dims = 1)
     R = V * P
@@ -641,6 +646,50 @@ end
                                         r * Float32(sn[c + Int32(1)])))
         end
     end
+end
+
+# The INTERLEAVED rotary, as one op — see `fusepairrope`.
+#
+# One thread per PAIR, so both of a pair's elements are read and written by the
+# same thread and the store is a contiguous 2-element write. `P` and `H` are
+# `Val`s because the only arithmetic here besides the rotation is two integer
+# divisions, and by a runtime divisor those cost more than the rotation does.
+@kernel cpu=false function pairrope_kernel!(out, @Const(x), @Const(cs), @Const(sn),
+                                            ::Val{P}, ::Val{H}, n::Int32) where {P,H}
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            i0 = Int32(i) - Int32(1)
+            j = i0 % Int32(P)                 # position within the half head
+            # `cos`/`sin` are per TOKEN as well as per component and do not
+            # carry the head axis, so the head is divided out rather than
+            # masked off.
+            t = i0 ÷ Int32(P * H)
+            c = j + Int32(P) * t
+            o = Int32(2) * i0
+            a = Float32(x[o + Int32(1)])
+            b = Float32(x[o + Int32(2)])
+            cv = Float32(cs[c + Int32(1)])
+            sv = Float32(sn[c + Int32(1)])
+            out[o + Int32(1)] = eltype(out)(a * cv - b * sv)
+            out[o + Int32(2)] = eltype(out)(a * sv + b * cv)
+        end
+    end
+end
+
+function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.pairrope")})
+    x = lhs(ctx, op)
+    cv = value(ctx, op.ins[2])
+    sv = value(ctx, op.ins[3])
+    P = Int(op.attrs["P"])
+    ob = ctx.graph.buffers[ctx.outid[]]
+    out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
+    xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
+    npair = length(xd) ÷ 2
+    H = size(xd, 2)
+    pairrope_kernel!(ctx.backend, 256)(out, xd, vec(cv), vec(sv), Val(P), Val(H),
+                                       Int32(npair); ndrange = npair)
+    out
 end
 
 # SwiGLU as one op.
@@ -774,8 +823,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.groupedrms")})
     out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
     xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
     n = length(xd) ÷ C
-    groupedrms_kernel!(ctx.backend, LN_WG)(out, xd, γ, Int32(C), Int32(NG), ε;
-                                           ndrange = n * LN_WG)
+    groupedrms_kernel!(ctx.backend, LN_WG)(
+        out, xd, γ, Int32(C), Int32(NG), ε,
+        Val(Bool(get(op.attrs, "midround", false))); ndrange = n * LN_WG)
     out
 end
 
@@ -2215,8 +2265,13 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("linalg_vector_norm.default")})
     keep = Bool(something(get(op.attrs, "arg3", nothing), false))
     jd = dims === nothing ? collect(1:ndims(x)) :
          [jdim(d, ndims(x)) for d in ints(dims)]
-    sq = ord == 2 ? abs2.(x) : abs.(x) .^ ord
-    acc = sum(sq; dims = Tuple(jd))
+    # `sum(f, x; dims)`, not `sum(f.(x); dims)`. The second materialises the
+    # squares — a whole extra tensor written and read back — where the first is
+    # the map step of the reduction that was going to read every element
+    # anyway. It is the same `premapsum` every other reduction here already
+    # uses, and the declared path's `folddims` has taken a `pre` all along.
+    acc = ord == 2 ? premapsum(x, abs2, Tuple(jd)) :
+                     premapsum(x, v -> abs(v)^ord, Tuple(jd))
     r = ord == 2 ? sqrt.(acc) : acc .^ (1 / ord)
     reduced(r, jd, keep)
 end

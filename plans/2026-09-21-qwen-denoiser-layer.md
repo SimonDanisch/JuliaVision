@@ -1,0 +1,604 @@
+# One Qwen-Image 2.1 denoiser layer, pass by pass
+
+Measured on a Radeon 8060S (RDNA 3.5, RADV), 2026-09-21, at 1024²: 4096 image
+tokens over a 22-token prompt, so 4118 keys, 32 heads of 128, hidden 4096.
+
+## How to measure one layer without the model
+
+The transformer is 3473 ops and 20B parameters; a layer is 107 of them and
+about 220M. `tools/`-free recipe, all inside DNNKernels:
+
+* cut `ops[144:250]` out of the exported graph, take as inputs every buffer
+  they read that they do not produce, as outputs every buffer produced in the
+  range that something after it reads, and mark the inputs `:external`;
+* give the nine weight keys RANDOM values of the declared shape (host layout is
+  the REVERSE of the graph's torch shape, and transposing them silently changes
+  what `fuseqkv` stacks);
+* `Model(...; quantize = true)`, `planfor`, `replay!`.
+
+That layer replays in 205.7 ms, against 6.89 s / 32 = 215 ms for the real step,
+so the harness is the model to within 5% and iterates in a quarter of a second.
+
+**Profile passes with `maxpasses = 1`.** The default plan overlaps passes, and
+`Mantle.timings` then reports intervals that include waiting: `_to_copy_50` read
+73 ms that way and 1.97 ms serialised, because it sits behind the attention.
+One pass per submission costs 2% of wall time here (228 ms against 233) and the
+numbers mean what they say.
+
+## Where the time went, before and after
+
+| pass | before | after |
+| --- | --- | --- |
+| `bmm_7` — the fused attention | 67.3 | 54.4 (three passes) |
+| `fuseqkv_mm_17` — gate+proj, 24576x4096x4118 | 44.2 | 43.5 |
+| `mm_19` — mlp out, 4096x12288x4118 | 19.1 | 17.1 |
+| `fuseqkv_mm_13` — qkv, 12288x4096x4118 | 18.0 | 18.3 |
+| `mm_16` — attn out | 5.6 | 7.2 |
+| `mean_3`, `mean_4` — q/k norm reductions | 10.7 | **gone** |
+| `cat_7`, `cat_8` — the rotary interleave | 12.6 | **1.2** |
+| `cat_10` — text ++ image keys | 5.0 | **0.6** |
+| `permute_31/32/33` — attention operands | 8.8 | **under 1.4 each** |
+
+Five changes, each measured on its own, each leaving the layer's output
+bit-identical or at fp16 rounding:
+
+| | layer, replayed, ms |
+| --- | --- |
+| start | 232.8 |
+| the q/k norm fused | 222.1 |
+| the rotary interleave in one dispatch | 205.7 |
+| a ragged key axis split at the last whole tile | 189.5 |
+| permuted copies walked in source order | 180.7 |
+| a contiguous slab copied as one run | 174.6 |
+| the score pass count by head width | 171.1 |
+| the interleaved rotary fused | 167.1 |
+| the stacked-projection tile, and the SwiGLU in place | 156.0 |
+| `O` held in fragments, and the 32-wide key block it lets fit | **see below** |
+
+The last two were A/B'd in one fresh session, which is why their rows are worth
+more than the microbenchmarks predicted:
+
+| | layer, ms |
+| --- | --- |
+| neither | 169.1 |
+| the tile alone | 163.9 |
+| the SwiGLU alone | 164.3 |
+| both | **156.0** |
+
+5.2 ms and 4.8 ms apart, 13.1 together: they are super-additive because they
+relieve the same thing, the arena the placer has to fit (391 MB to 353).
+
+The four products are 86.9 ms and they are not the problem: standalone,
+`q8gemm` runs those three shapes at 21.4, 26.1 and 23.4 TOP/s, which is the
+device's fp16 ceiling (see `2026-09-20-int8-tensor-cores.md`).
+
+## What was fixed
+
+* **The q/k norm** (`fusegroupedrms`) — Qwen exports the gain spanning ONE head
+  and the narrowing cast BEFORE the gain multiply, neither of which the pass
+  recognised. 16.5 ms of chain became a 0.95 ms kernel.
+* **The rotary interleave** (`interleave2!`) — a `cat` on the innermost axis
+  wrote every other element from each of two dispatches. 12.6 ms became 1.16.
+* **The ragged key axis** (`tailsplit`) — the cliff below, answered with two
+  launches: 70.9 ms to 63.1 standalone, 67.3 to 54.4 in the layer.
+* **Permuted copies** (`stridedcopy32perm!`) — walking the DESTINATION linearly
+  leaves the reads scattered, and a scattered read is the expensive direction:
+  21 GB/s against 115 for `(E, H, L) -> (E, L, H)`.
+* **Contiguous slabs** (`slabcopy!`) — `blockcopy!`'s coordinate arithmetic cost
+  9x what moving the bytes did: 12 GB/s against 109.
+* **The score pass count** — one pass over the scores or two is a property of
+  the head width, and the kernel had one answer for every shape. Two passes win
+  at `E >= 96` and lose below it, six shapes either side of the crossing.
+* **The interleaved rotary** (`fusepairrope`) — `fuserope` only knew the
+  half-rotation spelling, so Qwen's pair rotation stayed eight ops whose cost
+  was two stride-2 materialisations and an interleave, not the arithmetic.
+
+Four of the six share a shape. **Every one was a memory pass running at a
+tenth of the device's bandwidth for a reason that had nothing to do with
+memory** — index arithmetic, traversal order, or a layout the consumer could
+not read so a copy was inserted. None was in the arithmetic, and none needed a
+faster kernel. That is worth looking for elsewhere before anything clever is
+attempted.
+
+## What is left, in order
+
+### The attention: `O` was in shared memory the whole time
+
+`bmm_7.1` was 44 ms of the layer at about 6 TFLOP/s, and the reason was `pvs` —
+a 64x128 fp32 accumulator living in shared memory, read and written on every
+key block whose maximum moved. The kernel could already hold it in the
+cooperative-matrix fragments instead. That path had never run: the switch was
+`dev.warps >= 64`, the resident-wave count a processor reports, which **HIP
+reports and Vulkan does not**, so it was 0 on every launch here.
+
+Turning it on is worth two things. Holding costs no `pvs`, which is half the
+shared budget, so the 32-wide key block fits where it could not — 42.69 ms
+against 49.27 at `Lq = Lk = 4096`, `E = 128`. And a held output no longer has
+to be unsplit, because the fragments are now written straight to `partial` as
+well as to `out`, so the tail split keeps the wider tile.
+
+| | |
+| --- | --- |
+| the attention standalone, 4118 keys | 58.47 ms -> **46.44** |
+| the pass inside a layer | 44.04 ms -> **36.68** |
+| the real 20B model, back to back | 5.59 s/step -> **5.37** |
+| SAM 2's global attention, same tile, now held | 7.77 ms -> **7.47** |
+
+The 128-row tile is NOT granted the same exception: it is first in the table,
+and at `E = 72` it displaces `(64, 32)` and runs 70% slower — 12.29 ms against
+7.24. Fitting is not the same as being worth it.
+
+### The attention's remaining efficiency
+
+`bmm_7.1` is ~46 ms for 276 GFLOP, about 6 TFLOP/s, against 21-26 for the
+products in the same layer. That is the kernel at `E = 128` and not the ragged
+axis: a key length the tile divides still runs at 5.4. `O` lives in shared
+memory and is read and written on every key block that moves a row's maximum,
+which the kernel's own notes put at two thirds of them, and at `BR = 64`,
+`EP = 128` that is 64 KiB of LDS traffic per 1.05 MFLOP of matrix work. `rego`
+would put it in registers and measures WORSE here (73.5 ms against 70.1), and
+the tiling chooser has no admissible wider tile at this head width. A kernel
+design question rather than a tuning one, and the next big one.
+
+**The 128-row tile is settled, and it is not the answer.** `flashcmfits`
+refused `BR = 128` at the line that asks whether `O` fits three accumulators a
+subgroup, and it refused it correctly: the kernel holds the output in exactly
+`Base.Cartesian.@nexprs 3` fragments, and 128 rows by 128 columns over 512
+threads needs four. Widening all five sites to `@nexprs 4` and the bound to
+`<= 4` is a safe change on its face — every site is guarded by `t_j < RT * ET`
+— and it makes the tile admissible: `BR = 128, BC = 16` held needs 51,912 B of
+the 65,536 B budget, and it would halve how often K and V are re-read, ~4.5 GB
+a launch against a ~150 GB/s ceiling.
+
+It measures **127.45 ms, 2.17 TFLOP/s**, against `(64, 32)`'s **46.65 ms, 5.92
+TFLOP/s**. Three times slower: the fourth accumulator spills. So the arithmetic
+that says the tile fits shared memory is right and irrelevant, and the tiling
+space at this head width is now exhausted — `(64, 32)` best, held taken, the
+rescale free (`nrsc = 0` measures 43.17 against 43.12), `rego` worse,
+`NW = 8` does not fit, `BC = 64` hits a SPIR-V validation bug, `BR = 128`
+three times slower. What is left in this kernel is the softmax phase, which
+runs on 64 of 512 threads, and that is a redesign.
+
+### Settled: the attention is waiting on K and V, not on the softmax
+
+Two diagnostics in the kernel, `smoff` and `ldoff`, answer what four rounds of
+tiling work could not. `smoff` replaces both softmax passes with a flat fill of
+`ps` and keeps everything else; `ldoff = 1` keeps every staging load
+instruction and drops the key offset from the address, so the launch re-reads
+one cache-resident tile; `ldoff = 2` drops the loads outright. At Qwen-Image
+2.1's attention, interleaved:
+
+| | ms | |
+| --- | --- | --- |
+| as shipped | 41.44 | |
+| softmax off | 39.00 | **-5.9%** |
+| K/V traffic off | 29.37 | **-29.1%** |
+| K/V staging off entirely | 29.14 | -29.7% |
+| both off | 25.55 | -38.4% |
+
+So the softmax is 6% and the K/V reads are 29%, and `ldoff = 1` matching
+`ldoff = 2` to 0.6% says that 29% is BYTES, not load instructions. Two things
+follow, both of which close a line of work:
+
+* **The softmax redesign is not worth building.** The kernel's own note says
+  spreading it over the subgroups measured 5% slower; the reason is simply that
+  there was only 6% there. Staging K into registers before the shared store —
+  the split `PREFETCHV` already gives V — is 43.78 ms against 43.21, so the
+  loads were already deep enough.
+* **The only lever on the 29% is reading K and V fewer times**, i.e. a taller
+  query tile, and both admissible ones lose. `(128, 16)` at `NW = 16` needs a
+  fourth accumulator and spills, at 127 ms. `(128, 16)` at `NW = 32` needs only
+  TWO per subgroup, fewer than the shipped tile's three, and fits 51.8 KB of
+  shared — and it measures **77.31 ms against 42.46**, 82% slower. A
+  1024-thread workgroup with that footprint is one per processor, and halving
+  the key traffic does not pay for it.
+
+The kernel is then ~23% matrix work at the cooperative-matrix peak, 29% K/V
+bytes, 6% softmax, and ~40% staging into shared, barriers and the write-out.
+
+### Solved: a key length that does not divide the tile
+
+`bmm_7` is 30% of the layer and runs at 4 TFLOP/s against the products' 21.
+Most of that is the kernel's own efficiency at `E = 128` (5.4 TFLOP/s even at a
+dividing length), but a third of it is one bit of arithmetic:
+
+| Lk | blocks of BC=16 | ms |
+| --- | --- | --- |
+| 4096 | 256 | 50.8 |
+| 4100 | 256.25 | 72.1 |
+| 4112 | 257 | 52.0 |
+| **4118** | **257.375** | **73.0** |
+| 4128 | 258 | 53.5 |
+| 4224 | 264 | 55.0 |
+
+A partial last key block costs **40%**, and it is NOT the masking. Rewriting
+every `KCLAMP` test as a select changed nothing; clamping the load ADDRESS so
+the staging loads are unconditional changed nothing; removing every `KCLAMP`
+effect from the body so that the two cases compile the same program changed
+nothing — `Lk = 4118` was still 73.9 ms against 52.1 for `Lk = 4128` over the
+same allocation, the same strides, the same 258 blocks and the same source. The
+discriminator is `Val{KCLAMP}` itself, which the body no longer reads.
+
+Register ballast does not move it either, so it is not an occupancy edge. What
+it follows is `Val{KCLAMP}` itself, and that remains unexplained.
+
+So the fix is not to make the mask cheaper, it is to not need one: one launch
+over the blocks that fill a tile with the check compiled out, one over the
+remainder with it on, and `attn_flash_cm_merge!` to combine them under their
+own row maxima. `PARTOUT` is what made it expressible — which split slot a
+launch writes, so a launch can hand back an unnormalised partial without
+splitting its own key range. The tail launch is one key block of 258 and can be
+as slow as it likes.
+
+Two things that are NOT worth it, measured: `(64, 32)` with the held store is
+68.5 ms against 70.1 for the chooser's `(64, 16)`, and `rego` is 73.5.
+
+### Where the 143.6 ms that is left actually sits
+
+Serialised, after everything above (223.1 at the start):
+
+| | ms | |
+| --- | --- | --- |
+| the four products | 81.0 | 56%, and at the device's fp16 ceiling |
+| the attention, three passes | 41.3 | 29%, at ~7.5 TFLOP/s |
+| everything else | 21.3 | 15%, nothing in it above 2.2 ms |
+
+There is no third big thing. What is left above a millisecond, and what each
+would take:
+
+* ~~`view_77` + `view_79`, 2.8 ms~~ — **taken**: the declared SwiGLU now reads
+  the stacked product's halves where they lie, which is what the interpreted
+  runner always did. The strided kernel is not slower for being strided (2.43
+  ms against 2.57), so the copies bought nothing.
+* `add_17`, **2.9 ms** — a three-operand elementwise over dense fp16, 135 MB at
+  47 GB/s against a 109 GB/s copy. **Not** the index-arithmetic problem the
+  other three were: `ewdispatch!` already routes all-dense operands to
+  `denseew!`, which indexes linearly. What is left is that one thread moves one
+  fp16, so every access is two bytes; widening it is a change to the most-used
+  kernel in the library and wants a layer to confirm.
+* `permute_35`, **1.4-3.3 ms** — the attention output's layout change. Varies
+  more between plan builds than it should.
+
+Each is worth 1-2% of the layer and each is a change in a path every model
+shares, which is the trade to weigh before taking one.
+
+### Taken: the biggest product's tile
+
+`fuseqkv_mm_17` is the stacked gate+proj, `24576 x 4096 x 4224`, and it runs at
+19.8 TOP/s where the other three products in the same layer reach 23-25. The
+chooser already HAS the tiling it wants — `q8gemm_tile`'s `tall` branch,
+"a stacked projection, like SwiGLU's gate+up", picks `(2,4,2,2,32,8)` — but the
+threshold is `m >= 8k` and Qwen's stacked pair is `m = 6k`, so it falls through
+to `m % 256 == 0` and takes `(4,2,4,2,32,8)`.
+
+Interleaved rounds, minimum of each:
+
+    24576 x 4096    (2,4,2,2) 37.92    (4,2,4,2) 42.74*   -11.3%
+    12288 x 4096    (4,2,2,4) 18.90    (4,2,4,2) 19.91*    -5.1%
+
+Taken, as `tall = m >= 6k`. The tile being REPLACED measured 42.86, 43.28 and
+42.74 ms across three independent sweeps, and `(2,4,2,2)` 39.59, 39.36 and
+37.92 — the ranking between the two challengers moved, the gap to the incumbent
+did not. The output is bit-identical, the three neighbouring products in the
+same layer do not reach the branch, and Horizon's pinned picks are all above the
+old bound already.
+
+**Layer-confirmed**: 163.9 ms against 169.1 with the old bound, and the pass
+itself went 44.65 ms to 38.97.
+
+The SwiGLU reading in place is confirmed the same way: 164.3 ms against 169.1
+with the copies. It also shrinks what the placer has to fit — the layer's arena
+requirement falls from **391.03 MB to 352.89 MB** — which is most of why the two
+changes are super-additive.
+
+### The VAE decode was 82% convolution, and none of it was on the tensor cores
+
+Serialised, the recorded decode is 16.0 s over 564 passes and **13.15 s of it
+is forty-five convolutions**. Eighteen of them take the im2col + cooperative
+matrix route and run at **19-22 TFLOP/s**; the other twenty-seven take the
+implicit-GEMM kernel and run at **0.6-1.3**, and they are 12.96 s.
+
+Two separate reasons, both fixed:
+
+* **`conv_coopmat_plan` refused them on size.** The im2col matrix for
+  `288 -> 288` over 1024x1024 is `NPQ x CRSP = 1048576 x 2592` fp16, i.e. 5.4
+  GB, against a 512 MiB cap. It now divides the pixel axis instead of refusing:
+  one chunk of `plan.rows` pixels at a time through one buffer, which is the
+  whole matrix whenever it fits and is otherwise however many pieces the budget
+  asks for. The three passes a convolution costs become three per chunk, and
+  nothing else changes.
+* **The staged GEMM's rate is decided by which `bn` its tiling gets.** Sweeping
+  the column count alone at `M = 65536, K = 2592`:
+
+      N        16    32    48    64    96   128   144   160   192   256   288   384
+      TFLOP/s 0.83  2.28  0.70  8.09  1.24 16.40  0.47  1.26  9.32 16.15  1.27 17.29
+
+  Every `N % 128 == 0` is 16-17, every other `N % 64 == 0` is 8-9, everything
+  else is around one. A convolution's `Cout` is under no obligation to be
+  either — this VAE runs 144, 288 and 576 — so `convcoutpad` widens the weight
+  with zero columns to reach a tiling, scoring by tile WIDTH rather than by
+  least padding: 288 takes 384 (1.33x the columns at 17.29) over 320 (1.11x at
+  9.32), and 144 takes 256 over 192 for the same reason.
+
+That convolution goes **1482 ms to 218**, and the decode **12.24 s to 5.50**
+interpreted, 16.0 s to 5.41 recorded — which also ends the recorded form being
+the slower one.
+
+Two more things went with it, both of which the profile only showed once the
+convolutions stopped hiding them:
+
+* **The expands were being built.** The VAE broadcasts a `(1, 1, 1, H, W)`
+  plane across channels before dividing by it, 43 times; materialising that is
+  639 ms and `expand_37` alone writes 1.2 GB from 4 MB in 169 ms, while the
+  `div` that reads it is 4 ms. `viewstrides` has answered for `expand.default`
+  with a zero stride all along and nothing asked, because it was not in
+  `STRIDEDVIEWS`. With the view described rather than built the pass is gone and
+  the `div` gets faster too (145 ms to 121), reading one cached plane.
+* **The explicit pads were being built.** `F.pad(x, (1,1,1,1))` in front of a
+  `padding=0` convolution is that convolution with `padding=1`, and the kernel
+  has substituted zero outside its input all along. Forty of them, **661 ms**,
+  and `foldconvpad` makes them nothing. Bit-identical output.
+
+Serialised: 16039 ms with neither, 4915 with the convolutions fixed, 4308 with
+the expands, and the interpreted decode **12.24 s to 4.79**.
+
+The chunk size is a speed knob now rather than a refusal, and the two paths
+want different answers: the isolated kernel is fastest at 32 MiB (201.6 ms
+against 234.7 at 512, the GEMM reading the chunk back out of cache), while the
+interpreted decode is fastest at 256 (5.34 s against 6.08 at 32) because each
+chunk is three host launches and there are forty-five convolutions paying for
+them. 256 MiB is within noise of the best for both.
+
+### And the other half of the LOAD is Julia compiling itself
+
+Preparing the 20B denoiser takes **117 s**, against 95 s for the twenty
+denoising steps it exists to run. `@time` reports the compilation fraction
+directly, and it is most of it:
+
+| | s | compilation |
+| --- | --- | --- |
+| `Model` (host passes, upload, fusion) | 68.7 | **47.9%** |
+| `emitgraph` | 23.5 | **97.2%** |
+| `Mantle.Plan` | 9.2 | 72.2% |
+| `Mantle.record!` | 11.2 | **99.6%** |
+
+**73 s of the 117 is Julia inference and codegen**, and the second call to each
+in the same process is 0.4 s, 2.5 s and 0.0 s. The `Model` build says the same
+thing from the other side: `fusion_s` is 15.9 s cold, 1.8 s for the first build
+in a warm process and **0.1 s for the second**, so the graph passes themselves
+are not what it is spent on. So there is no algorithm to
+improve here: it is one specialisation of `emitop!` per aten kind — this graph
+has 25 of the 97 the package declares — and one `Mantle.dispatch!` per distinct
+kernel and argument tuple, inferred from scratch in every process.
+
+**Plain `precompile` directives do not fix it, measured.** Adding one per
+declared `emitop!` tag plus `emitgraph` and `residentweights` costs 12.5 s of
+package precompilation (6.3 s to 18.8) and buys 3 s at run time: `emitgraph`
+23.5 s to 20.7, still 96.9% compilation. The reason is that the tree under
+`emitop!` is mostly `Mantle` and `KernelAbstractions` method instances, and a
+bare `precompile` call caches only what the package OWNS. Catching external
+code is exactly what `PrecompileTools`' `@compile_workload` does differently,
+and it needs two things this repository has not decided on: a new dependency,
+and a live Vulkan device during package precompilation — `emitgraph` takes a
+`Mantle.LavaDevice`, so the workload cannot run without one, and a package that
+cannot precompile on a machine with no GPU is a worse package.
+
+So this is the largest single item left in a generation, it is worth ~35% of
+one, and what it needs is a decision rather than a measurement.
+
+### Taken: most of the load was a transpose done a byte at a time
+
+The 7.3 GB checkpoint took **39.2 s** to reach the device, which the note below
+attributes to the driver's first touch of new memory at 250 MB/s. That is not
+what it was. 224 of the 301 weights are `ConvRotQInt8HostMatrix`, and each one
+goes through `convrotqint8`, which uploads the raw int8 and then repacks it
+with `checkpoint_q8pack_kernel!`. For the `12288 x 4096` weight, measured:
+
+    upload of q        107.1 ms      (48 MB, collect + copyto! + a fresh block)
+    scale               25.8 ms
+    allocate packed      8.3 ms
+    PACK KERNEL        189.9 ms      48 MB in, 48 MB out -> 505 MB/s
+
+The checkpoint stores `q` as `(K, M)` with `K` contiguous and the GEMM wants
+`(M/4, K)` with the packed rows contiguous, so the pack is a transpose. It was
+written as a thread per output word with the word index fast, which reads four
+bytes `K` apart and, across a wave, sixty-four groups of those `4K` apart: one
+byte used of every cache line fetched, 48 MB of weight turning into ~6 GB of
+traffic.
+
+Giving each thread **32 consecutive output words** with `k` fast fixes both
+sides at once — the thread writes a full 128-byte line, and for each of the
+four bytes in a word consecutive threads read consecutive `k`. Bit-identical
+output, and the whole denoiser's step output reproduces to the digit
+(rms 1.5885369):
+
+    GPT      8      16      32      64
+    ms    9.28    5.36    3.62    3.97      against 189.9
+
+**`upload_s` 39.2 s -> 10.3 s**, the `Model` build 55.4 s -> 26.9, and
+preparing the denoiser 120.7 s -> 92.8. That is 28 s off every generation, next
+to 95 s of denoising.
+
+**The conditioner has the same kernel and the same fix.** Qwen3-VL-8B's
+weights are W4A8 and `w4a8_pack_kernel!` was written the same way; at its
+`4096 x 12288` it measures **121.59 ms against 4.43**, bit for bit identical,
+and building the 36-layer encoder's model back to back in one process is
+`upload_s` **14.2 s against 1.0**. So the pair is worth about 42 s of a
+generation that was 314.9.
+
+What is left in the denoiser's upload is the device allocation, not the host
+copy: skipping the `collect` that a contiguous `SubArray` of the checkpoint
+used to force does not move `upload_s` at all. It is still worth doing — it
+keeps 6.5 GiB as a mapping instead of faulting it into anonymous memory on a
+machine where the host and the device share one pool — but it is a memory fix
+and not a time one.
+
+### The other half of a generation is the LOAD, and it is driver-bound
+
+A cold 1024² generation is ~287 s, of which the 20 denoising steps are ~107.
+Most of the rest is building models, and the denoiser's share of that is one
+number: **`upload_s` is 30 s for a 7.3 GB checkpoint, or 250 MB/s.**
+
+It is not the disk and not the file format. The checkpoint reads at 26 GB/s
+(`dd`), a host-side `sum` of one mmap'd weight takes 1 ms, and the whole host
+load — mmap, slicing, ConvRot wrappers — is **0.1 s**. The packing is already a
+device kernel (14 ms a weight).
+
+It is the first touch of newly allocated device memory. The same weight
+uploaded twice: **0.18 s, then 0.004 s** — 95 MB/s against 4500. Timing 40
+weights into a cold pool gives a bimodal distribution, 0.012-0.019 s when the
+allocation is carved from an existing block and 0.16-0.33 s when it needs a new
+one, and 40 weights took 34 blocks.
+
+The obvious lever does not work. `POOL_BLOCK_SIZE` at 64 MB, 512 MB and 2 GB
+measured 30.2, 25.5/31.8 and 30.3 s — the one good number did not reproduce.
+Nor is the cost per allocation in any simple way: a fresh 4 GB block first
+touches at 85 GB/s while a fresh 16.8 MB one runs at 95 MB/s, which says the
+`fill!` is not what commits the pages. What commits them is the host copy, and
+250 MB/s is what the driver does it at.
+
+So this is a driver cost, not a code one, and it is ~30 s of every cold run
+here. Anyone picking it up should start by asking RADV/amdgpu for a cheaper
+commit — memory type flags, `VK_EXT_memory_priority`, or huge pages for the GTT
+mapping — rather than looking anywhere in this tree.
+
+### Where the 4.74 s step sits now, and what each piece is bound by
+
+Serialised, fresh process, 4372 passes:
+
+| | ms | |
+| --- | --- | --- |
+| the products | 2969 | **61.7%** |
+| the attention, three launches | 1338 | **27.8%** |
+| everything else | 502 | 10.4% |
+
+Every one of the three is now at a measured limit rather than an unexamined
+one.
+
+**The products.** Sweeping all twelve registered int8 tiles at the biggest
+shape, `24576 x 4096 x 4224`, puts the shipped pick first:
+
+    (2,4,2,2,32,8)   64x128  wg=128   37.73 ms   22.54 TOP/s   <- shipped
+    (4,2,2,4,32,8)  128x128  wg=256   38.81      21.91
+    (4,2,2,2,32,8)  128x64   wg=128   41.08      20.70
+    (4,2,2,4,32,16) 128x128  wg=256   40.14      21.18
+    (4,2,4,2,32,8)  256x64   wg=256   45.08      18.87
+    (2,2,2,2,64,8)   64x64   wg=128   50.16      16.95
+    (2,1,2,2,32,8)   64x32   wg=128   81.25      10.47
+
+That also settles what it is bound by. The 128x128 tile moves **40% fewer
+bytes** — 9.5 GB against 15.9 for the weight and the activation together — and
+is 3% SLOWER, so the GEMM is not bandwidth-bound; 22.54 of the device's 24.4
+TOP/s is 92% of the cooperative-matrix peak, and the only thing past it is int8
+*activations* (`plans/2026-09-20-int8-tensor-cores.md`).
+
+**The attention** is the section above: 6% softmax, 29% K/V re-reads, no
+admissible taller tile.
+
+**Everything else** is at memory bandwidth, checked rather than assumed. The
+biggest of them measure 165 GB/s (`fused.swiglu`), 166 (`fused.pairrope`), 209
+(`fused.elementwise`) and 122 (the permuted copies, after the walk-order fix),
+against 152-193 GB/s for a `copyto!` of the same volume. The one still below is
+`padB`, 88 GB/s in a plan and 128 isolated; flattening its launch does not move
+it, because the 2-D form's workgroup shape was already right — that was tried
+and reverted.
+
+And the device is not idling: during a step the GPU reports **2850 MHz of a
+2900 MHz maximum and 99% busy**.
+
+### The same GEMM is 2.4x slower in a worn process, and that is most of the step
+
+The serialized per-pass profile of the whole 20B step (`planfor(...; maxpasses
+= 1, profile = true)`, 4372 passes, 5657 ms) says the products are 66% of it
+and the attention 25%. Inside the products is something that is not a kernel
+question at all:
+
+| | ms each | n |
+| --- | --- | --- |
+| the QKV stack, `12288 x 4096 x 4118` | 19-23 | 32 |
+| the gate+up stack, `24576 x 4096 x 4118` | **41-47** | 15 |
+| the same op, same kernel, same tile | **77-94** | 17 |
+
+Reproducible to `cor = 0.9998` across runs: the same seventeen passes are slow
+every time. They are the same `q8gemm_2_4_2_2_32_8!` at the same `ndrange`,
+writing the same transient at the same arena offset and reading the same input
+— `flash_launches` aside, the ONLY thing that differs is which weight buffer
+they read.
+
+Isolated, outside the plan, swapping one operand at a time:
+
+    slow weight + slow scales   100.1 ms
+    fast weight + fast scales    37.2
+    slow weight + fast scales    97.0
+    fast weight + slow scales    37.5
+
+So it is the 100 MB weight buffer and nothing else. It is **not bandwidth**: a
+device-to-device `copyto!` of those same buffers measures 160.8, 157.3 and
+163.4 GB/s — identical. It is the tiled read: `q8gemm` walks A with a 24 KB
+stride per k step over a 100 MB span, which is the access pattern that cares
+about page size and TLB reach, and a linear copy is the one that does not.
+
+**What actually predicts it is the process, not the address.** In a fresh Julia
+process the first forty-eight 100 MB buffers — 4.8 GB, covering the same device
+addresses the slow ones occupy — all run at **35-37 ms**. In the two-hour-old
+process that had built and freed plans all day, a buffer allocated at that
+moment ran at 84-95 ms, and six in a row did.
+
+Two numbers make this the biggest single item in this file. 35 ms is 23.7
+TOP/s, at the fp16 cooperative-matrix ceiling, so a fresh process is not just
+avoiding the 2.4x cliff — even the "fast" 41 ms in the worn process is 17% off
+what the same GEMM does cold. And the machine had FIVE stale Julia sessions
+holding **105 GiB of GTT against a 112 GiB total**, with swap full; clearing
+them dropped GTT use to 13.8 GiB and system use from 116 GB to 22 GB. That is
+also the real explanation for the pool report below: it was never Mantle's
+allocator.
+
+So before measuring anything here, check `free -g` and
+`/sys/class/drm/card1/device/mem_info_gtt_used`, and prefer a fresh process for
+any number that is going to be written down.
+
+### A session-scale thing that will bite a generation loop
+
+After a day of building and freeing plans, `Mantle`'s pool reported **81.95 GB
+reserved against an 80.89 GB capacity**, so `headroom` was zero and no further
+plan could be placed — with the largest free span at 31 MB and
+`unified_blocks = 1`. Freeing every binding, `collect_for_pool!`,
+`reclaim_empty_pool_blocks!` and `trim_gpu_pool!` moved none of it.
+
+What DID move it was freeing a `Model` — its `scratch` holds the `RecordedPlan`
+`call` cached, and that plan's arena is a block. One model was worth 2.2 GB of
+`reserved`. But it did not help: the arena a plan needs is one CONTIGUOUS
+region, and the placer was offered **31.83 MB** — the pool's largest free span —
+while 1.17 GB of the device's budget sat unused. So the pool does not grow a
+new block to satisfy an arena it cannot serve from the blocks it has, and a
+long-lived process that keeps building plans eventually cannot build one with
+its memory both free and under budget.
+
+The fingerprint to look for: **826 blocks holding 81.74 GB**, and **562 items
+in the submit channel's retirement queue that never drain** — six rounds of
+`fill!` + `synchronize` + `collect_for_pool!` (which flushes, waits, drains and
+reclaims) moved neither number by one. Blocks pinned by a retirement that never
+completes would explain both the count and the fragmentation.
+
+Worth a controlled reproduction: build and free N plans in a fresh session,
+watching `reserved(dev.pool)`, the block count and `largestfree`.
+
+## A note on measuring this
+
+The isolated attention launch is ~60 ms and its run-to-run spread reached
+**10%** after a day of benchmarking — enough to make a 5% effect look like
+either sign, which is how `held` first looked worth taking and how the score
+pass count first looked worth skipping. The LAYER replay is 171 ms of sustained
+work and repeats to 0.3%. Decide at the layer, not at the kernel: the pass-count
+rule was confirmed there (174.3 ms against 170.5 for the same code with the old
+default) after the microbenchmark had said both things.
+
+## A trap this measurement fell into
+
+`Lava.FROZEN_VERSION[]` is `"1"` in a normal session, and the frozen SPIR-V
+cache is keyed on `typeof(f)`, the argument types and the workgroup size —
+**not on the source**. Editing a kernel body under Revise and re-running
+therefore measures the OLD kernel, and an hour of flash-attention results here
+were exactly that. Signature changes (a new `Val` argument) mint a new key and
+are safe; body edits are not. Bump `Lava.FROZEN_VERSION[]` before believing any
+kernel measurement.

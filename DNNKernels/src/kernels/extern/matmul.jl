@@ -132,6 +132,7 @@ split-K GEMV is the bandwidth-bound kernel that shape wants.
 function mmplan(dev, out, A, B, bias)
     # First, and not a preference either: an int8 weight is not an operand any
     # of the float paths can read at all.
+    A isa ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     A isa QInt8Matrix && return MMInt8Plan()
     p = mm_coopmat_plan(dev, out, A, B)
     p isa Decline || return p
@@ -152,6 +153,7 @@ is a performance regression nothing would report.
 """
 function mmplan(caps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                 sout::Dims, sa::Dims, sb::Dims, hasbias::Bool) where {Tout,Ta,Tb}
+    Ta <: ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     Ta <: QInt8Matrix && return MMInt8Plan()
     p = mm_coopmat_plan(caps, Tout, Ta, Tb, sa, sb)
     p isa Decline || return p
@@ -249,6 +251,13 @@ function matmul!(ctx, ::MMInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
     matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
 end
 
+"""ConvRot is an orthogonal, group-wise activation transform preceding INT8 GEMM."""
+function matmul!(ctx, ::MMConvRotInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
+    Brot = convrot(ctx, B, A.group_size)
+    matmul!(ctx, MMInt8Plan(), out, QInt8Matrix(A.q, A.scale, A.m), Brot,
+            bias, epi; gemm)
+end
+
 """`Mantle.gemv!`: the M = 1 path, with the bias and activation in its store."""
 function matmul!(ctx, ::MMGemvPlan, out, A, B, bias, epi; gemm=NamedTuple())
     Mantle.gemv!(out, B, transpose(A); bias, epilogue = epi)
@@ -287,6 +296,21 @@ required to land on the tile.
 difference is a factor of several: Whisper's 1500 tokens round to 1504, which no
 tiling's 64- or 128-wide block divides, so every one of its 160 matmuls ran on
 the register-blocked kernel. Rounding to 1536 costs 2.4% more arithmetic.
+
+**Which block, though, and `gemm_padn` takes the smallest.** Measured on this
+device at `M = 65536, K = 2592`, sweeping the column count alone:
+
+    N        16    32    48    64    96   128   144   160   192   256   288   384
+    TFLOP/s 0.83  2.28  0.70  8.09  1.24 16.40  0.47  1.26  9.32 16.15  1.27 17.29
+
+The 128-wide tiling is about 1.85x the 64-wide one PER COLUMN, so the least
+padding is not the fastest padding: `N = 288` pads to 320 at 9.32 where 384
+would run at 17.29, which is 12.97 against 8.39 for the columns that are real.
+`conv_coopmat_plan` scores by tile width for exactly this reason — see
+[`convcoutpad`](@ref) — and this path does not, because reaching 384 needs more
+slack than `GEMM_PAD_SLACK` allows and that constant is tuned across models this
+repository cannot measure in one session. What is here is the measurement, not
+the change.
 """
 mm_coopmat_plan(dev::M.DeviceCaps, out, A, B) =
     mm_coopmat_plan(dev, typeof(out), typeof(A), typeof(B), size(A), size(B))

@@ -119,7 +119,20 @@ otherwise, and this is the only place that knows the shape.
 """
 function q8gemm_tile(m::Integer, k::Integer, n::Integer)
     deep = k >= 2m          # a long reduction, like the FFN down projection
-    tall = m >= 8k          # a stacked projection, like SwiGLU's gate+up
+    # A stacked projection, like SwiGLU's gate+up. The bound is `6k` and not
+    # `8k` because Qwen-Image 2.1's stacked gate+proj is `24576 x 4096`, exactly
+    # `6k`, and fell through to `m % 256 == 0`'s `(4,2,4,2)` — the slowest of
+    # the three plausible tiles at that shape in each of three sweeps
+    # (42.86, 43.28, 42.74 ms), against `(2,4,2,2)`'s 39.59, 39.36 and **37.92**
+    # interleaved. Horizon's own picks are unchanged: its gate+up is `10.4k` and
+    # was already over the bound, and nothing else the chooser is pinned on
+    # reaches this branch.
+    #
+    # Measured on the ISOLATED product rather than in a layer, because the
+    # session that found it could no longer place a layer-sized plan. The
+    # ranking between the two challengers moved between sweeps; the gap to the
+    # tile being replaced did not.
+    tall = m >= 6k
     if n%32 != 0
         m%128 == 0 ? (2,1,4,1,32,8) : (2,1,2,1,32,8)
     elseif n%64 != 0
@@ -159,16 +172,53 @@ end
 to the dequantise-and-reuse path: wrong operand types, no cooperative matrix, an
 extent the tiles cannot divide, or a tile this device has no room for."""
 function q8gemm_tiling(dev, A, B, C)
-    dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16 || return nothing
-    islavaarray(B) && eltype(B) === Float16 && ndims(B) == 2 && islavaarray(C) || return nothing
-    eltype(C) in (Float16,Float32) || return nothing
-    m,k = size(A); n = size(B,2)
+    # `islavaarray` and not `isa Mantle.LavaArray`: the type exists only where that
+    # backend is loaded, so naming it here made this refuse every operand on any
+    # other one. The shape and element type are asked separately for the same reason.
+    islavaarray(B) && eltype(B) === Float16 && ndims(B) == 2 && islavaarray(C) ||
+        return nothing
+    q8gemm_tiling(dev, eltype(C), size(A)..., size(B, 2))
+end
+
+"""
+    q8gemm_tiling(caps, Tout, m, k, n) -> cfg | nothing
+
+The same decision from extents alone, which is all a DECLARATION has: the
+declared form holds transients rather than arrays, so it cannot ask an operand
+what type it is, and the two paths must not answer differently.
+"""
+function q8gemm_tiling(caps, ::Type{Tout}, m::Integer, k::Integer, n::Integer) where {Tout}
+    caps.coopmat && caps.coopmatsubgroup == 32 && caps.tile == 16 || return nothing
+    Tout in (Float16, Float32) || return nothing
     m%64 == 0 && k%32 == 0 && n%16 == 0 || return nothing
     max(m*k, k*n, m*n) <= typemax(Int32) || return nothing
     cfg = q8gemm_tile(m, k, n)
     stm,stn,wm,wn,bk,pad = cfg
     wg = 32wm*wn
     shared = 2*((16stm*wm+pad)*bk+(bk+pad)*16stn*wn)
-    wg <= dev.workgrouplimit && shared <= dev.sharedbudget || return nothing
+    wg <= caps.workgrouplimit && shared <= caps.sharedbudget || return nothing
     cfg
 end
+
+"""
+    q8gemm_columns(n) -> np
+
+The column count to run a packed int8 product at: `n`, padded to the widest
+column tile once the product is wide enough to want one.
+
+Every tile has to divide `n`, and a wide product's column count is whatever the
+caller's sequence happens to be. Qwen-Image 2.1 at 1024² over a 22-token prompt
+runs `n = 4118`, which is `2 x 29 x 71`: nothing divides it, so the GEMM fell
+out of this path entirely and dequantised 100 MB of weights per product instead.
+Even `n = 4128` only admits a 32-column tile. Measured at `12288 x 4096`:
+
+    n = 4118   11.27 TOP/s   (dequantise, then the fp16 GEMM)
+    n = 4128    8.60 TOP/s   (32-column tile, the widest that divides it)
+    n = 4096   21.61 TOP/s   (128-column tile)
+
+so padding 4118 up to 4224 buys 2x and costs 2.6% of the arithmetic plus two
+copies of the activation. Below 256 columns the wide tiles cannot fill anyway
+and the padding would be the whole cost, so a narrow product keeps the tile its
+own extent admits.
+"""
+q8gemm_columns(n::Integer) = n >= 256 ? cld(n, 128) * 128 : cld(n, 16) * 16

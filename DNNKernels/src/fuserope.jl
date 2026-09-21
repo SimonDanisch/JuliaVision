@@ -142,3 +142,176 @@ function fuserope(g::Graph)
     (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
            order, keep, g.fusion), n)
 end
+
+
+"""
+    pairview(g, id) -> (x, P) | nothing
+
+The `(..., P, 2)` view of an `(..., 2P)` tensor that an INTERLEAVED rotary
+splits into its even and odd components.
+"""
+function pairview(g::Graph, id::AbstractString)
+    b = get(g.buffers, id, nothing)
+    (b === nothing || b.kind !== :view || b.viewop != "view.default") && return nothing
+    sh = b.shape
+    length(sh) >= 2 || return nothing
+    (sh[end] isa Integer && Int(sh[end]) == 2) || return nothing
+    sh[end - 1] isa Integer || return nothing
+    p = get(g.buffers, b.of, nothing)
+    p === nothing && return nothing
+    ps = p.shape
+    length(ps) == length(sh) - 1 || return nothing
+    (ps[end] isa Integer && Int(ps[end]) == 2 * Int(sh[end - 1])) || return nothing
+    all(k -> ps[k] == sh[k], 1:(length(ps) - 1)) || return nothing
+    (String(b.of), Int(sh[end - 1]))
+end
+
+"""
+    pairhalf(g, id) -> (pairview, which) | nothing
+
+`squeeze(slice(V, -1, w, w + 1))` — one of the two components of a pair view,
+and which of them it is.
+"""
+function pairhalf(g::Graph, id::AbstractString)
+    b = get(g.buffers, id, nothing)
+    (b === nothing || b.kind !== :view) && return nothing
+    b.viewop in ("squeeze.dims", "squeeze.dim") || return nothing
+    sl = get(g.buffers, b.of, nothing)
+    (sl === nothing || sl.kind !== :view || sl.viewop != "slice.Tensor") && return nothing
+    nd = length(sl.shape)
+    d = Int(get(sl.attrs, "arg1", 0))
+    (d == -1 || d == nd - 1) || return nothing
+    lo = Int(get(sl.attrs, "arg2", 0))
+    hi = Int(get(sl.attrs, "arg3", 0))
+    (hi == lo + 1 && sl.shape[end] isa Integer && Int(sl.shape[end]) == 1) || return nothing
+    (String(sl.of), lo)
+end
+
+"""
+    fusepairrope(graphs) -> (graphs, n)
+
+The OTHER rotary spelling: a rotation of adjacent PAIRS rather than of halves.
+
+`fuserope` above collapses `cat(-x[H/2:], x[:H/2]) * sin + x * cos`, which is
+how the HF models write it. Qwen-Image 2.1 writes the complex form instead —
+view the head as `H/2` pairs, rotate each one, interleave the results back:
+
+    xr = x.view(..., H/2, 2)
+    a, b = xr[..., 0], xr[..., 1]
+    out  = stack((a*cos - b*sin, a*sin + b*cos), -1).flatten(-2)
+
+Same function, different layout, and nothing matched it. What that costs is not
+the arithmetic — `fuseops` collapses each of the two halves into one pass — it
+is the LAYOUT: the two components are a stride-2 read each, so both are
+materialised, and the interleave is another pass over the result. Measured on
+one layer at 1024²: 1.95 ms of squeezes, 1.16 of interleave, 1.84 of arithmetic
+and ~1.1 of the view and cast around them, against 1.6 ms for both rotations as
+one kernel.
+
+The pattern is spelled out rather than generalised, on purpose: it is eight ops
+in a fixed arrangement over one pair view, and a looser match on a rewrite that
+silently changes what a model computes is not worth the reach.
+"""
+function fusepairrope(graphs::AbstractDict)
+    FUSEROPE[] || return (Dict{String,Any}(graphs), 0)
+    out = Dict{String,Any}()
+    total = 0
+    for (k, g) in graphs
+        if g isa Graph
+            g2, n = fusepairrope(g)
+            out[k] = g2; total += n
+        else
+            out[k] = g
+        end
+    end
+    (out, total)
+end
+
+function fusepairrope(g::Graph)
+    producer = Dict{String,Op}()
+    byin = Dict{String,Vector{Op}}()
+    for op in g.ops
+        isempty(string(op.out)) || (producer[op.out] = op)
+        for id in op.ins
+            push!(get!(byin, id, Op[]), op)
+            r = viewroot(g, id)
+            r == id || push!(get!(byin, r, Op[]), op)
+        end
+    end
+    sole(id) = (rs = get(byin, id, nothing); rs !== nothing && length(rs) == 1 ? rs[1] : nothing)
+    # One product of a component and a table, split into which component it is
+    # and what it was multiplied by.
+    function split1(m::Op)
+        h1 = pairhalf(g, m.ins[1])
+        h2 = pairhalf(g, m.ins[2])
+        h1 !== nothing && h2 === nothing && return (h1, m.ins[2])
+        h2 !== nothing && h1 === nothing && return (h2, m.ins[1])
+        return nothing
+    end
+
+    ops = copy(g.ops)
+    drop = Set{String}()
+    n = 0
+    for c in g.ops
+        c.aten == "cat.default" || continue
+        length(c.ins) == 2 || continue
+        Int(get(c.attrs, "arg1", 0)) == -1 || continue
+        us = [get(g.buffers, i, nothing) for i in c.ins]
+        all(u -> u !== nothing && u.kind === :view && u.viewop == "unsqueeze.default", us) || continue
+
+        A = get(producer, String(us[1].of), nothing)      # a*cos - b*sin
+        B = get(producer, String(us[2].of), nothing)      # a*sin + b*cos
+        (A === nothing || B === nothing) && continue
+        (A.aten == "sub.Tensor" && B.aten == "add.Tensor") || continue
+        length(A.ins) == 2 && length(B.ins) == 2 || continue
+
+        ms = [get(producer, id, nothing) for id in (A.ins[1], A.ins[2], B.ins[1], B.ins[2])]
+        any(m -> m === nothing || m.aten != "mul.Tensor" || length(m.ins) != 2, ms) && continue
+        ps = map(split1, ms)
+        any(isnothing, ps) && continue
+        # All four read the same pair view, and the subtraction is the one whose
+        # order is fixed: `a*cos` minus `b*sin`.
+        V = ps[1][1][1]
+        all(q -> q[1][1] == V, ps) || continue
+        (ps[1][1][2] == 0 && ps[2][1][2] == 1) || continue
+        cosid, sinid = ps[1][2], ps[2][2]
+        # The addition may come either way round.
+        i3, i4 = ps[3][1][2], ps[4][1][2]
+        (bc, as) = i3 == 1 && i4 == 0 ? (ps[3], ps[4]) :
+                   i4 == 1 && i3 == 0 ? (ps[4], ps[3]) : (nothing, nothing)
+        bc === nothing && continue
+        viewroot(g, bc[2]) == viewroot(g, cosid) || continue
+        viewroot(g, as[2]) == viewroot(g, sinid) || continue
+
+        pv = pairview(g, V)
+        pv === nothing && continue
+        X, P = pv
+
+        # Nothing outside the group may read what the group is about to delete.
+        all(m -> sole(m.out) !== nothing && sole(m.out).id in (A.id, B.id), ms) || continue
+        (sole(A.out) === c && sole(B.out) === c) || continue
+
+        # The narrowing cast on the way out, which the kernel does in its store.
+        last = c
+        w = sole(c.out)
+        if w !== nothing && w.aten == "_to_copy.default" &&
+           haskey(g.buffers, w.out) && haskey(g.buffers, c.out) &&
+           sizeof(g.buffers[w.out].dtype) <= sizeof(g.buffers[c.out].dtype)
+            last = w
+        end
+
+        ops[findfirst(==(last), ops)] =
+            Op(last.id, "fused.pairrope", [X, cosid, sinid], last.out,
+               Dict{String,Any}("P" => P))
+        for o in (ms[1], ms[2], ms[3], ms[4], A, B, c)
+            o.id == last.id || push!(drop, o.id)
+        end
+        n += 1
+    end
+    n == 0 && return (g, 0)
+    keep = [o for o in ops if !(o.id in drop)]
+    dropped = Set(o.out for o in g.ops if o.id in drop)
+    order = [id for id in g.order if !(id in dropped)]
+    (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
+           order, keep, g.fusion), n)
+end

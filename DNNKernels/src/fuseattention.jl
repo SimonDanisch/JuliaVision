@@ -73,11 +73,109 @@ function viewroot(g::Graph, id::AbstractString)
 end
 
 """
-    attentiongroup(g, producer, b2) -> (q, k, v) | nothing
+    safesoftmaxtail(g, producer, wh) -> (softmax, ops, scores) | nothing
 
-The three operands if `b2` is the second `bmm` of an attention, else `nothing`.
+torch's `_safe_softmax`, which is what `scaled_dot_product_attention` becomes
+when it is *exported* rather than lowered to a kernel:
+
+    attn = softmax(scores, -1)
+    attn = where(!any(scores != -inf, -1), zeros_like(attn), attn)
+
+The second line is the guard for a query row whose every key is masked out:
+`softmax` of an all `-inf` row is `NaN`, and the reference returns zeros there.
+
+`wh` is the `where`. The return is the softmax it guards, the ops the guard is
+made of, and the scores buffer its `eq` tested — the caller matches that against
+the `bmm` it finds, because dropping the guard is only sound when the scores are
+the product itself. A product of finite operands has no `-inf` in it, so the
+guard selects the softmax at every position and deleting it changes nothing; put
+an additive mask between the two and that stops being true, which is why the
+scores identity is checked rather than assumed.
+"""
+function safesoftmaxtail(g::Graph, producer::AbstractDict, wh::Op)
+    length(wh.ins) == 3 || return nothing
+    sm = get(producer, viewroot(g, wh.ins[3]), nothing)
+    sm === nothing && return nothing
+    sm.aten == "_softmax.default" || return nothing
+    get(sm.attrs, "arg1", 0) == -1 || return nothing
+
+    zero = get(producer, viewroot(g, wh.ins[2]), nothing)
+    zero === nothing && return nothing
+    zero.aten == "full_like.default" || return nothing
+    viewroot(g, zero.ins[1]) == sm.out || return nothing
+    iszero(scalar(get(zero.attrs, "arg1", 1))) || return nothing
+
+    allmasked = get(producer, viewroot(g, wh.ins[1]), nothing)
+    (allmasked === nothing || allmasked.aten != "logical_not.default") && return nothing
+    anykey = get(producer, viewroot(g, allmasked.ins[1]), nothing)
+    (anykey === nothing || anykey.aten != "any.dim") && return nothing
+    get(anykey.attrs, "arg1", 0) == -1 && get(anykey.attrs, "arg2", false) === true ||
+        return nothing
+    unmasked = get(producer, viewroot(g, anykey.ins[1]), nothing)
+    (unmasked === nothing || unmasked.aten != "logical_not.default") && return nothing
+    isinf = get(producer, viewroot(g, unmasked.ins[1]), nothing)
+    (isinf === nothing || isinf.aten != "eq.Scalar") && return nothing
+    scalar(get(isinf.attrs, "arg1", 0)) == -Inf || return nothing
+
+    (softmax = sm, ops = [wh.id, zero.id, allmasked.id, anykey.id, unmasked.id, isinf.id],
+     scores = isinf.ins[1])
+end
+
+"""
+    flashoperand(g, producer, id, want; allowscale) -> (id, scale) | nothing
+
+One attention operand as fp16, with any scaling on the way to it.
+
+`lastmatching` alone finds the operand the `bmm` reads, and under this export
+that is an fp32 copy of an fp16 tensor: torch's decomposition scales q and k by
+`scale^0.5` each and runs the product in fp32. Fed that, `flashcm_plan` declines
+on `:eltype` and a 4096-query attention falls back to materialising its scores —
+2.12 GB per layer, which is what made this worth writing.
+
+So the walk continues through `mul.Scalar` and the widening `_to_copy` to the
+fp16 tensor underneath, multiplying the scalars out as it goes; the fused op
+carries their product as its `scale` and the `mul`s are left for `dropdead`.
+
+`allowscale = false` for v, where a scalar is NOT the attention's scale but a
+factor on the result, and folding it into `scale` would be wrong.
+
+Returns the fp32 operand unchanged, with `scale = 1`, when no fp16 pre-image is
+reachable: that is the operand the pass took before and the graphs that relied
+on it still get it.
+"""
+function flashoperand(g::Graph, producer::AbstractDict, id::AbstractString, want;
+                      allowscale::Bool = true)
+    direct = lastmatching(g, id, want)
+    direct !== nothing && g.buffers[direct].dtype === Float16 && return (direct, 1.0)
+    cur, scale = id, 1.0
+    for _ in 1:8
+        cand = lastmatching(g, cur, want)
+        cand !== nothing && g.buffers[cand].dtype === Float16 && return (cand, scale)
+        op = get(producer, viewroot(g, cand === nothing ? cur : cand), nothing)
+        op === nothing && break
+        if allowscale && op.aten == "mul.Scalar" && length(op.ins) == 1 &&
+                get(op.attrs, "arg1", nothing) isa Real
+            scale *= Float64(op.attrs["arg1"])
+            cur = op.ins[1]
+        elseif op.aten == "_to_copy.default" && length(op.ins) == 1
+            cur = op.ins[1]
+        else
+            break
+        end
+    end
+    direct === nothing ? nothing : (direct, 1.0)
+end
+
+"""
+    attentiongroup(g, producer, b2) -> (q, k, v, scale, ...) | nothing
+
+The operands if `b2` is the second `bmm` of an attention, else `nothing`.
 Every shape relation is checked, so a `bmm` pair that merely looks similar is
 declined rather than silently rewritten.
+
+`scale` is `nothing` when the scaling is left in the graph — the case this pass
+was written for — and a number when [`flashoperand`](@ref) folded it in order to
+reach fp16 operands.
 """
 function attentiongroup(g::Graph, producer::AbstractDict, b2::Op)
     # The scores reach the second `bmm` through a run of copies: a `clone`, and
@@ -98,32 +196,59 @@ function attentiongroup(g::Graph, producer::AbstractDict, b2::Op)
         sc = get(producer, viewroot(g, sc.ins[1]), nothing)
     end
     sc === nothing && return nothing
+    guarded = nothing
+    if sc.aten == "where.self"
+        tail = safesoftmaxtail(g, producer, sc)
+        tail === nothing && return nothing
+        append!(skipped, tail.ops)
+        guarded = tail.scores
+        sc = tail.softmax
+    end
     sc.aten == "_softmax.default" || return nothing
     b1 = get(producer, viewroot(g, sc.ins[1]), nothing)
     (b1 === nothing || b1.aten != "bmm.default") && return nothing
+    # The guard is only a no-op over the product itself — see `safesoftmaxtail`.
+    guarded === nothing || viewroot(g, guarded) == b1.out || return nothing
 
-    # q from the first bmm; its 4-D form fixes (H, S, D)
-    qc = g.buffers[b1.ins[1]].shape          # (H, S, D)
-    length(qc) == 3 || return nothing
-    H, S, D = qc
-    want = Any[1, H, S, D]
-    q = lastmatching(g, b1.ins[1], want); q === nothing && return nothing
-    k = lastmatching(g, b1.ins[2], want); k === nothing && return nothing
-    v = lastmatching(g, b2.ins[2], want); v === nothing && return nothing
-    # the scores must really be (H, S, S), and the output (H, S, D)
-    g.buffers[b1.out].shape == Any[H, S, S] || return nothing
-    g.buffers[b2.out].shape == Any[H, S, D] || return nothing
-    (q, k, v, b1, sc, b2, skipped)
+    # q fixes (H, Lq, D); k arrives transposed and fixes Lk. Lq and Lk are not
+    # the same length in a joint attention — Qwen-Image's image stream queries
+    # 4096 positions over 4352 keys — so they are tracked separately and every
+    # shape below is checked against both.
+    qc = g.buffers[b1.ins[1]].shape          # (H, Lq, D)
+    kc = g.buffers[b1.ins[2]].shape          # (H, D, Lk)
+    length(qc) == 3 && length(kc) == 3 || return nothing
+    H, Lq, D = qc
+    Hk, Dk, Lk = kc
+    H == Hk && D == Dk || return nothing
+    # the scores must really be (H, Lq, Lk), and the output (H, Lq, D)
+    g.buffers[b1.out].shape == Any[H, Lq, Lk] || return nothing
+    g.buffers[b2.ins[2]].shape == Any[H, Lk, D] || return nothing
+    g.buffers[b2.out].shape == Any[H, Lq, D] || return nothing
+
+    wantq = Any[1, H, Lq, D]
+    wantkv = Any[1, H, Lk, D]
+    q = flashoperand(g, producer, b1.ins[1], wantq); q === nothing && return nothing
+    k = flashoperand(g, producer, b1.ins[2], wantkv); k === nothing && return nothing
+    v = flashoperand(g, producer, b2.ins[2], wantkv; allowscale = false)
+    v === nothing && return nothing
+    # All three or none: a fused op with an fp16 q and an fp32 k has no plan at
+    # all, and half a rewrite is worse than the graph it replaced.
+    fp16 = all(x -> g.buffers[x[1]].dtype === Float16, (q, k, v))
+    scale = fp16 ? q[2] * k[2] * v[2] : nothing
+    (q[1], k[1], v[1], scale, b1, sc, b2, skipped)
 end
 
 """
     fuseattention(g) -> (g, n)
 
-Replace each `bmm -> softmax -> [clone] -> bmm` with one `fused.sdpa`.
+Replace each `bmm -> softmax -> [clone | safe-softmax guard] -> bmm` with one
+`fused.sdpa`.
 
-The scale stays where it is: the `mul` that produced q is left in the graph and
-the fused op runs with `scale = 1`, so nothing here has to know how the exporter
-spelled the scaling.
+The scale stays where it is whenever the operands are already fp16: the `mul`
+that produced q is left in the graph and the fused op runs with `scale = 1`, so
+nothing here has to know how the exporter spelled the scaling. An export that
+upcasts to fp32 around the product leaves no fp16 operand to fuse over, and
+there `flashoperand` folds the scaling into the op instead — see its docstring.
 """
 function fuseattention(g::Graph)
     producer = Dict{String,Op}()
@@ -139,7 +264,7 @@ function fuseattention(g::Graph)
         n >= FUSEATTENTIONLIMIT[] && break
         got = attentiongroup(g, producer, op)
         got === nothing && continue
-        q, k, v, b1, sc, b2, skipped = got
+        q, k, v, scale, b1, sc, b2, skipped = got
         # Nothing OUTSIDE the group may read a buffer the group stops producing,
         # or that op loses its input. The group's own members are exempt — the
         # softmax reads the scores by construction, and forgetting to exempt it
@@ -150,8 +275,15 @@ function fuseattention(g::Graph)
         # legitimately reads the attention result, look like an outside consumer.
         dropping = Set{String}([b1.id, sc.id]); union!(dropping, skipped)
         gone = Set{String}(o.out for o in g.ops if o.id in dropping)
+        # The graph's own outputs count as readers. `fusemaskedattention` has
+        # always checked this and this one did not: a graph asked for its scores
+        # or its attention weights — which is how a reference dump is taken —
+        # lost the buffer that produced them.
+        any(id -> viewroot(g, id) in gone, g.outputs) && continue
         any(o -> !(o.id in group) && any(x -> viewroot(g, x) in gone, o.ins), g.ops) && continue
-        ops[i] = Op(b2.id, "fused.sdpa", [q, k, v], b2.out, Dict{String,Any}(b2.attrs))
+        attrs = Dict{String,Any}(b2.attrs)
+        scale === nothing || (attrs["scale"] = scale)
+        ops[i] = Op(b2.id, "fused.sdpa", [q, k, v], b2.out, attrs)
         push!(drop, b1.id); push!(drop, sc.id)
         for id in skipped; push!(drop, id); end
         n += 1

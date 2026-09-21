@@ -95,8 +95,41 @@ function toback(backend, a::AbstractArray)
     # It also silently defeated mmap-backed weights: the mapping costs nothing
     # to read, and `collect` faulted every page into anonymous memory anyway.
     # A strided or lazy source still needs materialising, so only those collect.
-    copyto!(d, a isa DenseArray ? a : collect(a))
+    # `GC.@preserve`, because `uploadsource` may hand back a wrapper that
+    # points INTO `a` without referencing it, and `a` is dead to the compiler
+    # the moment that call returns.
+    GC.@preserve a copyto!(d, uploadsource(a))
     d
+end
+
+"""
+The bytes `toback` hands to `copyto!`: the array itself wherever its elements
+already lie the way a dense upload wants them.
+
+A `DenseArray` obviously does. So does a CONTIGUOUS view of one, and that is
+not a corner case: a compact Qwen-Image 2.1 checkpoint arrives as 224 column
+slices of mmap'd `Matrix{Int8}`, 6.5 GiB of them, and a `SubArray` is not a
+`DenseArray`, so every one used to be `collect`ed into anonymous memory first —
+exactly the mmap defeat the comment above is about, reintroduced through the
+other branch.
+
+Contiguity is checked against the strides a dense array of that size would
+have, not inferred from the index types: `view(A, 1:3, 1:5)` of a 10x10 is a
+`FastContiguousSubArray` and its columns are seven elements apart.
+
+This is about MEMORY, not time — `upload_s` does not move, because what it is
+spent on is the device allocation and not the host copy. What it buys is that
+the checkpoint stays a mapping: 6.5 GiB that used to be faulted into anonymous
+memory, on a unified-memory machine where the host and the device share one
+pool and the 64 GiB model in the comment above is already at the edge of it.
+"""
+@inline function uploadsource(a::AbstractArray)
+    a isa DenseArray && return a
+    if a isa SubArray && parent(a) isa DenseArray && isbitstype(eltype(a)) &&
+       strides(a) == Base.size_to_strides(1, size(a)...)
+        return unsafe_wrap(Array, pointer(a), size(a))
+    end
+    collect(a)
 end
 
 """
@@ -135,6 +168,19 @@ function toback(backend, A::RowCat)
     end
     d
 end
+
+# A stack of packed quantised parts has no dense rows to copy into: four output
+# rows share a word and each carries its own scale. `stackrows` assembles it in
+# the checkpoint layout and the result packs exactly like a single weight, so
+# the host peak is one fused matrix rather than the whole stacked model.
+toback(backend, A::RowCat{T,<:AbstractVector{<:ConvRotQInt8HostMatrix}}) where {T} =
+    toback(backend, stackrows(A.parts))
+
+# W4A8 cannot stack in the checkpoint layout the way ConvRot INT8 does: the
+# codebook is per tensor, so the parts only agree once decoded. `w4a8convrot`
+# decodes each into its own row range of one pack.
+toback(backend, A::RowCat{T,<:AbstractVector{<:W4A8ConvRotHostMatrix}}) where {T} =
+    w4a8convrot(backend, A.parts)
 
 # `hoistpermutes` leaves its transposed weights lazy so they are not all
 # materialised at once. This is where one of them becomes real, and WHERE it
@@ -202,6 +248,13 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # a model ever comes out wrong — see `2026-08-08-elementwise-fusion.md`
                # for why a bad fusion looks like a precision bug.
                fuse::Bool = true,
+               # Just the attention fusion, independently of the rest. A fused
+               # attention is only recordable if its plan has a declared form,
+               # and `CoopMatSDPAPlan` has none, so a model whose attention it
+               # claims can be recorded OR fused and not both. Qwen-Image 2.1's
+               # VAE is the case: one mid-block head 1152 wide, which
+               # `flashcm_plan` declines and `coopmat_sdpa_plan` takes.
+               fuseattn::Bool = true,
                # Store the matmul weights as int8 with a per-output-channel
                # scale. Decode reads every weight once per token and is
                # bandwidth-bound outright, so this is a straight halving of the
@@ -233,6 +286,11 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     t0 = time_ns()
     graphs, host, nfold = foldbatchnorm(graphs, Dict{String,Any}(weights))
     graphs, nact = foldrelu(graphs)
+    # Before anything that reads a convolution's operands, and before the
+    # weight passes, because it only rewrites one attribute and one input and
+    # every pass after it sees a shorter graph.
+    graphs, npad = foldconvpad(graphs)
+    npad > 0 && @info "foldconvpad: $npad explicit pad(s) -> the convolution's own"
     graphs, host, nhoist = hoistcasts(graphs, host)
     # After the casts: under autocast a weight's transposed view sits on top of
     # its fp16 cast, and hoisting the cast first turns that into a plain weight
@@ -275,6 +333,10 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # visible once the write has been marked in place.
     graphs, nrope = fuserope(graphs)
     nrope > 0 && @info "fuserope: $nrope rotary embedding(s) -> one op each"
+    # The other rotary spelling, which rotates adjacent PAIRS rather than
+    # halves. Same place in the order and for the same reasons.
+    graphs, npair = fusepairrope(graphs)
+    npair > 0 && @info "fusepairrope: $npair interleaved rotary embedding(s) -> one op each"
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes
@@ -343,8 +405,18 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
         # `softmax` that the elementwise fuser would otherwise absorb into a
         # group, and a fused group is no longer recognisable as attention. This
         # rewrite is worth 9.88x per layer where it fires, so it goes first.
-        graphs, nattn = fuseattention(graphs)
-        nattn > 0 && @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
+        if fuseattn
+            graphs, nattn = fuseattention(graphs)
+            if nattn > 0
+                @info "fuseattention: $nattn attention block(s) -> fused.sdpa"
+                # The fusion reads q, k and v from further back than the `bmm`
+                # did, so the casts and scalings in between are left with no
+                # consumer. They are not free: Qwen-Image's are 64 MB apiece,
+                # 6 per layer.
+                graphs, nattndead = dropdead(graphs)
+                ndead += nattndead
+            end
+        end
         graphs, nfused = fuseops(graphs)
         graphs, nmasked = fusemaskedattention(graphs)
         nmasked > 0 && @info "fusemaskedattention: $nmasked masked attention blocks"
@@ -589,11 +661,16 @@ planfor(m::Model, g::Graph, name::AbstractString, dims,
     planfor(m.device, g, m.weights, dims;
             maxpasses = get(m.record_maxpasses, name, 0), noise)
 
+# `profile = true` builds the plan with a timestamp query pool, so
+# `Mantle.timings(plan.plan)` reports per-pass GPU milliseconds after a replay.
+# It is not free — a query pair around every pass — so it is off by default and
+# a plan asked for it is a plan being measured.
 function planfor(dev, g::Graph, weights::AbstractDict, dims;
-                 maxpasses::Int = 0, noise::NoiseSource = RandomNoise())
+                 maxpasses::Int = 0, noise::NoiseSource = RandomNoise(),
+                 profile::Bool = false)
     mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims;
                                     noise)
-    plan = Mantle.Plan(mantlegraph)
+    plan = Mantle.Plan(mantlegraph; profile)
     Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
     outs = Tuple(Mantle.storage(emitctx.res[id]) for id in g.outputs)

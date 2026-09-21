@@ -22,6 +22,15 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random
     @test DNNKernels.q8gemm_tile(5120,26624,32) == (2,1,2,1,32,8)
     @test DNNKernels.q8gemm_tile(5120,26624,128) == (4,2,4,2,32,8)
     @test DNNKernels.q8gemm_tile(5120,26624,512) == (4,2,2,2,32,8)
+    # Qwen-Image 2.1's stacked gate+proj at 1024², which is `m = 6k` exactly and
+    # used to miss the stacked-projection branch by falling through to
+    # `m % 256 == 0`. 42.7 ms that way against 37.9 here.
+    @test DNNKernels.q8gemm_tile(24576,4096,4224) == (2,4,2,2,32,8)
+    # Its three neighbours in the same layer are NOT this branch and keep what
+    # they had: the bound moved, it did not become a different rule.
+    @test DNNKernels.q8gemm_tile(12288,4096,4224) == (4,2,4,2,32,8)
+    @test DNNKernels.q8gemm_tile(4096,12288,4224) == (4,2,2,2,32,8)
+    @test DNNKernels.q8gemm_tile(4096,4096,4224) == (4,2,4,2,32,8)
 end
 
 @testset "direct int8 cooperative GEMM" begin

@@ -3,11 +3,15 @@ uuid = "f8e6003a-513a-4f5e-98bb-1b2c050ff941"
 version = "0.1.0"
 
 [deps]
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 KernelInterface = "4ee993da-d684-4d17-a7dd-4e58e78d92bf"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+Scratch = "6c6a2e73-6563-6170-7368-637461726353"
 Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
 

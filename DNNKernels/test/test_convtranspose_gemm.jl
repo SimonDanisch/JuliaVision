@@ -61,7 +61,10 @@ function transposedplan(dev, route::Symbol, x, w, bias, od, stride)
                          Set{String}(), Ref("t"),
                          # `make` is never reached here, so nothing is owned;
                          # the buffers above are this function's own.
-                         Any[])
+                         Any[],
+                         # `padded`: the wide destinations a packed int8 product
+                         # writes, which nothing here declares.
+                         Dict{String,Any}())
     if route === :shuffle
         DK.emitconvtransposeshuffle!(emitctx, op, xr, wr, br, out, stride)
     else
@@ -159,7 +162,8 @@ function onebyoneplan(dev, x, w, bias, od; act::Symbol = :none)
     emitctx = DK.EmitCtx(DK.Graph("c", String[], String[], String[],
                                   Dict{String,DK.Buffer}(), String[], DK.Op[],
                                   Vector{Vector{String}}()),
-                         g, dev, NamedTuple(), res, Set{String}(), Ref("c"), Any[])
+                         g, dev, NamedTuple(), res, Set{String}(), Ref("c"), Any[],
+                         Dict{String,Any}())
     DK.emitop!(emitctx, op, Val(Symbol("convolution.default")))
     plan = MC.Plan(g)
     MC.record!(plan)

@@ -1,7 +1,7 @@
 using BonsaiRunner, KernelAbstractions, LinearAlgebra, Mantle
 
 path = get(ENV, "BONSAI_GGUF", "")
-isempty(path) && error("set BONSAI_GGUF to Ternary-Bonsai-2-27B-PTQ1_0.gguf")
+path = isempty(path) ? checkpointpath() : path
 selector = get(ENV, "BONSAI_DEVICE", "")
 dev = isempty(selector) ? Mantle.device() : Mantle.device(selector)
 chunk = parse(Int, get(ENV, "BONSAI_PREFILL_CHUNK", "512"))

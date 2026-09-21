@@ -48,6 +48,53 @@ struct QInt8Matrix{Q,S}
     m::Int          # true row count; `q` is padded up to a multiple of four
 end
 
+"""
+Packed INT8 weight in Comfy's ConvRot basis.
+
+`q` has the same four-output-row `UInt32` packing as [`QInt8Matrix`](@ref).
+The only semantic difference is that the right operand is transformed by the
+normalized regular Hadamard matrix, independently in `group_size`-wide blocks,
+before multiplication. The representation and kernels are backend-independent.
+"""
+struct ConvRotQInt8Matrix{Q,S}
+    q::Q
+    scale::S
+    m::Int
+    group_size::Int
+end
+
+Base.size(A::ConvRotQInt8Matrix) = (A.m, size(A.q, 2))
+Base.size(A::ConvRotQInt8Matrix, i::Integer) = i == 1 ? A.m : size(A.q, i)
+Base.eltype(::ConvRotQInt8Matrix) = Float16
+Base.ndims(::ConvRotQInt8Matrix) = 2
+
+"""Host view of a safetensors INT8 `[M,K]` matrix (stored by Julia as `(K,M)`)."""
+struct ConvRotQInt8HostMatrix{Q,S}
+    q::Q
+    scale::S
+    group_size::Int
+end
+
+Base.size(A::ConvRotQInt8HostMatrix) = (size(A.q, 2), size(A.q, 1))
+Base.size(A::ConvRotQInt8HostMatrix, i::Integer) = size(A)[i]
+Base.eltype(::ConvRotQInt8HostMatrix) = Float16
+Base.ndims(::ConvRotQInt8HostMatrix) = 2
+
+"""Host view of Comfy's packed asymmetric W4A8+ConvRot matrix."""
+struct W4A8ConvRotHostMatrix{Q,R,S,C}
+    q::Q                    # checkpoint `[M,K/2]`, Julia `(K/2,M)`
+    s_rel::R                # E4M3FN bits, checkpoint `[M,K/group]`
+    s_channel::S            # Float32, one per output row
+    codebook::C             # Float32[16]
+    group_size::Int
+    convrot_group_size::Int
+end
+
+Base.size(A::W4A8ConvRotHostMatrix) = (size(A.q, 2), 2size(A.q, 1))
+Base.size(A::W4A8ConvRotHostMatrix, i::Integer) = size(A)[i]
+Base.eltype(::W4A8ConvRotHostMatrix) = Float16
+Base.ndims(::W4A8ConvRotHostMatrix) = 2
+
 Base.size(A::QInt8Matrix) = (A.m, size(A.q, 2))
 Base.size(A::QInt8Matrix, i::Integer) = i == 1 ? A.m : size(A.q, i)
 Base.eltype(::QInt8Matrix) = Float16          # what it dequantises to
@@ -60,8 +107,324 @@ Base.ndims(::QInt8Matrix) = 2
 toback(backend, A::QInt8Matrix) =
     QInt8Matrix(toback(backend, A.q), toback(backend, A.scale), A.m)
 
+toback(backend, A::ConvRotQInt8Matrix) =
+    ConvRotQInt8Matrix(toback(backend, A.q), toback(backend, A.scale), A.m,
+                       A.group_size)
+
 # Rows per packed word. Fixed at four by `UInt32`; named so the arithmetic reads.
 const Q8ROWS = 4
+
+"""
+Output words one thread packs, which is how this kernel stops being a
+transpose done a byte at a time.
+
+The checkpoint stores `q` as `(K, M)` — `K` contiguous — and the GEMM wants
+`(M/4, K)` with the packed rows contiguous, so the two disagree on which axis
+is fast and SOMETHING has to cross that. A thread per output word with the
+word index fast reads four bytes `K` apart and, across a wave, sixty-four
+groups of those `4K` apart: one byte used of every cache line fetched, 48 MB of
+weight turning into ~6 GB of traffic. Qwen-Image 2.1's `12288 x 4096` measured
+**189.9 ms, 505 MB/s**.
+
+Giving each thread `GPT` CONSECUTIVE output words and making `k` the fast axis
+fixes both sides at once. The thread writes `GPT * 4` contiguous bytes, so at
+32 that is a full 128-byte line; and for each of the four bytes in a word,
+consecutive threads read consecutive `k`, so every read is coalesced too. Same
+kernel, same output bit for bit: **3.62 ms, 26.5 GB/s, 52x**.
+
+    GPT      8      16      32      64
+    ms    9.28    5.36    3.62    3.97
+"""
+const Q8PACK_WORDS = 32
+
+@kernel cpu=false function checkpoint_q8pack_kernel!(q32, @Const(q), K::Int32,
+                                                     M::Int32, MG::Int32,
+                                                     ::Val{GPT}) where {GPT}
+    # A 2-D range, so recovering `k` and the word group costs no integer
+    # division by a runtime extent — which is its own 3x elsewhere in this
+    # package (see `attn_flash_cm_merge!`).
+    kk, gg = @index(Global, NTuple)
+    k = Int32(kk) - Int32(1)
+    gb = (Int32(gg) - Int32(1)) * Int32(GPT)
+    @inbounds for w in Int32(0):Int32(GPT - 1)
+        g = gb + w
+        if g < MG
+            word = UInt32(0)
+            Base.Cartesian.@nexprs 4 r -> begin
+                m = g * Int32(4) + Int32(r - 1)
+                if m < M
+                    byte = reinterpret(UInt8, q[k + Int32(1) + m * K])
+                    word |= UInt32(byte) << (8 * (r - 1))
+                end
+            end
+            q32[Int32(1) + g + k * MG] = word
+        end
+    end
+end
+
+"""Upload and repack a Comfy `int8_tensorwise` ConvRot checkpoint matrix."""
+function convrotqint8(backend, q::AbstractMatrix{Int8}, scale;
+                      group_size::Integer=256)
+    K, M = size(q)
+    K % group_size == 0 || throw(DimensionMismatch(
+        "ConvRot group size $group_size does not divide K=$K"))
+    length(scale) in (1, M) || throw(DimensionMismatch(
+        "INT8 scale has $(length(scale)) entries for M=$M"))
+    dq = toback(backend, q)
+    ds = toback(backend, Float32.(vec(scale)))
+    MG = cld(M, Q8ROWS)
+    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
+    checkpoint_q8pack_kernel!(backend, (256, 1))(
+        packed, dq, Int32(K), Int32(M), Int32(MG), Val(Q8PACK_WORDS);
+        ndrange = (K, cld(MG, Q8PACK_WORDS)))
+    ConvRotQInt8Matrix(packed, ds, M, Int(group_size))
+end
+
+toback(backend, A::ConvRotQInt8HostMatrix) =
+    convrotqint8(backend, A.q, A.scale; group_size=A.group_size)
+
+@inline function f8e4m3fn(x::UInt8)
+    sign = (x & 0x80) == 0 ? 1f0 : -1f0
+    exponent = Int32((x >> 3) & 0x0f)
+    mantissa = Int32(x & 0x07)
+    exponent == 0 && return sign * Float32(mantissa) * 0.001953125f0 # 2^-9
+    exponent == 15 && mantissa == 7 && return Float32(NaN)
+    sign * (1f0 + Float32(mantissa) * 0.125f0) * exp2(Float32(exponent - 7))
+end
+
+# `Q8PACK_WORDS` consecutive words a thread with `k` fast, for the reason
+# `checkpoint_q8pack_kernel!` gives: the destination is contiguous in the row
+# group and the source in `k`, so a thread per word with the group fast uses
+# one byte of every line it fetches.
+@kernel cpu=false function w4a8_pack_kernel!(q32, @Const(q), @Const(srel),
+                                             @Const(codebook), K::Int32, M::Int32,
+                                             MG::Int32, GS::Int32, MGD::Int32,
+                                             GOFF::Int32, ::Val{GPT}) where {GPT}
+    kk, gg = @index(Global, NTuple)
+    k = Int32(kk) - Int32(1)
+    gb = (Int32(gg) - Int32(1)) * Int32(GPT)
+    @inbounds for w in Int32(0):Int32(GPT - 1)
+        rg = gb + w
+        if rg < MG
+            word = UInt32(0)
+            Base.Cartesian.@nexprs 4 r -> begin
+                m = rg * Int32(4) + Int32(r - 1)
+                if m < M
+                    packed = reinterpret(UInt8, q[(k ÷ Int32(2)) + Int32(1) + m * (K ÷ Int32(2))])
+                    code = iseven(k) ? (packed & 0x0f) : (packed >> 4)
+                    sr = f8e4m3fn(srel[(k ÷ GS) + Int32(1) + m * (K ÷ GS)])
+                    v = round(clamp(codebook[Int32(code) + Int32(1)] * sr, -127f0, 127f0))
+                    byte = reinterpret(UInt8, unsafe_trunc(Int8, v))
+                    word |= UInt32(byte) << (8 * (r - 1))
+                end
+            end
+            # The destination may be a STACK of parts: this one owns the row
+            # groups from `GOFF`, and a group is four output rows, so a part
+            # whose row count is not a multiple of four cannot be stacked.
+            q32[(rg + GOFF) + Int32(1) + k * MGD] = word
+        end
+    end
+end
+
+"""Upload Comfy `asym_w4a8_int8` storage and decode its INT4 grid to packed INT8."""
+function w4a8convrot(backend, q::AbstractMatrix{Int8}, s_rel::AbstractMatrix{UInt8},
+                     s_channel, codebook; group_size::Integer=16,
+                     convrot_group_size::Integer=256)
+    KH, M = size(q)
+    K = 2KH
+    size(s_rel) == (K ÷ group_size, M) || throw(DimensionMismatch(
+        "W4A8 relative scales are $(size(s_rel)); expected $((K ÷ group_size, M))"))
+    length(s_channel) == M || throw(DimensionMismatch("W4A8 channel scale length mismatch"))
+    length(codebook) == 16 || throw(DimensionMismatch("W4A8 codebook must have 16 entries"))
+    K % convrot_group_size == 0 || throw(DimensionMismatch(
+        "ConvRot group size $convrot_group_size does not divide K=$K"))
+    dq, dr = toback(backend, q), toback(backend, s_rel)
+    ds = toback(backend, Float32.(vec(s_channel)))
+    dc = toback(backend, Float32.(vec(codebook)))
+    MG = cld(M, Q8ROWS)
+    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
+    w4a8pack!(backend, packed, dq, dr, dc, K, M, group_size, MG, 0)
+    ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
+end
+
+"""Decode one W4A8 part into row groups `goff...` of an already-allocated pack."""
+function w4a8pack!(backend, packed, q, s_rel, codebook, K::Integer, M::Integer,
+                   group_size::Integer, mgdest::Integer, goff::Integer)
+    mg = cld(M, Q8ROWS)
+    w4a8_pack_kernel!(backend, (256, 1))(
+        packed, q, s_rel, codebook, Int32(K), Int32(M),
+        Int32(mg), Int32(group_size), Int32(mgdest), Int32(goff),
+        Val(Q8PACK_WORDS); ndrange = (K, cld(mg, Q8PACK_WORDS)))
+    packed
+end
+
+"""
+    w4a8convrot(backend, parts) -> ConvRotQInt8Matrix
+
+The stacked form: `fuseqkv`'s three projections, or a gate/up pair, as one
+matrix. Each part decodes into its own row range of a single pack, which is the
+only way to assemble these — a part's storage is four output rows to a `UInt32`
+word after decoding, and the 16-value codebook is per tensor, so there is
+nothing to concatenate before the decode.
+"""
+function w4a8convrot(backend, parts::AbstractVector{<:W4A8ConvRotHostMatrix})
+    first_part = first(parts)
+    K = size(first_part, 2)
+    group_size = first_part.group_size
+    convrot_group_size = first_part.convrot_group_size
+    all(p -> size(p, 2) == K, parts) || throw(DimensionMismatch(
+        "stacked W4A8 matrices disagree on their input width"))
+    all(p -> p.group_size == group_size && p.convrot_group_size == convrot_group_size,
+        parts) || throw(ArgumentError("stacked W4A8 matrices disagree on their group sizes"))
+    all(p -> size(p, 1) % Q8ROWS == 0, parts) || throw(ArgumentError(
+        "a stacked W4A8 part must have a multiple of $Q8ROWS output rows"))
+    M = sum(p -> size(p, 1), parts)
+    MG = cld(M, Q8ROWS)
+    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
+    ds = toback(backend, Float32.(reduce(vcat, (vec(p.s_channel) for p in parts))))
+    goff = 0
+    for p in parts
+        w4a8pack!(backend, packed, toback(backend, p.q), toback(backend, p.s_rel),
+                  toback(backend, Float32.(vec(p.codebook))), K, size(p, 1),
+                  group_size, MG, goff)
+        goff += size(p, 1) ÷ Q8ROWS
+    end
+    ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
+end
+
+toback(backend, A::W4A8ConvRotHostMatrix) =
+    w4a8convrot(backend, A.q, A.s_rel, A.s_channel, A.codebook;
+                group_size=A.group_size, convrot_group_size=A.convrot_group_size)
+
+"""
+    ispackedquantmatrix(W) -> Bool
+
+Whether `W` is a host weight whose packing already presents the `(M, K)`
+orientation a GEMM reads — the torch `[M, K]` checkpoint layout, kept as
+packed words rather than as an array that can be permuted.
+
+`hoistpermutes` asks this. A dense weight arrives as `(K, M)` and its `t()` view
+is materialised into a real `(M, K)` weight; a packed matrix is *stored* that way
+already, so the same view is the matrix itself and materialising it would mean
+transposing a representation that has no strided form.
+"""
+ispackedquantmatrix(::Any) = false
+ispackedquantmatrix(::ConvRotQInt8HostMatrix) = true
+ispackedquantmatrix(::W4A8ConvRotHostMatrix) = true
+
+"""
+    stackrows(parts) -> matrix
+
+Concatenate packed checkpoint matrices along their output rows.
+
+`fuseqkv` stacks the three attention projections, or a gate/up pair, into one
+GEMM. A dense stack is assembled on the device row range by row range; a packed
+one cannot be, because four output rows share a `UInt32` word. It is assembled
+in the checkpoint's own layout instead — `q` is stored `(K, M)`, so stacking
+output rows is `hcat`, and the per-channel scales stack the same way — and the
+result is packed once, by the same path any single matrix takes.
+"""
+function stackrows(parts::AbstractVector{<:ConvRotQInt8HostMatrix})
+    group = first(parts).group_size
+    all(p -> p.group_size == group, parts) || throw(ArgumentError(
+        "stacked ConvRot matrices disagree on their group size"))
+    all(p -> size(p.scale, 1) == 1, parts) || throw(ArgumentError(
+        "stacked ConvRot matrices must carry one scale per output channel"))
+    ConvRotQInt8HostMatrix(reduce(hcat, (p.q for p in parts)),
+                           reduce(hcat, (p.scale for p in parts)), group)
+end
+
+
+"""
+Two radix-4 stages of the ConvRot transform, in registers.
+
+A 256-wide group is four stages at strides 1, 4, 16 and 64, and a thread that
+holds SIXTEEN elements spaced `S` apart does two of them without talking to any
+other thread: `S = 1` covers strides 1 and 4, `S = 16` covers 16 and 64. Two
+launches, four traversals of the tensor, no shared memory and no barrier.
+
+The two forms this replaced, measured on Qwen-Image 2.1's largest activation
+(4096 x 4118 fp16) on an 8060S:
+
+    a pass per stage, eight traversals          7.87 ms
+    one pass, group staged in shared memory    12.13 ms
+    two passes, sixteen elements in registers   ? ms
+
+Shared memory looked like the obvious answer and is the slowest of the three:
+64-thread workgroups over a 512-byte group spend their time on four barriers,
+not on four adds. Unrolling the stages so every stride is a compile-time shift
+did not move it either.
+
+Each stage rounds to `eltype(out)`, which is the rounding the pass-per-stage
+kernel had, so a group validated against the checkpoint's own decode keeps the
+same error. Not the same BITS: against a host implementation of the staged form
+this agrees to one fp16 ulp, because the compiler is free to reassociate
+`a + b + c - d` and does.
+"""
+@kernel cpu=false unsafe_indices=true function convrot_pass_kernel!(
+        out, @Const(input), ::Val{S}, ::Val{SETS}, ::Val{G}, n::Int64) where {S,SETS,G}
+    j = Int64(@index(Global, Linear)) - Int64(1)
+    g = j ÷ Int64(SETS)
+    w = j - g * Int64(SETS)
+    base = g * Int64(G) + (S == 1 ? w * Int64(16) : w) + Int64(1)
+    if base <= n
+        @inbounds begin
+            Base.Cartesian.@nexprs 16 i -> v_i = Float32(input[base + Int64((i - 1) * S)])
+            # Stride 1 across the sixteen registers, then stride 4. Both are the
+            # same symmetric 4x4, and both round to the output type in between.
+            Base.Cartesian.@nexprs 4 q -> begin
+                a = v_{4q-3}; b = v_{4q-2}; c = v_{4q-1}; d = v_{4q}
+                v_{4q-3} = Float32(eltype(out)(( a + b + c - d) * 0.5f0))
+                v_{4q-2} = Float32(eltype(out)(( a + b - c + d) * 0.5f0))
+                v_{4q-1} = Float32(eltype(out)(( a - b + c + d) * 0.5f0))
+                v_{4q}   = Float32(eltype(out)((-a + b + c + d) * 0.5f0))
+            end
+            Base.Cartesian.@nexprs 4 q -> begin
+                a = v_q; b = v_{q+4}; c = v_{q+8}; d = v_{q+12}
+                v_q      = Float32(eltype(out)(( a + b + c - d) * 0.5f0))
+                v_{q+4}  = Float32(eltype(out)(( a + b - c + d) * 0.5f0))
+                v_{q+8}  = Float32(eltype(out)(( a - b + c + d) * 0.5f0))
+                v_{q+12} = Float32(eltype(out)((-a + b + c + d) * 0.5f0))
+            end
+            Base.Cartesian.@nexprs 16 i -> out[base + Int64((i - 1) * S)] = eltype(out)(v_i)
+        end
+    end
+end
+
+"""
+    convrot_passes(input, group_size) -> (strides, sets, ndrange)
+
+The strides a ConvRot group needs, sixteen elements to a thread. A group of 256
+is two passes; the general power-of-four case is `log4(G) ÷ 2` of them, and an
+odd stage count has no register form here.
+"""
+function convrot_passes(input, group_size::Integer)
+    K = size(input, 1)
+    K % group_size == 0 || throw(DimensionMismatch("ConvRot group size does not divide input"))
+    stages = round(Int, log(4, group_size))
+    4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
+    iseven(stages) || throw(ArgumentError(
+        "ConvRot group $group_size has $stages stages; the register form takes two at a time"))
+    strides = Tuple(16^(i - 1) for i in 1:(stages ÷ 2))
+    (strides, group_size ÷ 16, length(input) ÷ 16)
+end
+
+function convrot(ctx::Ctx, input, group_size::Integer)
+    K = size(input, 1)
+    K % group_size == 0 || throw(DimensionMismatch("ConvRot group size does not divide input"))
+    stages = round(Int, log(4, group_size))
+    4^stages == group_size || throw(ArgumentError("ConvRot group size must be a power of four"))
+    out = scratch!(ctx, eltype(input), size(input)...)
+    strides, sets, ndrange = convrot_passes(input, group_size)
+    n = Int64(length(input))
+    src = input
+    for S in strides
+        convrot_pass_kernel!(ctx.backend, 256)(out, src, Val(S), Val(sets),
+                                               Val(Int(group_size)), n; ndrange)
+        src = out
+    end
+    out
+end
 
 @inline q8byte(w::UInt32, r::Integer) =
     Float32(reinterpret(Int8, UInt8((w >> (8 * r)) & 0x000000ff)))

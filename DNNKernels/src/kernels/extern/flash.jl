@@ -519,15 +519,16 @@ end
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
         ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
-        ::Val{PREONLY}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM},
+        ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM}, ::Val{SMOFF},
+        ::Val{LDOFF}, ::Val{S16},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
-        ::Val{NSPLIT}, ::Val{EPAD}, ::Val{RPAD},
+        ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
-        onepass::Int32, partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                                            BALLAST,SHPAD,NRSC,PREONLY,RSCBAR,PREFETCHV,OUTPERM,
-                                            WIW,WIH,WNX,WNY,NH,NSPLIT,
-                                            EPAD,RPAD,SG}
+        partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
+                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,S16,
+                            WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
+                            EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
     # workgroup as `NW * dev.coopmatsubgroup`, so a literal disagrees with it on
     # any device where Lava cannot pin a 32-lane subgroup: the launch would ask
@@ -552,7 +553,33 @@ end
     # column stride of `BR` fp32. Bank = `(BR·c + r) % 32`, so `BR % 32 == 0` puts
     # every column in one bank — and every shipped tiling has `BR` 32 or 64.
     BRS = BR + RPAD
-    ss  = @localmem Float32 ((BR + RPAD) * BC,)   # (r, c) at c*BRS + r
+    # The SCORE accumulator's width. `Float32` is what this kernel has always
+    # used; `Float16` is what the vendor's flash attention uses, and the device
+    # reports the shape for both (`Float16->Float16 16x16x16` alongside
+    # `Float16->Float32`). It halves this array as well as the accumulator.
+    #
+    # `ss` holds the UNSCALED `q·kᵀ` — `flashscore` applies `scale` on the way
+    # out — so the fp16 range has to cover the raw dot product over `E` terms,
+    # not the softmax input.
+    #
+    # **Off by default, and it is not where the gap is.** It was tried because
+    # torch's flash attention does 31.4 TFLOP/s on this device where the
+    # fp16→fp32 dense GEMM peak is 24.9, which can only be fp16 accumulation —
+    # so the same change here should have been worth ~2x. It is worth **4.3%**:
+    # 40.85 ms against 42.68 at Qwen-Image 2.1's shape, against torch's 8.82.
+    #
+    # Which is consistent with what `SMOFF`/`LDOFF` already price. The matrix
+    # work is ~23% of this kernel; halving the cost of the score half of it
+    # cannot be more than a few percent. The 4.7x is therefore NOT precision —
+    # it is the ~40% spent staging into shared, on barriers and on the
+    # write-out, plus the 29% of K/V bytes. Torch's whole 8.82 ms is about what
+    # this kernel spends on arithmetic alone.
+    #
+    # Numerically it is nearly free: 1.3e-6 rms against the fp32 accumulation on
+    # an output whose own rms is 5.2e-3, i.e. 0.026%. Off anyway, because it
+    # changes the numbers every model gets for 1% of a denoising step.
+    SACC = S16 ? Float16 : Float32
+    ss  = @localmem SACC ((BR + RPAD) * BC,)      # (r, c) at c*BRS + r
     ps  = @localmem Float16 (BC * BR,)            # (r, c) at r*BC + c
     # `REGO == false`: this is `O`, and it persists across key blocks.
     # `REGO == true`:  this is one key block's `P·V`, and `O` lives in `acco`.
@@ -683,13 +710,14 @@ end
         # otherwise keeps this kernel at ~49 KiB and admits only one workgroup.
         # With no held-path reference to `pvs`, the compiler removes that 20 KiB
         # allocation entirely.
-        if HELD && (RSC === :comp || NSPLIT == 1)
+        if HELD
             for idx in tid:NT:(Mantle.GEMM_TILE * Mantle.GEMM_TILE - 1)
                 r, c = Mantle.splitidx(idx, Val(Mantle.GEMM_TILE))
-                ss[1 + idx] = Float32(r + c * Mantle.GEMM_TILE)
+                # Integers to 2048 are exact in fp16, and this tile holds 0..255.
+                ss[1 + idx] = SACC(r + c * Mantle.GEMM_TILE)
             end
             @synchronize
-            rowmat = Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
+            rowmat = Mantle.AcceleratedMatrix{SACC,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
                         ss, 1, Mantle.GEMM_TILE, Val(false))
             Base.Cartesian.@nexprs 8 i -> begin
                 ocoord_i = unsafe_trunc(Int32, Mantle.coopmat_getcomp(rowmat, Int32(i - 1)))
@@ -715,14 +743,30 @@ end
                 grew[1] = Float32(alwaysrescale)
                 redo[1] = 0.0f0
             end
+            # Staging K into a private array first and storing it to shared in a
+            # second loop — the split `PREFETCHV` already gives V — is **not**
+            # worth it: 43.78 ms against 43.21 at Qwen-Image 2.1's shape,
+            # bit-identical. The loads were already going out deep enough, which
+            # is the same thing `LDOFF == 1` says from the other side.
             for r in 0:(cld(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 if idx < BC * EP
                     e, lk = Mantle.splitidx(idx, Val(EP))
                     ink = !KCLAMP || k0 + lk < Lk
-                    kvs[1 + e + lk * EPS] = (e < E && ink) ?
-                        k[kbase + Int32(e) * ksE + Int32(k0 + lk) * ksL +
-                          Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16)
+                    # `LDOFF` is the companion diagnostic to `SMOFF`, wrong on
+                    # purpose, and it has two settings because the staging has
+                    # two costs. `1` keeps every load instruction and drops the
+                    # key offset from the address, so the whole launch re-reads
+                    # one cache-resident tile: that prices the TRAFFIC. `2`
+                    # drops the load itself, with a value that still depends on
+                    # `kb` so the store cannot be hoisted out of the loop: that
+                    # prices traffic and instructions together.
+                    kvs[1 + e + lk * EPS] =
+                        LDOFF == 2 ? Float16(kb & 1) :
+                        ((e < E && ink) ?
+                            k[kbase + Int32(e) * ksE +
+                              (LDOFF == 1 ? Int32(0) : Int32(k0 + lk) * ksL) +
+                              Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16))
                 end
             end
             @synchronize
@@ -733,9 +777,12 @@ end
                     if idx < BC * EP
                         e, lk = Mantle.splitidx(idx, Val(EP))
                         ink = !KCLAMP || k0 + lk < Lk
-                        vstage[1 + r] = (e < E && ink) ?
-                            v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
-                              Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                        vstage[1 + r] =
+                            LDOFF == 2 ? Float16(kb & 1) :
+                            ((e < E && ink) ?
+                                v[vbase + Int32(e) * vsE +
+                                  (LDOFF == 1 ? Int32(0) : Int32(k0 + lk) * vsL) +
+                                  Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16))
                     end
                 end
             end
@@ -745,7 +792,7 @@ end
             for t in w:NW:(RT * CT - 1)
                 rt = t % RT
                 ct = t ÷ RT
-                acc = zero(Mantle.AcceleratedMatrix{Float32,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator})
+                acc = zero(Mantle.AcceleratedMatrix{SACC,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator})
                 for et in 0:(ET - 1)
                     a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                             qs, 1 + rt * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
@@ -796,10 +843,29 @@ end
             # is `-Inf` for every row on the first key block and finite for every
             # row after — but this form is uniform across *all* threads, including
             # the ones with no row, which is what lets `pre` below be uniform.
-            onep = onepass != 0 && kb > 0
+            onep = ONEPASS && kb > 0
             mb = -Inf32
             sm = 0.0f0
-            if onep && tid < BR
+            if SMOFF
+                # DIAGNOSTIC, wrong on purpose: what the online softmax costs.
+                # Everything else in the key block stays — both products, the
+                # staging, the rescale and the write-out — and the two passes
+                # over `ss` become a flat fill of `ps` spread over all `NT`
+                # threads (`ps` is exactly `BC * BR` and unpadded).
+                for r in 0:(cld(BR * BC, NT) - 1)
+                    idx = tid + r * NT
+                    idx < BR * BC && (ps[1 + idx] = one(Float16))
+                end
+                if tid < BR
+                    ms[1 + tid] = 0.0f0
+                    ls[1 + tid] = 1.0f0
+                    cs[1 + tid] = 1.0f0
+                end
+                # Keep the rescale in the measurement: without this `grew` stays
+                # at `alwaysrescale` and the diagnostic would be pricing the
+                # softmax and the rescale together.
+                tid == 0 && (grew[1] = 1.0f0)
+            elseif onep && tid < BR
                 mo = ms[1 + tid]
                 for ci in 0:(BC - 1)
                     # A padded key contributes nothing: it is out of the maximum
@@ -828,14 +894,23 @@ end
             # block. `onep` is uniform already: `mo` is `-Inf` for every row on
             # the first key block and finite for every row after it, which is
             # what `kb > 0` says without reading `ms`.
-            # `PREONLY` forces the early placement, which makes the deferred
-            # rescale site below statically dead. Only correct when `onepass` is
-            # off — then `onep` is always false and `pre` is always true anyway,
-            # so this changes no arithmetic, only how much of the kernel exists.
-            # It is the probe for whether *two* rescale sites are what costs the
-            # second resident workgroup.
-            pre = PREONLY || !onep || redo[1] != 0.0f0
-            if pre && tid < BR
+            # **`ONEPASS` is a `Val` and not a uniform argument, and that is
+            # worth 5-6% at the clamped shape.** A two-pass plan then has
+            # `onep` statically false, which deletes the one-pass loop above
+            # and makes `pre` a compile-time `true`, so the deferred site below
+            # never exists either. As a runtime `Int32` neither folded: the
+            # dead loop's stores land in shared memory, which nothing may
+            # eliminate on the chance another thread reads them.
+            #
+            # The arithmetic is untouched — the output is bit-identical — and
+            # Qwen-Image 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped,
+            # `E = 128`, 32 heads) measures **36.6 ms against 38.6**
+            # interleaved over fifteen rounds, the whole 20B denoising step
+            # 5.85 s against 6.02. The unclamped `Lk = 4096` shape is within
+            # noise (+1%), which fits: `KCLAMP` is the version near the
+            # register cliff, so it is the one a smaller kernel buys.
+            pre = !onep || redo[1] != 0.0f0
+            if !SMOFF && pre && tid < BR
                 mo = ms[1 + tid]
                 mb = -Inf32
                 for ci in 0:(BC - 1)
@@ -860,7 +935,7 @@ end
                 ls[1 + tid] = ls[1 + tid] * cr + sm
                 cs[1 + tid] = cr
                 cr == 1.0f0 || (grew[1] = 1.0f0)
-            elseif tid < BR
+            elseif !SMOFF && tid < BR
                 # `ps` is relative to `mo`, and so is `O`, so nothing is converted
                 # before the product: the correction applies to the old and the
                 # new contribution alike and is deferred past it. That deferral is
@@ -884,9 +959,12 @@ end
                         kvs[1 + e + lk * EPS] = vstage[1 + r]
                     else
                         ink = !KCLAMP || k0 + lk < Lk
-                        kvs[1 + e + lk * EPS] = (e < E && ink) ?
-                            v[vbase + Int32(e) * vsE + Int32(k0 + lk) * vsL +
-                              Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16)
+                        kvs[1 + e + lk * EPS] =
+                            LDOFF == 2 ? Float16(kb & 1) :
+                            ((e < E && ink) ?
+                                v[vbase + Int32(e) * vsE +
+                                  (LDOFF == 1 ? Int32(0) : Int32(k0 + lk) * vsL) +
+                                  Int32(h - 1) * vsH + Int32(b - 1) * vsB] : zero(Float16))
                     end
                 end
             end
@@ -997,7 +1075,7 @@ end
             # multiplies inside the accumulator, and **no barrier**, which is what
             # turned this path from a 15-19% loss into a win. `grew` still keeps
             # it off the blocks where every factor is one.
-            if !REGO && !PREONLY && !pre && grew[1] != 0.0f0
+            if !REGO && !pre && grew[1] != 0.0f0
                 if HELD
                     # NOTE: hoisting the factor matrix out of this loop is
                     # correct — `t_j % RT == w % RT` for all three tiles whenever
@@ -1087,21 +1165,13 @@ end
             out[1] = Float16(shpad[1])
         end
 
-        if HELD && !REGO && NSPLIT != 1
-            Base.Cartesian.@nexprs 3 j -> begin
-                t_j = w + (j - 1) * NW
-                t_j < RT * ET && copyto!(pvs, 1 + (t_j % RT) * Mantle.GEMM_TILE +
-                                         (t_j ÷ RT) * Mantle.GEMM_TILE * BRS, BRS, acc_j)
-            end
-            @synchronize
-        end
-
         # O has remained in cooperative-matrix fragments throughout the key
         # loop. Extract each lane's components and write them directly rather
         # than storing fp32 to shared memory, synchronising, then loading every
         # value again with scalar threads. `ocoord_i` above discovers the
         # implementation-defined component layout; no lane mapping is assumed.
-        if HELD && !REGO && NSPLIT == 1
+        if HELD
+            slotd = 1 + sp + (PARTOUT < 0 ? 0 : PARTOUT)
             Base.Cartesian.@nexprs 3 j -> begin
                 t_j = w + (j - 1) * NW
                 if t_j < RT * ET
@@ -1111,16 +1181,25 @@ end
                         lq_i = rt_j * Mantle.GEMM_TILE + orow_i
                         e_i = et_j * Mantle.GEMM_TILE + ocol_i
                         if e_i < E && (!CLAMP || q0 + lq_i < Lq)
-                            l_i = ls[1 + lq_i]
                             o_i = Mantle.coopmat_getcomp(acc_j, Int32(i - 1))
-                            ov_i = o_i / (l_i == 0.0f0 ? 1.0f0 : l_i)
-                            if OUTPERM
-                                oi_i = flashoutindex(e_i, h, q0 + lq_i, b,
-                                    vE, NH, Lq,
-                                    vWIW, vWIH, vWNX, vWNY)
-                                unsafe_store!(pointer(out), convert(eltype(out), ov_i), 1 + oi_i)
+                            if NSPLIT == 1 && PARTOUT < 0
+                                l_i = ls[1 + lq_i]
+                                ov_i = o_i / (l_i == 0.0f0 ? 1.0f0 : l_i)
+                                if OUTPERM
+                                    oi_i = flashoutindex(e_i, h, q0 + lq_i, b,
+                                        vE, NH, Lq,
+                                        vWIW, vWIH, vWNX, vWNY)
+                                    unsafe_store!(pointer(out), convert(eltype(out), ov_i), 1 + oi_i)
+                                else
+                                    out[1 + e_i, 1 + q0 + lq_i, h, b] = ov_i
+                                end
                             else
-                                out[1 + e_i, 1 + q0 + lq_i, h, b] = ov_i
+                                # UNNORMALISED, exactly as the `pvs` route wrote
+                                # it: the merge divides once it knows every
+                                # split's maximum. Straight from the fragments,
+                                # so `pvs` is never allocated and the tile that
+                                # needs its 32 KiB fits.
+                                partial[1 + e_i, 1 + q0 + lq_i, h, b, slotd] = o_i
                             end
                         end
                     end
@@ -1131,14 +1210,14 @@ end
         # Slots `1 : BR*E/NT` are exactly the ones whose `e` is inside the real
         # head dimension: `idx = tid + (s-1)*NT` and `NT` divides `BR*E`, so the
         # padded columns are all in the slots past that and never written out.
-        if !HELD || REGO || NSPLIT != 1
+        if !HELD
             for s in 1:div(BR * E, NT)
                 idx = tid + (s - 1) * NT
                 lq, e = Mantle.splitidx(idx, Val(BR))
                 if !CLAMP || q0 + lq < Lq
                     l = ls[1 + lq]
                     o = REGO ? acco[s] : pvs[1 + lq + e * BRS]
-                    if NSPLIT == 1
+                    if NSPLIT == 1 && PARTOUT < 0
                         ov = o / (l == 0.0f0 ? 1.0f0 : l)
                         if OUTPERM
                             oi = flashoutindex(e, h, q0 + lq, b,
@@ -1154,17 +1233,19 @@ end
                     # the rows' maxima differ between splits, so the rescale has
                     # to happen after every split's `m` is known. Same split as
                     # llama.cpp's `flash_attn_split_k_reduce.comp`.
-                        partial[1 + e, 1 + q0 + lq, h, b, 1 + sp] = o
+                        partial[1 + e, 1 + q0 + lq, h, b,
+                                1 + sp + (PARTOUT < 0 ? 0 : PARTOUT)] = o
                     end
                 end
             end
         end
         # One thread per row writes the pair the merge reduces over.
-        if NSPLIT > 1
+        if NSPLIT > 1 || PARTOUT >= 0
             for lq in tid:NT:(BR - 1)
                 if !CLAMP || q0 + lq < Lq
-                    ml[1 + q0 + lq, h, b, 1 + sp, 1] = ms[1 + lq]
-                    ml[1 + q0 + lq, h, b, 1 + sp, 2] = ls[1 + lq]
+                    slot = 1 + sp + (PARTOUT < 0 ? 0 : PARTOUT)
+                    ml[1 + q0 + lq, h, b, slot, 1] = ms[1 + lq]
+                    ml[1 + q0 + lq, h, b, slot, 2] = ls[1 + lq]
                 end
             end
         end
@@ -1208,6 +1289,43 @@ Exact, not approximate — the skipped work is a multiplication by one.
 =#
 
 #=
+── `smoff` and `ldoff`: what this kernel is actually waiting on ────────────────
+
+Two diagnostics, both off by default and both WRONG when on. They exist because
+the kernel sits at ~7 TFLOP/s against the device's 24.4 and four rounds of
+tiling work never said why.
+
+`smoff` replaces both passes of the online softmax with a flat fill of `ps`,
+keeping every product, the staging, the rescale and the write-out. `ldoff` has
+two settings: `1` keeps every staging load instruction and drops the key offset
+from the address, so the launch re-reads one cache-resident tile — that prices
+the TRAFFIC alone; `2` drops the loads, with a value that still depends on `kb`
+so the shared store cannot be hoisted out of the key loop.
+
+Measured at Qwen-Image 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped,
+`E = 128`, 32 heads, `64x32x16`), interleaved:
+
+| | ms | |
+| --- | --- | --- |
+| as shipped | 41.44 | |
+| softmax off | 39.00 | **-5.9%** |
+| K/V traffic off | 29.37 | **-29.1%** |
+| K/V staging off entirely | 29.14 | -29.7% |
+| both off | 25.55 | -38.4% |
+
+**The softmax is 6% and the K/V reads are 29%**, and `ldoff == 1` and
+`ldoff == 2` agreeing to 0.6% says the 29% is bytes and not instructions. That
+closes two questions this file spent a long time on. The idle warps at the
+softmax barrier were never worth chasing — "spreading it is slower" was right
+for the wrong reason, because there was only 6% there to win. And the way to
+move the 29% is to read K and V FEWER times, which means a taller query tile;
+both admissible ones lose more than they gain (see `FLASHCM_TILINGS`).
+
+What is left is ~23% of matrix work at the cooperative-matrix peak and ~40% of
+staging into shared, barriers and the write-out.
+=#
+
+#=
 ── `onepass`: read each score once in the softmax instead of twice ─────────────
 
 The other settled `sdpaflashcm!` keyword (was `FLASHCM_ONEPASS`), on, literal
@@ -1226,7 +1344,15 @@ against its own maximum at two-pass cost, and its `O` is converted in place by
 the one thread that owns it rather than by the sweep. `mo = -Inf`, which is every
 row on the first key block, always takes that path.
 
-Exact either way: the tests compare the two settings with `==`.
+Exact in exact arithmetic, and a tolerance rather than `==` in fp16: the two
+forms exponentiate against different references, so `ps` rounds at a
+different scale. The tests compare them at 1e-3 of the output's own range.
+
+**It reaches the kernel as a `Val`.** Which form a plan wants is settled before
+the launch, and a two-pass plan that says so statically loses both the one-pass
+loop and the deferred rescale that goes with it: 36.6 ms against 38.6 at
+Qwen-Image 2.1's attention, 5.85 s against 6.02 for the whole denoising step.
+See the comment at `pre` in the kernel.
 =#
 
 
@@ -1395,9 +1521,22 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # BC=32, which is both faster there and less sensitive to recurrence
         # order. Other shapes retain the established BC=32 choices.
         BR == 128 && BC == 16 && Lk < 4096 && continue
-        BR == 64 && BC == 16 && Lk != 64 && continue
         NT = NW * dev.coopmatsubgroup
         NT <= dev.workgrouplimit || continue
+        # `(64, 16)` was for a 64-token key axis and nothing else. It is also
+        # what a WIDE HEAD needs: the staging is `BR * EP` fp16 for q and
+        # `BR * EP` fp32 for `O`, so at `E = 128` the 32-wide block wants 71816
+        # bytes against a 65536 budget and the chooser fell to `(32, 32)` —
+        # 104.2 ms on Qwen-Image 2.1's joint attention where `(64, 16)` runs it
+        # in 63.3. Only where the wider block does not fit: at `E = 72` it does,
+        # and there it is the faster of the two (7.67 ms against 7.89 at
+        # 4096 x 4096), which is the measurement this entry was added on.
+        # Asked with the HELD footprint, because that is what the wider block
+        # will run under: at `E = 128` the 32-wide block does not fit beside a
+        # `pvs` and does fit without one, and it is 13.4% faster than the
+        # 16-wide (42.69 ms against 49.27 at `Lq = Lk = 4096`, 32 heads).
+        BR == 64 && BC == 16 && Lk != 64 &&
+            flashcmfits(dev, EP, BR, 32, NT, NW >= 16) && continue
         # Without `clamp` the extents have to divide the tile; with it they are
         # padded and masked, which is what puts the decoder's 23-token
         # attentions on this path at all.
@@ -1415,12 +1554,19 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
                              4 * Lq >= BR
             (2 * Lq >= BR && 2 * Lk >= BC) || tiny_exact_key || continue
         end
-        # The 128-row tile exists only because a held, unsplit output no longer
-        # allocates `pvs`. Keep that footprint exception on encoder-style square
-        # attention; split-k and decoder cross-attention retain the conservative
-        # shared-memory accounting and therefore the established smaller tiles.
-        helddirect = BR == 128 && dev.warps >= 64 && NW >= 16 &&
-                     Lq == Lk && Lq >= BR
+        # A held output does not allocate `pvs` — no longer only when it is
+        # unsplit, since the fragments are now written straight to `partial`
+        # too. So the footprint exception is "is this launch held", `NW >= 16`.
+        #
+        # EXCEPT for the 128-row tile, which keeps the conditions it shipped
+        # with. Granting it the same exception admits it at `E = 72`, where it
+        # is first in the table and **70% slower** than the tile it displaces:
+        # SAM 2's global attention measured 12.29 ms at `(128, 16)` against
+        # 7.24 at `(64, 32)`. Fitting is not the same as being worth it, and
+        # what the 128 rows were measured to need is a processor that reports
+        # its residency.
+        helddirect = NW >= 16 &&
+                     (BR < 128 || (dev.warps >= 64 && Lq == Lk && Lq >= BR))
         flashcmfits(dev, EP, BR, BC, NT, helddirect) && (BR * E) % NT == 0 &&
             !any(c -> c[1] == BR && c[2] == BC, fits) && push!(fits, (BR, BC, NW))
     end
@@ -1520,7 +1666,10 @@ that launches and writes nothing.
 function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
                       clamp::Bool = false, rego::Union{Nothing,Bool} = nothing,
                       held::Union{Nothing,Bool} = nothing,
-                      rescale::Symbol = :fmul, onepass::Bool = true,
+                      rescale::Symbol = :fmul,
+                      # `nothing` asks for the width rule below; a Bool is the
+                      # caller saying which formulation it wants.
+                      onepass::Union{Nothing,Bool} = nothing,
                       lazyrescale::Bool = true, split::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
     bias === nothing || return Decline(:bias)
@@ -1542,15 +1691,24 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     BR, BC, NW = tiling
     # The pinned coopmat width, not the device default — see `M.DeviceCaps`.
     NT = NW * dev.coopmatsubgroup
-    holdtiles = held === nothing ? (dev.warps >= 64 && NW >= 16) : held
+    # Hold `O` in cooperative-matrix fragments whenever the launch is the wide
+    # one. It was `dev.warps >= 64 && NW >= 16`, and `warps` is the count of
+    # resident waves a processor reports — which HIP does and **Vulkan does
+    # not**, so on this path it was always 0 and the fragments were never held.
+    # Measured on an 8060S at `Lq = Lk = 4096`, `E = 128`, 32 heads, same tile:
+    # 45.48 ms held against 49.27 through shared memory, and holding is also
+    # what makes the 32-wide key block fit at all (42.69 ms).
+    holdtiles = held === nothing ? NW >= 16 : held
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)
     (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)
     # `split=false` makes the direct held store statically certain here.  The
     # automatic split count is decided below; until then use the conservative
     # footprint so a split-k decoder cannot be admitted on memory it still uses.
-    helddirect = holdtiles && (split === false ||
-                              (autotiling && Lq == Lk && Lq >= BR))
+    # Held means no `pvs`, full stop: the fragments are written straight to
+    # `out` when this launch owns the whole key axis and straight to `partial`
+    # when it does not.
+    helddirect = holdtiles
     flashcmfits(dev, EP, BR, BC, NT, helddirect) || return Decline(:tiling)
     # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
     # because it does not see the unpadded head dimension.
@@ -1577,8 +1735,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # The reduced footprint is real only for the unsplit direct-store path.
     # Recheck after `splitcount`, so an unexpectedly split plan declines instead
     # of launching a kernel whose actual LDS exceeds the admitted budget.
-    flashcmfits(dev, EP, BR, BC, NT, holdtiles && nsplit == 1) ||
-        return Decline(:tiling)
+    flashcmfits(dev, EP, BR, BC, NT, holdtiles) || return Decline(:tiling)
 
     # ── Where `O` lives, decided from the tiling and not from the device ──────
     #
@@ -1613,8 +1770,74 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # that occupancy and holding wins: the 39 windowed SAM 2 calls take attention
     # from 80.01 to 69.17 ms, with bit-identical encoder outputs. Unknown
     # residency (`warps == 0`) keeps the conservative table behavior.
-    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, onepass,
-                lazyrescale, nsplit)
+    # A ragged last key block is 40% of this kernel whatever the mask does, so
+    # it gets its own launch rather than a flag. See `tailsplit` in
+    # `kernelplans.jl` for the measurement. Only where the key axis is the
+    # ragged one and nothing else has already split it: a split plan's slices
+    # are uniform and reasoning about both at once buys nothing.
+    tailsplit = clamp && Lk % BC != 0 && nsplit == 1 && Lk > BC
+    tailsplit && (nsplit = 2)
+    # ── One pass over the scores, or two, decided by the HEAD WIDTH.
+    #
+    # One pass reads each score once, computing the block's maximum and its
+    # weights together against the running maximum, and REDOES the block when a
+    # row's maximum grew past the fp16 headroom. Two passes read every score
+    # twice and never redo.
+    #
+    # Which wins is a property of `E`, measured on an 8060S at `Lq = Lk` with
+    # the tiling the chooser picks (twopass/onepass, ms):
+    #
+    #     E    L=4096  H=32        other points
+    #     128  49.07 / 53.09       L=2048: -10.6%,  H=8: -11.5%,  L=1024: -16.5%
+    #     96   39.68 / 40.94       -3.1%
+    #     80   32.63 / 31.74       +2.8%
+    #     72    8.07 /  7.93       +1.7%  (H=8)
+    #     64   25.92 / 24.98       +3.8%
+    #
+    # Six shapes on each side of a crossing between 80 and 96, so the rule is
+    # the width and the default was one answer for both halves of it. It is
+    # worth 7.6% of Qwen-Image 2.1's attention, whose head is 128.
+    #
+    # NOT the other effect in the same knob: a short key axis makes every block
+    # grow the maximum, and `E = 64, Lk = 256, H = 128` — SAM 2's windowed
+    # attention — wants two passes too, by 17.9%. That is a different rule on a
+    # different variable and it is not measured here beyond the one point.
+    op = onepass === nothing ? E < 96 : onepass
+    FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, op,
+                lazyrescale, nsplit, tailsplit)
+end
+
+"""
+    flashcm_padded_plan(dev, q, k, v, bias; limit = 1.25) -> FlashCMPlan | Decline
+
+The clamped plan, taken only where the padding is cheaper than not having flash
+attention at all.
+
+A tiling has to divide both extents, and a joint attention's key length is
+whatever the prompt made it: Qwen-Image 2.1 at 1024² over a 22-token prompt
+queries 4096 positions against 4118 keys, and 4118 is 2 x 29 x 71. No tile
+divides that, so the strict plan declines and the caller materialises a
+4096 x 4118 score matrix per layer instead — measured at **40.2 s per denoising
+step against 9.6 s** for the same model at a key length that happens to divide.
+
+Clamping pads the last tile and masks it, so the cost is the padding: 0.3% at
+that shape. It is refused by default because padding is not always that cheap —
+SAM 2's encoder has `Lq = 16` calls that would pad to 32 and lose 2.12 ms of
+encode for nothing — so this asks how much padding the shape actually needs and
+declines when it is more than `limit`.
+
+The one exception is a query shorter than a single tile against exactly one key
+tile: four real rows in a 16-row tile is 4x padding and still beats writing the
+scores plus two padded products, which is why `flashcm_tiling` has a rule for
+that shape and this has one too.
+"""
+function flashcm_padded_plan(dev, q, k, v, bias; limit::Real = 1.25)
+    plan = flashcm_plan(dev, q, k, v, bias; clamp = true)
+    plan isa FlashCMPlan || return plan
+    Lq, Lk = size(q, 2), size(k, 2)
+    (Lq < dev.tile && Lk == dev.tile && 4Lq >= dev.tile) && return plan
+    padded = cld(Lq, plan.BR) * plan.BR * cld(Lk, plan.BC) * plan.BC
+    padded <= limit * Lq * Lk ? plan : Decline(:padding)
 end
 
 """
@@ -1648,30 +1871,52 @@ A runtime bound cannot be unrolled to a constant, and giving `e` its own thread
 removes the inner loop entirely. The `ml` loads stay cheap because they are
 uniform across a wave — every `e` of one row reads the same two floats.
 """
-@kernel cpu=false function attn_flash_cm_merge!(out, @Const(partial), @Const(ml),
-                                                nsplit::Int32, nheads::Int32)
-    # The head and batch axes ride folded in the third grid dimension, so the
-    # first can carry `e` and the launch stays 3-D.
-    e, lq, hb = @index(Global, NTuple)
-    @inbounds begin
-        h = (hb - 1) % nheads + 1
-        b = (hb - 1) ÷ nheads + 1
-        # pass 1: the row's true maximum across splits
-        m = -Inf32
-        for sp in 1:nsplit
-            m = max(m, ml[lq, h, b, sp, 1])
+# One element per thread over a FLAT range, not `(e, lq, h·b)` over a 3-D one,
+# and `nsplit` as a `Val` rather than an argument.
+#
+# The 3-D form cost 3x: it measured **66 GB/s where a copy of the same volume
+# does 193**, and no workgroup shape rescued it (64, 128, 256, and the 2-D
+# shapes, all between 33 and 67). What it was paying for is per-thread index
+# arithmetic — two integer divisions by a runtime `nheads` to unfold the third
+# axis, and a five-dimensional subscript into `partial` — on 16.7 million
+# threads that each move twelve bytes. Flat, the same launch is **1.065 ms
+# against 3.035, 189 GB/s**, and bit-identical. In Qwen-Image 2.1's recorded
+# step, where the merge is the second half of every tail split, the pass goes
+# **3.645 ms to 2.615** — less than the isolated figure, because in a plan it
+# starts behind a barrier and a cold cache.
+#
+# `partial`, `ml` and `out` are all dense, so a linear index addresses them
+# directly: `i` runs over `(e, lq, h, b)`, `row = i ÷ E` is the `(lq, h, b)`
+# the split bookkeeping is indexed by, and a split is one whole `n` or `nrow`
+# further on.
+@kernel cpu=false unsafe_indices=true function attn_flash_cm_merge!(
+        out, @Const(partial), @Const(ml), ::Val{NSPLIT}, ::Val{E},
+        n::Int32, nrow::Int32) where {NSPLIT,E}
+    i = Int32(@index(Global, Linear)) - Int32(1)
+    if i < n
+        @inbounds begin
+            row = i ÷ Int32(E)
+            # pass 1: the row's true maximum across splits
+            m = -Inf32
+            for sp in Int32(0):Int32(NSPLIT - 1)
+                m = max(m, ml[Int32(1) + row + sp * nrow])
+            end
+            # pass 2: the sum and this element's value, every split rescaled onto it
+            L = 0.0f0
+            o = 0.0f0
+            for sp in Int32(0):Int32(NSPLIT - 1)
+                w = exp(ml[Int32(1) + row + sp * nrow] - m)
+                L += w * ml[Int32(1) + row + sp * nrow + nrow * Int32(NSPLIT)]
+                o += w * partial[Int32(1) + i + sp * n]
+            end
+            out[Int32(1) + i] = o * (L == 0.0f0 ? 1.0f0 : 1.0f0 / L)
         end
-        # pass 2: the sum and this element's value, every split rescaled onto it
-        L = 0.0f0
-        o = 0.0f0
-        for sp in 1:nsplit
-            w = exp(ml[lq, h, b, sp, 1] - m)
-            L += w * ml[lq, h, b, sp, 2]
-            o += w * partial[e, lq, h, b, sp]
-        end
-        out[e, lq, h, b] = o * (L == 0.0f0 ? 1.0f0 : 1.0f0 / L)
     end
 end
+
+"""Threads a merge launch puts in a workgroup. 256 and 64 measure the same;
+128 is 7% worse and 512 is twice as slow, so this is not a free choice."""
+const FLASH_MERGE_GROUP = 256
 
 # sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale) -> out
 # 
@@ -1682,10 +1927,10 @@ end
 # here would run *after* the caller has allocated `out` and committed to the
 # fused path, and would have to agree with a predicate that already said yes.
 # 
-# `ballast`, `shpad`, `nrsc`, `preonly` and `rscbar` are the diagnostics from the
-# held-`O` investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords
-# rather than plan fields because they describe an experiment, not a routing
-# decision, and nothing in the library sets them.
+# `ballast`, `shpad`, `nrsc` and `rscbar` are the diagnostics from the held-`O`
+# investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords rather
+# than plan fields because they describe an experiment, not a routing decision,
+# and nothing in the library sets them.
 
 """
     flash_launches(caps, out, plan, q, k, v, scale, partial, ml; …) -> Vector
@@ -1703,7 +1948,8 @@ nothing would report.
 function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, ml;
                       mask=nothing,
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
-                      preonly::Bool = false, rscbar::Bool = false,
+                      rscbar::Bool = false, smoff::Bool = false,
+                      ldoff::Int = 0, s16::Bool = false,
                       # Five values per thread at the 512-thread global tile is
                       # enough latency hiding for a measured win. The 128-thread
                       # window tile needs twenty registers and loses occupancy.
@@ -1722,35 +1968,86 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
 
     ns = plan.nsplit
     outarg = outperm ? flashoutflat(out) : out
-    args = (outarg, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
+    # One launch's arguments. `keys` is how many of them this launch sees and
+    # `k0` where they start, so a tail split is two calls to this and not two
+    # copies of the tuple; `nsp` is the split count the RANGE arithmetic uses,
+    # which is 1 for each of those two even though the plan's is 2; `partout`
+    # is the slot it writes, or -1 to normalise into `out` directly.
+    mkargs(keys, k0, nsp, partout) =
+                               (outarg, flat(rq), flat(rk), flat(rv), Float32(scale), mask,
                                 Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
-                                Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
-                                Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
+                                Int32(rk[2] + 1 + k0 * sk[2]), sk[1], sk[2], sk[3], sk[4],
+                                Int32(rv[2] + 1 + k0 * sv[2]), sv[1], sv[2], sv[3], sv[4],
                                 Val(BR), Val(BC), Val(plan.E), Val(plan.EP), Val(NW),
-                                Val(rego), Val(held && !rego), Val(plan.clamp),
+                                Val(rego), Val(held && !rego),
+                                # Per AXIS, not per plan. A clamped plan is
+                                # taken because ONE extent does not divide its
+                                # tile, and the other one usually still does:
+                                # Qwen-Image 2.1 queries 4096 positions — which
+                                # every tile divides — over 4118 keys, which
+                                # none do. Compiling the query bounds check in
+                                # anyway put it in the load and all three store
+                                # loops for nothing, and those are the loops.
+                                Val(plan.clamp && Lq % BR != 0),
                                 # Padded queries do not require key checks when
                                 # the occupied-cache bucket divides BC exactly.
-                                Val(plan.clamp && Lk % BC != 0),
+                                Val(plan.clamp && keys % BC != 0),
                                 # Normalised, so a `rescale` setting cannot key a
                                 # second identical pipeline when nothing rescales.
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
-                                Val(shpad), Val(nrsc), Val(preonly && !plan.onepass),
-                                Val(rscbar), Val(prefetchv), Val(outperm),
+                                Val(shpad), Val(nrsc), Val(plan.onepass && !rego),
+                                Val(rscbar), Val(prefetchv), Val(outperm), Val(smoff),
+                                Val(ldoff), Val(s16),
                                 map(Val, outwindow)..., Val(H),
-                                Val(ns), Val(epad), Val(rpad),
+                                Val(nsp), Val(partout), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),
-                                Int32(Lq), Int32(Lk), Int32(plan.lazyrescale ? 0 : 1),
-                                Int32(plan.onepass && !rego ? 1 : 0), partial, ml)
-    first = (kern = attn_flash_cm_spatial4!, args = args,
-             ndrange = (NT * cld(Lq, BR) * ns, H, B), group = NT)
+                                Int32(Lq), Int32(keys), Int32(plan.lazyrescale ? 0 : 1),
+                                partial, ml)
+    launch(keys, k0, nsp, partout) =
+        (kern = attn_flash_cm_spatial4!, args = mkargs(keys, k0, nsp, partout),
+         ndrange = (NT * cld(Lq, BR) * nsp, H, B), group = NT)
+    nelem = plan.E * Lq * H * B
+    merge = (kern = attn_flash_cm_merge!,
+             args = (out, partial, ml, Val(ns), Val(plan.E),
+                     Int32(nelem), Int32(Lq * H * B)),
+             ndrange = cld(nelem, FLASH_MERGE_GROUP) * FLASH_MERGE_GROUP,
+             group = FLASH_MERGE_GROUP)
+    if plan.tailsplit
+        # The merge writes `out` in its own layout, so a caller that wanted the
+        # spatial order written directly would get the other one and no error.
+        # `emitsdpa!` already asks for the direct store only at `nsplit == 1`,
+        # which a tail split is not; this is here so that staying true of it is
+        # not something the next caller has to know.
+        outperm && throw(ArgumentError(
+            "DNNKernels: a tail-split attention cannot write permuted output " *
+            "directly — its merge writes `out`, and the permutation is the " *
+            "caller's own pass."))
+        # Everything that fills a key tile, then what is left of it. Only the
+        # second launch compiles the bounds check, and it is one block of 258.
+        #
+        # **Three launches and not two**, which is not obvious: the tail could
+        # read the slot the bulk wrote and normalise both into `out` itself,
+        # which halves the bytes — 201 MB against 335 — and drops a dispatch.
+        # Built with a `PARTOUT == -2` write-out mode, it is exactly as accurate
+        # (2.264e-05 against one clamped launch, the same as the merge) and
+        # **43.70 ms against 37.08**. The extra bytes the merge moves are
+        # sequential; the ones the fused form saves are not. A held accumulator
+        # hands each lane components at fixed tile coordinates, so reading
+        # `partial` there is 256-byte pieces with a 512-byte stride, and paying
+        # that on the read side as well as the write side costs more than a
+        # linear pass over 134 MB. Staging through shared memory would fix the
+        # pattern and there is no room: 38 KB is already live and the tile needs
+        # 32 more.
+        nfull = div(Lk, BC) * BC
+        return [launch(nfull, 0, 1, 0), launch(Lk - nfull, nfull, 1, 1), merge]
+    end
+    first = launch(Lk, 0, ns, -1)
     ns == 1 && return [first]
     # The merge is a separate dispatch because every split has to have
     # finished before any row's true maximum is known — that is the one real
     # dependency flash-decoding introduces, and it is why the split has to
     # pay for a second pass over `Lq * H * B * E` to buy its parallelism.
-    return [first, (kern = attn_flash_cm_merge!,
-                    args = (out, partial, ml, Int32(ns), Int32(H)),
-                    ndrange = (plan.E, Lq, H * B), group = 0)]
+    return [first, merge]
 end
 
 """Submit this attention now."""
@@ -1812,7 +2109,8 @@ device cannot make; ask [`flashcm_plan`](@ref) directly to find out *which* rule
 refused.
 """
 function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0,
-                      nrsc::Int = 3, preonly::Bool = false, rscbar::Bool = false,
+                      nrsc::Int = 3, rscbar::Bool = false, smoff::Bool = false,
+                      ldoff::Int = 0, s16::Bool = false,
                       epad::Union{Nothing,Int} = nothing,
                       rpad::Union{Nothing,Int} = nothing,
                       BR::Int = 64, BC::Int = 32, NW::Int = 8, kw...)
@@ -1822,7 +2120,7 @@ function sdpaflashcm!(ctx, out, q, k, v, scale; ballast::Int = 0, shpad::Int = 0
     plan = flashcm_plan(ctx.dev, q, k, v, nothing; BR, BC, NW, kw...)
     plan isa Decline && return false
     sdpaflashcm!(ctx, out, plan, q, k, v, scale;
-                 ballast, shpad, nrsc, preonly, rscbar,
+                 ballast, shpad, nrsc, rscbar, smoff, ldoff, s16,
                  epad = something(epad, flashepad(ctx.dev, plan.EP)),
                  rpad = something(rpad, flashrpad(ctx.dev, plan.BR)))
     return true

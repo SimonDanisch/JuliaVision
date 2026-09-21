@@ -139,6 +139,7 @@ const FUSION_CREATES = ("fused.elementwise" => "fusepass.jl / fusemaskedattentio
                         "fused.groupedrms"  => "fusegroupedrms.jl",
                         "fused.maskedattention" => "fusemaskedattention.jl",
                         "fused.rope"        => "fuserope.jl",
+                        "fused.pairrope"    => "fuserope.jl",
                         "fused.ropecache"   => "fuserope.jl",
                         "fused.swiglu"      => "fuseswiglu.jl",
                         "alias.default"     => "foldcache.jl")
@@ -166,7 +167,13 @@ everywhere the graph looks.
 """
 const PASS_SETS = ("act"      => "foldrelu.jl",
                    "epilogue" => "fusepass.jl",
-                   "inplace"  => "foldcache.jl")
+                   "inplace"  => "foldcache.jl",
+                   # `fusegroupedrms` sets it when the export rounds between
+                   # the normalisation and the gain, and the kernel owes that
+                   # rounding; `fusepairrope` sets `P` because the pair count
+                   # is not recoverable from the operand it reads.
+                   "midround" => "fusegroupedrms.jl",
+                   "P"        => "fuserope.jl")
 
 @testset "every attribute a pass sets is read by some emit" begin
     src = read(joinpath(@__DIR__, "..", "src", "emit.jl"), String)

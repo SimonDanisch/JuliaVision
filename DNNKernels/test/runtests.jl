@@ -56,6 +56,10 @@ include(joinpath(@__DIR__, "test_stridedview.jl"))
 include(joinpath(@__DIR__, "test_plan.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
+include(joinpath(@__DIR__, "test_fusegroupedrms.jl"))
+include(joinpath(@__DIR__, "test_cat_interleave.jl"))
+include(joinpath(@__DIR__, "test_fusepairrope.jl"))
+include(joinpath(@__DIR__, "test_swiglu_stacked.jl"))
 # The one rewrite that runs the ops it folds — here on the CPU backend.
 include(joinpath(@__DIR__, "test_constfold.jl"))
 # Instrumentation rides on the context: two runs, two measurements, no crosstalk.
@@ -110,6 +114,11 @@ include(joinpath(@__DIR__, "test_norm_gate.jl"))
 include(joinpath(@__DIR__, "test_q8gemm.jl"))
 include(joinpath(@__DIR__, "test_bonsai_primitives.jl"))
 include(joinpath(@__DIR__, "test_masked_flash.jl"))
+include(joinpath(@__DIR__, "test_safesoftmax_attention.jl"))
+include(joinpath(@__DIR__, "test_convrot_q8.jl"))
+include(joinpath(@__DIR__, "test_conv_coopmat_chunk.jl"))
+include(joinpath(@__DIR__, "test_foldconvpad.jl"))
+include(joinpath(@__DIR__, "test_w8a8.jl"))
 include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # This file existed and was never listed here, so its assertions had never run —
 # including the one its own docstring calls "the whole test". It covers the tiled

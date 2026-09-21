@@ -193,5 +193,30 @@ for be in MMs.eachbackend()
             @test run == want
             @test run == scalar
         end
+
+# What `toback` hands to `copyto!`, which is the same question one level up.
+#
+# A compact Qwen-Image 2.1 checkpoint arrives as 224 column slices of mmap'd
+# `Matrix{Int8}`, 6.5 GiB of them, and a `SubArray` is not a `DenseArray` — so
+# they were all `collect`ed into anonymous memory first, which is exactly the
+# mmap defeat `toback`'s own comment is about. The test is that contiguity is
+# decided by the STRIDES and not by the index types: `view(A, 1:3, 1:5)` of a
+# 10x10 has a `UnitRange` first index and its columns are still ten apart.
+@testset "a contiguous view uploads without being collected" begin
+    A = reshape(Int8.(1:(8 * 6)), 8, 6)
+    wrapped(x) = (s = DK.uploadsource(x); s isa Array && !(x isa Array) && pointer(s) == pointer(x))
+
+    @test DK.uploadsource(A) === A                      # already dense
+    let v = vec(A); @test DK.uploadsource(v) === v; end
+    @test wrapped(view(A, :, 2:4))                      # whole columns
+    @test wrapped(view(A, :, :))
+    @test !wrapped(view(A, 2:5, 2:4))                   # a window, not a run
+    @test !wrapped(view(A, 1:2:8, :))                   # strided rows
+
+    # And whichever branch it takes, the elements are the view's own.
+    for v in (A, view(A, :, 2:4), view(A, :, :), view(A, 2:5, 2:4),
+              view(A, 1:2:8, :), vec(A))
+        @test collect(DK.uploadsource(v)) == collect(v)
+        @test size(DK.uploadsource(v)) == size(v)
     end
 end
