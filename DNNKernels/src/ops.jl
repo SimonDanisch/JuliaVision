@@ -2265,8 +2265,13 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("linalg_vector_norm.default")})
     keep = Bool(something(get(op.attrs, "arg3", nothing), false))
     jd = dims === nothing ? collect(1:ndims(x)) :
          [jdim(d, ndims(x)) for d in ints(dims)]
-    sq = ord == 2 ? abs2.(x) : abs.(x) .^ ord
-    acc = sum(sq; dims = Tuple(jd))
+    # `sum(f, x; dims)`, not `sum(f.(x); dims)`. The second materialises the
+    # squares — a whole extra tensor written and read back — where the first is
+    # the map step of the reduction that was going to read every element
+    # anyway. It is the same `premapsum` every other reduction here already
+    # uses, and the declared path's `folddims` has taken a `pre` all along.
+    acc = ord == 2 ? premapsum(x, abs2, Tuple(jd)) :
+                     premapsum(x, v -> abs(v)^ord, Tuple(jd))
     r = ord == 2 ? sqrt.(acc) : acc .^ (1 / ord)
     reduced(r, jd, keep)
 end
