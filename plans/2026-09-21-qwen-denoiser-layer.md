@@ -140,6 +140,25 @@ would put it in registers and measures WORSE here (73.5 ms against 70.1), and
 the tiling chooser has no admissible wider tile at this head width. A kernel
 design question rather than a tuning one, and the next big one.
 
+**The 128-row tile is settled, and it is not the answer.** `flashcmfits`
+refused `BR = 128` at the line that asks whether `O` fits three accumulators a
+subgroup, and it refused it correctly: the kernel holds the output in exactly
+`Base.Cartesian.@nexprs 3` fragments, and 128 rows by 128 columns over 512
+threads needs four. Widening all five sites to `@nexprs 4` and the bound to
+`<= 4` is a safe change on its face — every site is guarded by `t_j < RT * ET`
+— and it makes the tile admissible: `BR = 128, BC = 16` held needs 51,912 B of
+the 65,536 B budget, and it would halve how often K and V are re-read, ~4.5 GB
+a launch against a ~150 GB/s ceiling.
+
+It measures **127.45 ms, 2.17 TFLOP/s**, against `(64, 32)`'s **46.65 ms, 5.92
+TFLOP/s**. Three times slower: the fourth accumulator spills. So the arithmetic
+that says the tile fits shared memory is right and irrelevant, and the tiling
+space at this head width is now exhausted — `(64, 32)` best, held taken, the
+rescale free (`nrsc = 0` measures 43.17 against 43.12), `rego` worse,
+`NW = 8` does not fit, `BC = 64` hits a SPIR-V validation bug, `BR = 128`
+three times slower. What is left in this kernel is the softmax phase, which
+runs on 64 of 512 threads, and that is a redesign.
+
 ### Solved: a key length that does not divide the tile
 
 `bmm_7` is 30% of the layer and runs at 4 TFLOP/s against the products' 21.
