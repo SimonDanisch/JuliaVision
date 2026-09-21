@@ -119,7 +119,20 @@ otherwise, and this is the only place that knows the shape.
 """
 function q8gemm_tile(m::Integer, k::Integer, n::Integer)
     deep = k >= 2m          # a long reduction, like the FFN down projection
-    tall = m >= 8k          # a stacked projection, like SwiGLU's gate+up
+    # A stacked projection, like SwiGLU's gate+up. The bound is `6k` and not
+    # `8k` because Qwen-Image 2.1's stacked gate+proj is `24576 x 4096`, exactly
+    # `6k`, and fell through to `m % 256 == 0`'s `(4,2,4,2)` — the slowest of
+    # the three plausible tiles at that shape in each of three sweeps
+    # (42.86, 43.28, 42.74 ms), against `(2,4,2,2)`'s 39.59, 39.36 and **37.92**
+    # interleaved. Horizon's own picks are unchanged: its gate+up is `10.4k` and
+    # was already over the bound, and nothing else the chooser is pinned on
+    # reaches this branch.
+    #
+    # Measured on the ISOLATED product rather than in a layer, because the
+    # session that found it could no longer place a layer-sized plan. The
+    # ranking between the two challengers moved between sweeps; the gap to the
+    # tile being replaced did not.
+    tall = m >= 6k
     if n%32 != 0
         m%128 == 0 ? (2,1,4,1,32,8) : (2,1,2,1,32,8)
     elseif n%64 != 0
