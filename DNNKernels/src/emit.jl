@@ -3961,37 +3961,50 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
                           x, w, bias, out, stride, pad, dil, act::Symbol)
     KWk, KHk, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)
-    OW, OH, _, _ = size(out)
-    MP = padgemm(plan.NPQ)
-    CRS, CRSP = plan.CRS, plan.CRSP
+    OW, OH, _, N = size(out)
+    NPQ, ROWS = plan.NPQ, plan.rows
+    MP = padgemm(ROWS)
+    CRS, CRSP, CoutP = plan.CRS, plan.CRSP, plan.CoutP
     col = scratch(emitctx, Float16, MP, CRSP)
-    M.dispatch!(emitctx.g, im2col_kernel!,
-                (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
-                 Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
-                 Wid, Hei, OW, OH, plan.NPQ, MP * CRSP, Cin), MP * CRSP;
-                name = "$(op.id).im2col")
-    # The weight as a `(CRS, Cout)` matrix, zero-extended to `CRSP` rows where the
-    # plan padded the reduction axis. Two passes over 21 k elements for the stem,
-    # and they are the reason the pad is sound: a reserved-but-unwritten row would
-    # multiply an arbitrary bit pattern by zero.
-    B = CRSP == CRS ? M.viewof(w, (CRS, Cout)) :
-        let wp = scratch(emitctx, Float16, CRSP, Cout)
+    # The weight as a `(CRS, Cout)` matrix, zero-extended to `CRSP` rows and
+    # `CoutP` columns where the plan padded the reduction axis or the output
+    # channels. Two passes over 21 k elements for the stem, and they are the
+    # reason the pad is sound: a reserved-but-unwritten row would multiply an
+    # arbitrary bit pattern by zero.
+    B = (CRSP == CRS && CoutP == Cout) ? M.viewof(w, (CRS, Cout)) :
+        let wp = scratch(emitctx, Float16, CRSP, CoutP)
             M.dispatch!(emitctx.g, M.fill_kernel!, (wp, zero(Float16)), length(wp);
                         name = "$(op.id).wzero")
-            blockcopydispatch!(emitctx, wp, (CRSP, Cout),
+            blockcopydispatch!(emitctx, wp, (CRSP, CoutP),
                                M.viewof(w, (CRS, Cout)), (CRS, Cout), (0, 0);
                                name = "$(op.id).wpad")
             wp
         end
-    blk_split = M.coopmat_gemm_shape(MP, Cout, CRSP)
+    blk_split = M.coopmat_gemm_shape(MP, CoutP, CRSP)
     splitk = blk_split[2]
-    C = scratch(emitctx, Float32, MP, Cout, max(splitk, 1))
-    M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, Cout, CRSP;
-                             blk_split, partials = C, reduce = false, name = op.id)
-    M.dispatch!(emitctx.g, conv_epilogue_kernel!,
-                (out, C, bias, Val(MP), Val(act), Val(splitk),
-                 OW * OH, Cout, length(out), MP * Cout), length(out);
-                name = "$(op.id).epilogue")
+    C = scratch(emitctx, Float32, MP, CoutP, max(splitk, 1))
+    # One chunk of pixels at a time through the same two buffers. `plan.rows` is
+    # `NPQ` whenever the whole matrix fits the budget, and then this is exactly
+    # the three passes it was before.
+    nchunk = cld(NPQ, ROWS)
+    for c in 0:(nchunk - 1)
+        p0 = c * ROWS
+        npqc = min(ROWS, NPQ - p0)
+        sfx = nchunk == 1 ? "" : ".$(c + 1)"
+        M.dispatch!(emitctx.g, im2col_kernel!,
+                    (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
+                     Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
+                     Wid, Hei, OW, OH, npqc, MP * CRSP, Cin, p0), MP * CRSP;
+                    name = "$(op.id).im2col$(sfx)")
+        M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, CoutP, CRSP;
+                                 blk_split, partials = C, reduce = false,
+                                 name = "$(op.id)$(sfx)")
+        M.dispatch!(emitctx.g, conv_epilogue_kernel!,
+                    (out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
+                     OW * OH, Cout, npqc, p0, MP * CoutP),
+                    (cld(npqc, 256) * 256, Cout); group = (256, 1),
+                    name = "$(op.id).epilogue$(sfx)")
+    end
     return out
 end
 

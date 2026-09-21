@@ -166,62 +166,114 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     NPQ = out[4] * out[2] * out[1]
     # `CRSP`, not `padtile(CRS)` — the scratch is allocated at the extent the plan
     # chose, so budgeting the narrower one would under-count the allocation.
-    padgemm(NPQ) * CRSP * sizeof(Float16) <= im2colcap || return Decline(:im2colsize)
-    ConvCoopMatPlan(CRS, CRSP, Cout, NPQ)
+    #
+    # The budget no longer REFUSES: it sizes a chunk. One im2col row is `CRSP`
+    # halves, so the cap says how many pixels may be in flight, and the rest of
+    # them go round the same buffer again. A convolution too big to materialise
+    # at once used to fall to the implicit-GEMM kernel at ~1 TFLOP/s; the
+    # Qwen-Image 2.1 VAE has twenty-seven of those and they are 12.96 s of a
+    # 16.0 s decode, against 19-22 TFLOP/s for the eighteen that fit.
+    rows = im2colcap ÷ (CRSP * sizeof(Float16))
+    rows = min(NPQ, (rows ÷ GEMM_BLOCK) * GEMM_BLOCK)
+    # One M-block is the floor: below it there is no chunk to take, and a
+    # reduction axis that wide is beyond anything this can serve.
+    rows >= GEMM_BLOCK || return Decline(:im2colsize)
+    ConvCoopMatPlan(CRS, CRSP, Cout, convcoutpad(padgemm(rows), Cout, CRSP), NPQ, rows)
 end
+
+"""
+    convcoutpad(MP, Cout, CRSP) -> Int
+
+`Cout` widened to a column tile the staged GEMM actually has, or `Cout` where
+no widening is worth it.
+
+**The staged GEMM's rate is decided by which `bn` its tiling gets, and the fall
+off the edge is a factor of thirteen.** Measured at `M = 65536, K = 2592`,
+sweeping the column count alone:
+
+    N        16    32    48    64    96   128   144   160   192   256   288   384
+    TFLOP/s 0.83  2.28  0.70  8.09  1.24 16.40  0.47  1.26  9.32 16.15  1.27 17.29
+
+Every `N % 128 == 0` is 16-17, every other `N % 64 == 0` is 8-9, and everything
+else is around one. A convolution's `Cout` is the weight's own extent and is
+under no obligation to be either — the Qwen-Image 2.1 VAE runs 288, 576 and 144
+— so it is worth PADDING the weight with zero columns and discarding the extra
+output, exactly as the reduction axis is already padded.
+
+Which pad: the wider tiling is worth about 1.8x the narrower one per column, so
+the score is `bn / np` and the budget is generous. `Cout = 288` takes 384 (1.33x
+the columns at 17.29, i.e. 12.97 effective) over 320 (1.11x at 9.32, i.e. 8.39);
+`Cout = 144` takes 256 (1.78x at 16.15, 9.08 effective) over 192 (1.33x at 9.32,
+7.0). Both are what the sweep says.
+
+A candidate only counts if some staged tiling divides `MP`, `CRSP` and it, which
+is the same test [`Mantle.gemm_padn`](@ref) makes — this differs from that one
+only in scoring by tile WIDTH rather than by least padding, because the matmul
+path's alternative is another GEMM and a convolution's is the implicit-GEMM
+kernel at one TFLOP/s.
+"""
+function convcoutpad(MP::Int, Cout::Int, CRSP::Int)
+    best, bestscore = Cout, 0.0
+    for c in Mantle.GEMM_TILINGS
+        haskey(Mantle.GEMM_STAGED_KERNELS, c) || continue
+        MP % Mantle.gemm_bm(c) == 0 && CRSP % Mantle.gemm_bk(c) == 0 || continue
+        Mantle.gemm_aliasing(c, CRSP) && continue
+        bn = Mantle.gemm_bn(c)
+        np = cld(Cout, bn) * bn
+        np <= Cout * CONV_COUT_PAD || continue
+        score = bn / np
+        score > bestscore && ((best, bestscore) = (np, score))
+    end
+    best
+end
+
+"""
+How many columns of zero a convolution may pad its output channels with to reach
+a wider GEMM tiling. `2.0`: `Cout = 144` wants 256, which is 1.78x, and nothing
+in `gen/graphs` asks for more than that.
+"""
+const CONV_COUT_PAD = 2.0
 
 """
     IM2COL_CAP
     im2colbudget(x) -> Int
 
-The largest im2col matrix `conv_coopmat_plan` will materialise, in bytes.
+How much im2col matrix one chunk may hold, in bytes.
 
-`IM2COL_CAP` is a hard ceiling; `im2colbudget` is what actually gets used, and it
-is the **smaller of that ceiling and a share of the VRAM the driver says is
-free**. The bound was always a memory judgement rather than a speed one — the
-matrix is workspace, and a convolution asking for 93 MiB of it is what makes the
-pool OOM when anything else is on the card — so asking the driver is strictly
-better than guessing a number that has to be right on an empty card and on a busy
-one at the same time.
+**This used to decide whether a convolution ran on the tensor cores at all**,
+and it no longer does: `conv_coopmat_plan` divides the pixel axis by it instead
+of refusing, so a convolution whose whole im2col would be gigabytes runs in
+pieces through a buffer this size. What the number now chooses is the size of
+that piece, which is a speed question and a much easier one.
 
-**Measured.** Kokoro's vocoder convolves sequences up to 34576 positions with
-`CRS = 1408`, so im2col is 92.9 MiB: 18 convolutions carrying 53% of the graph's
-convolution arithmetic, which a tighter cap leaves on the direct scalar kernel.
-Admitting them is worth **1.24x end to end**, 8.42 -> 10.41x realtime,
-interleaved against one shared clock plateau. Two separate `bench` calls read
-1.04x instead, because the arms then run at different clocks; see
-`tools/measure.jl`.
+**256 MiB**, which is the smallest chunk that saturates. Swept end to end on
+the Qwen-Image 2.1 VAE decode, everything else equal:
 
-The share is deliberately a *quarter* of what is free. The im2col is not the only
-thing the call needs — the GEMM's `MP x Cout` fp32 destination and the model's own
-slab are live at the same time — and leaving three quarters is what makes the
-fallback a slower convolution rather than an allocation failure.
+    cap      decode (min / median)
+     32 MiB   6.08 / 6.19 s
+     64       6.08 / 6.26
+    128       5.82 / 5.91
+    256       5.34 / 5.39          <- here
+    512       5.37 / 5.39          saturated
 
-When the driver has no `VK_EXT_memory_budget` (`budget == 0`), this falls back
-to `IM2COL_CAP`.
+The ISOLATED kernel prefers a far smaller chunk — the VAE's widest
+convolution, `288 -> 288` over 1024x1024, measures 201.6 ms at 32 MiB against
+234.7 at 512, because the GEMM reads the chunk back while it is still in cache
+— and the decode disagrees because it runs interpreted, where each of the three
+passes a chunk costs is a host launch and there are forty-five convolutions
+paying it. A recorded graph records them once and would rather have the small
+chunk and the small arena; 256 MiB is within noise of the best for both.
 
-**512 MiB**, because `free ÷ 4` is the real guard and this only the backstop:
-with 17 GB free that quarter-share is ~4.3 GB, so a smaller ceiling decides
-every case instead. At 128 MiB, RIFE's flow encoder declines five convolutions
-whose im2col is 159 MB to 1.11 GB to the implicit-GEMM kernel: **28.0 ms of a
-110 ms interpolation for 10% of its arithmetic**, 0.52 TF/s where the 51 that
-fit run at 6.1.
+For reference, that convolution on the implicit-GEMM kernel is **1482 ms at
+1.06 TFLOP/s** against 218 ms here, and the whole decode goes **12.24 s to
+5.34**.
 
-Swept on RIFE, all else equal:
-
-    cap    accepting   RIFE
-    128 MB   51/56    109.80 ms
-    192      55/56    102.10
-    256      55/56    101.41
-    384      56/56     96.90
-    1536     56/56     96.96      <- saturated; the extra ceiling buys nothing
-
-384 captures all of it, so 512 is that with margin rather than a number fitted
-to one model. Above it there is nothing to gain and only a larger transient to
-lose, and `free ÷ 4` still binds first on a busy card, which is the case this
-ceiling is for.
+`im2colbudget` is the smaller of this and a quarter of the VRAM the driver says
+is free, and it is what keeps a busy card from being asked for a chunk it
+cannot give — a smaller chunk is a slower convolution now, not a refused one.
+When the driver has no `VK_EXT_memory_budget` (`budget == 0`), it is this.
 """
-const IM2COL_CAP = Ref(512 << 20)
+const IM2COL_CAP = Ref(256 << 20)
 
 function im2colbudget(x)
     # The context comes from the OPERAND, not from a backend or a `DeviceCaps` —
@@ -280,11 +332,14 @@ model: 0.038 ms to write 590 KB. Measured on a tight loop, narrowing the
 counter alone was worth 1.56x (2100 -> 3282 GFLOP/s). Every extent here is far
 inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
 """
+# `p0` is the first pixel this chunk covers and `NPQ` how many of them it has,
+# so the whole matrix is the single chunk `p0 = 0, NPQ = plan.NPQ`. See
+# `ConvCoopMatPlan.rows`.
 @kernel function im2col_kernel!(col, @Const(x), ::Val{MP},
                                 ::Val{KW}, ::Val{KH}, ::Val{SX}, ::Val{SY},
                                 ::Val{PX}, ::Val{PY}, ::Val{DX}, ::Val{DY},
                                 Wid, Hei, OW, OH, NPQ, ntot,
-                                Cin) where {MP,KW,KH,SX,SY,PX,PY,DX,DY}
+                                Cin, p0) where {MP,KW,KH,SX,SY,PX,PY,DX,DY}
     # Flat launch, like `conv_epilogue_kernel!`: a 2-D `ndrange` is partitioned
     # into 2-D workgroups, so a warp spans only a handful of consecutive `m` and
     # the writes to `col` (which is `m`-major) are fragmented.
@@ -298,7 +353,7 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
             c = q ÷ Int32(MP) + Int32(1)
             v = zero(T)
             if m <= Int32(NPQ)
-                npq = m - Int32(1)
+                npq = m - Int32(1) + Int32(p0)
                 n = npq ÷ Int32(OH * OW)
                 r = npq - n * Int32(OH * OW)
                 oh = r ÷ Int32(OW)
@@ -341,19 +396,28 @@ reshape — the rows past `NPQ` are dropped here.
 #
 # Recovering `(pixel, channel, image)` from the linear index costs two integer
 # divisions, done in `Int32` because NVIDIA emulates 64-bit integer division.
+# A 3-D range over `(pixels in this chunk, channel, image)`, so nothing here
+# divides by a runtime extent. The flat form did `% P`, `% Cout` and `÷ Cout`
+# per thread over every output element, and a chunk's pixels are a range rather
+# than the whole of `P` — which the flat index cannot say without another
+# division. `p0` is the chunk's first pixel; `Cout` is the weight's own channel
+# count and `MP * CoutP` the padded plane `C` was written at.
 @kernel function conv_epilogue_kernel!(out, @Const(C), @Const(bias), ::Val{MP},
-                                       ::Val{ACT}, ::Val{SPLITK},
-                                       P, Cout, n, plane) where {MP,ACT,SPLITK}
-    lin = @index(Global, Linear)
-    if lin <= n
+                                       ::Val{ACT}, ::Val{SPLITK}, ::Val{NIMG},
+                                       P, Cout, npqc, p0, plane) where {MP,ACT,SPLITK,NIMG}
+    pc, kc1 = @index(Global, NTuple)
+    if pc <= npqc
         @inbounds begin
-            r = Int32(lin) - Int32(1)
-            pix = r % Int32(P)              # (ow-1) + OW*(oh-1)
-            t = r ÷ Int32(P)
-            kc = t % Int32(Cout)            # channel, 0-based
-            img = t ÷ Int32(Cout)           # image in the batch, 0-based
-            npq = pix + Int32(P) * img
-            i = Int32(1) + npq + Int32(MP) * kc
+            pixc = Int32(pc) - Int32(1)     # 0-based pixel within the chunk
+            kc = Int32(kc1) - Int32(1)      # channel, 0-based
+            npq = Int32(p0) + pixc          # 0-based row of the whole im2col
+            # `npq` runs over pixels AND images, so the image it belongs to is a
+            # division — except at `N == 1`, which every graph here is, where it
+            # is none.
+            img = NIMG == 1 ? Int32(0) : npq ÷ Int32(P)
+            pix = NIMG == 1 ? npq : npq - Int32(P) * img
+            lin = Int32(1) + pix + Int32(P) * kc + Int32(P) * Int32(Cout) * img
+            i = Int32(1) + pixc + Int32(MP) * kc
             # The split-K planes are summed here rather than by a separate
             # reduction pass: this kernel already touches every output element.
             v = C[i]
@@ -382,7 +446,6 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     OW, OH, _, N = size(out)
     CRS = plan.CRS
     NPQ = plan.NPQ
-    MP = padgemm(NPQ)
     # The reduction axis is padded to the tile the same way `NPQ` already is.
     # `CRS` is the weight's own extent, so refusing to pad it keeps SAM 2's stem
     # (`7x7x3`, `CRS = 147`) on the implicit-GEMM kernel at **1.01 TFLOP/s**.
@@ -396,34 +459,44 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     # the tile pad by waste budget (`crsextent`), so deriving it again here would
     # silently disagree with the shape the plan was accepted for.
     CRSP = plan.CRSP
+    CoutP = plan.CoutP
     backend = ctx.backend
+    # `rows` pixels at a time, which is `NPQ` whenever the whole matrix fits.
+    ROWS = plan.rows
+    MP = padgemm(ROWS)
 
     col = scratch!(ctx, Float16, MP, CRSP)
-    im2col_kernel!(backend)(col, x, Val(MP),
-                            Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
-                            Val(padding[1]), Val(padding[2]),
-                            Val(dilation[1]), Val(dilation[2]),
-                            Wid, Hei, OW, OH, NPQ, MP * CRSP, Cin; ndrange = MP * CRSP)
 
-    # Untouched when `CRS` is already on the tile, which is every convolution
-    # that took this path before — same buffer, no copy, no extra scratch.
-    B = if CRSP == CRS
+    # Untouched when `CRS` is already on the tile AND the channels need no
+    # widening, which is every convolution that took this path before — same
+    # buffer, no copy, no extra scratch.
+    B = if CRSP == CRS && CoutP == Cout
         w
     else
-        wp = scratch!(ctx, Float16, CRSP, Cout)
+        wp = scratch!(ctx, Float16, CRSP, CoutP)
         fill!(wp, zero(Float16))
-        copyto!(view(wp, 1:CRS, :), reshape(w, CRS, Cout))
+        copyto!(view(wp, 1:CRS, 1:Cout), reshape(w, CRS, Cout))
         wp
     end
 
-    _, splitk = Mantle.coopmat_gemm_shape(MP, Cout, CRSP)
+    _, splitk = Mantle.coopmat_gemm_shape(MP, CoutP, CRSP)
     # With a split there is no separate destination: the epilogue reads the
     # partial planes directly and sums them.
-    C = scratch!(ctx, Float32, MP, Cout, max(splitk, 1))
-    Mantle.coopmat_gemm!(C, col, B, MP, Cout, CRSP; partials = C, reduce = false)
+    C = scratch!(ctx, Float32, MP, CoutP, max(splitk, 1))
 
-    conv_epilogue_kernel!(backend)(out, C, bias, Val(MP), Val(act), Val(splitk),
-                                   OW * OH, Cout, length(out), MP * Cout;
-                                   ndrange = length(out))
+    for p0 in 0:ROWS:(NPQ - 1)
+        npqc = min(ROWS, NPQ - p0)
+        im2col_kernel!(backend)(col, x, Val(MP),
+                                Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
+                                Val(padding[1]), Val(padding[2]),
+                                Val(dilation[1]), Val(dilation[2]),
+                                Wid, Hei, OW, OH, npqc, MP * CRSP, Cin, p0;
+                                ndrange = MP * CRSP)
+        Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C, reduce = false)
+        conv_epilogue_kernel!(backend, (256, 1))(
+            out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
+            OW * OH, Cout, npqc, p0, MP * CoutP;
+            ndrange = (cld(npqc, 256) * 256, Cout))
+    end
     out
 end

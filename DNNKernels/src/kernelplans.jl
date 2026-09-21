@@ -425,14 +425,22 @@ struct MMConvRotInt8Plan end
 """
     ConvCoopMatPlan
 
-The tensor-core convolution: whether it applies, and the padded reduction axis it
-runs at. `kernel-library-review.md` finding 2, the same shape as `FlashCMPlan`.
+The tensor-core convolution: whether it applies, and the shape it runs at.
+
+THREE extents are padded and each for its own reason. `CRSP` pads the reduction
+so the staged GEMM has a `bk` that divides it. `CoutP` pads the output channels
+onto a column tile, because the GEMM's rate falls off a cliff without one — see
+[`convcoutpad`](@ref). `rows` is not padding at all: it is how many pixels one
+im2col chunk covers, which is what lets a convolution whose whole im2col matrix
+would be gigabytes run on the tensor cores anyway.
 """
 struct ConvCoopMatPlan
     CRS::Int         # the weight's own reduction extent
     CRSP::Int        # …padded onto the tile
-    Cout::Int
+    Cout::Int        # the weight's own output channels
+    CoutP::Int       # …padded onto a column tile the staged GEMM has
     NPQ::Int
+    rows::Int        # pixels per im2col chunk; `NPQ` when it fits at once
 end
 
 """

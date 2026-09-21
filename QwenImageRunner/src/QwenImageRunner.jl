@@ -251,10 +251,18 @@ end
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
 
-`record = false`, unlike the denoiser, because for this graph a recorded plan is
-SLOWER than interpreting it. At 1024² on an 8060S, decoding one denoised latent:
-12.8 s interpreted, 16.0 s replayed, and the plan itself takes 11.4 s to build,
-against one decode per image to amortise any of it. The two paths agree to
+`record = false`, unlike the denoiser, because for this graph a recorded plan
+costs more to build than it saves. At 1024² on an 8060S, decoding one denoised
+latent: **5.50 s interpreted, 5.41 s replayed**, against ~50 s to build the
+plan and one decode per image to amortise it.
+
+Both were three times that — 12.8 and 16.0 s — until the convolutions stopped
+falling off the tensor-core path. Eighty-two percent of this graph is
+convolution, and twenty-seven of its forty-five were refused because their
+im2col matrix is gigabytes; they ran at about 1 TFLOP/s where the eighteen that
+fit reach 19-22. `conv_coopmat_plan` now divides the pixel axis into chunks
+instead of refusing, and pads the output channels onto a column tile the staged
+GEMM has. See `DNNKernels.IM2COL_CAP`. The two paths agree to
 9.3e-5 rms and 4.9e-4 peak of a [-1, 1] range, so this is a speed choice and not
 a correctness one.
 
