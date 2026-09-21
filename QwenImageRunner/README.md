@@ -23,6 +23,13 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | 20 denoising steps | 138 s (6.89 s/step) |
 | VAE decode, including its build | 40.2 s |
 
+Two of those four rows have moved since, and not only the obvious one. **Both
+checkpoints reach the device through a pack kernel that was a transpose done a
+byte at a time**, and rewriting it takes the denoiser's weight upload from 39.2
+s to 10.3 and the conditioner's from 14.2 s to 1.0, measured back to back in
+one process with bit-identical output. That is ~42 s off a generation, from two
+kernels that never ran during one.
+
 The denoiser row is the one the changes below move, and re-measured on the real
 model after them it is **95 s (4.74 s/step)** — 43 s off a generation. The
 other three rows are from the original run and are untouched by this work.
