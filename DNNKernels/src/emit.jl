@@ -603,6 +603,38 @@ densestrides(od::Dims, st) = begin
 end
 
 """
+    walkstreams(pd, st) -> Int
+
+How many separate places a walk in order `pd` touches before it comes back near
+where it started, on the side whose strides are `st`.
+
+The walk runs the first axis innermost. While `st[j]` is exactly the product of
+the extents before it the addresses simply continue, and that side is linear; at
+the first axis where it is not, the walk starts cycling through `pd[j]` places
+that are far apart and keeps cycling. That count, not the size of each piece, is
+what a copy between two layouts pays: a 256-byte write every 8 KB across 4096
+open streams is three times slower than the same write across 32.
+
+`1` means the side never breaks. A singleton axis moves nothing and is skipped.
+"""
+function walkstreams(pd::Dims, st::Dims)
+    r = 1
+    for j in eachindex(pd)
+        pd[j] == 1 && continue
+        st[j] == r || return pd[j]
+        r *= pd[j]
+    end
+    return 1
+end
+
+"""Streams the worse side of a walk order leaves open; lower is better."""
+function walkcost(od::Dims, ast::Dims, ost::Dims, perm)
+    pd = ntuple(j -> od[perm[j]], length(od))
+    max(walkstreams(pd, ntuple(j -> ast[perm[j]], length(od))),
+        walkstreams(pd, ntuple(j -> ost[perm[j]], length(od))))
+end
+
+"""
     stridedcopydispatch!(ctx, out, od, src, ast, off; name)
 
 Declare the copy that fills `out` from a strided read of `src`.
@@ -633,9 +665,28 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
     # scattered read is the expensive one: Qwen-Image 2.1's `(E, H, L) -> (E, L,
     # H)` attention operands measured 21 GB/s that way and 115 the other. A
     # singleton axis has no order to contribute, so it does not vote.
-    perm = sortperm(collect(eachindex(od));
-                    by = k -> (od[k] == 1 ? typemax(Int) : ast[k]))
-    if perm != collect(eachindex(od)) && n <= typemax(Int32) && hi + 1 <= typemax(Int32)
+    #
+    # But the source's own order is not always the right one, and the same model
+    # has the counterexample: the attention OUTPUT is the inverse permutation,
+    # `(E, L, H) -> (E, H, L)`, and walking the source in order there measured
+    # **46 GB/s against 122** for its mirror image. Both orders leave one side
+    # perfectly linear and the other in 256-byte chunks, so chunk size is not
+    # what separates them — [`walkstreams`](@ref) is. Decide between the two
+    # candidates on it rather than assuming.
+    #
+    # Only ever a fallback TO the destination order, which is what this function
+    # did before the source-order branch existed, so a copy the branch was right
+    # about keeps it. In the 20B denoiser the two attention-output permutes a
+    # layer go **1.474 ms to 0.552** each, the model's permutes 99.6 ms to 68.5,
+    # and the step's serialised total 4839.4 to 4808.9 with bit-identical
+    # output.
+    ost = colstrides(od)
+    ident = collect(eachindex(od))
+    perm = sortperm(ident; by = k -> (od[k] == 1 ? typemax(Int) : ast[k]))
+    if perm != ident && walkcost(od, ast, ost, perm) > walkcost(od, ast, ost, ident)
+        perm = ident
+    end
+    if perm != ident && n <= typemax(Int32) && hi + 1 <= typemax(Int32)
         ost = colstrides(od)
         pd  = ntuple(j -> od[perm[j]], length(od))
         pas = ntuple(j -> Int32(ast[perm[j]]), length(od))

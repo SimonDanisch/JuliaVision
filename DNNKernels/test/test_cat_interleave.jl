@@ -109,3 +109,44 @@ end
     # The conv weight pad: rows padded, columns not.
     @test cs((72, 128), (64, 128), (0, 0)) === nothing
 end
+
+# Which order to walk a permuted copy in, when the source's own order is the
+# wrong answer.
+#
+# `stridedcopydispatch!` used to sort the axes by source stride unconditionally,
+# on the strength of Qwen-Image 2.1's attention operands: `(E, H, L) -> (E, L,
+# H)` reads scattered in destination order and measured 21 GB/s against 115.
+# The same model has the counterexample one op later. Its attention OUTPUT is
+# the inverse permutation, and there the source's order is the slow one: 46
+# GB/s against 122, because it leaves 4096 write streams open where destination
+# order leaves 32 read streams. Both orders leave one side perfectly linear and
+# the other in 256-byte pieces, so the size of a piece is not what separates
+# them; how many places the walk cycles through is.
+@testset "a permuted copy is walked in whichever order opens fewer streams" begin
+    E, L, H = 128, 4118, 32
+    order(od, ast) = sortperm(collect(eachindex(od));
+                              by = k -> (od[k] == 1 ? typemax(Int) : ast[k]))
+    # q, k and v: destination (E, L, H) over a source laid out (E, H, L).
+    od, ast, ost = (E, L, H), (1, E * H, E), (1, E, E * L)
+    src = order(od, ast)
+    @test Tuple(src) == (1, 3, 2)
+    @test DKI.walkcost(od, ast, ost, src) == H
+    @test DKI.walkcost(od, ast, ost, collect(eachindex(od))) == L
+    @test DKI.walkcost(od, ast, ost, src) < DKI.walkcost(od, ast, ost, collect(eachindex(od)))
+
+    # The attention output: destination (E, H, Lq) over a source laid out
+    # (E, Lq, H). Same shapes, mirrored, and now the source's order loses.
+    Lq = 4096
+    od, ast, ost = (E, H, Lq), (1, E * Lq, E), (1, E, E * H)
+    src = order(od, ast)
+    @test Tuple(src) == (1, 3, 2)
+    @test DKI.walkcost(od, ast, ost, src) == Lq
+    @test DKI.walkcost(od, ast, ost, collect(eachindex(od))) == H
+    @test DKI.walkcost(od, ast, ost, collect(eachindex(od))) < DKI.walkcost(od, ast, ost, src)
+
+    # A side that never leaves its run reports one, and a singleton axis moves
+    # nothing so it cannot break one.
+    @test DKI.walkstreams((E, L, H), (1, E, E * L)) == 1
+    @test DKI.walkstreams((E, 1, H), (1, 999, E)) == 1
+    @test DKI.walkstreams((E, L, H), (1, 7, E * L)) == L
+end
