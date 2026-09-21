@@ -213,8 +213,14 @@ new block to satisfy an arena it cannot serve from the blocks it has, and a
 long-lived process that keeps building plans eventually cannot build one with
 its memory both free and under budget.
 
+The fingerprint to look for: **826 blocks holding 81.74 GB**, and **562 items
+in the submit channel's retirement queue that never drain** — six rounds of
+`fill!` + `synchronize` + `collect_for_pool!` (which flushes, waits, drains and
+reclaims) moved neither number by one. Blocks pinned by a retirement that never
+completes would explain both the count and the fragmentation.
+
 Worth a controlled reproduction: build and free N plans in a fresh session,
-watching `reserved(dev.pool)` and `largestfree`.
+watching `reserved(dev.pool)`, the block count and `largestfree`.
 
 ## A note on measuring this
 
