@@ -23,12 +23,22 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | 20 denoising steps | 138 s (6.89 s/step) |
 | VAE decode, including its build | 40.2 s |
 
-Two of those four rows have moved since, and not only the obvious one. **Both
-checkpoints reach the device through a pack kernel that was a transpose done a
-byte at a time**, and rewriting it takes the denoiser's weight upload from 39.2
-s to 10.3 and the conditioner's from 14.2 s to 1.0, measured back to back in
-one process with bit-identical output. That is ~42 s off a generation, from two
-kernels that never ran during one.
+Three of those four rows have moved since, and only one of them is the
+denoiser.
+
+**Both checkpoints reach the device through a pack kernel that was a transpose
+done a byte at a time**, and rewriting it takes the denoiser's weight upload
+from 39.2 s to 10.3 and the conditioner's from 14.2 s to 1.0, measured back to
+back in one process with bit-identical output. That is ~42 s off a generation,
+from two kernels that never ran during one.
+
+**And 82% of the VAE decode is convolution that was not on the tensor cores.**
+Twenty-seven of its forty-five convolutions were refused because their im2col
+matrix is gigabytes, and ran at about 1 TFLOP/s where the eighteen that fit
+reach 19-22; its channel counts (144, 288, 576) also miss the column tile the
+staged GEMM needs, which is worth a factor of thirteen on its own. Chunking the
+pixel axis and padding the channels takes the decode **12.24 s to 5.50**
+interpreted and 16.0 s to 5.41 recorded.
 
 The denoiser row is the one the changes below move, and re-measured on the real
 model after them it is **95 s (4.74 s/step)** — 43 s off a generation. The

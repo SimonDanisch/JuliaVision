@@ -291,6 +291,47 @@ with the copies. It also shrinks what the placer has to fit — the layer's aren
 requirement falls from **391.03 MB to 352.89 MB** — which is most of why the two
 changes are super-additive.
 
+### The VAE decode was 82% convolution, and the convolutions were not on the
+### tensor cores
+
+Serialised, the recorded decode is 16.0 s over 564 passes and **13.15 s of it
+is forty-five convolutions**. Eighteen of them take the im2col + cooperative
+matrix route and run at **19-22 TFLOP/s**; the other twenty-seven take the
+implicit-GEMM kernel and run at **0.6-1.3**, and they are 12.96 s.
+
+Two separate reasons, both fixed:
+
+* **`conv_coopmat_plan` refused them on size.** The im2col matrix for
+  `288 -> 288` over 1024x1024 is `NPQ x CRSP = 1048576 x 2592` fp16, i.e. 5.4
+  GB, against a 512 MiB cap. It now divides the pixel axis instead of refusing:
+  one chunk of `plan.rows` pixels at a time through one buffer, which is the
+  whole matrix whenever it fits and is otherwise however many pieces the budget
+  asks for. The three passes a convolution costs become three per chunk, and
+  nothing else changes.
+* **The staged GEMM's rate is decided by which `bn` its tiling gets.** Sweeping
+  the column count alone at `M = 65536, K = 2592`:
+
+      N        16    32    48    64    96   128   144   160   192   256   288   384
+      TFLOP/s 0.83  2.28  0.70  8.09  1.24 16.40  0.47  1.26  9.32 16.15  1.27 17.29
+
+  Every `N % 128 == 0` is 16-17, every other `N % 64 == 0` is 8-9, everything
+  else is around one. A convolution's `Cout` is under no obligation to be
+  either — this VAE runs 144, 288 and 576 — so `convcoutpad` widens the weight
+  with zero columns to reach a tiling, scoring by tile WIDTH rather than by
+  least padding: 288 takes 384 (1.33x the columns at 17.29) over 320 (1.11x at
+  9.32), and 144 takes 256 over 192 for the same reason.
+
+That convolution goes **1482 ms to 218**, and the decode **12.24 s to 5.50**
+interpreted, 16.0 s to 5.41 recorded — which also ends the recorded form being
+the slower one.
+
+The chunk size is a speed knob now rather than a refusal, and the two paths
+want different answers: the isolated kernel is fastest at 32 MiB (201.6 ms
+against 234.7 at 512, the GEMM reading the chunk back out of cache), while the
+interpreted decode is fastest at 256 (5.34 s against 6.08 at 32) because each
+chunk is three host launches and there are forty-five convolutions paying for
+them. 256 MiB is within noise of the best for both.
+
 ### And the other half of the LOAD is Julia compiling itself
 
 Preparing the 20B denoiser takes **117 s**, against 95 s for the twenty
