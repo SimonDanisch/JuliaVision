@@ -24,7 +24,7 @@ Measured, 20 steps at 1024x1024 (`examples/generate.jl`, 314.9 s total):
 | VAE decode, including its build | 40.2 s |
 
 The denoiser row is the one the changes below move, and re-measured on the real
-model after them it is **107 s (5.37 s/step)** — 31 s off a generation. The
+model after them it is **97 s (4.85 s/step)** — 41 s off a generation. The
 other three rows are from the original run and are untouched by this work.
 
 A denoising step was 12.5 s when the model first ran. Where the rest went:
@@ -60,10 +60,26 @@ A ninth change holds the attention's output in cooperative-matrix fragments
 rather than shared memory, which also lets a 32-wide key block fit: the pass
 goes 44.0 ms to 36.7 and the real model 5.59 s/step to **5.37**, back to back.
 
-On the real model the whole of it is 6.89 s/step to **5.37**. The layer harness shows a
-larger share (-33% against -20%) because it runs plain int8 weights: the compact
-checkpoint's four ConvRot transforms a layer, and the step's non-layer work, are
-untouched by any of this and dilute it.
+Then two more in the attention kernel, both bit-identical to what they replace:
+compiling the softmax form in as a `Val` rather than passing it, which deletes
+the one-pass loop and the deferred rescale a two-pass plan never reaches
+(5.85 s/step against 6.02 interleaved), and merging the two launches of a
+tail-split key axis over a flat range instead of a three-dimensional one (that
+pass 3.645 ms to 2.615).
+
+**And one that is not a code change at all.** Every number above was measured
+in a Julia session that had been building and freeing plans for hours, and such
+a session hands new buffers memory that runs the same tiled GEMM **2.4x
+slower** — seventeen of the thirty-two gate+up products at 77-94 ms where the
+other fifteen ran at 41-47, reproducible to `cor = 0.9998`, with identical
+streaming bandwidth. In a fresh process every one of them runs at 39-44 ms and
+**the step is 4.85 s**. See `plans/2026-09-21-qwen-denoiser-layer.md`; the
+short version is to check `free -g` before believing a GPU timing.
+
+On the real model the whole of it is 6.89 s/step to **4.85**. The layer harness
+shows a larger share (-33% against -20%) because it runs plain int8 weights:
+the compact checkpoint's four ConvRot transforms a layer, and the step's
+non-layer work, are untouched by any of this and dilute it.
 
 The last row is two changes, A/B'd together in one session: 169.1 ms with
 neither, 163.9 with the tile alone, 164.3 with the SwiGLU alone, 156.0 with
@@ -74,12 +90,26 @@ The harness runs plain int8 weights, so it does NOT include the four ConvRot
 transforms a layer (~5 ms) that the compact checkpoint adds. `plans/2026-09-21-qwen-denoiser-layer.md`
 has the pass-by-pass breakdown and what is left.
 
-What remains, per layer, is the products at the device's fp16 ceiling (~53% of
-it) and the attention at ~30%, which runs at about 6 TFLOP/s where the products
-in the same layer reach 21-26. Its key length still divides no tiling, but that
-no longer costs the whole kernel: the bounds check is compiled into a second
-launch over the ragged remainder, and the 257 blocks that fill a tile run
-without it.
+What remains, measured pass by pass on the real step in a fresh process
+(4858 ms serialised over 4372 passes):
+
+| | ms | |
+| --- | --- | --- |
+| the products | 2963 | **61%**, and 22.5 of the device's 24.4 TOP/s |
+| the attention | 1336 | **27%**, at ~7.5 TFLOP/s |
+| everything else | 530 | 11%, all of it at memory bandwidth |
+
+The products are done: sweeping every registered int8 tile at the biggest one
+(`24576 x 4096 x 4224`) puts the shipped pick first at 22.54 TOP/s, and the
+128x128 tile that moves 40% fewer bytes is second at 21.91 — so they are
+compute-bound at 92% of the cooperative-matrix peak, and only int8
+*activations* go past it (`plans/2026-09-20-int8-tensor-cores.md` says what
+that costs in accuracy).
+
+The attention is bound by re-reading K and V once per query block: two
+diagnostics in the kernel price the softmax at 6% of it and those reads at 29%,
+and the only lever on the 29% is a taller query tile, which is inadmissible at
+this head width for two different reasons. The plan file has both.
 
 ## What is where
 
