@@ -161,7 +161,7 @@ would take:
 Each is worth 1-2% of the layer and each is a change in a path every model
 shares, which is the trade to weigh before taking one.
 
-### The one lead worth more than that: the biggest product's tile
+### Taken: the biggest product's tile
 
 `fuseqkv_mm_17` is the stacked gate+proj, `24576 x 4096 x 4224`, and it runs at
 19.8 TOP/s where the other three products in the same layer reach 23-25. The
@@ -175,14 +175,18 @@ Interleaved rounds, minimum of each:
     24576 x 4096    (2,4,2,2) 37.92    (4,2,4,2) 42.74*   -11.3%
     12288 x 4096    (4,2,2,4) 18.90    (4,2,4,2) 19.91*    -5.1%
 
-**Not taken, because it is not measured well enough.** Two earlier batches of
-the same sweep disagreed by 8% on the same cell and swapped the winner for the
-qkv shape: an isolated 40 ms GEMM is exactly the size this machine's clock
-drift makes unreliable, and the number that matters is the layer. Lowering the
-threshold to `6k` would change every model's stacked projection in the
-`n % 128 == 0` regime, which is not a change to make on a drifting
-microbenchmark. Build the layer both ways and read it there — that repeats to
-0.3%, and 11% of a 44 ms pass is 4.8 ms, far above its noise.
+Taken, as `tall = m >= 6k`. What made it safe to take on a microbenchmark
+after warning against exactly that: the tile being REPLACED measured
+42.86, 43.28 and 42.74 ms across three independent sweeps, and `(2,4,2,2)`
+39.59, 39.36 and 37.92 — the ranking between the two challengers moved, the gap
+to the incumbent did not. The output is bit-identical, the three neighbouring
+products in the same layer do not reach the branch, and Horizon's pinned picks
+are all above the old bound already.
+
+**It is still not layer-confirmed**, because the session that found it could no
+longer place a 391 MB plan (below). 44 ms of a 167 ms layer, so build the layer
+both ways and read it there when a session can: that repeats to 0.3%, and 11%
+of that pass is 4.8 ms.
 
 ### A session-scale thing that will bite a generation loop
 
