@@ -149,10 +149,10 @@ Serialised, after everything above (223.1 at the start):
 There is no third big thing. What is left above a millisecond, and what each
 would take:
 
-* `view_77` + `view_79`, **2.8 ms** — the two halves of the stacked MLP product,
-  materialised so `fused.swiglu` can read them. Each is a strided view with a
-  12288-element run per column, so teaching the swiglu emit to take an offset
-  and a stride would remove both copies.
+* ~~`view_77` + `view_79`, 2.8 ms~~ — **taken**: the declared SwiGLU now reads
+  the stacked product's halves where they lie, which is what the interpreted
+  runner always did. The strided kernel is not slower for being strided (2.43
+  ms against 2.57), so the copies bought nothing.
 * `add_17`, **2.9 ms** — a three-operand elementwise over dense fp16, 135 MB at
   47 GB/s against a 109 GB/s copy. Not obviously broken, but 2.3x off.
 * `permute_35`, **1.4-3.3 ms** — the attention output's layout change. Varies
