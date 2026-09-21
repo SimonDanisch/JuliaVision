@@ -594,10 +594,21 @@ function stridedcopydispatch!(emitctx::EmitCtx, out, od::Dims, src,
         # rank-4/6 copies carry a FastDiv32 coordinate chain, and four waves per
         # workgroup keep more independent groups resident on gfx1151: across
         # 200 interleaved whole-SAM runs, 256 saved 0.29 ms mean / 0.68 ms p50.
-        M.dispatch!(emitctx.g, stridedcopy32!,
-                    (out, M.broadcastextents(od), src, map(Int32, ast),
-                     Int32(off), Int32(n)), n;
-                    group = min(256, M.caps(emitctx.dev).workgrouplimit), name)
+        gsz = min(256, M.caps(emitctx.dev).workgrouplimit)
+        V = stridedrunwidth(od, ast)
+        if V === nothing
+            M.dispatch!(emitctx.g, stridedcopy32!,
+                        (out, M.broadcastextents(od), src, map(Int32, ast),
+                         Int32(off), Int32(n)), n; group = gsz, name)
+        else
+            # The innermost axis is a contiguous run in BOTH operands, so one address
+            # computation serves `V` elements — see `stridedcopyrun32!` for the
+            # measurement. 98 of SAM 2.1's 104 strided copies take this.
+            M.dispatch!(emitctx.g, stridedcopyrun32!,
+                        (out, M.broadcastextents(od), src, map(Int32, ast),
+                         Int32(off), Int32(n ÷ V), Val(V)), n ÷ V;
+                        group = gsz, name)
+        end
     else
         M.dispatch!(emitctx.g, stridedcopy!, (out, od, src, ast, off), n; name)
     end

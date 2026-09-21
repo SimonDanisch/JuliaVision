@@ -122,3 +122,76 @@ end
     @test DK.transposecastshape((64, 32, 7), (7, 999, 1), 0) === nothing
     @test DK.transposecastshape((64, 32, 7), (1, 64, 64 * 32), 0) === nothing
 end
+
+@testset "a contiguous innermost axis gets the vectorised copy" begin
+    # `ast[1] == 1` is the whole condition, and then the widest `V` that divides the
+    # run. 98 of SAM 2.1's 104 strided copies qualify; their innermost extents are
+    # 72, 144, 288, 576 and 1152.
+    @test DK.stridedrunwidth((144, 8, 32, 8, 32, 1), (1, 144, 9216, 1152, 294912, 1)) == 8
+    @test DK.stridedrunwidth((72, 2, 64, 1024), (1, 4608, 72, 9216)) == 8
+    @test DK.stridedrunwidth((4, 3, 2), (1, 4, 12)) == 4
+    # Not a run in the SOURCE, so there is nothing to widen — this is the case the
+    # kernel would read wrong rather than slowly.
+    @test DK.stridedrunwidth((144, 256, 256, 1), (65536, 1, 256, 9437184)) === nothing
+    # A run no vector width divides.
+    @test DK.stridedrunwidth((6, 4), (1, 6)) === nothing
+    @test DK.stridedrunwidth((), ()) === nothing
+end
+
+# …and that it copies the same bytes. Bit-for-bit, because a copy has no tolerance:
+# the two kernels differ only in how many elements one thread addresses, so any
+# difference at all is the vectorised one reading outside its run.
+import Mantle
+const MMs = Mantle
+
+"""Both kernels over one descriptor, through a declared plan, read back."""
+function bothcopies(dev, od, ast, off, T)
+    n = prod(od)
+    hi = off + sum((od[k] - 1) * ast[k] for k in eachindex(od); init = 0)
+    # Modulo in INTEGERS and then converted: `Float16(70000)` is `Inf`, and `Inf % x`
+    # is `NaN`, so the obvious spelling makes every comparison below false — including
+    # the scalar kernel against its own definition.
+    host = T.((1:(hi + 1)) .% 997)
+    src = MMs.Buffer(dev, host)
+    got = map((:scalar, :run)) do which
+        out = MMs.Buffer(dev, T, od)
+        g = MMs.Graph(dev)
+        if which === :scalar
+            MMs.dispatch!(g, DK.stridedcopy32!,
+                          (out, MMs.broadcastextents(od), src, map(Int32, ast),
+                           Int32(off), Int32(n)), n; group = 256, name = "c")
+        else
+            V = DK.stridedrunwidth(od, ast)
+            MMs.dispatch!(g, DK.stridedcopyrun32!,
+                          (out, MMs.broadcastextents(od), src, map(Int32, ast),
+                           Int32(off), Int32(n ÷ V), Val(V)), n ÷ V;
+                          group = 256, name = "c")
+        end
+        p = MMs.Plan(g); MMs.record!(p); MMs.run!(p); MMs.waitidle(dev)
+        a = Array(MMs.storage(out)); MMs.free!(p); a
+    end
+    # …and against the definition, so "both agree" cannot mean "both wrong".
+    want = Array{T}(undef, od)
+    for I in CartesianIndices(od)
+        want[I] = host[1 + off + sum((Tuple(I)[k] - 1) * ast[k]
+                                     for k in eachindex(od); init = 0)]
+    end
+    (got[1], got[2], want)
+    end
+
+for be in MMs.eachbackend()
+    copydev = MMs.todevice(be)
+    @testset "the vectorised copy moves the same bytes — $(nameof(typeof(be)))" begin
+        # SAM 2.1's two shapes, plus an offset one and a `V = 4` run.
+        for (od, ast, off) in
+                (((144, 8, 32, 8, 32, 1), (1, 144, 9216, 1152, 294912, 1), 0),
+                 ((72, 2, 64, 1024), (1, 4608, 72, 9216), 0),
+                 ((72, 16, 8, 16), (1, 1728, 72, 27648), 576),
+                 ((12, 5, 3), (1, 12 * 7, 12 * 7 * 5), 0))
+            scalar, run, want = bothcopies(copydev, od, ast, off, Float16)
+            @test scalar == want
+            @test run == want
+            @test run == scalar
+        end
+    end
+end

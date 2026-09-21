@@ -422,6 +422,60 @@ function stridedcopy32!(out, exts, a, ast::NTuple{N,Int32}, off::Int32,
 end
 
 """
+    stridedcopyrun32!(out, exts, a, ast, off, nvec, Val(V))
+
+[`stridedcopy32!`](@ref) with `V` contiguous elements per thread.
+
+**Only when the innermost axis is contiguous in the SOURCE too** (`ast[1] == 1`), which
+is what makes the destination's run of `od[1]` elements a run of the source's as well —
+so one address computation serves `V` of them and the loads widen from two bytes to
+`2V`. `V` must divide `od[1]`; [`stridedcopydispatch!`](@ref) checks both.
+
+That is 98 of SAM 2.1's 104 strided copies, whose innermost extents are 72, 144, 288,
+576 and 1152. Measured on an M5 over the 14 distinct descriptors, read+write bytes over
+the slope of a repeated submission, `V = 8` against this kernel's scalar form:
+
+| | rank 4 | rank 6 |
+|---|---|---|
+| 9.4 MB | 85 -> 220 GB/s | 49 -> 218 |
+| 18.9 MB | 88 -> 188 | 50 -> 195 |
+| 37.7 MB | 88 -> 131 | 51 -> 134 |
+
+1.46x to 4.42x on thirteen of the fourteen. The rank-6 window partitions gain most
+because they pay six `FastDiv32` chains per element where this pays six per eight, and
+because a wave of scalar half loads fills half a cache line.
+"""
+function stridedcopyrun32!(out, exts, a, ast::NTuple{N,Int32}, off::Int32,
+                           nvec::Int32, ::Val{V}) where {N,V}
+    i = KI.get_global_id().x
+    i <= nvec || return
+    i0 = (Int32(i) - Int32(1)) * Int32(V)
+    c = M.cart32(UInt32(i0), exts)
+    o = off
+    @inbounds for k in 1:N
+        o += Int32(c[k] - 1) * ast[k]
+    end
+    # `ast[1] == 1`, so advancing the destination inside the run advances the source by
+    # the same amount, and `V | od[1]` keeps all `V` inside it.
+    @inbounds for v in Int32(0):Int32(V - 1)
+        out[i0 + v + Int32(1)] = a[o + v + Int32(1)]
+    end
+    return
+end
+
+"""How many elements one thread of [`stridedcopyrun32!`](@ref) should carry, or `nothing`.
+
+Eight where it divides the run, four otherwise — measured within a few percent of each
+other above four, and both far from one. `nothing` when the innermost axis is not
+contiguous in the source, which is the only thing that makes the run a run."""
+function stridedrunwidth(od::Dims, ast)
+    (!isempty(od) && first(ast) == 1) || return nothing
+    first(od) % 8 == 0 && return 8
+    first(od) % 4 == 0 && return 4
+    return nothing
+end
+
+"""
     transposecast_f32_f16!(out, src, M, N)
 
 Transpose each dense `N × M` plane into an `M × N` plane while narrowing
