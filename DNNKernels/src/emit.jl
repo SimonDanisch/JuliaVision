@@ -2838,9 +2838,31 @@ end
 
 """The fused SwiGLU produced by `fuseswiglu`, as one declared dispatch."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
+    out = dest(emitctx)
+    # In place off whatever the halves are views OF, which is what the
+    # interpreted `runop!` has always done and the declared path did not.
+    # `fuseqkv` stacks the gate and the up projection into ONE product, so both
+    # operands are strided windows of it — and `operand` resolving them means
+    # two copies of 101 MB, 1.41 ms each, before a kernel that then runs no
+    # faster on the dense copies than on the windows (2.43 ms against 2.57 at
+    # Qwen-Image 2.1's `12288 x 4118`).
+    sg = stridedoperand(emitctx, op.ins[1])
+    su = stridedoperand(emitctx, op.ins[2])
+    if sg !== nothing && su !== nothing && sg.dims == su.dims &&
+       length(sg.dims) == length(su.dims) &&
+       prod(sg.dims) == length(out) &&
+       max(length(sg.parent), length(su.parent)) <= typemax(Int32) &&
+       max(sg.offset, su.offset) + 1 <= typemax(Int32)
+        M.dispatch!(emitctx.g, swiglu_strided_kernel!,
+                    (M.viewof(out, sg.dims), swiglustridedflat(sg.parent),
+                     swiglustridedflat(su.parent),
+                     Int32(sg.offset + 1), Int32(su.offset + 1),
+                     map(Int32, sg.strides), map(Int32, su.strides)),
+                    sg.dims; name = op.id)
+        return out
+    end
     gate = operand(emitctx, op.ins[1])
     up = operand(emitctx, op.ins[2])
-    out = dest(emitctx)
     size(gate) == size(up) == size(out) || error(
         "DNNKernels: `fused.swiglu` (op $(op.id)) needs equal gate, up and " *
         "output shapes, got $(size(gate)), $(size(up)) and $(size(out)).")
@@ -2849,6 +2871,11 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
                 name = op.id)
     return out
 end
+
+"""The 1-D form of a SwiGLU operand's root, which the strided kernel indexes."""
+swiglustridedflat(r) = reshape(r, length(r))
+swiglustridedflat(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) =
+    M.viewof(x, (length(x),))
 
 """The fused rotary embedding produced by `fuserope`, declared once for every backend."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
