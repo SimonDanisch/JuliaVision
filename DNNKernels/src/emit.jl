@@ -4586,6 +4586,39 @@ function emitconvtranspose!(emitctx::EmitCtx, op::Op, x, w, bias, out,
         "DNNKernels: `$(op.aten)` (op $(op.id)) is a $(length(stride))-D " *
         "transposed convolution, and only the 1-D and 2-D forms are declared.")
 
+    # A backend library first, exactly as the forward path does, and for a much
+    # larger reason: the gather below gets 0.03-0.04 TFLOP/s. RIFE's decoder
+    # upsamples with seven `4x4` stride-2 transposes and they were **438 ms of its
+    # 581 ms frame** — 75% of the model, in seven ops — while the forward
+    # convolutions beside them ran on Apple's library at 2.5-9.7.
+    #
+    # `outpad` has to be zero: it only chooses the output SIZE, and it does so by
+    # extending the bottom-right edge, which is not a shape the forward convolution
+    # this lowers to can be given.
+    convact = actfn(act === :none ? :identity : act)
+    native = all(iszero, outpad) ?
+        M.native_conv2d_dispatch!(emitctx.dev, emitctx.g, out, x, w;
+                                  bias, stride = (stride[1], stride[2]),
+                                  pad = (pad[1], pad[2]),
+                                  dilation = (dil[1], dil[2]), groups,
+                                  epilogue = convact, transposed = true,
+                                  name = op.id) : nothing
+    if native !== nothing
+        od = size(out)
+        needbias = bias !== nothing && !native.bias
+        needact = convact !== identity && !native.epilogue
+        if needbias
+            bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
+            ewdispatch!(emitctx, out, od, (out, bias),
+                        (bcstrides(od, od), bcstrides(od, bd)),
+                        needact ? biasact(convact) : +; name = "$(op.id).bias")
+        elseif needact
+            ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),), convact;
+                        name = "$(op.id).act")
+        end
+        return out
+    end
+
     if shufflecase(w, stride, pad, dil, outpad, groups) && size(x, 4) == 1
         emitconvtransposeshuffle!(emitctx, op, x, w, bias, out, stride)
     else
