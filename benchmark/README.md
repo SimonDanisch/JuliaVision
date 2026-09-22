@@ -40,19 +40,32 @@ to the stated count. A model that disagrees with the spec is an error, not a
 row — which is the opposite of a harness that reports whatever it happened to
 build.
 
-## Eager and compiled
+## Compiled is the target; eager is a diagnostic
 
-Both are recorded, because they answer different questions.
+**`torch.compile` is the number.** It is one line for the person on the other
+side and it is what anybody who cares about speed runs, so it leads the table
+and the headline ratio is quoted against it.
 
-* **eager** is the like-for-like comparison. The graph Lava runs came out of
-  `torch.export`, which is eager PyTorch's own decomposition — same
-  decomposition, different runtime.
-* **compiled** is `torch.compile`, Inductor fusing that graph into kernels this
-  tree does not generate. Not a like-for-like anything: it is the target.
+**Eager is not a second opinion on the same question.** It was originally
+carried here as "the like-for-like comparison, because the graph Lava runs came
+out of `torch.export`, which is eager's own decomposition" — and that is an
+argument about fairness to US rather than about what the number is for. Quoting
+it as the denominator turns "behind Inductor on every model" into "beats
+PyTorch", which is how a benchmark lies to the people who wrote it.
 
-A table with only one of them either flatters us or reads as a fantasy gap.
-`matanyone-step` records compiled as unsupported with the reason rather than a
-number, because `InferenceCore.step` mutates a memory bank across calls.
+It stays for two narrower jobs, and one run of this suite needed both:
+
+* **the only denominator left.** `matanyone-step` has no compiled number at all
+  — `InferenceCore.step` mutates a memory bank across calls, so what Inductor
+  would trace is not the program that runs — and `kokoro-speak` has no eager one
+  on this driver (`miopenStatusUnknownError`, which Inductor sidesteps by
+  generating its own kernels). Compiled-only would have left matanyone with no
+  PyTorch reference whatsoever.
+* **where the gap lives.** The SPREAD between the columns is the diagnosis.
+  Close to eager and far from compiled is missing FUSION. Far from both is
+  kernel quality, before fusion enters. Measured here: SAM 2 at 0.94x eager and
+  1.19x compiled is the first; RIFE at 3.77x and 5.68x is the second. Those want
+  different work, and one column cannot tell them apart.
 
 ## Measurement
 

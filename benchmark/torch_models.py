@@ -7,13 +7,15 @@ and `torch.compile`d.
 Parameters come from `models.toml` and are ASSERTED here, never re-derived — see
 that file's header for why there is only one place to write a shape down.
 
-**Both eager and compiled, because they answer different questions.** The graph
-Lava runs came out of `torch.export`, which is eager PyTorch's own
-decomposition, so EAGER is the like-for-like comparison: same decomposition,
-different runtime. `torch.compile` is Inductor fusing that graph into kernels we
-do not generate, so it is not a like-for-like anything — it is the target. A
-table with only one of them either flatters us or reads as a fantasy gap, so
-both are recorded and labelled.
+**`torch.compile` is the target and eager is a diagnostic.** Compiled is what
+anybody who cares about speed actually runs, so it is the number the suite
+quotes. Eager was once justified here as "the like-for-like comparison, because
+our graph came out of `torch.export`" — an argument about fairness to us rather
+than about what the number is for, and quoting it as the denominator turns
+"behind Inductor everywhere" into "beats PyTorch". It is still recorded, for two
+narrower jobs: it is the only denominator left when a model cannot be compiled
+or cannot run eager, and the spread between the two columns says whether a gap
+is missing fusion or kernel quality.
 
 A model whose compile fails or is not attempted records `null` with a reason
 rather than being absent: a missing row reads as "we did not get to it" and a
@@ -120,6 +122,19 @@ def compiled(mod):
 
 
 def setup_sam2(dev):
+    # The `sam2` package is used straight from its checkout rather than
+    # installed, exactly as `common.bootstrap` does for matanyone2: its declared
+    # dependencies pull in far more than the inference path imports. Without
+    # this, Hydra fails to locate `sam2.modeling.backbones.hieradet.Hiera` and
+    # reports it as a config error rather than a missing import.
+    from common import find_root
+
+    checkout = find_root() / "dev" / "sam2"
+    if not checkout.is_dir():
+        raise Unsupported(f"no sam2 checkout at {checkout}")
+    if str(checkout) not in sys.path:
+        sys.path.insert(0, str(checkout))
+
     import export_graphs as EG
     import export_sam2 as ES
 

@@ -158,8 +158,8 @@ end
 ms(t) = BenchmarkTools.median(t).time / 1e6
 
 function table(io, jl, torch, want, g)
-    @printf(io, "%-18s %10s %10s %10s %9s %9s  %-16s %s\n", "model", "ours", "eager",
-            "compiled", "vs eager", "vs comp", "dtype", "shape")
+    @printf(io, "%-18s %10s %10s %9s %10s %9s  %-16s %s\n", "model", "ours",
+            "compiled", "vs comp", "eager", "vs eager", "dtype", "shape")
     for name in want
         haskey(g, name) || continue
         gm = g[name]
@@ -170,8 +170,10 @@ function table(io, jl, torch, want, g)
         gate = haskey(jl, name) && !jl[name].gated ? "!" : " "
         f(x) = isnan(x) ? "     -    " : @sprintf("%9.2f ", x)
         rr(a, b) = isnan(a) || isnan(b) ? "     -   " : @sprintf("%8.2fx ", a / b)
-        @printf(io, "%-18s %s%s%s%s%s%s  %-16s %s%s\n", name, f(o), gate, f(e), f(c),
-                rr(o, e), rr(o, c), md.dtype, md.shape,
+        # `compiled` first and the ratio quoted against it: that is the PyTorch a
+        # user would actually run. See the note under the table.
+        @printf(io, "%-18s %s%s%s%s%s%s  %-16s %s%s\n", name, f(o), gate, f(c),
+                rr(o, c), f(e), rr(o, e), md.dtype, md.shape,
                 isempty(md.note) ? "" : "  ($(md.note))")
     end
     # Everything the spec or the runtime says about a model that has no number.
@@ -189,11 +191,17 @@ function table(io, jl, torch, want, g)
         haskey(e, :error) && @printf(io, "  %s torch setup FAILED: %s\n",
                                      name, first(e.error, 160))
     end
+    println(io, "\n`vs comp` is THE number: `torch.compile` is what somebody who cares")
+    println(io, "about speed actually runs, so it is the target and it leads the table.")
+    println(io, "`vs eager` is not a second opinion on the same question. It is there for")
+    println(io, "two narrower jobs: it is the only denominator left when a model does not")
+    println(io, "compile (a mutable-state model) or does not run eager (a driver fault),")
+    println(io, "and the SPREAD between the two columns says where a gap lives — close to")
+    println(io, "eager and far from compiled is missing fusion, far from both is kernel")
+    println(io, "quality before fusion enters.")
     println(io, "\n`!` marks a row whose samples the clock gate rejected: the card idled")
     println(io, "inside the sample, so the number is worth less than a gated one and more")
-    println(io, "than nothing. `ours/eager` is the like-for-like ratio — same graph")
-    println(io, "decomposition, different runtime. `ours/compiled` is against Inductor")
-    println(io, "fusing that graph into kernels this tree does not generate.")
+    println(io, "than nothing.")
 end
 
 # ── main ─────────────────────────────────────────────────────────────────────
