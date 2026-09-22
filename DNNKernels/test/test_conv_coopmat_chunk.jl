@@ -197,7 +197,8 @@ end
 # column, which is `MP % 2 == 0`; `padgemm` rounds to `GEMM_BLOCK = 192`, so it
 # always is, and the launcher asks rather than relying on it.
 @testset "the paired im2col store writes what the scalar one writes" begin
-    back = LavaBackend()
+    # See the note at the top of this file.
+    back = first(Mantle.eachbackend())
     dev = DNNKernels.caps(back)
     if dev.coopmat && dev.coopmatsubgroup == 32
         @test DKC.IM2COL_VEC == 2
