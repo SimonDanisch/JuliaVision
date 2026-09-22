@@ -18,6 +18,42 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22 (later): the im2col writes a PAIR — the six VAE convolutions 682.7 -> 613.3 ms
+
+Also on the 8060S. With attention off the top of the list, the widest gaps in
+`tools/gap_vs_rocm.jl` are the Qwen-Image 2.1 VAE's 3x3 convolutions, and they
+decompose per chunk (im2col / GEMM / epilogue, summing to the total within 1%):
+
+    Cin -> Cout   chunks   im2col   gemm    epi
+     144 -> 144       11     3.12   3.44   0.45
+     288 -> 144       21     3.67   3.46   0.32
+     288 -> 288       21     3.37   5.42   0.51
+    1152 -> 1152       6     3.24  13.06   0.50
+
+**The GEMM is not the problem — it runs at 18-20 TFLOP/s.** im2col is half the
+cost of the two worst shapes, and it wrote one `Float16` a thread: a 2-byte
+store where a lane can retire four or more, with the column decomposition (four
+divisions and two remainders) paid per element. A pair fixes both; see
+`IM2COL_VEC`. 1.11x on the family, bit-identical output.
+
+Two things this measurement got wrong first, both recorded at `IM2COL_VEC`
+because they will recur:
+
+  * **The isolated kernel benchmark is warm.** It re-runs the same chunk, so it
+    reported 1.14-1.37x where the cold streaming loop gives ~1.05-1.15x.
+  * **Revise silently did not apply `conv_coopmat.jl`.** `Revise.revise()`
+    returned with no errors and `isdefined(DNNKernels, :IM2COL_VEC)` was still
+    false, so an A/B that swapped the file on disk compared the old kernel
+    against itself and reported 0.99x. Check the CONSTANT, not the file.
+
+What this does NOT fix, and is the next thing here: `Cout = 144` runs the GEMM
+at `CoutP = 256`, so 44% of the multiply is zero columns. That is not a bad
+choice — `convcoutpad` picks it because the staged GEMM has only `bn` 64 and
+128, 128 is worth ~1.8x per column, and 256 at 16.15 TFLOP/s beats 192 at 9.32
+— it is a missing tiling. A `bn = 64` tiling that ran like the `bn = 128` ones
+would make `Cout = 144` take 192 and be worth another ~1.2x on the two 144
+shapes.
+
 ## 2026-09-22: `E = 72` stopped staging K and V — encode 178.1 -> 156.0 ms, past eager PyTorch
 
 Measured on the 8060S (RADV STRIX_HALO), not the Ada the entries below use.

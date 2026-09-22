@@ -163,3 +163,49 @@ end
         @test_skip false
     end
 end
+
+# `col` is `Float16`, so one element a thread is a 2-byte store — half of what a
+# lane can retire — and the column decomposition above it (four divisions and
+# two remainders) is paid per element rather than per column. `IM2COL_VEC`
+# threads write a PAIR. That is only sound while the pair stays inside one
+# column, which is `MP % 2 == 0`; `padgemm` rounds to `GEMM_BLOCK = 192`, so it
+# always is, and the launcher asks rather than relying on it.
+@testset "the paired im2col store writes what the scalar one writes" begin
+    back = LavaBackend()
+    dev = DNNKernels.caps(back)
+    if dev.coopmat && dev.coopmatsubgroup == 32
+        @test DKC.IM2COL_VEC == 2
+        rng = MersenneTwister(0x1520c0)
+        # Small enough to run whole, and chosen so the pad cases are all here:
+        # a `Cin` the tile does not divide, a stem-shaped 3, and an odd spatial
+        # extent so `NPQ` is not a multiple of anything.
+        for (Cin, Cout, H, W) in ((144, 144, 12, 12), (288, 144, 9, 11),
+                                  (3, 32, 13, 13), (40, 24, 8, 8))
+            x = KA.allocate(back, Float16, W, H, Cin, 1)
+            w = KA.allocate(back, Float16, 3, 3, Cin, Cout)
+            o = KA.allocate(back, Float16, W, H, Cout, 1)
+            plan = DNNKernels.conv_coopmat_plan(dev, o, x, w)
+            plan isa DNNKernels.ConvCoopMatPlan || (x = w = o = nothing; continue)
+            MP = DNNKernels.padgemm(plan.rows)
+            @test MP % DKC.IM2COL_VEC == 0
+            copyto!(x, Float16.(randn(rng, Float32, W, H, Cin, 1) .* 0.3f0))
+            ntot = MP * plan.CRSP
+            scalar = KA.allocate(back, Float16, MP, plan.CRSP)
+            paired = KA.allocate(back, Float16, MP, plan.CRSP)
+            for (dst, vec) in ((scalar, 1), (paired, DKC.IM2COL_VEC))
+                fill!(dst, Float16(0))
+                DNNKernels.im2col_kernel!(back)(dst, x, Val(MP), Val(vec),
+                    Val(3), Val(3), Val(1), Val(1), Val(1), Val(1), Val(1), Val(1),
+                    Val(W), Val(H), W, H, plan.rows, ntot, Cin, 0;
+                    ndrange = cld(ntot, vec))
+            end
+            KA.synchronize(back)
+            # BIT-identical, not close: the pair changes which thread writes a
+            # cell, never what it writes.
+            @test Array(scalar) == Array(paired)
+            x = w = o = scalar = paired = nothing; GC.gc()
+        end
+    else
+        @test_skip false
+    end
+end

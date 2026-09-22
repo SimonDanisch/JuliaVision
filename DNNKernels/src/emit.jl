@@ -4211,11 +4211,16 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
         p0 = c * ROWS
         npqc = min(ROWS, NPQ - p0)
         sfx = nchunk == 1 ? "" : ".$(c + 1)"
+        # `IM2COL_VEC` rows a thread, the same as the immediate path takes —
+        # this is the DECLARED copy of that launch and the two have to agree on
+        # the kernel's signature, not merely on its arguments.
+        vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
         M.dispatch!(emitctx.g, im2col_kernel!,
-                    (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
+                    (col, x, Val(MP), Val(vec),
+                     Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
                      Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
                      Val(OW), Val(OH),
-                     Wid, Hei, npqc, MP * CRSP, Cin, p0), MP * CRSP;
+                     Wid, Hei, npqc, MP * CRSP, Cin, p0), cld(MP * CRSP, vec);
                     name = "$(op.id).im2col$(sfx)")
         if native
             M.native_gemm_dispatch!(emitctx.dev, emitctx.g,
