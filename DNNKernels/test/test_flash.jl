@@ -128,24 +128,32 @@ end
     end
 
     @testset "scalar flash is a recordable declared pass" begin
-        dev = Mantle.Device(back)
+        # `gdev`, NOT `dev`. Allocating a buffer needs the concrete device while
+        # every predicate in this file takes the `DeviceCaps` bound above, and
+        # `@testset` does not open a scope that an assignment stays inside: a
+        # `dev = Mantle.Device(back)` here REBOUND the outer `dev` for every
+        # testset that follows, so the tiling chooser and the plan builders were
+        # handed a `LavaDevice` and threw `MethodError` from there to the end of
+        # the file. Only the testsets after this one failed, which is what an
+        # order-dependent rebinding looks like.
+        gdev = Mantle.Device(back)
         E, L, H, B = 72, 128, 2, 1
         qh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
         kh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
         vh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
-        q = Mantle.Buffer(dev, qh)
-        k = Mantle.Buffer(dev, kh)
-        v = Mantle.Buffer(dev, vh)
-        out = Mantle.Buffer(dev, Float16, (E,L,H,B))
-        graph = Mantle.Graph(dev)
+        q = Mantle.Buffer(gdev, qh)
+        k = Mantle.Buffer(gdev, kh)
+        v = Mantle.Buffer(gdev, vh)
+        out = Mantle.Buffer(gdev, Float16, (E,L,H,B))
+        graph = Mantle.Graph(gdev)
         op = DNNKernels.Op("flash", "fused.sdpa", String[], "flash",
                            Dict{String,Any}())
         emitctx = DNNKernels.EmitCtx(
             DNNKernels.Graph("flash", String[], String[], String[],
                              Dict{String,DNNKernels.Buffer}(), String[],
                              DNNKernels.Op[], Vector{Vector{String}}()),
-            graph, dev, NamedTuple(), Dict{String,Any}("flash" => out),
-            Set{String}(), Ref("flash"), Any[])
+            graph, gdev, NamedTuple(), Dict{String,Any}("flash" => out),
+            Set{String}(), Ref("flash"), Any[], Dict{String,Any}())
         scale = Float32(inv(sqrt(E)))
         @test DNNKernels.scalarflash_dispatch!(emitctx, op, out, q, k, v,
                                                 nothing, scale)
@@ -153,7 +161,7 @@ end
         plan = Mantle.Plan(graph)
         Mantle.record!(plan)
         Mantle.run!(plan)
-        Mantle.waitidle(dev)
+        Mantle.waitidle(gdev)
         got = Array(Mantle.storage(out))
         ref = attnref(Float32.(qh), Float32.(kh), Float32.(vh), scale)
         @test maximum(abs, Float32.(got) .- ref) < 2e-3
@@ -507,7 +515,15 @@ end
     # answer, and it carries the tiling that decision was made with.
     p = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
     @test p isa DNNKernels.FlashCMPlan
-    @test (p.BR, p.BC, p.NW) == DNNKernels.flashcm_tiling(dev, E, L, L, H * B)
+    # `globalkv`/`fragments`, because `E = 72` is a PADDED head and those are the
+    # terms the plan asked the chooser on: `EP != E` no longer refuses the tiled
+    # path, it slides the last `e` tile onto the tensor instead, and the tiled
+    # table ranks the shapes the other way round. Asking without them compares
+    # the plan against a question it did not ask.
+    @test p.globalkv
+    @test (p.BR, p.BC, p.NW) ==
+          DNNKernels.flashcm_tiling(dev, E, L, L, H * B; globalkv = true,
+                                    fragments = true)
     # coopmatsubgroup, not subgroup — see the comment at :166. The plan builds
     # NT as NW * dev.coopmatsubgroup (flash.jl:1250).
     @test p.NT == p.NW * dev.coopmatsubgroup
@@ -516,8 +532,14 @@ end
     # ── Every refusal is named, so a caller can react and a test can assert
     # which rule fired. `nothing` could do neither.
     @test DNNKernels.flashcm_plan(dev, q, k, v, k).reason === :bias
+    # 83208 bytes fragment-held at `E = 72`, against a 65536 budget.
+    @test DNNKernels.flashcm_plan(dev, q, k, v, nothing; BR = 128, BC = 64,
+                                  NW = 16).reason === :tiling
+    # `(64, 64)/8` was this refusal until the slide, and what changed is not the
+    # footprint: a padded head reaching the tiled path makes `holdtiles` true at
+    # any width, which is what removes `pvs` and brings 67912 down to 47112.
     @test DNNKernels.flashcm_plan(dev, q, k, v, nothing; BR = 64, BC = 64,
-                                  NW = 8).reason === :tiling
+                                  NW = 8) isa DNNKernels.FlashCMPlan
     f32 = DNNKernels.toback(back, randn(Float32, E, L, H, B))
     @test DNNKernels.flashcm_plan(dev, f32, k, v, nothing).reason === :eltype
     nocm = DNNKernels.M.DeviceCaps(dev; coopmat = false)
@@ -546,10 +568,18 @@ end
     @test DNNKernels.flashcm_tiling(resident64, 72, 4096, 4096) == (128, 16, 16)
     @test DNNKernels.flashcm_tiling(resident64, 72, 256, 256) == (128, 32, 16)
     @test DNNKernels.flashcm_tiling(resident64, 72, 64, 64) == (64, 16, 16)
+    # The three above are the widening rule itself, asked of the chooser that
+    # owns it. A PLAN at this shape no longer reaches it: `E = 72` reads its
+    # operands as tiles now, and the widening is explicitly not for those
+    # launches — "there is no block to move" — so the tiled table's narrow entry
+    # is what a padded head gets on this device too.
     pr64 = DNNKernels.flashcm_plan(resident64, q, k, v, nothing)
     @test pr64 isa DNNKernels.FlashCMPlan
-    @test pr64.NW == 16
-    @test pr64.NT == 512
+    @test pr64.globalkv
+    @test (pr64.BR, pr64.BC, pr64.NW) ==
+          DNNKernels.flashcm_tiling(resident64, E, L, L, H * B; globalkv = true,
+                                    fragments = true)
+    @test pr64.NT == pr64.NW * 32
     @test !pr64.rego
     @test pr64.held
     # The selected 128-row tile fits only because the held direct store removes
@@ -1008,15 +1038,26 @@ end
     end
 end
 
-# One pass over the scores or two, by head width.
+# One pass over the scores or two: head width AND rows per warp.
 #
 # One pass reads each score once and redoes the block when a row's maximum grew
-# past the fp16 headroom; two passes read every score twice and never redo.
-# Which wins is a property of `E`, and the default used to be one answer for
-# both halves of it: measured on an 8060S at `Lq = Lk = 4096`, two passes win
-# by 7.6% at `E = 128` and 3.1% at 96, one pass wins by 2.8% at 80 and 3.8% at
-# 64. Qwen-Image 2.1's head is 128.
-@testset "the score pass count follows the head width" begin
+# past the fp16 headroom; two passes read every score twice and never redo. The
+# width half is the older measurement: at `Lq = Lk = 4096`, two passes win by
+# 7.6% at `E = 128` and 3.1% at 96, one pass by 2.8% at 80 and 3.8% at 64.
+#
+# Rows per warp is the second half and it dominates, because the more rows a
+# warp owns the likelier one of them forces the redo. Measured at `L = 4096`,
+# two passes winning:
+#
+#     BR/NW   E=64 H=8   E=64 H=32   E=80 H=8
+#       8      -19.4%      -50.4%     -20.2%
+#       4       +0.3%       +0.8%      -2.6%
+#       2       +6.5%
+#
+# The width rule alone was calibrated when the chooser picked large tiles; it
+# now picks `BR = 16, NW = 2` for several shapes, where one pass costs 19% to
+# 50%.
+@testset "the score pass count follows width and rows per warp" begin
     back = LavaBackend()
     dev = DNNKernels.Ctx(back).dev
     if dev.coopmat
@@ -1025,14 +1066,212 @@ end
         wide = plan(128)
         narrow = plan(64)
         @test wide isa DNNKernels.FlashCMPlan && narrow isa DNNKernels.FlashCMPlan
+        # A wide head is two passes whatever the tile.
         @test !wide.onepass
-        @test narrow.onepass
-        # The crossing, which is where the measurement put it.
         @test !plan(96).onepass
-        @test plan(80).onepass
+        @test !plan(128; BC = 32, BR = 16, NW = 4).onepass
+        # A narrow head follows the tile: 4 rows a warp or fewer keeps one pass,
+        # 8 does not.
+        @test plan(64; BC = 32, BR = 16, NW = 4).onepass
+        @test plan(80; BC = 32, BR = 16, NW = 4).onepass
+        @test !plan(64; BC = 32, BR = 16, NW = 2).onepass
+        @test !plan(64; BC = 32, BR = 64, NW = 8).onepass
+        # Whatever the chooser picked, the rule is the one above.
+        @test narrow.onepass == (narrow.BR ÷ narrow.NW < 8)
         # And a caller who asks gets what it asked for, both ways.
         @test plan(128; onepass = true).onepass
-        @test !plan(64; onepass = false).onepass
+        @test !plan(64; BC = 32, BR = 16, NW = 4, onepass = false).onepass
+    else
+        @test_skip false
+    end
+end
+
+@testset "an admitted plan fits the shared memory the kernel will declare" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+
+    # What the launched kernel ACTUALLY allocates, computed the way the kernel
+    # does rather than the way the planner hoped. `pvs` — the `BR x EP` fp32
+    # staging for `P·V` — goes away only when `O` lives in cooperative-matrix
+    # FRAGMENTS, which is `held && !rego`: that is the value `flash_launches`
+    # passes as the kernel's `HELD`, and the branch that writes `pvs` is the one
+    # taken whenever it is false.
+    function declaredlds(dev, p)
+        epad, rpad = DNNKernels.flashepad(dev, p.EP), DNNKernels.flashrpad(dev, p.BR)
+        lds = DNNKernels.flashcmshared(p.EP, p.BR, p.BC, epad, rpad)
+        (p.held && !p.rego) && (lds -= 4 * (p.BR + rpad) * p.EP)
+        lds
+    end
+
+    if dev.coopmat
+        # Shapes the models in this tree run, plus every tiling a caller can name
+        # by hand. The budget check used to exempt `pvs` for any held plan, so a
+        # held plan that was ALSO `rego` was admitted on 20800 bytes it then
+        # allocated: at `E = 72`, `(64, 64)/16` was admitted at 47112 against a
+        # 65536 budget and the kernel declared 67912. Nothing reported it —
+        # `vkCreateComputePipelines` answered with SIGFPE.
+        shapes = [(72, 256, 256, 8, 2, false), (72, 4096, 4096, 8, 1, false),
+                  (72, 16, 16, 4, 8, false), (72, 23, 4096, 8, 1, true),
+                  (128, 512, 512, 4, 1, false), (64, 512, 512, 4, 1, false)]
+        tilings = [(;), (BR = 64, BC = 64, NW = 16), (BR = 64, BC = 32, NW = 16),
+                   (BR = 128, BC = 32, NW = 16), (BR = 32, BC = 32, NW = 8),
+                   (BR = 16, BC = 32, NW = 4), (BR = 64, BC = 64, NW = 16, rego = false),
+                   (BR = 64, BC = 64, NW = 16, rego = true)]
+        for (E, Lq, Lk, H, B, cl) in shapes
+            mk(L) = DNNKernels.toback(back, zeros(Float16, E, L, H, B))
+            q, k, v = mk(Lq), mk(Lk), mk(Lk)
+            for kw in tilings
+                p = DNNKernels.flashcm_plan(dev, q, k, v, nothing; clamp = cl, kw...)
+                p isa DNNKernels.FlashCMPlan || continue
+                @test declaredlds(dev, p) <= dev.sharedbudget
+            end
+        end
+
+        # The case above, pinned from both sides on this device's 64 KiB: the
+        # `rego` form does not fit and is refused by name, the fragment-held form
+        # does fit and is admitted. A device with a larger budget would admit
+        # both, which is why the sweep asserts the invariant and this asserts the
+        # arithmetic.
+        if dev.sharedbudget == 65536
+            sq(L) = DNNKernels.toback(back, zeros(Float16, 72, L, 8, 2))
+            q, k, v = sq(256), sq(256), sq(256)
+            @test DNNKernels.flashcm_plan(dev, q, k, v, nothing;
+                                          BR = 64, BC = 64, NW = 16).reason === :tiling
+            pf = DNNKernels.flashcm_plan(dev, q, k, v, nothing;
+                                         BR = 64, BC = 64, NW = 16, rego = false)
+            @test pf isa DNNKernels.FlashCMPlan
+            @test !pf.rego && pf.held
+            @test DNNKernels.flashcmshared(80, 64, 64, DNNKernels.flashepad(dev, 80),
+                                           DNNKernels.flashrpad(dev, 64)) > dev.sharedbudget
+            @test declaredlds(dev, pf) <= dev.sharedbudget
+        end
+    else
+        @test_skip false
+    end
+end
+
+@testset "a padded head reads its operands as tiles by sliding the last e tile" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+    rng = MersenneTwister(0x5e11de)
+
+    if dev.coopmat
+        # `EP == E` used to be a condition of the tiled path, and the reason was
+        # real: the `e` tile at `EP - GEMM_TILE` reaches past the head, and for
+        # the last head and batch past the TENSOR — at `E = 72` a 16-byte
+        # overrun of both K and V. The slide is the same answer `kwin` already
+        # gives on the key axis, and the overlap it creates is cancelled in Q,
+        # where the staging is ours, because the tensor core sums the `e` axis
+        # and nothing downstream can mask it.
+        #
+        # SAM 2's encoder is the shape this is for: 1152 channels over 16 heads
+        # is `E = 72` in all 48 of its attentions, and the windowed one measured
+        # 0.845 -> 0.505 ms, the global 7.551 -> 4.094, interleaved over three
+        # rounds against the same tree without it.
+        @test DNNKernels.flasheslide(72, 80)
+        @test DNNKernels.flasheslide(120, 128)
+        # A head that fills its tiles has nothing to slide …
+        @test !DNNKernels.flasheslide(64, 64)
+        # … and one narrower than a single tile has nowhere to slide TO: the
+        # offset would be negative.
+        @test !DNNKernels.flasheslide(8, 16)
+
+        # Only with the fragment write-out. `pvs` and `acco` index `O` by a row
+        # number the slide moves, and neither is told.
+        sk = sv = (1, 72, 72 * 256, 72 * 256 * 8)
+        @test DNNKernels.flashglobalkv(72, 80, sk, sv, 256, 32, true)
+        @test !DNNKernels.flashglobalkv(72, 80, sk, sv, 256, 32, false)
+        # A head that needs no slide never depended on the write-out.
+        @test DNNKernels.flashglobalkv(64, 64, sk, sv, 256, 32, false)
+        # The `e` axis still has to be the contiguous one.
+        @test !DNNKernels.flashglobalkv(72, 80, (72, 1, 0, 0), sv, 256, 32, true)
+
+        # The numbers, against a CPU reference, at every head width that pads —
+        # including one below two tiles, where the slide covers most of the head
+        # a second time and every one of those rows has to be cancelled.
+        for (E, L, H, B) in [(72, 32, 2, 1), (72, 64, 2, 1), (72, 256, 2, 1),
+                             (24, 64, 2, 1), (40, 48, 1, 2), (88, 32, 2, 1),
+                             (104, 32, 1, 1), (120, 32, 1, 1), (136, 32, 1, 1)]
+            qh = Float16.(randn(rng, Float32, E, L, H, B) .* 0.3f0)
+            kh = Float16.(randn(rng, Float32, E, L, H, B) .* 0.3f0)
+            vh = Float16.(randn(rng, Float32, E, L, H, B) .* 0.3f0)
+            q, k, v = DNNKernels.toback(back, qh), DNNKernels.toback(back, kh),
+                      DNNKernels.toback(back, vh)
+            o = KA.allocate(back, Float32, E, L, H, B); fill!(o, 0f0)
+            scale = Float32(1 / sqrt(E))
+            plan = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
+            plan isa DNNKernels.FlashCMPlan || continue
+            DNNKernels.sdpaflashcm!(ctx, o, plan, q, k, v, scale)
+            KA.synchronize(back)
+            got, want = Array(o), attnref(qh, kh, vh, scale)
+            # fp16 operands against an fp32 reference: 2e-3 is two orders above
+            # what every one of these measures and an order below a wrong tile.
+            @test sqrt(sum(abs2, got .- want) / sum(abs2, want)) < 2e-3
+        end
+
+        # The tail tile is read at `E - GEMM_TILE`, so the LAST head and batch —
+        # the only place an unslid tile would leave the tensor — has to be right
+        # too. A reference that differs only there would be invisible above.
+        E, L, H, B = 72, 64, 3, 2
+        qh = Float16.(randn(rng, Float32, E, L, H, B) .* 0.3f0)
+        kh = Float16.(randn(rng, Float32, E, L, H, B) .* 0.3f0)
+        vh = Float16.(randn(rng, Float32, E, L, H, B) .* 0.3f0)
+        q, k, v = DNNKernels.toback(back, qh), DNNKernels.toback(back, kh),
+                  DNNKernels.toback(back, vh)
+        o = KA.allocate(back, Float32, E, L, H, B); fill!(o, 0f0)
+        scale = Float32(1 / sqrt(E))
+        plan = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
+        @test plan.globalkv
+        DNNKernels.sdpaflashcm!(ctx, o, plan, q, k, v, scale)
+        KA.synchronize(back)
+        got, want = Array(o), attnref(qh, kh, vh, scale)
+        tail = view(got, :, :, H, B) .- view(want, :, :, H, B)
+        @test sqrt(sum(abs2, tail) / sum(abs2, view(want, :, :, H, B))) < 2e-3
+        # And the rows the slide re-covers carry no second copy of themselves:
+        # the `e` a whole tile already summed is staged as zero in Q.
+        @test sqrt(sum(abs2, got .- want) / sum(abs2, want)) < 2e-3
+
+        # **`plan.globalkv` is what the LAUNCH will do, not which table the
+        # tiling came from.** `tiled` is settled before there is a `BC` or a
+        # decision about where `O` lives, and a slid `e` tail needs both — so a
+        # plan that carried the table's answer into the field could say `true`
+        # where `flashglobalkv(plan, …)` says `false`, and then every launch of
+        # it threw the A/B guard. The chooser cannot build one; a caller naming
+        # its own tiling can, and `sdpaflashcm!`'s five-argument form names one
+        # by default. Every explicit tiling at a padded head has to LAUNCH.
+        # Own names throughout: a `for` body at test top level assigns the
+        # ENCLOSING binding, and nulling `q`/`k`/`v` here would pull them out
+        # from under the staged A/B below.
+        for (Ee, Le, He, Be) in ((72, 16, 4, 64), (72, 64, 8, 4), (88, 32, 2, 1),
+                                 (120, 32, 1, 1))
+            mke() = DNNKernels.toback(back,
+                        Float16.(randn(rng, Float32, Ee, Le, He, Be) .* 0.3f0))
+            qe, ke, ve = mke(), mke(), mke()
+            oe = KA.allocate(back, Float32, Ee, Le, He, Be); fill!(oe, 0f0)
+            ske, sve = DNNKernels.flashstrides(ke), DNNKernels.flashstrides(ve)
+            for kw in ((;), (BR = 16, BC = 16, NW = 4), (BR = 16, BC = 16, NW = 2),
+                       (BR = 16, BC = 32, NW = 4), (BR = 32, BC = 32, NW = 8),
+                       (BR = 64, BC = 32, NW = 16))
+                pe = DNNKernels.flashcm_plan(dev, qe, ke, ve, nothing; kw...)
+                pe isa DNNKernels.FlashCMPlan || continue
+                # The field and the predicate have to agree, which is what makes
+                # the guard in `flash_launches` unreachable from a valid plan.
+                @test !pe.globalkv || DNNKernels.flashglobalkv(pe, ske, sve, Le)
+                DNNKernels.sdpaflashcm!(ctx, oe, pe, qe, ke, ve, Float32(1 / sqrt(Ee)))
+            end
+            KA.synchronize(back)
+            @test all(isfinite, Array(oe))
+            qe = ke = ve = oe = nothing; GC.gc()
+        end
+
+        # Same numbers either way. `globalkv = false` runs the staged kernel on
+        # the identical plan, which is the A/B the slide has to survive.
+        ostaged = KA.allocate(back, Float32, E, L, H, B); fill!(ostaged, 0f0)
+        DNNKernels.sdpaflashcm!(ctx, ostaged, plan, q, k, v, scale; globalkv = false)
+        KA.synchronize(back)
+        @test sqrt(sum(abs2, Array(ostaged) .- want) / sum(abs2, want)) < 2e-3
     else
         @test_skip false
     end

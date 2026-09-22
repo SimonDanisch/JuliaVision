@@ -275,3 +275,34 @@ if isfile(base)
 else
     println("\n(no pytorch_baseline.json — run tools/sam2_pytorch_baseline.py)")
 end
+
+# Recorded, like the two Python harnesses record theirs. Without this our column
+# lived only in a terminal, so a comparison could quote the vendor's number from
+# a file and ours from memory.
+#
+# `sm_clock_mhz` for the same reason `sam2_pytorch_baseline.py` records it: this
+# part idles at 600 MHz and boosts past 2900, and two runs at different clocks
+# are not comparable. Missing rather than guessed when `rocm-smi` is absent.
+if mode == "gpu"
+    clock = try
+        m = match(r"(\d+)\s*Mhz", read(`rocm-smi --showclocks`, String))
+        m === nothing ? nothing : parse(Int, m.captures[1])
+    catch err
+        err isa Base.IOError || err isa Base.ProcessFailedException || rethrow()
+        nothing
+    end
+    out = joinpath(dirname(BASELINE), "lava_baseline.json")
+    open(out, "w") do io
+        DNNKernels.JSON3.pretty(io, Dict(
+            "runtime" => "lava",
+            "device" => string(Mantle.devicename(Mantle.todevice(backend))),
+            "res" => RES,
+            "sm_clock_mhz" => clock,
+            "encode_ms" => Dict("min" => e.min, "p50" => e.p50),
+            "decode_ms" => Dict("min" => d.min, "p50" => d.p50),
+            "click_ms" => Dict("min" => c.min, "p50" => c.p50),
+            "live_mib" => livemib,
+            "encoder_worst_relative" => encworst))
+    end
+    println("\nwrote $(relpath(out, pwd()))")
+end

@@ -18,6 +18,146 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22 (later still): the gathered-A convolution, built and REJECTED
+
+The obvious next move after the im2col pairing was to delete the im2col matrix
+altogether: stage the `A` tile into shared memory by gathering it from `x`, one
+`(BM x BK)` block at a time, exactly as `Mantle`'s staged GEMM stages its own.
+The header of `conv_coopmat.jl` said that was impossible — no cooperative-matrix
+load from workgroup storage — and **that was stale**: `flash.jl` has been doing
+it for months. So the reason the tree materialises a 9x-amplified matrix was a
+premise that had expired, which is a good reason to go and check.
+
+It was built, it is correct, and it loses. Staged GEMM tiling `64 x 128 x 32` on
+256 threads, output within 1e-4 of the definition on every shape:
+
+    Cin -> Cout   spatial     im2col     gathered   column blocks
+     144 -> 144   1024x1024    84.0 ms    75.7 ms   1.11x    2
+     288 -> 144   1024x1024   145.2      169.7      0.86x    2
+     288 -> 288   1024x1024   181.7      285.3      0.64x    3
+     576 -> 576     512x512   131.1      271.9      0.48x    5
+    1152 -> 1152    256x256    90.0      279.0      0.32x    9
+    1152 -> 1152    128x128    32.2       63.8      0.50x    9
+                                         TOTAL      0.58x
+
+**The speedup tracks the column-block count and nothing else.** A gathered `A`
+is recomputed once per `BN`-wide block of output channels; the im2col matrix is
+computed once and re-read. At `Cout = 144` that is 2x the gather work, at 1152
+it is 9x, and the column is the ratio. The memory round trip wins because it is
+largely cache-resident — the same effect `IM2COL_CAP`'s note records from the
+other side. No tiling fixes this; it is the schedule.
+
+Three hypotheses were tested on the way and **none of them explained the gap**,
+which is why the table above is the conclusion rather than a waypoint:
+
+  * *Block too narrow.* The first cut was `64 x 64` on 128 threads — half the
+    arithmetic per staged element. Widening to the reference's `64 x 128` on 256
+    moved a flat 3.5 TFLOP/s to a flat 4.7. Not it.
+  * *The gather recomputes the pixel decomposition.* `WG % BM == 0` makes `i`
+    equal `tid % BM` for every iteration, so `ow`, `oh` and `n` are loop
+    invariant. Hoisting them moved 3.14 -> 3.14 TFLOP/s on the shape it should
+    have helped most. The compiler had already done it.
+  * *The tap loop unrolls nine times.* `KW*KH` is a `Val`, and RADV reported 184
+    live scalar registers against the staged GEMM's 13, with 74 spilled. Passing
+    the trip count as a runtime argument so it cannot unroll changed the
+    register pressure by one and the time by nothing.
+
+What DID help was blocking the reduction by TAP rather than walking `CRS` flat,
+which takes the two divisions that recover `(kw, kh, cin)` out of the innermost
+loop: 3.14 -> 5.23 TFLOP/s on `144 -> 144`, and it is what makes that one shape
+win at all. Worth knowing if anyone writes this kernel for a device where the
+arithmetic is cheaper relative to the memory.
+
+**Also worth knowing: RADV's `Latency` stat did not track this kernel.** It went
+31302 -> 59444 across the change that made the kernel 15% FASTER, and back to
+30838 across one that did nothing. `SALU` and `Pre-Sched SGPRs` were informative;
+that field was not.
+
+## 2026-09-22 (later): the im2col writes a PAIR — the six VAE convolutions 682.7 -> 613.3 ms
+
+Also on the 8060S. With attention off the top of the list, the widest gaps in
+`tools/gap_vs_rocm.jl` are the Qwen-Image 2.1 VAE's 3x3 convolutions, and they
+decompose per chunk (im2col / GEMM / epilogue, summing to the total within 1%):
+
+    Cin -> Cout   chunks   im2col   gemm    epi
+     144 -> 144       11     3.12   3.44   0.45
+     288 -> 144       21     3.67   3.46   0.32
+     288 -> 288       21     3.37   5.42   0.51
+    1152 -> 1152       6     3.24  13.06   0.50
+
+**The GEMM is not the problem — it runs at 18-20 TFLOP/s.** im2col is half the
+cost of the two worst shapes, and it wrote one `Float16` a thread: a 2-byte
+store where a lane can retire four or more, with the column decomposition (four
+divisions and two remainders) paid per element. A pair fixes both; see
+`IM2COL_VEC`. 1.11x on the family, bit-identical output.
+
+Two things this measurement got wrong first, both recorded at `IM2COL_VEC`
+because they will recur:
+
+  * **The isolated kernel benchmark is warm.** It re-runs the same chunk, so it
+    reported 1.14-1.37x where the cold streaming loop gives ~1.05-1.15x.
+  * **Revise silently did not apply `conv_coopmat.jl`.** `Revise.revise()`
+    returned with no errors and `isdefined(DNNKernels, :IM2COL_VEC)` was still
+    false, so an A/B that swapped the file on disk compared the old kernel
+    against itself and reported 0.99x. Check the CONSTANT, not the file.
+
+What this does NOT fix, and is the next thing here: `Cout = 144` runs the GEMM
+at `CoutP = 256`, so 44% of the multiply is zero columns. That is not a bad
+choice — `convcoutpad` picks it because the staged GEMM has only `bn` 64 and
+128, 128 is worth ~1.8x per column, and 256 at 16.15 TFLOP/s beats 192 at 9.32
+— it is a missing tiling. A `bn = 64` tiling that ran like the `bn = 128` ones
+would make `Cout = 144` take 192 and be worth another ~1.2x on the two 144
+shapes.
+
+## 2026-09-22: `E = 72` stopped staging K and V — encode 178.1 -> 156.0 ms, past eager PyTorch
+
+Measured on the 8060S (RADV STRIX_HALO), not the Ada the entries below use.
+
+`flashglobalkv` refused the tiled path whenever `EP != E`, and the reason was
+real: a cooperative-matrix load has no per-ROW bound either, so the `e` tile at
+`EP - GEMM_TILE` reaches past the head, and for the last head and batch past the
+tensor — at `E = 72` a 16-byte overrun of both K and V. SAM 2's encoder is
+`E = 72` in all 48 of its attentions, so every one of them staged.
+
+The answer is the one `kwin` already gives on the KEY axis: slide the last tile
+back onto the tensor. The overlap it creates cannot be masked — the `e` axis is
+summed inside the tensor core, where nothing downstream can reach it — so it is
+cancelled in **Q** instead, which is ours: the rows the slide re-covers are
+staged as zero. `flasheslide`, and the staging loop in the kernel.
+
+    shape (E=72)          staged    slid tiled
+    windowed 256x256      0.845      0.505 ms    1.67x
+    global 4096x4096      7.551      4.094 ms    1.84x
+
+interleaved over three rounds, minimum of twenty timed runs each. Head widths
+that already filled their tiles are untouched to within noise (`E = 64` 1.01x,
+`E = 80` 0.98x), which is what a compile-time-false `Val` should do.
+
+End to end, both orderings in fresh processes, because the second run of
+anything in a worn session is ~5% slow:
+
+                        before    after
+    encode p50       178.05 ms  156.00 ms     (after second)
+    encode p50       179.40 ms  152.95 ms     (after first)
+    vs eager PyTorch     94.5%     107.9%
+
+Memory is unchanged at 1219 MiB live. The 2055 MiB an earlier read showed was a
+second model built in the same session, not a difference between the two.
+
+**The parity gate moved and was re-banded, not silenced.** `add_129` went 0.4752
+-> 1.014 and `SAM2Runner/test/runtests.jl` carries the whole argument: the slide
+is bit-identical to staging on the same plan (`0.000e+00`, three shapes), the
+fragment accumulator at the old tiling is 0.4211, so what moved it is the tiling
+the tiled table picks — and this node has ~500x gain on any change at all. The
+model's own outputs went the OTHER way: mask 3's IoU 0.95455 -> 0.97727.
+
+Two bugs fell out of the same afternoon and are fixed with tests:
+`Lava/test/spirv/test_packed_private_scalar.jl` (a `zext`/`trunc` built on a
+`half` — invalid LLVM the C builder accepts, which reached SPIR-V as a bare
+`OpUConvert %uint`), and `flashcmfits` exempting `pvs` for any HELD plan when
+only the FRAGMENT-held one is without it, which admitted `(64, 64)/16` at 47112
+bytes against a kernel that then declared 67912.
+
 ## 2026-08-11: attention improved 33% and is STILL the largest gap
 
 **Do not read the section below as "attention is done".** After the coopmat2

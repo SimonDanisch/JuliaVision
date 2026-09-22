@@ -461,6 +461,26 @@ of the device rather than of the kernel.
 end
 
 """
+    flashholdregs(dev, BR, EP, NT, NW, autotiling) -> Bool
+
+Whether `O` will live in a private register array rather than in
+cooperative-matrix fragments, with `rego` left to default.
+
+Here rather than inline in `flashcm_plan` because `flashcmfits` needs the same
+answer: `pvs` is freed by the FRAGMENTS, so the footprint exemption and the
+placement decision have to be the same decision. They were not, and the tiling
+that admitted was 20800 bytes past the budget. The reasoning behind the ratio,
+and the two vendors' sweeps it comes from, is at the call site in
+`flashcm_plan`.
+"""
+@inline function flashholdregs(dev::M.DeviceCaps, BR::Int, EP::Int, NT::Int,
+                               NW::Int, autotiling::Bool)
+    occupancy_only_widened = autotiling && dev.subgroup == dev.coopmatsubgroup &&
+                             dev.warps >= 64 && NW >= 16
+    (BR * EP) ÷ (occupancy_only_widened ? NT ÷ 2 : NT) <= 10
+end
+
+"""
     flashrescale(row, col, element, cs, base) -> Float32
 
 `element * cs[base + row]` — the rescale a held `O` needs, as the callback of
@@ -551,13 +571,14 @@ kclampsubst(ex, v) = ex === :KC ? v :
         ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
         ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM}, ::Val{SMOFF},
-        ::Val{LDOFF}, ::Val{S16}, ::Val{LSPLIT}, ::Val{GLOBALKV}, ::Val{BAROFF},
+        ::Val{LDOFF}, ::Val{S16}, ::Val{LSPLIT}, ::Val{GLOBALKV}, ::Val{ESLIDE},
+        ::Val{BAROFF},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
         ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,S16,LSPLIT,GLOBALKV,BAROFF,
+                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,S16,LSPLIT,GLOBALKV,ESLIDE,BAROFF,
                             WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
@@ -690,8 +711,25 @@ kclampsubst(ex, v) = ex === :KC ? v :
             # every one of its attentions has a 23 in it, the mask prompt's token
             # count, and 23 does not tile to 16.
             inq = !CLAMP || q0 + lq < Lq
-            qs[1 + e + lq * EPS] = (e < E && inq) ?
-                q[qbase + Int32(e) * qsE + Int32(q0 + lq) * qsL +
+            # `ESLIDE` slides the LAST `e` tile back onto the tensor, exactly as
+            # `kwin` slides the last KEY tile: a cooperative-matrix load has no
+            # per-row bound either, so at `EP != E` a tile starting at
+            # `EP - GEMM_TILE` reads past the head — past the whole tensor, for
+            # its last head and batch. The tile is taken at `E - GEMM_TILE`
+            # instead, which is always inside it.
+            #
+            # What slides into view was already counted by the tile below, and
+            # unlike a key it cannot be masked out of the softmax — it is summed
+            # inside the tensor core. So it is cancelled in **Q** instead, which
+            # is ours: the rows the slide re-covers are staged as zero, and a
+            # zero times whatever K holds there contributes nothing. The tail
+            # tile therefore covers exactly `e in [(ET-1)*GEMM_TILE, E)`, which
+            # is the part the whole tiles miss.
+            esrc = (ESLIDE && e >= EP - Mantle.GEMM_TILE) ? e - (EP - E) : e
+            keep = (ESLIDE && e >= EP - Mantle.GEMM_TILE) ?
+                   esrc >= EP - Mantle.GEMM_TILE : esrc < E
+            qs[1 + e + lq * EPS] = (keep && inq) ?
+                q[qbase + Int32(esrc) * qsE + Int32(q0 + lq) * qsL +
                   Int32(h - 1) * qsH + Int32(b - 1) * qsB] : zero(Float16)
         end
         if REGO
@@ -927,7 +965,9 @@ kclampsubst(ex, v) = ex === :KC ? v :
                     bm = !stagekv ?
                         Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                             pointer(k),
-                            kb0 + Int32(et * Mantle.GEMM_TILE) +
+                            kb0 + (ESLIDE && et == ET - 1 ?
+                                   Int32(E - Mantle.GEMM_TILE) :
+                                   Int32(et * Mantle.GEMM_TILE)) +
                                   Int32(kwin + ct * Mantle.GEMM_TILE) * ksL,
                             ksL, Val(false)) :
                         Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
@@ -1192,7 +1232,9 @@ kclampsubst(ex, v) = ex === :KC ? v :
                             bm = !stagekv ?
                                 Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                                     pointer(v),
-                                    vb0 + Int32(et_j * Mantle.GEMM_TILE) +
+                                    vb0 + (ESLIDE && et_j == ET - 1 ?
+                                           Int32(E - Mantle.GEMM_TILE) :
+                                           Int32(et_j * Mantle.GEMM_TILE)) +
                                           Int32(kwin + ct * Mantle.GEMM_TILE) * vsL,
                                     vsL, Val(true)) :
                                 Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
@@ -1341,8 +1383,20 @@ kclampsubst(ex, v) = ex === :KC ? v :
                     et_j = t_j ÷ RT
                     Base.Cartesian.@nexprs 8 i -> begin
                         lq_i = rt_j * Mantle.GEMM_TILE + orow_i
-                        e_i = et_j * Mantle.GEMM_TILE + ocol_i
-                        if e_i < E && (!CLAMP || q0 + lq_i < Lq)
+                        # The slid tail accumulates `O` for `e in [E - GEMM_TILE, E)`
+                        # rather than for `[EP - GEMM_TILE, EP)`, so it writes
+                        # there — and the tile BELOW it stops at `E - GEMM_TILE`
+                        # rather than writing the same rows a second time. Both
+                        # hold the same value for the overlap (same `P`, same
+                        # `V`, same order), but two subgroups storing to one
+                        # address is a race whichever way it lands.
+                        e_i = (ESLIDE && et_j == ET - 1) ?
+                              E - Mantle.GEMM_TILE + ocol_i :
+                              et_j * Mantle.GEMM_TILE + ocol_i
+                        eok_i = ESLIDE ?
+                                (et_j == ET - 1 || e_i < E - Mantle.GEMM_TILE) :
+                                e_i < E
+                        if eok_i && (!CLAMP || q0 + lq_i < Lq)
                             o_i = Mantle.coopmat_getcomp(acc_j, Int32(i - 1))
                             if NSPLIT == 1 && PARTOUT < 0
                                 l_i = ls[1 + lq_i]
@@ -1701,6 +1755,37 @@ admissible grid, with the operands read as tiles and `O` held in fragments:
     (64, 32, 16)        1.28x           1.43x          1.58x
 
 The last row is what `FLASHCM_TILINGS` picks, and it is 28% to 58% off.
+
+## A WIDER KEY BLOCK LOSES, at both head widths, and the reason it looks right
+
+AOTriton's RDNA4 tuning notes argue for it: "small head_dim is softmax-bound,
+not saturation-bound ... a wider KV tile amortises the per-tile part of that —
+the correction exp, the m/l update, the O rescale and the barriers — across
+more KV columns", with `head_dim 16: BN=32 -> 37.4, BN=64 -> 44.6, BN=128 ->
+48.2 TFLOP/s`. Two more things point the same way from here: `BC` is 32 in
+every entry above, and at `BR = 16` the score product is `RT*CT = 2` tiles over
+`NW = 4` subgroups, so HALF the subgroups are idle in `Q·Kᵀ` and a wider `BC`
+is what balances them.
+
+It is still a loss, measured both ways round:
+
+    E = 72, L = 256, H = 8, B = 16, `rego` matched on both sides
+      (64, 32)/16   0.812 ms     (64, 64)/16   1.391 ms    +71%
+    E = 128, L = 4096, H = 32   (TFLOP/s, higher is better)
+      (16, 32)/4   12.58        (16,  64)/4   10.79
+      (32, 32)/8   11.67        (32,  64)/8    7.83
+                                (16, 128)/8    7.35
+
+Every entry with `RT*CT / NW == 1` — no idle subgroup in the score product —
+loses to the one at `0.5` beside it. AMD's measurement is at head_dim 16 and
+32, where the softmax really is the whole cost; at 72 and 128 it is not, and
+what a wider `BC` buys in balance it loses somewhere else. The tiling this
+table already picks is the best of everything that compiles at both widths.
+
+**The `(64, 64)/16` entry at `E = 72` is also a good way to waste an afternoon**:
+it needs `rego = false` to fit 65536 bytes of LDS at all, and asking for it
+without that used to be admitted by an under-counting budget check and then
+answered by the driver with a SIGFPE. See `flashholdregs`.
 """
 const FLASHCM_TILINGS_TILED = [(16, 32, 2), (16, 32, 4), (16, 16, 2), (16, 16, 4),
                                (16, 64, 2), (16, 64, 4), (32, 32, 8), (32, 16, 8),
@@ -1724,7 +1809,13 @@ subgroup width appears twice with different meanings: the device's *default*
 Lava pins to 32. The tiling needs the second.
 """
 function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
-                        clamp::Bool = false, globalkv::Bool = false)
+                        clamp::Bool = false, globalkv::Bool = false,
+                        # "This shape reaches the tiled path only through the
+                        # slid `e` tail, so an entry that would put `O` in `pvs`
+                        # or in registers is not a candidate at all" — it would
+                        # be admitted here and then stage, on a table chosen for
+                        # operands it no longer reads as tiles.
+                        fragments::Bool = false)
     # `flashcm_plan` checks this before calling, but this is also reached
     # directly — from tests and from the docstring above. Without matrix hardware
     # there is no tile, and `cld(E, 0)` throws instead of reporting "no tiling".
@@ -1824,9 +1915,16 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # 7.24 at `(64, 32)`. Fitting is not the same as being worth it, and
         # what the 128 rows were measured to need is a processor that reports
         # its residency.
+        # `&& !flashholdregs(...)` for the reason given where the plan makes the
+        # same call: a `rego` launch stages `P·V` through `pvs`, so only a
+        # FRAGMENT-held one may be counted without it. Without this the chooser
+        # can return a tiling the plan then refuses, and the whole attention
+        # declines rather than falling to the next entry in the table.
         helddirect = (NW >= 16 || globalkv) &&
-                     (BR < 128 || (dev.warps >= 64 && Lq == Lk && Lq >= BR))
-        flashcmfits(dev, EP, BR, BC, NT, helddirect) && (BR * E) % NT == 0 &&
+                     (BR < 128 || (dev.warps >= 64 && Lq == Lk && Lq >= BR)) &&
+                     !flashholdregs(dev, BR, EP, NT, NW, true)
+        (!fragments || helddirect) &&
+            flashcmfits(dev, EP, BR, BC, NT, helddirect) && (BR * E) % NT == 0 &&
             !any(c -> c[1] == BR && c[2] == BC, fits) && push!(fits, (BR, BC, NW))
     end
     isempty(fits) && return nothing
@@ -1951,11 +2049,31 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # staging — correct, and a shape where the difference is a fraction of a
     # millisecond either way.
     sk, sv = flashstrides(k), flashstrides(v)
-    tiled = flashglobalkv(E, EP, sk, sv, Lk, dev.tile)
+    # A padded head can read its operands as tiles too, but only with the
+    # fragment write-out (`flasheslide`). Here that is "the caller has not ruled
+    # it out"; the tiling filter below refuses the entries that would rule it
+    # out, and `flashglobalkv(plan, …)` asks the settled plan again, so a launch
+    # that ends up on `pvs` stages after all.
+    mayfragment = (held === nothing || held === true) && rego !== true
+    tiled = flashglobalkv(E, EP, sk, sv, Lk, dev.tile, mayfragment)
+    # `EP != E` here means the tiled path exists ONLY through the slide, so the
+    # chooser may not return an entry that cannot carry it.
+    needfragment = tiled && EP != E
 
     autotiling = BR == 0
     tiling = if autotiling
-        flashcm_tiling(dev, E, Lq, Lk, H * B; clamp, globalkv = tiled)
+        t = flashcm_tiling(dev, E, Lq, Lk, H * B; clamp, globalkv = tiled,
+                           fragments = needfragment)
+        # A padded head whose shape has no FRAGMENT-held tiling has no slid
+        # tiled path, and must not decline on that account: the staged one it
+        # always had is still there. `E = 24` is the case — `EP = 32` and every
+        # tiled entry puts `O` in registers at that width.
+        if t === nothing && needfragment
+            tiled = false
+            needfragment = false
+            t = flashcm_tiling(dev, E, Lq, Lk, H * B; clamp, globalkv = false)
+        end
+        t
     else
         (BR, BC, NW)
     end
@@ -1970,6 +2088,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # short-prompt cross-attention.
     if tiled && Lk < BC
         tiled = false
+        needfragment = false
         tiling = flashcm_tiling(dev, E, Lq, Lk, H * B; clamp, globalkv = false)
         tiling === nothing && return Decline(:notiling)
         BR, BC, NW = tiling
@@ -1996,13 +2115,45 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)
     (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)
+    # ── Where `O` lives, decided from the tiling and not from the device ──────
+    #
+    # `O` in registers costs `BR * EP / NT` floats a thread and saves a read and a
+    # write of the whole accumulator per key block — 40 KB of a key block's ~110 KB
+    # of shared traffic. The Ada sweep found the crossing and wrote it down: the
+    # register form "wins at `32x32` and loses at `64x32`, crossing where
+    # `BR*EP/NT` goes from 10 floats a thread to 20", which is why this shipped
+    # off with `64x32/8`.
+    #
+    # The RDNA 3.5 sweep lands on the same number from the other side: at
+    # `64x32/16` the same `O` is 10 floats a thread and the register form wins,
+    # 10.10 ms against 8.41 at `Lq = Lk = 4096`. So the rule is the ratio, and two
+    # vendors' hardware agrees on where it turns — a default of `false` would now
+    # be wrong for the tiling this device picks.
+    # Widening solely to occupy a high-residency wave32 processor must not also
+    # change the numerical algorithm. `rego` changes where the online output
+    # accumulator lives and therefore its rounding; enabling it for all 42 SAM
+    # 2 calls made final residual drift grow 1.40 -> 2.32. It briefly looked
+    # profitable on the three global calls alone (15.47 -> 12.93 ms), but the
+    # fragment-held path below is both arithmetic-preserving and faster there,
+    # 12.93 -> 10.42 ms. An explicitly requested `rego` still means exactly what
+    # the caller asked for.
+    holdregs = rego === nothing ? flashholdregs(dev, BR, EP, NT, NW, autotiling) : rego
+
     # `split=false` makes the direct held store statically certain here.  The
     # automatic split count is decided below; until then use the conservative
     # footprint so a split-k decoder cannot be admitted on memory it still uses.
-    # Held means no `pvs`, full stop: the fragments are written straight to
-    # `out` when this launch owns the whole key axis and straight to `partial`
-    # when it does not.
-    helddirect = holdtiles
+    # The fragments are written straight to `out` when this launch owns the
+    # whole key axis and straight to `partial` when it does not.
+    #
+    # **`&& !holdregs`, because `pvs` goes away with the FRAGMENTS, not with
+    # `held`.** `flash_launches` passes `held && !rego` as the kernel's `HELD`,
+    # so a plan that is held *and* `rego` takes the branch that stages every
+    # `P·V` tile through `pvs` and reads it back into `acco`. Exempting it here
+    # under-counted by `4*(BR+rpad)*EP`: at `E = 72` with `(64, 64)/16` that is
+    # 20800 bytes, the plan was admitted at 47112 against the 65536 budget and
+    # the kernel then declared 67912 — which this driver answers with a SIGFPE
+    # inside `vkCreateComputePipelines` rather than an error.
+    helddirect = holdtiles && !holdregs
     flashcmfits(dev, EP, BR, BC, NT, helddirect) || return Decline(:tiling)
     # `BR * E` must also tile the write-out loop, which `flashcmfits` cannot check
     # because it does not see the unpadded head dimension.
@@ -2029,34 +2180,8 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # The reduced footprint is real only for the unsplit direct-store path.
     # Recheck after `splitcount`, so an unexpectedly split plan declines instead
     # of launching a kernel whose actual LDS exceeds the admitted budget.
-    flashcmfits(dev, EP, BR, BC, NT, holdtiles) || return Decline(:tiling)
+    flashcmfits(dev, EP, BR, BC, NT, holdtiles && !holdregs) || return Decline(:tiling)
 
-    # ── Where `O` lives, decided from the tiling and not from the device ──────
-    #
-    # `O` in registers costs `BR * EP / NT` floats a thread and saves a read and a
-    # write of the whole accumulator per key block — 40 KB of a key block's ~110 KB
-    # of shared traffic. The Ada sweep found the crossing and wrote it down: the
-    # register form "wins at `32x32` and loses at `64x32`, crossing where
-    # `BR*EP/NT` goes from 10 floats a thread to 20", which is why this shipped
-    # off with `64x32/8`.
-    #
-    # The RDNA 3.5 sweep lands on the same number from the other side: at
-    # `64x32/16` the same `O` is 10 floats a thread and the register form wins,
-    # 10.10 ms against 8.41 at `Lq = Lk = 4096`. So the rule is the ratio, and two
-    # vendors' hardware agrees on where it turns — a default of `false` would now
-    # be wrong for the tiling this device picks.
-    # Widening solely to occupy a high-residency wave32 processor must not also
-    # change the numerical algorithm. `rego` changes where the online output
-    # accumulator lives and therefore its rounding; enabling it for all 42 SAM
-    # 2 calls made final residual drift grow 1.40 -> 2.32. It briefly looked
-    # profitable on the three global calls alone (15.47 -> 12.93 ms), but the
-    # fragment-held path below is both arithmetic-preserving and faster there,
-    # 12.93 -> 10.42 ms. An explicitly requested `rego` still means exactly what
-    # the caller asked for.
-    occupancy_only_widened = autotiling && dev.subgroup == dev.coopmatsubgroup &&
-                             dev.warps >= 64 && NW >= 16
-    regnt = occupancy_only_widened ? NT ÷ 2 : NT
-    holdregs = rego === nothing ? (BR * EP) ÷ regnt <= 10 : rego
     # Holding O in cooperative-matrix fragments removes its load/store on every
     # key block while retaining the same muladd arithmetic. It used to lose on
     # the narrower launch because the fragments consumed the occupancy it had;
@@ -2103,9 +2228,31 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # grow the maximum, and `E = 64, Lk = 256, H = 128` — SAM 2's windowed
     # attention — wants two passes too, by 17.9%. That is a different rule on a
     # different variable and it is not measured here beyond the one point.
-    op = onepass === nothing ? E < 96 : onepass
+    # Rows per warp is the second variable, and it dominates the width. One pass
+    # REDOES a block when any row's maximum grows past the fp16 headroom, so the
+    # more rows a warp owns the likelier it pays that redo. Measured at
+    # `L = 4096` (onepass/twopass), all on the tiling named:
+    #
+    #     BR/NW   E=64 H=8   E=64 H=32   E=80 H=8   E=128 H=32
+    #       8      -19.4%      -50.4%     -20.2%      declined
+    #       4       +0.3%       +0.8%      -2.6%      -20.2%
+    #       2       +6.5%
+    #
+    # Negative is two passes winning. At 4 rows and fewer the width rule above
+    # is right and the difference is inside noise; at 8 it is worth 19% to 50%.
+    # `E = 128` wants two passes at either, which is what `E < 96` already said.
+    op = onepass === nothing ? (E < 96 && BR ÷ NW < 8) : onepass
+    # What the LAUNCH will do, not which table the tiling came from. `tiled` was
+    # asked before there was a `BC` or a decision about where `O` lives, and a
+    # slid `e` tail needs BOTH: the real `BC` for `Lk >= BC`, and the fragment
+    # write-out. `flash_launches` reads this field, so a plan that says `true`
+    # here has to be one `flashglobalkv(plan, …)` agrees with — otherwise every
+    # launch of it throws the A/B guard. The auto path cannot build such a plan
+    # (the chooser refuses the entries), but a CALLER naming its own tiling can,
+    # and `sdpaflashcm!`'s five-argument form names one by default.
+    gkv = tiled && flashglobalkv(E, EP, sk, sv, Lk, BC, holdtiles && !holdregs)
     FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, op,
-                lazyrescale, nsplit, tailsplit, tiled)
+                lazyrescale, nsplit, tailsplit, gkv)
 end
 
 """
@@ -2242,10 +2389,29 @@ The conditions are listed where the keyword is defaulted, in
 [`flash_launches`](@ref); each is a thing the shared-memory staging did that an
 `OpCooperativeMatrixLoadKHR` from global cannot.
 """
-@inline flashglobalkv(E::Integer, EP::Integer, sk, sv, Lk::Integer, BC::Integer) =
-    sk[1] == 1 && sv[1] == 1 && EP == E && Lk >= BC
+@inline flashglobalkv(E::Integer, EP::Integer, sk, sv, Lk::Integer, BC::Integer,
+                      fragments::Bool = false) =
+    sk[1] == 1 && sv[1] == 1 && Lk >= BC &&
+    (EP == E || (fragments && flasheslide(E, EP)))
 @inline flashglobalkv(plan::FlashCMPlan, sk, sv, Lk::Integer) =
-    flashglobalkv(plan.E, plan.EP, sk, sv, Lk, plan.BC)
+    flashglobalkv(plan.E, plan.EP, sk, sv, Lk, plan.BC, plan.held && !plan.rego)
+
+"""
+    flasheslide(E, EP) -> Bool
+
+Whether a padded head reads its last `e` tile SLID back onto the tensor.
+
+`EP != E` used to refuse the tiled path outright, and the reason was real: the
+tile at `EP - GEMM_TILE` covers `e` past the head, which for the last head and
+batch is past the tensor — at `E = 72` a 16-byte overrun of both K and V. The
+slide is the same answer `kwin` already gives on the key axis, and the overlap
+it creates is cancelled in Q rather than masked, because the sum happens inside
+the tensor core where nothing can reach it. See the staging loop in the kernel.
+
+`E >= GEMM_TILE` is what makes `E - GEMM_TILE` a real offset; below it there is
+no whole tile to slide onto and `EP == E` anyway at `E == GEMM_TILE`.
+"""
+@inline flasheslide(E::Integer, EP::Integer) = EP != E && E >= M.GEMM_TILE
 
 """
     flash_launches(caps, out, plan, q, k, v, scale, partial, ml; …) -> Vector
@@ -2314,8 +2480,10 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
     # A/B that names the keyword has to be told which of the four it broke.
     gkv && !flashglobalkv(plan, sk, sv, Lk) && throw(ArgumentError(
         "DNNKernels: `globalkv` needs E contiguous in K and V (strides " *
-        "$(sk[1]), $(sv[1])), no head padding (E $(plan.E), EP $(plan.EP)) " *
-        "and at least one tile of keys (Lk $Lk, BC $(plan.BC))"))
+        "$(sk[1]), $(sv[1])), at least one tile of keys (Lk $Lk, BC " *
+        "$(plan.BC)), and — where the head is padded (E $(plan.E), EP " *
+        "$(plan.EP)) — `O` in cooperative-matrix fragments, which is " *
+        "`held && !rego` and is $(plan.held && !plan.rego) here"))
 
     ns = plan.nsplit
     outarg = outperm ? flashoutflat(out) : out
@@ -2349,6 +2517,12 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 Val(shpad), Val(nrsc), Val(plan.onepass && !rego),
                                 Val(rscbar), Val(prefetchv), Val(outperm), Val(smoff),
                                 Val(ldoff), Val(s16), Val(loopsplit), Val(gkv),
+                                # Only ever true on a tiled launch, and `gkv`
+                                # already required the fragment write-out to get
+                                # there: the `pvs` and `acco` routes index `O` by
+                                # a row number the slide moves, and nothing here
+                                # would tell them.
+                                Val(gkv && flasheslide(plan.E, plan.EP)),
                                 Val(baroff),
                                 map(Val, outwindow)..., Val(H),
                                 Val(nsp), Val(partout), Val(epad), Val(rpad),

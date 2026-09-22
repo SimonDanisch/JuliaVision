@@ -43,10 +43,21 @@ f16(backend, dims...; scale = 0.3f0) =
     (a = KA.allocate(backend, Float16, dims...);
      copyto!(a, Float16.(randn(Float32, dims...) .* scale)); a)
 
-"""`(E, Lq, Lk, H)` attentions, named for where they run."""
-const ATTN = [("qwen-denoiser", 128, 4096, 4118, 32),
-              ("qwen-denoiser-square", 128, 4096, 4096, 32),
-              ("sam2-encoder-global", 64, 4096, 4096, 8)]
+"""
+`(E, Lq, Lk, H, B, calls)` attentions, named for where they run, with how many
+times one encode runs each.
+
+Read off the exported graphs, not chosen. `sam2-encoder-global` used to be here
+as `E = 64, B = 1` and was BOTH wrong: SAM 2's head dim is 72, and that shape is
+3 of the encoder's 48 attention calls. Optimising against it moved the
+microbenchmark 23% and the model not at all. The windowed shape below is 32 of
+the 48 and is where the time is.
+"""
+const ATTN = [("qwen-denoiser", 128, 4096, 4118, 32, 1, 60),
+              ("qwen-denoiser-square", 128, 4096, 4096, 32, 1, 60),
+              ("sam2-windowed-256", 72, 256, 256, 8, 16, 32),
+              ("sam2-encoder-global", 72, 4096, 4096, 8, 1, 3),
+              ("sam2-windowed-16", 72, 16, 16, 4, 1024, 6)]
 
 """`(Cin, Cout, H, W)` 3x3 stride-1 convolutions, all of them from the
 Qwen-Image 2.1 VAE decoder, which is 82% convolution."""
@@ -68,15 +79,27 @@ function main()
     caps = DK.caps(backend)
     rows = Any[]
 
-    for (name, E, Lq, Lk, H) in ATTN
-        q, k, v = f16(backend, E, Lq, H, 1), f16(backend, E, Lk, H, 1), f16(backend, E, Lk, H, 1)
-        out = KA.allocate(backend, Float32, E, Lq, H, 1); fill!(out, 0f0)
-        plan = DK.flashcm_plan(caps, q, k, v, nothing; clamp = Lk % 32 != 0)
+    for (name, E, Lq, Lk, H, B, calls) in ATTN
+        q, k, v = f16(backend, E, Lq, H, B), f16(backend, E, Lk, H, B), f16(backend, E, Lk, H, B)
+        out = KA.allocate(backend, Float32, E, Lq, H, B); fill!(out, 0f0)
+        # **The plan the MODEL would get, which is unclamped first.**
+        # `emitsdpa!` asks `flashcm_plan` with no clamp and only retries through
+        # `flashcm_padded_plan` when that declines; this file used to force
+        # `clamp = Lk % 32 != 0` instead, which is not the same rule and is
+        # wrong wherever the chosen `BC` divides `Lk` anyway. `sam2-windowed-16`
+        # is exactly that: `Lk = 16` fails `% 32` but the tiling is `(16, 16)`,
+        # and the clamped plan is a different tiling on the staged kernel —
+        # **1.319 ms against 0.568**, so this row reported a shape SAM 2 does
+        # not run, 2.3x slow.
+        plan = DK.flashcm_plan(caps, q, k, v, nothing)
+        plan isa DK.FlashCMPlan ||
+            (plan = DK.flashcm_padded_plan(caps, q, k, v, nothing))
         if plan isa DK.FlashCMPlan
             t = best(backend, () -> DK.sdpaflashcm!(ctx, out, plan, q, k, v, Float32(1/sqrt(E))))
             push!(rows, (kind = "attention", name = name, ms = t,
-                         flops = 2.0 * 2 * Lq * Lk * E * H,
-                         params = Dict("E" => E, "Lq" => Lq, "Lk" => Lk, "H" => H)))
+                         flops = 2.0 * 2 * Lq * Lk * E * H * B,
+                         params = Dict("E" => E, "Lq" => Lq, "Lk" => Lk, "H" => H,
+                                       "B" => B, "calls" => calls)))
         end
         q = k = v = out = nothing; GC.gc()
     end

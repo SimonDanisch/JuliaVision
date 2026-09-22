@@ -3,10 +3,38 @@ Convolution as an explicit im2col followed by a tensor-core GEMM.
 
 `conv_implicit.jl` never materialises the im2col matrix, which is the right call
 for a scalar kernel: it trades memory traffic for index arithmetic that the ALUs
-would otherwise be idle for. It cannot use cooperative matrices, though, because
-Lava lowers a `OpCooperativeMatrixLoadKHR` from a `PhysicalStorageBuffer`
-address — there is no workgroup-storage load — so the B operand has to exist in
-global memory before the multiply starts.
+would otherwise be idle for.
+
+**The reason this one materialises it is NOT that a cooperative matrix cannot be
+loaded from shared memory.** It said so here until 2026-09-22 — "Lava lowers a
+`OpCooperativeMatrixLoadKHR` from a `PhysicalStorageBuffer` address, there is no
+workgroup-storage load" — and that stopped being true a long time before anyone
+noticed: `flash.jl` declares `kvs = @localmem Float16` and builds its `MatrixB`
+operands straight out of it.
+
+The real reason is the one below, and it was measured by writing the other
+kernel. A gathered-A convolution — the staged GEMM with its `A` staging replaced
+by the im2col expression, so the matrix never exists — re-does the gather **once
+per `BN`-wide output-channel block**, where this path computes it once and pays
+a memory round trip for it. Same tiling as the staged GEMM's shipped
+`64 x 128 x 32`, output correct to 1e-4 against the definition:
+
+    Cin -> Cout   spatial     im2col     gathered
+     144 -> 144   1024x1024    84.0 ms    75.7 ms   1.11x   2 column blocks
+     288 -> 144   1024x1024   145.2      169.7      0.86x   2
+     288 -> 288   1024x1024   181.7      285.3      0.64x   3
+     576 -> 576     512x512   131.1      271.9      0.48x   5
+    1152 -> 1152    256x256    90.0      279.0      0.32x   9
+    1152 -> 1152    128x128    32.2       63.8      0.50x   9
+
+The speedup tracks the column-block count and nothing else: the gather is 2x
+this path's work at `Cout = 144` and 9x at 1152. It wins on exactly one shape
+and by 11%, so it is not in the tree — `plans/perf-plan.md` has the rest,
+including the three tuning hypotheses that did NOT explain the gap (block width,
+hoisting the pixel decomposition, and the tap loop unrolling nine times).
+
+The im2col round trip wins because it is largely cache-resident, which is the
+same effect `IM2COL_CAP` records from the other side.
 
 Materialising it is cheap here. The reduction extent `CRS = Cin*KH*KW` is large
 and the pixel count `NPQ = N*OH*OW` small (the dominant layer is 15x8), so the
@@ -348,7 +376,19 @@ convolution, `288 -> 288` over 1024x1024, measures 201.6 ms at 32 MiB against
 234.7 at 512, because the GEMM reads the chunk back while it is still in cache
 — and the decode disagrees because it runs interpreted, where each of the three
 passes a chunk costs is a host launch and there are forty-five convolutions
-paying it. A recorded graph records them once and would rather have the small
+paying it.
+
+**Not uniformly, though, and the exception is the shape that costs the most.**
+Re-measured on RDNA 3.5 in 2026-09 with 16 MiB against 256, interleaved, five
+rounds, minima: `1152 -> 1152 @ 256²` 87.8 against 90.9 (1.04x for the small
+chunk), `576 -> 576 @ 512²` 104.1 against 118.7 (1.14x), but `288 -> 288 @
+1024²` **193.2 against 163.1 — 0.84x**, and that one is the single most
+expensive convolution in the decode. The staged GEMM re-reads the whole chunk
+once per `bn`-wide column block (measured: ~1.74 ms per block at 145 GB/s,
+independent of `N`), so the shapes with many column blocks are the ones a
+cache-resident chunk pays off for — 9 blocks at `Cout = 1152`, 5 at 576, 3 at
+288. A per-shape chunk would beat one number for everything; a different global
+number would not. A recorded graph records them once and would rather have the small
 chunk and the small arena; 256 MiB is within noise of the best for both.
 
 For reference, that convolution on the implicit-GEMM kernel is **1482 ms at
@@ -422,12 +462,12 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
 # `p0` is the first pixel this chunk covers and `NPQ` how many of them it has,
 # so the whole matrix is the single chunk `p0 = 0, NPQ = plan.NPQ`. See
 # `ConvCoopMatPlan.rows`.
-@kernel function im2col_kernel!(col, @Const(x), ::Val{MP},
+@kernel function im2col_kernel!(col, @Const(x), ::Val{MP}, ::Val{VEC},
                                 ::Val{KW}, ::Val{KH}, ::Val{SX}, ::Val{SY},
                                 ::Val{PX}, ::Val{PY}, ::Val{DX}, ::Val{DY},
                                 ::Val{OW}, ::Val{OH},
                                 Wid, Hei, NPQ, ntot,
-                                Cin, p0) where {MP,KW,KH,SX,SY,PX,PY,DX,DY,OW,OH}
+                                Cin, p0) where {MP,VEC,KW,KH,SX,SY,PX,PY,DX,DY,OW,OH}
     # Flat launch, like `conv_epilogue_kernel!`: a 2-D `ndrange` is partitioned
     # into 2-D workgroups, so a warp spans only a handful of consecutive `m` and
     # the writes to `col` (which is `m`-major) are fragmented.
@@ -463,40 +503,91 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
     # and is what the change is worth.
     lin = @index(Global, Linear)
     # `return` is not permitted in a KernelAbstractions kernel; guard instead.
-    if lin <= ntot
+    if (lin - 1) * VEC < ntot
         @inbounds begin
             T = eltype(col)
-            q = Int32(lin) - Int32(1)
-            m = q % Int32(MP) + Int32(1)
-            c = q ÷ Int32(MP) + Int32(1)
-            v = zero(T)
-            if m <= Int32(NPQ)
-                npq = m - Int32(1) + Int32(p0)
-                n = npq ÷ Int32(OH * OW)
-                r = npq - n * Int32(OH * OW)
-                oh = r ÷ Int32(OW)
-                ow = r - oh * Int32(OW)
-                crs = c - Int32(1)
-                kw = crs % Int32(KW)
-                t = crs ÷ Int32(KW)
-                kh = t % Int32(KH)
-                cin = t ÷ Int32(KH)
-                # `col` has `CRS` rounded up to the tile, so the last few columns
-                # have no input channel behind them. They stay zero, which makes
-                # them contribute nothing to the product — the same trick the
-                # `m > NPQ` rows already use. See `convolution_coopmat!`.
-                if cin < Int32(Cin)
-                    ix = ow * Int32(SX) - Int32(PX) + kw * Int32(DX)
-                    iy = oh * Int32(SY) - Int32(PY) + kh * Int32(DY)
-                    if Int32(0) <= ix < Int32(Wid) && Int32(0) <= iy < Int32(Hei)
-                        v = T(x[ix + Int32(1), iy + Int32(1), cin + Int32(1), n + Int32(1)])
+            q0 = (Int32(lin) - Int32(1)) * Int32(VEC)
+            m0 = q0 % Int32(MP)
+            c = q0 ÷ Int32(MP) + Int32(1)
+            # The column decomposition is per COLUMN, so a thread that writes
+            # `VEC` consecutive rows does it once rather than `VEC` times. That
+            # is half of what the pairing buys; the other half is the store
+            # width.
+            crs = c - Int32(1)
+            kw = crs % Int32(KW)
+            t = crs ÷ Int32(KW)
+            kh = t % Int32(KH)
+            cin = t ÷ Int32(KH)
+            # `col` has `CRS` rounded up to the tile, so the last few columns
+            # have no input channel behind them. They stay zero, which makes
+            # them contribute nothing to the product — the same trick the
+            # `m > NPQ` rows already use. See `convolution_coopmat!`.
+            inch = cin < Int32(Cin)
+            base = Int32(MP) * (c - Int32(1))
+            Base.Cartesian.@nexprs 2 j -> begin
+                if j <= VEC
+                    m_j = m0 + Int32(j - 1)
+                    v_j = zero(T)
+                    if m_j < Int32(NPQ) && inch
+                        npq_j = m_j + Int32(p0)
+                        n_j = npq_j ÷ Int32(OH * OW)
+                        r_j = npq_j - n_j * Int32(OH * OW)
+                        oh_j = r_j ÷ Int32(OW)
+                        ow_j = r_j - oh_j * Int32(OW)
+                        ix_j = ow_j * Int32(SX) - Int32(PX) + kw * Int32(DX)
+                        iy_j = oh_j * Int32(SY) - Int32(PY) + kh * Int32(DY)
+                        if Int32(0) <= ix_j < Int32(Wid) && Int32(0) <= iy_j < Int32(Hei)
+                            v_j = T(x[ix_j + Int32(1), iy_j + Int32(1),
+                                      cin + Int32(1), n_j + Int32(1)])
+                        end
                     end
+                    col[base + m_j + Int32(1)] = v_j
                 end
             end
-            col[m + Int32(MP) * (c - Int32(1))] = v
         end
     end
 end
+
+"""
+How many consecutive rows of `col` one thread writes.
+
+**Two.** `col` is `Float16`, so one element a thread is a 2-byte store — half
+of what a lane can retire — and the column decomposition above it (four
+divisions and two remainders) is paid per element rather than per column. A
+pair is a 4-byte store and one decomposition. The unroll is two because four
+and eight were measured and lose: at stride 1 a pair reads two adjacent `x`
+elements, a quad reads four and starts crossing lines for no extra store width.
+
+Interleaved over the WHOLE convolution, alternating the two forms in one
+process, minimum of four rounds each:
+
+    Cin -> Cout   spatial     scalar   paired
+     288 -> 288   1024x1024   183.24   168.85   1.09x
+     144 -> 144   1024x1024    79.33    69.12   1.15x
+     288 -> 144   1024x1024   160.63   146.01   1.10x
+     576 -> 576     512x512   128.48   117.66   1.09x
+    1152 -> 1152    256x256   109.05   106.59   1.02x
+    1152 -> 1152    128x128    27.22    25.66   1.06x
+
+and `tools/gap_vs_rocm.jl` from a fresh process either way puts those six at
+682.70 ms against 613.32, **1.11x** on the convolution family.
+
+**The isolated kernel says 1.14x to 1.37x and that number is wrong.** Timing
+`im2col_kernel!` on its own re-runs the SAME chunk, so `x` and much of `col`
+stay resident and the pairing is measured against a warm cache; the real loop
+advances `p0` and every chunk is cold, where the pass is much closer to what
+DRAM will give and the pairing is worth roughly half as much. The first A/B
+run this way reported the change as worth nothing at all for a different
+reason — Revise had silently not applied the file — so both numbers here come
+from the two kernels living side by side in one process, which is the only
+form that was reproducible. Output is bit-identical either way, which
+`test_conv_coopmat_chunk.jl` pins.
+
+`padgemm` rounds `MP` to a multiple of `GEMM_BLOCK = 192`, so 2 always divides
+it and a pair never straddles a column. The launcher asks anyway rather than
+relying on it.
+"""
+const IM2COL_VEC = 2
 
 """
 Scatter the `MP x Cout` GEMM result back into `(OW, OH, Cout, N)` and add the
@@ -604,13 +695,14 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
 
     for p0 in 0:ROWS:(NPQ - 1)
         npqc = min(ROWS, NPQ - p0)
-        im2col_kernel!(backend)(col, x, Val(MP),
+        vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
+        im2col_kernel!(backend)(col, x, Val(MP), Val(vec),
                                 Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
                                 Val(padding[1]), Val(padding[2]),
                                 Val(dilation[1]), Val(dilation[2]),
                                 Val(OW), Val(OH),
                                 Wid, Hei, npqc, MP * CRSP, Cin, p0;
-                                ndrange = MP * CRSP)
+                                ndrange = cld(MP * CRSP, vec))
         Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C, reduce = false)
         conv_epilogue_kernel!(backend, (256, 1))(
             out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
