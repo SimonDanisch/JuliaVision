@@ -82,7 +82,18 @@ function main()
     for (name, E, Lq, Lk, H, B, calls) in ATTN
         q, k, v = f16(backend, E, Lq, H, B), f16(backend, E, Lk, H, B), f16(backend, E, Lk, H, B)
         out = KA.allocate(backend, Float32, E, Lq, H, B); fill!(out, 0f0)
-        plan = DK.flashcm_plan(caps, q, k, v, nothing; clamp = Lk % 32 != 0)
+        # **The plan the MODEL would get, which is unclamped first.**
+        # `emitsdpa!` asks `flashcm_plan` with no clamp and only retries through
+        # `flashcm_padded_plan` when that declines; this file used to force
+        # `clamp = Lk % 32 != 0` instead, which is not the same rule and is
+        # wrong wherever the chosen `BC` divides `Lk` anyway. `sam2-windowed-16`
+        # is exactly that: `Lk = 16` fails `% 32` but the tiling is `(16, 16)`,
+        # and the clamped plan is a different tiling on the staged kernel —
+        # **1.319 ms against 0.568**, so this row reported a shape SAM 2 does
+        # not run, 2.3x slow.
+        plan = DK.flashcm_plan(caps, q, k, v, nothing)
+        plan isa DK.FlashCMPlan ||
+            (plan = DK.flashcm_padded_plan(caps, q, k, v, nothing))
         if plan isa DK.FlashCMPlan
             t = best(backend, () -> DK.sdpaflashcm!(ctx, out, plan, q, k, v, Float32(1/sqrt(E))))
             push!(rows, (kind = "attention", name = name, ms = t,
