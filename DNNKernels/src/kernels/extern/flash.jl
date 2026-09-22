@@ -440,6 +440,13 @@ of the device rather than of the kernel.
     # `attn_flash_cm!` holds `O` in exactly three accumulators a subgroup, and
     # `@nexprs` needs that count to be a literal. A tiling wanting a fourth
     # would silently drop its tiles, so it is refused instead.
+    #
+    # Raising it to admit a taller block is not the lever it looks like. At a
+    # 16-row block every loaded K fragment feeds exactly one product, which
+    # looks like the thing to fix — but holding tiles-per-subgroup constant and
+    # raising the block instead measures the other way on this device: at
+    # `E = 64`, `(16, 32)` on 64 threads is 3.77 ms against `(128, 32)` on 512
+    # threads at 4.22, with the same two accumulators a subgroup either way.
     cld((BR ÷ dev.tile) * (EP ÷ dev.tile), NT ÷ dev.coopmatsubgroup) <= 3 || return false
     (BR * EP) % NT == 0 && (BR * BC) % NT == 0 || return false
     # With the pads this device will actually launch with: the budget check and
@@ -512,6 +519,30 @@ end
     e + E * ((h - 1) + H * col)
 end
 
+"""
+    @kclamped ragged expr
+
+`expr` twice, with `KC` bound to `true` in one copy and `false` in the other,
+under a runtime branch on `ragged`.
+
+For the key loops that can read past a ragged key extent. `ragged` is
+workgroup-uniform, so this is a scalar branch, and the `false` copy is
+bit-identical to what a launch with no clamp at all compiles — no predicate in
+the address, no select on the loaded value.
+
+Only the loops that touch the extent get two forms. Two forms of the whole
+key-block body is the same idea one level up and does not fit: see the key loop
+in [`attn_flash_cm_spatial4!`](@ref) for what RADV said about it.
+"""
+macro kclamped(ragged, ex)
+    esc(Expr(:if, ragged, kclampsubst(ex, true), kclampsubst(ex, false)))
+end
+
+"""`ex` with every `KC` replaced by the literal `v`."""
+kclampsubst(ex, v) = ex === :KC ? v :
+                     ex isa Expr ? Expr(ex.head, Any[kclampsubst(a, v) for a in ex.args]...) :
+                     ex
+
 @kernel cpu=false unsafe_indices=true function attn_flash_cm_spatial4!(
         out, @Const(q), @Const(k), @Const(v), scale, @Const(mask),
         qbase::Int32, qsE::Int32, qsL::Int32, qsH::Int32, qsB::Int32,
@@ -520,13 +551,13 @@ end
         ::Val{BR}, ::Val{BC}, vE::Val{E}, ::Val{EP}, ::Val{NW}, ::Val{REGO}, ::Val{HELD},
         ::Val{CLAMP}, ::Val{KCLAMP}, ::Val{RSC}, ::Val{BALLAST}, ::Val{SHPAD}, ::Val{NRSC},
         ::Val{ONEPASS}, ::Val{RSCBAR}, ::Val{PREFETCHV}, ::Val{OUTPERM}, ::Val{SMOFF},
-        ::Val{LDOFF}, ::Val{S16},
+        ::Val{LDOFF}, ::Val{S16}, ::Val{LSPLIT}, ::Val{GLOBALKV}, ::Val{BAROFF},
         vWIW::Val{WIW}, vWIH::Val{WIH}, vWNX::Val{WNX}, vWNY::Val{WNY}, ::Val{NH},
         ::Val{NSPLIT}, ::Val{PARTOUT}, ::Val{EPAD}, ::Val{RPAD},
         ::Val{SG},
         Lq::Int32, Lk::Int32, alwaysrescale::Int32,
         partial, ml) where {BR,BC,E,EP,NW,REGO,HELD,CLAMP,KCLAMP,RSC,
-                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,S16,
+                            BALLAST,SHPAD,NRSC,ONEPASS,RSCBAR,PREFETCHV,OUTPERM,SMOFF,LDOFF,S16,LSPLIT,GLOBALKV,BAROFF,
                             WIW,WIH,WNX,WNY,NH,NSPLIT,PARTOUT,
                             EPAD,RPAD,SG}
     # `SG` is `dev.coopmatsubgroup` and not a literal 32: the launcher sizes the
@@ -570,10 +601,12 @@ end
     #
     # Which is consistent with what `SMOFF`/`LDOFF` already price. The matrix
     # work is ~23% of this kernel; halving the cost of the score half of it
-    # cannot be more than a few percent. The 4.7x is therefore NOT precision —
-    # it is the ~40% spent staging into shared, on barriers and on the
-    # write-out, plus the 29% of K/V bytes. Torch's whole 8.82 ms is about what
-    # this kernel spends on arithmetic alone.
+    # cannot be more than a few percent. It was therefore NOT precision, and
+    # AOTriton confirms it from the other side: its tuned kernel accumulates
+    # `qk` in fp32 too (`tritonsrc`/`fwd_kernel_inner.py`) and still reaches 32
+    # TFLOP/s. What it was is the staging — see `GLOBALKV`, which took the same
+    # shape from 37.36 ms to 25.56 without touching a single arithmetic
+    # instruction.
     #
     # Numerically it is nearly free: 1.3e-6 rms against the fp32 accumulation on
     # an output whose own rms is 5.2e-3, i.e. 0.026%. Off anyway, because it
@@ -733,12 +766,89 @@ end
         # `Lk`, which is every non-clamped call.
         # This split's slice of the key axis. With `NSPLIT == 1` these are
         # `0` and `cld(Lk, BC)`, i.e. exactly the loop that was here before.
+        # The head and batch part of a tile's address does not depend on the key
+        # block, and with `GLOBALKV` the `e` part needs no multiply at all:
+        # the launcher only offers it where `E` is the contiguous axis of K and
+        # V, so `ksE` and `vsE` are one. Hoisting both takes the address down
+        # to one multiply and one add per tile.
+        kb0 = kbase + Int32(h - 1) * ksH + Int32(b - 1) * ksB
+        vb0 = vbase + Int32(h - 1) * vsH + Int32(b - 1) * vsB
+
+        # ── `BAROFF`: what the key loop's barriers cost ──────────────────────
+        #
+        # DIAGNOSTIC, wrong on purpose, and the companion to `SMOFF`. Every
+        # barrier inside the key loop is there because the score matrix leaves
+        # the subgroup that computed it: the QK product writes `ss` from all
+        # subgroups, one thread per row reads it, and `ps` goes back out to all
+        # of them for `P·V`. Removing them races and computes nonsense; what it
+        # answers is whether a kernel that kept the whole row inside ONE
+        # subgroup — no `ss`, no `ps`, a subgroup reduction for the row maximum
+        # — would be worth building. That is what AOTriton's inner loop is, and
+        # what `flash_cm2.jl` already is for workgroup-scope matrices.
+        @inline keybar() = BAROFF || @synchronize
+
         nkb = cld(Lk, Int32(BC))
         kbper = cld(nkb, Int32(NSPLIT))
         kbeg = sp * kbper
         kend = min(nkb, kbeg + kbper)
+        # ── Clamp only the key blocks the extent leaves short ────────────────
+        #
+        # A key axis the block size does not divide needs a bounds check, and
+        # compiling one into every block is not a rounding error: a launch with
+        # `KCLAMP` set throughout measured **59.79 ms against 41.03** at
+        # Qwen-Image 2.1's 4118 keys, +46%, for 22 keys of 4118.
+        #
+        # So `ragged` says whether THIS block is the short one, and `@kclamped`
+        # runs the loops that could read past the end in two forms under a
+        # workgroup-uniform branch on it. `kb` and `nfullkb` are uniform, so it
+        # is a scalar branch, and the unclamped side is the same code a launch
+        # with no clamp at all compiles.
+        #
+        # **Only the loops that touch the key extent are duplicated, and that is
+        # the whole design.** Wrapping the ENTIRE key-block body in two
+        # instantiations — which is what AOTriton does, calling
+        # `_attn_fwd_inner` twice, with `MASK_STEPS` and without — is the
+        # obvious form and it does not fit here: RADV reported **57 spilled
+        # VGPRs and 7424 bytes of scratch** against zero for one copy,
+        # pre-scheduling pressure 242 against a 192 budget, and it measured
+        # 49.90 ms against 41.03. Their body has room for a second copy because
+        # it is a 32x16 tile held in registers; ours is 38 KB of LDS and 192
+        # VGPRs before any duplication starts.
+        nfullkb = KCLAMP ? div(Lk, Int32(BC)) : nkb
         for kb in kbeg:(kend - 1)
+            # `LSPLIT == false` makes this the constant `KCLAMP`, which folds
+            # every `@kclamped` below to its clamped form and reproduces the
+            # launch that clamps throughout. That is the A side of the A/B.
+            ragged = KCLAMP && (!LSPLIT || kb >= nfullkb)
+            # Compile-time: a launch either stages K and V or reads them as
+            # tiles, never both. Deciding it per block instead put a branch
+            # inside the muladd loop and gave back most of the win — 36.27 ms
+            # against 25.56 for the same shape one key longer.
+            stagekv = !GLOBALKV
             k0 = kb * BC
+            # Where this block's key tile STARTS.
+            #
+            # `k0` for every block a staged launch sees, and for every whole
+            # block. A ragged block read as tiles slides its window back to the
+            # last whole tile: a cooperative-matrix load has no per-column
+            # bound, so a tile starting at `k0` would reach past the last head's
+            # keys, and sliding is the only way to keep it inside the tensor.
+            # The keys that slide into view were counted by the previous block
+            # and are masked out below, together with the ones past `Lk`.
+            #
+            # `min` and not a branch on `ragged`, for two reasons. It is
+            # branchless, which is what this wants anyway — the value feeds an
+            # address, and a select is cheaper than a diamond around a load.
+            # And a conditional here put the cooperative-matrix LOAD on two
+            # paths, whose handles LLVM if-converted into a phi that met the
+            # accumulator's phi in a cycle; Lava's emitter typed one of the two
+            # `%uint` and `spirv-val` rejected the module. That is fixed
+            # (`propagate_coopmat_phi_types!`, `test_coopmat_phi_cycle.jl`), so
+            # this is no longer load-bearing for correctness — only for speed.
+            #
+            # Every whole block has `k0 + BC <= Lk`, so `min` returns `k0` for
+            # all of them and the last whole tile for the one that is short.
+            kwin = GLOBALKV ? min(k0, Lk - Int32(BC)) : k0
             if tid == 0
                 grew[1] = Float32(alwaysrescale)
                 redo[1] = 0.0f0
@@ -748,11 +858,18 @@ end
             # worth it: 43.78 ms against 43.21 at Qwen-Image 2.1's shape,
             # bit-identical. The loads were already going out deep enough, which
             # is the same thing `LDOFF == 1` says from the other side.
-            for r in 0:(cld(BC * EP, NT) - 1)
+            # A cooperative-matrix load reads a whole `GEMM_TILE`-wide tile and
+            # has no per-column bound, so the one block the key extent leaves
+            # short cannot come from the tensor: its tile would reach past the
+            # end of the last head's keys. That block stages, as every block
+            # used to. It is one of 129 at Qwen-Image 2.1's shape, and `ragged`
+            # is workgroup-uniform, so it costs a scalar branch.
+            if stagekv
+            @kclamped ragged for r in 0:(cld(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 if idx < BC * EP
                     e, lk = Mantle.splitidx(idx, Val(EP))
-                    ink = !KCLAMP || k0 + lk < Lk
+                    ink = !KC || k0 + lk < Lk
                     # `LDOFF` is the companion diagnostic to `SMOFF`, wrong on
                     # purpose, and it has two settings because the staging has
                     # two costs. `1` keeps every load instruction and drops the
@@ -769,14 +886,15 @@ end
                               Int32(h - 1) * ksH + Int32(b - 1) * ksB] : zero(Float16))
                 end
             end
-            @synchronize
+            keybar()
+            end
 
-            if PREFETCHV
-                for r in 0:(cld(BC * EP, NT) - 1)
+            if PREFETCHV && stagekv
+                @kclamped ragged for r in 0:(cld(BC * EP, NT) - 1)
                     idx = tid + r * NT
                     if idx < BC * EP
                         e, lk = Mantle.splitidx(idx, Val(EP))
-                        ink = !KCLAMP || k0 + lk < Lk
+                        ink = !KC || k0 + lk < Lk
                         vstage[1 + r] =
                             LDOFF == 2 ? Float16(kb & 1) :
                             ((e < E && ink) ?
@@ -796,13 +914,50 @@ end
                 for et in 0:(ET - 1)
                     a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                             qs, 1 + rt * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
-                    bm = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
+                    # `K` straight from global, or from the staged copy.
+                    #
+                    # `OpCooperativeMatrixLoadKHR` takes a pointer in ANY storage
+                    # class, so the tile the tensor core wants can come from the
+                    # tensor itself and the `kvs` round trip through shared — a
+                    # store, a barrier and a load, per key block — need not
+                    # happen at all. Column-major over `(e, key)` with `ksL`
+                    # between keys is exactly `K^T`'s B tile, which is why no
+                    # transpose appears here: `e` is the contiguous axis of `k`,
+                    # and `GLOBALKV` is only offered where that is true.
+                    bm = !stagekv ?
+                        Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
+                            pointer(k),
+                            kb0 + Int32(et * Mantle.GEMM_TILE) +
+                                  Int32(kwin + ct * Mantle.GEMM_TILE) * ksL,
+                            ksL, Val(false)) :
+                        Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                             kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(false))
                     acc = muladd(a, bm, acc)
                 end
                 copyto!(ss, 1 + rt * Mantle.GEMM_TILE + ct * Mantle.GEMM_TILE * BRS, BRS, acc)
             end
-            @synchronize
+            keybar()
+
+            # Columns past the key extent are masked HERE, once, rather than
+            # tested in each of the softmax loops below. `-Inf` puts a padded
+            # key out of the running maximum and gives it weight zero, which is
+            # exactly what the per-column test did.
+            #
+            # Why not the test: those loops are unrolled over `BC`, so carrying
+            # a clamped and an unclamped form of them cost 41.53 ms against
+            # 39.79 for the launch split this replaces — more than the merge
+            # pass it saves. Ten stores once a launch cost nothing.
+            #
+            # **No barrier, by construction.** The thread that writes a row's
+            # padded columns is the thread that reads them: every consumer of
+            # `ss` below is one thread per query row under `tid < BR`.
+            if ragged && tid < BR
+                for ci in Int32(0):Int32(BC - 1)
+                    kk = kwin + ci
+                    (kk < k0 || kk >= Lk) &&
+                        (ss[1 + tid + ci * BRS] = SACC(-Inf32))
+                end
+            end
 
             # Online softmax, one thread per query row: the reduction is over
             # keys and a row lives entirely in this thread, so no lane talks to
@@ -867,24 +1022,19 @@ end
                 tid == 0 && (grew[1] = 1.0f0)
             elseif onep && tid < BR
                 mo = ms[1 + tid]
+                # A padded key scores `-Inf` (masked above), so it is out of the
+                # maximum and `exp` gives it weight zero. `mo` is finite here —
+                # `onep` requires `kb > 0` — so no `-Inf - -Inf` arises.
                 for ci in 0:(BC - 1)
-                    # A padded key contributes nothing: it is out of the maximum
-                    # and its weight is zero, so `P·V` adds zero for it. Staging
-                    # already zeroed its `k`, which would otherwise have given it
-                    # a score of 0 and a weight of `exp(-mo)` — not nothing.
-                    if !KCLAMP || k0 + ci < Lk
-                        s = flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, k0+ci+1, h, b)
-                        mb = max(mb, s)
-                        p = exp(s - mo)
-                        ps[1 + ci + tid * BC] = Float16(p)
-                        sm += p
-                    else
-                        ps[1 + ci + tid * BC] = zero(Float16)
-                    end
+                    s = flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, kwin+ci+1, h, b)
+                    mb = max(mb, s)
+                    p = exp(s - mo)
+                    ps[1 + ci + tid * BC] = Float16(p)
+                    sm += p
                 end
                 mb - mo > FLASH_EXP_HEADROOM && (redo[1] = 1.0f0)
             end
-            @synchronize
+            keybar()
 
             # **The retry is decided for the whole workgroup, not per row.** A row
             # that overflowed needs its `ps` against its own maximum, which leaves
@@ -914,8 +1064,7 @@ end
                 mo = ms[1 + tid]
                 mb = -Inf32
                 for ci in 0:(BC - 1)
-                    (!KCLAMP || k0 + ci < Lk) &&
-                        (mb = max(mb, flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, k0+ci+1, h, b)))
+                    mb = max(mb, flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, kwin+ci+1, h, b))
                 end
                 mn = max(mo, mb)
                 # A row that has seen nothing finite must not make NaN out of
@@ -923,13 +1072,9 @@ end
                 cr = isfinite(mo) ? exp(mo - mn) : 0.0f0
                 sm = 0.0f0
                 for ci in 0:(BC - 1)
-                    if !KCLAMP || k0 + ci < Lk
-                        p = exp(flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, k0+ci+1, h, b) - mn)
-                        ps[1 + ci + tid * BC] = Float16(p)
-                        sm += p
-                    else
-                        ps[1 + ci + tid * BC] = zero(Float16)
-                    end
+                    p = exp(flashscore(ss[1 + tid + ci * BRS], scale, mask, q0+tid+1, kwin+ci+1, h, b) - mn)
+                    ps[1 + ci + tid * BC] = Float16(p)
+                    sm += p
                 end
                 ms[1 + tid] = mn
                 ls[1 + tid] = ls[1 + tid] * cr + sm
@@ -949,16 +1094,17 @@ end
                 cs[1 + tid] = cr
                 cr == 1.0f0 || (grew[1] = 1.0f0)
             end
-            @synchronize
+            keybar()
 
-            for r in 0:(cld(BC * EP, NT) - 1)
+            if stagekv
+            @kclamped ragged for r in 0:(cld(BC * EP, NT) - 1)
                 idx = tid + r * NT
                 if idx < BC * EP
                     e, lk = Mantle.splitidx(idx, Val(EP))
                     if PREFETCHV
                         kvs[1 + e + lk * EPS] = vstage[1 + r]
                     else
-                        ink = !KCLAMP || k0 + lk < Lk
+                        ink = !KC || k0 + lk < Lk
                         kvs[1 + e + lk * EPS] =
                             LDOFF == 2 ? Float16(kb & 1) :
                             ((e < E && ink) ?
@@ -968,7 +1114,8 @@ end
                     end
                 end
             end
-            @synchronize
+            keybar()
+            end
 
             # `pre` says the reference moved *before* this block's contribution,
             # so `O` has to be converted first; otherwise the conversion covers
@@ -1022,7 +1169,7 @@ end
                         lq, e = Mantle.splitidx(tid + r * NT, Val(BR))
                         pvs[1 + lq + e * BRS] *= cs[1 + lq]
                     end
-                    @synchronize
+                    keybar()
                 end
             end
 
@@ -1039,7 +1186,16 @@ end
                         for ct in 0:(CT - 1)
                             a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                                     ps, 1 + rt_j * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
-                            bm = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
+                            # Row-major over `(key, e)`: `V` is already the
+                            # right way round for the B operand, so the same
+                            # direct load serves it with the layout flipped.
+                            bm = !stagekv ?
+                                Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
+                                    pointer(v),
+                                    vb0 + Int32(et_j * Mantle.GEMM_TILE) +
+                                          Int32(kwin + ct * Mantle.GEMM_TILE) * vsL,
+                                    vsL, Val(true)) :
+                                Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                                     kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et_j * Mantle.GEMM_TILE, EPS, Val(true))
                             acc_j = muladd(a, bm, acc_j)
                         end
@@ -1059,7 +1215,13 @@ end
                     for ct in 0:(CT - 1)
                         a = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixA}(
                                 ps, 1 + rt * Mantle.GEMM_TILE * BC + ct * Mantle.GEMM_TILE, BC, Val(true))
-                        bm = Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
+                        bm = !stagekv ?
+                            Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
+                                pointer(v),
+                                vb0 + Int32(et * Mantle.GEMM_TILE) +
+                                      Int32(kwin + ct * Mantle.GEMM_TILE) * vsL,
+                                vsL, Val(true)) :
+                            Mantle.AcceleratedMatrix{Float16,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.MatrixB}(
                                 kvs, 1 + ct * Mantle.GEMM_TILE * EPS + et * Mantle.GEMM_TILE, EPS, Val(true))
                         acc = muladd(a, bm, acc)
                     end
@@ -1314,15 +1476,65 @@ Measured at Qwen-Image 2.1's attention (`Lq = 4096`, `Lk = 4118` clamped,
 | both off | 25.55 | -38.4% |
 
 **The softmax is 6% and the K/V reads are 29%**, and `ldoff == 1` and
-`ldoff == 2` agreeing to 0.6% says the 29% is bytes and not instructions. That
-closes two questions this file spent a long time on. The idle warps at the
-softmax barrier were never worth chasing — "spreading it is slower" was right
-for the wrong reason, because there was only 6% there to win. And the way to
-move the 29% is to read K and V FEWER times, which means a taller query tile;
-both admissible ones lose more than they gain (see `FLASHCM_TILINGS`).
+`ldoff == 2` agreeing to 0.6% says the 29% is bytes and not instructions. The
+idle warps at the softmax barrier were never worth chasing — "spreading it is
+slower" was right for the wrong reason, because there was only 6% there to win.
 
-What is left is ~23% of matrix work at the cooperative-matrix peak and ~40% of
-staging into shared, barriers and the write-out.
+**The other conclusion drawn here was wrong, and the table above is why it was
+believable.** It read: the way to move the 29% is to read K and V fewer times,
+which means a taller query tile, and both admissible ones lose more than they
+gain. The premise is that the bytes are the cost. They are not — the STAGING
+is, and `ldoff` cannot see the difference because it removes the loads while
+leaving the shared-memory stores, the barriers and the loads back out in place.
+
+`GLOBALKV` removes those instead, by reading each tile from the tensor with
+`OpCooperativeMatrixLoadKHR`: **37.36 ms to 25.56** at this shape, bit-identical
+output, while moving MORE K/V bytes than the staged form (each tile is fetched
+once per row-tile that needs it rather than once per block). And with the
+staging gone the tiling ranks the other way round — a SHORTER query tile at 128
+threads, not a taller one at 512. See `FLASHCM_TILINGS_TILED`.
+
+So: ~23% matrix work, ~6% softmax, and the ~40% that this file attributed to
+"staging into shared, barriers and the write-out" was mostly the first two of
+those three, and mostly removable.
+
+── The same ablation on the kernel that reads its operands as tiles ───────────
+
+Re-priced at what the chooser now picks, `(16, 32)` on 128 threads with `O`
+held and K and V read from the tensors, at the same Qwen-Image 2.1 shape
+(`Lq = 4096, Lk = 4118, E = 128`, 32 heads):
+
+| | ms | |
+| --- | --- | --- |
+| as shipped | 22.59 | |
+| softmax off (`smoff`) | 21.47 | -5.0% |
+| key-loop barriers off (`baroff`) | 21.80 | -3.5% |
+| both off | 19.27 | **-14.7%** |
+
+**This is the measurement that says not to write the other kernel.** The
+obvious next move from here is the one AOTriton and `flash_cm2.jl` both make:
+keep a whole query row inside ONE subgroup, so the row maximum is a subgroup
+reduction and the score matrix never leaves registers — no `ss`, no `ps`, no
+barrier in the key loop. Everything that design removes is the 14.7% above.
+Removing all of it leaves 19.27 ms against torch's 8.5, still 2.3x, so the
+rewrite cannot be what closes the gap and the gap is in the matrix pipeline
+itself.
+
+Four other things were tried against that 2.3x and none of them is it:
+
+  * **A taller query block, to reuse each K fragment across more row tiles.**
+    At a 16-row block every loaded B fragment feeds exactly one product, which
+    looks like the whole problem. Holding accumulators-per-subgroup constant
+    and raising the block measures the other way: `E = 64`, `(16, 32)` on 64
+    threads 3.77 ms against `(128, 32)` on 512 threads at 4.22.
+  * **`onepass`**, which reads each score once instead of twice: **+39.3%**.
+    The two-pass rule still holds, and more strongly than it did.
+  * **`s16`**, the fp16 score accumulator: -4.0%, the same as on the staged
+    kernel, and still not worth changing every model's numerics for.
+  * **Hoisting the tile addresses** — the head and batch term out of the key
+    loop, and the `ksE`/`vsE` multiply away entirely, which `GLOBALKV`
+    guarantees is one. The compiler had already done it: no change at
+    `E = 128`, -4% at `E = 64`.
 =#
 
 #=
@@ -1458,6 +1670,43 @@ const FLASHCM_TILINGS = [(128, 16, 8), (128, 32, 8), (64, 16, 8), (64, 32, 8), (
                          (32, 32, 4), (16, 32, 4), (16, 16, 4)]
 
 """
+The same choice for the kernel that reads K and V as cooperative matrices, which
+ranks the shapes the other way round.
+
+`FLASHCM_TILINGS` was measured with both operands staged through shared memory,
+and staging is what paid for a wide workgroup: more threads to move the block,
+and a block big enough to be worth moving. Reading the tiles from the tensors
+removes that work, and what is left prefers **a 16-row block and the smallest
+workgroup that can write it out** — which is also what AOTriton's tuning
+database picks for this architecture (`BLOCK_M`/`BLOCK_N` 32/16 at
+`num_warps = 4`, against the 8 and 16 its wave64 targets take).
+
+"Smallest that can write it out" is `flashcmfits`' own rule and not a new one:
+the write-out is `Base.Cartesian.@nexprs 3`, so a launch needs
+`cld(RT * ET, NW) <= 3` subgroups, and that is exactly where the measured
+optimum sits for both head widths tried. At `E = 128` a 16-row block has eight
+`et` tiles and needs `NW = 4`; at `E = 64` it has four and `NW = 2` is admitted
+and wins. So the table lists the narrow entry first and lets the fit predicate
+refuse it where it cannot be written out.
+
+Measured on an 8060S, as a ratio to each shape's own best over the whole
+admissible grid, with the operands read as tiles and `O` held in fragments:
+
+    tiling          qwen-denoiser   SAM 2 global   SAM 2 windowed
+    (BR, BC, NW)    4096x4118 E128  4096x4096 E64  256x256 E64 H128
+    (16, 32,  2)      refused           1.00x          1.00x
+    (16, 32,  4)        1.00x           1.12x          1.20x
+    (16, 16,  4)        1.27x           1.14x          1.06x
+    (32, 32,  8)        1.19x           1.28x          1.36x
+    (64, 32, 16)        1.28x           1.43x          1.58x
+
+The last row is what `FLASHCM_TILINGS` picks, and it is 28% to 58% off.
+"""
+const FLASHCM_TILINGS_TILED = [(16, 32, 2), (16, 32, 4), (16, 16, 2), (16, 16, 4),
+                               (16, 64, 2), (16, 64, 4), (32, 32, 8), (32, 16, 8),
+                               (64, 32, 16), (64, 16, 16), (128, 32, 16), (128, 16, 16)]
+
+"""
     flashcm_tiling(dev, E, Lq, Lk, nbatch = 0; clamp = false) -> (BR, BC, NW) | nothing
 
 The first tiling in [`FLASHCM_TILINGS`](@ref) that divides this shape and fits
@@ -1475,7 +1724,7 @@ subgroup width appears twice with different meanings: the device's *default*
 Lava pins to 32. The tiling needs the second.
 """
 function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int = 0;
-                        clamp::Bool = false)
+                        clamp::Bool = false, globalkv::Bool = false)
     # `flashcm_plan` checks this before calling, but this is also reached
     # directly — from tests and from the docstring above. Without matrix hardware
     # there is no tile, and `cld(E, 0)` throws instead of reporting "no tiling".
@@ -1514,13 +1763,20 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
     # residency retain the measured table instead of being guessed at here.
     width_widen = max(1, dev.subgroup ÷ dev.coopmatsubgroup)
     occupancy_widen = dev.warps >= 64 ? 2 : 1
-    widen = max(width_widen, occupancy_widen)
-    for (BR, BC, NW0) in FLASHCM_TILINGS, NW in unique((NW0 * widen, NW0))
+    #
+    # Neither applies to a launch that reads its operands as tiles. Both are
+    # about having enough threads to MOVE a block into shared memory and enough
+    # resident warps to hide that; with no staging there is no block to move,
+    # and the measurement is unambiguous — at Qwen-Image 2.1's shape the same
+    # `(16, 32)` tile runs 25.22 ms at `NW = 4`, 33.11 at 8 and 49.47 at 16.
+    widen = globalkv ? 1 : max(width_widen, occupancy_widen)
+    table = globalkv ? FLASHCM_TILINGS_TILED : FLASHCM_TILINGS
+    for (BR, BC, NW0) in table, NW in unique((NW0 * widen, NW0))
         # Measured shape policy for the new narrow-key entries. The long global
         # loop and the 64-token blocks win with BC=16; the 256-token windows use
         # BC=32, which is both faster there and less sensitive to recurrence
         # order. Other shapes retain the established BC=32 choices.
-        BR == 128 && BC == 16 && Lk < 4096 && continue
+        !globalkv && BR == 128 && BC == 16 && Lk < 4096 && continue
         NT = NW * dev.coopmatsubgroup
         NT <= dev.workgrouplimit || continue
         # `(64, 16)` was for a 64-token key axis and nothing else. It is also
@@ -1535,7 +1791,7 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # will run under: at `E = 128` the 32-wide block does not fit beside a
         # `pvs` and does fit without one, and it is 13.4% faster than the
         # 16-wide (42.69 ms against 49.27 at `Lq = Lk = 4096`, 32 heads).
-        BR == 64 && BC == 16 && Lk != 64 &&
+        !globalkv && BR == 64 && BC == 16 && Lk != 64 &&
             flashcmfits(dev, EP, BR, 32, NT, NW >= 16) && continue
         # Without `clamp` the extents have to divide the tile; with it they are
         # padded and masked, which is what puts the decoder's 23-token
@@ -1565,7 +1821,7 @@ function flashcm_tiling(dev::M.DeviceCaps, E::Int, Lq::Int, Lk::Int, nbatch::Int
         # 7.24 at `(64, 32)`. Fitting is not the same as being worth it, and
         # what the 128 rows were measured to need is a processor that reports
         # its residency.
-        helddirect = NW >= 16 &&
+        helddirect = (NW >= 16 || globalkv) &&
                      (BR < 128 || (dev.warps >= 64 && Lq == Lk && Lq >= BR))
         flashcmfits(dev, EP, BR, BC, NT, helddirect) && (BR * E) % NT == 0 &&
             !any(c -> c[1] == BR && c[2] == BC, fits) && push!(fits, (BR, BC, NW))
@@ -1671,6 +1927,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
                       # caller saying which formulation it wants.
                       onepass::Union{Nothing,Bool} = nothing,
                       lazyrescale::Bool = true, split::Bool = true,
+                      loopsplit::Bool = true,
                       BR::Int = 0, BC::Int = 0, NW::Int = 0)
     bias === nothing || return Decline(:bias)
     dev.coopmat || return Decline(:nocoopmat)
@@ -1681,14 +1938,36 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     Lk = size(k, 2)
     EP = cld(E, dev.tile) * dev.tile
 
+    # Whether this attention can read K and V as tiles, asked BEFORE the tiling
+    # because it is what decides which table the tiling comes from. Only the
+    # part that does not depend on `BC`; `Lk >= BC` is re-asked once there is
+    # one, and a key axis shorter than the block it picked falls back to
+    # staging — correct, and a shape where the difference is a fraction of a
+    # millisecond either way.
+    sk, sv = flashstrides(k), flashstrides(v)
+    tiled = flashglobalkv(E, EP, sk, sv, Lk, dev.tile)
+
     autotiling = BR == 0
     tiling = if autotiling
-        flashcm_tiling(dev, E, Lq, Lk, H * B; clamp)
+        flashcm_tiling(dev, E, Lq, Lk, H * B; clamp, globalkv = tiled)
     else
         (BR, BC, NW)
     end
     tiling === nothing && return Decline(:notiling)
     BR, BC, NW = tiling
+    # `tiled` was asked with the SMALLEST block the table can offer, because the
+    # answer decides which table the block comes from. If the block it then
+    # picked is wider than the key axis, the launch will stage after all — and a
+    # staged launch must take the staged table, or it gets the worst of both: a
+    # tiling chosen for operands read as tiles, run by the kernel that stages
+    # them. That is a real shape, not a corner: 16 to 31 keys is every
+    # short-prompt cross-attention.
+    if tiled && Lk < BC
+        tiled = false
+        tiling = flashcm_tiling(dev, E, Lq, Lk, H * B; clamp, globalkv = false)
+        tiling === nothing && return Decline(:notiling)
+        BR, BC, NW = tiling
+    end
     # The pinned coopmat width, not the device default — see `M.DeviceCaps`.
     NT = NW * dev.coopmatsubgroup
     # Hold `O` in cooperative-matrix fragments whenever the launch is the wide
@@ -1698,7 +1977,16 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # Measured on an 8060S at `Lq = Lk = 4096`, `E = 128`, 32 heads, same tile:
     # 45.48 ms held against 49.27 through shared memory, and holding is also
     # what makes the 32-wide key block fit at all (42.69 ms).
-    holdtiles = held === nothing ? NW >= 16 : held
+    #
+    # `NW >= 16` is the STAGED launch's rule, and it is about shared memory:
+    # holding the fragments is what freed the `pvs` allocation that the 32-wide
+    # key block needed, and only the wide launch had the occupancy to pay for
+    # the registers. A launch that reads its operands as tiles has neither
+    # problem — there is no `kvs` competing for the budget — and it wants the
+    # fragments held at any width. Measured at Qwen-Image 2.1's shape on the
+    # tile the new table picks, `(16, 32)` at 128 threads: **22.79 ms held
+    # against 25.08 through shared**, and 8192 bytes of shared against 16384.
+    holdtiles = held === nothing ? (NW >= 16 || tiled) : held
 
     NT <= dev.workgrouplimit || return Decline(:workgroup)
     (clamp || (Lq % BR == 0 && Lk % BC == 0)) || return Decline(:extent)
@@ -1770,12 +2058,19 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # that occupancy and holding wins: the 39 windowed SAM 2 calls take attention
     # from 80.01 to 69.17 ms, with bit-identical encoder outputs. Unknown
     # residency (`warps == 0`) keeps the conservative table behavior.
-    # A ragged last key block is 40% of this kernel whatever the mask does, so
-    # it gets its own launch rather than a flag. See `tailsplit` in
-    # `kernelplans.jl` for the measurement. Only where the key axis is the
-    # ragged one and nothing else has already split it: a split plan's slices
-    # are uniform and reasoning about both at once buys nothing.
-    tailsplit = clamp && Lk % BC != 0 && nsplit == 1 && Lk > BC
+    # A ragged last key block needs `KCLAMP`, and `KCLAMP` in EVERY block costs
+    # +45% (62.07 ms against 42.73 at Qwen-Image 2.1's shape). Two ways to
+    # confine it to the blocks that are actually short:
+    #
+    #  * `loopsplit` — the kernel runs its key loop twice, unclamped over the
+    #    full blocks and clamped over the rest. One launch, no partial buffer.
+    #  * `tailsplit` — two LAUNCHES over the two ranges, into two `partial`
+    #    slots, plus a third dispatch to merge them.
+    #
+    # Only where the key axis is the ragged one and nothing else has already
+    # split it: a split plan's slices are uniform and reasoning about both at
+    # once buys nothing.
+    tailsplit = !loopsplit && clamp && Lk % BC != 0 && nsplit == 1 && Lk > BC
     tailsplit && (nsplit = 2)
     # ── One pass over the scores, or two, decided by the HEAD WIDTH.
     #
@@ -1804,7 +2099,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # different variable and it is not measured here beyond the one point.
     op = onepass === nothing ? E < 96 : onepass
     FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, op,
-                lazyrescale, nsplit, tailsplit)
+                lazyrescale, nsplit, tailsplit, tiled)
 end
 
 """
@@ -1933,6 +2228,20 @@ const FLASH_MERGE_GROUP = 256
 # and nothing in the library sets them.
 
 """
+    flashglobalkv(plan, sk, sv, Lk) -> Bool
+
+Whether this launch may load its K and V tiles straight from the tensors.
+
+The conditions are listed where the keyword is defaulted, in
+[`flash_launches`](@ref); each is a thing the shared-memory staging did that an
+`OpCooperativeMatrixLoadKHR` from global cannot.
+"""
+@inline flashglobalkv(E::Integer, EP::Integer, sk, sv, Lk::Integer, BC::Integer) =
+    sk[1] == 1 && sv[1] == 1 && EP == E && Lk >= BC
+@inline flashglobalkv(plan::FlashCMPlan, sk, sv, Lk::Integer) =
+    flashglobalkv(plan.E, plan.EP, sk, sv, Lk, plan.BC)
+
+"""
     flash_launches(caps, out, plan, q, k, v, scale, partial, ml; …) -> Vector
 
 What this attention IS: one launch, or two when the plan splits the key axis for
@@ -1950,6 +2259,31 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                       ballast::Int = 0, shpad::Int = 0, nrsc::Int = 3,
                       rscbar::Bool = false, smoff::Bool = false,
                       ldoff::Int = 0, s16::Bool = false,
+                      # DIAGNOSTIC, wrong on purpose: drop the key loop's
+                      # barriers to price them. See `keybar` in the kernel.
+                      baroff::Bool = false,
+                      # Clamp only the key blocks the extent leaves short,
+                      # inside the kernel. A plan that split the LAUNCH instead
+                      # already hands each launch a range it fills exactly.
+                      loopsplit::Bool = !plan.tailsplit,
+                      # Read K and V straight into cooperative matrices rather
+                      # than staging them through shared memory. `nothing` asks
+                      # `flashglobalkv` whether this launch may; a `Bool` is a
+                      # caller naming it, which is what the A/B does.
+                      #
+                      # Four conditions, each a correctness one rather than a
+                      # preference, and all in `flashglobalkv`:
+                      #
+                      #  * `E` contiguous in both K and V. The tile the tensor
+                      #    core wants is `(e, key)` with unit stride down `e`;
+                      #    a permuted or gathered operand has no such tile.
+                      #  * `EP == E`. A padded head dimension is zero-filled by
+                      #    the staging; a direct load would take whatever
+                      #    follows `E` in memory instead.
+                      #  * At least one whole tile of keys, since a ragged
+                      #    last block is read by sliding its window back onto
+                      #    the last whole tile. See `kwin` in the kernel.
+                      globalkv::Union{Nothing,Bool} = nothing,
                       # Five values per thread at the 512-thread global tile is
                       # enough latency hiding for a measured win. The 128-thread
                       # window tile needs twenty registers and loses occupancy.
@@ -1965,6 +2299,17 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
     rq, rk, rv = stridedroot(q), stridedroot(k), stridedroot(v)
     sq, sk, sv = flashstrides(q), flashstrides(k), flashstrides(v)
     flat(r) = flashflat(r[1])
+    # The PLAN's decision, because it is also the tiling's — see
+    # `FLASHCM_TILINGS_TILED`. The keyword is for the A/B and nothing else.
+    gkv = something(globalkv, plan.globalkv)
+    # Asking for it where it does not hold is a silent out-of-bounds read, not a
+    # wrong number: `kwin` would slide a tile off the front of the tensor at
+    # `Lk < BC`, and a padded head dimension would read past the last key. An
+    # A/B that names the keyword has to be told which of the four it broke.
+    gkv && !flashglobalkv(plan, sk, sv, Lk) && throw(ArgumentError(
+        "DNNKernels: `globalkv` needs E contiguous in K and V (strides " *
+        "$(sk[1]), $(sv[1])), no head padding (E $(plan.E), EP $(plan.EP)) " *
+        "and at least one tile of keys (Lk $Lk, BC $(plan.BC))"))
 
     ns = plan.nsplit
     outarg = outperm ? flashoutflat(out) : out
@@ -1997,7 +2342,8 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
                                 Val(held && !rego ? plan.rescale : :comp), Val(ballast),
                                 Val(shpad), Val(nrsc), Val(plan.onepass && !rego),
                                 Val(rscbar), Val(prefetchv), Val(outperm), Val(smoff),
-                                Val(ldoff), Val(s16),
+                                Val(ldoff), Val(s16), Val(loopsplit), Val(gkv),
+                                Val(baroff),
                                 map(Val, outwindow)..., Val(H),
                                 Val(nsp), Val(partout), Val(epad), Val(rpad),
                                 Val(caps.coopmatsubgroup),

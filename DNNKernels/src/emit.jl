@@ -4205,7 +4205,8 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
         M.dispatch!(emitctx.g, im2col_kernel!,
                     (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
                      Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
-                     Wid, Hei, OW, OH, npqc, MP * CRSP, Cin, p0), MP * CRSP;
+                     Val(OW), Val(OH),
+                     Wid, Hei, npqc, MP * CRSP, Cin, p0), MP * CRSP;
                     name = "$(op.id).im2col$(sfx)")
         if native
             M.native_gemm_dispatch!(emitctx.dev, emitctx.g,
