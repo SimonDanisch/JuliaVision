@@ -1233,6 +1233,39 @@ end
         # the `e` a whole tile already summed is staged as zero in Q.
         @test sqrt(sum(abs2, got .- want) / sum(abs2, want)) < 2e-3
 
+        # **`plan.globalkv` is what the LAUNCH will do, not which table the
+        # tiling came from.** `tiled` is settled before there is a `BC` or a
+        # decision about where `O` lives, and a slid `e` tail needs both — so a
+        # plan that carried the table's answer into the field could say `true`
+        # where `flashglobalkv(plan, …)` says `false`, and then every launch of
+        # it threw the A/B guard. The chooser cannot build one; a caller naming
+        # its own tiling can, and `sdpaflashcm!`'s five-argument form names one
+        # by default. Every explicit tiling at a padded head has to LAUNCH.
+        # Own names throughout: a `for` body at test top level assigns the
+        # ENCLOSING binding, and nulling `q`/`k`/`v` here would pull them out
+        # from under the staged A/B below.
+        for (Ee, Le, He, Be) in ((72, 16, 4, 64), (72, 64, 8, 4), (88, 32, 2, 1),
+                                 (120, 32, 1, 1))
+            mke() = DNNKernels.toback(back,
+                        Float16.(randn(rng, Float32, Ee, Le, He, Be) .* 0.3f0))
+            qe, ke, ve = mke(), mke(), mke()
+            oe = KA.allocate(back, Float32, Ee, Le, He, Be); fill!(oe, 0f0)
+            ske, sve = DNNKernels.flashstrides(ke), DNNKernels.flashstrides(ve)
+            for kw in ((;), (BR = 16, BC = 16, NW = 4), (BR = 16, BC = 16, NW = 2),
+                       (BR = 16, BC = 32, NW = 4), (BR = 32, BC = 32, NW = 8),
+                       (BR = 64, BC = 32, NW = 16))
+                pe = DNNKernels.flashcm_plan(dev, qe, ke, ve, nothing; kw...)
+                pe isa DNNKernels.FlashCMPlan || continue
+                # The field and the predicate have to agree, which is what makes
+                # the guard in `flash_launches` unreachable from a valid plan.
+                @test !pe.globalkv || DNNKernels.flashglobalkv(pe, ske, sve, Le)
+                DNNKernels.sdpaflashcm!(ctx, oe, pe, qe, ke, ve, Float32(1 / sqrt(Ee)))
+            end
+            KA.synchronize(back)
+            @test all(isfinite, Array(oe))
+            qe = ke = ve = oe = nothing; GC.gc()
+        end
+
         # Same numbers either way. `globalkv = false` runs the staged kernel on
         # the identical plan, which is the A/B the slide has to survive.
         ostaged = KA.allocate(back, Float32, E, L, H, B); fill!(ostaged, 0f0)

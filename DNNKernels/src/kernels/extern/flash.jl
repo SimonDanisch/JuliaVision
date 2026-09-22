@@ -2236,8 +2236,17 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # is right and the difference is inside noise; at 8 it is worth 19% to 50%.
     # `E = 128` wants two passes at either, which is what `E < 96` already said.
     op = onepass === nothing ? (E < 96 && BR ÷ NW < 8) : onepass
+    # What the LAUNCH will do, not which table the tiling came from. `tiled` was
+    # asked before there was a `BC` or a decision about where `O` lives, and a
+    # slid `e` tail needs BOTH: the real `BC` for `Lk >= BC`, and the fragment
+    # write-out. `flash_launches` reads this field, so a plan that says `true`
+    # here has to be one `flashglobalkv(plan, …)` agrees with — otherwise every
+    # launch of it throws the A/B guard. The auto path cannot build such a plan
+    # (the chooser refuses the entries), but a CALLER naming its own tiling can,
+    # and `sdpaflashcm!`'s five-argument form names one by default.
+    gkv = tiled && flashglobalkv(E, EP, sk, sv, Lk, BC, holdtiles && !holdregs)
     FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, op,
-                lazyrescale, nsplit, tailsplit, tiled)
+                lazyrescale, nsplit, tailsplit, gkv)
 end
 
 """
@@ -2465,8 +2474,10 @@ function flash_launches(caps, out, plan::FlashCMPlan, q, k, v, scale, partial, m
     # A/B that names the keyword has to be told which of the four it broke.
     gkv && !flashglobalkv(plan, sk, sv, Lk) && throw(ArgumentError(
         "DNNKernels: `globalkv` needs E contiguous in K and V (strides " *
-        "$(sk[1]), $(sv[1])), no head padding (E $(plan.E), EP $(plan.EP)) " *
-        "and at least one tile of keys (Lk $Lk, BC $(plan.BC))"))
+        "$(sk[1]), $(sv[1])), at least one tile of keys (Lk $Lk, BC " *
+        "$(plan.BC)), and — where the head is padded (E $(plan.E), EP " *
+        "$(plan.EP)) — `O` in cooperative-matrix fragments, which is " *
+        "`held && !rego` and is $(plan.held && !plan.rego) here"))
 
     ns = plan.nsplit
     outarg = outperm ? flashoutflat(out) : out
