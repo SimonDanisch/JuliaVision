@@ -504,6 +504,10 @@ onto a column tile, because the GEMM's rate falls off a cliff without one — se
 [`convcoutpad`](@ref). `rows` is not padding at all: it is how many pixels one
 im2col chunk covers, which is what lets a convolution whose whole im2col matrix
 would be gigabytes run on the tensor cores anyway.
+
+`gather` chooses between the two ways of producing the GEMM's A operand: write
+the im2col matrix to memory, or compute each element where the GEMM reads it.
+See [`ConvGather`](@ref) for what that is worth and when.
 """
 struct ConvCoopMatPlan
     CRS::Int         # the weight's own reduction extent
@@ -512,6 +516,7 @@ struct ConvCoopMatPlan
     CoutP::Int       # …padded onto a column tile the staged GEMM has
     NPQ::Int
     rows::Int        # pixels per im2col chunk; `NPQ` when it fits at once
+    gather::Bool     # read the image in the GEMM instead of materialising im2col
 end
 
 """

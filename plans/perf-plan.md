@@ -4491,3 +4491,74 @@ finer pad also admits shapes the old constant rejected.
 Six VAE convolutions, `gap_vs_rocm`: 631.7 ms at 192, 581.6 at 384, 584.2 at
 128 — 384 and 128 are the same tiling and the same time, and only 128 keeps the
 small shapes. vae-1152-256 is now 1.27x off torch, vae-576-512 1.66x.
+
+## 2026-09-22 — The convolution gathers its A operand instead of writing im2col
+
+`conv2d_mm.comp` in llama.cpp is an implicit-GEMM convolution: it gathers its
+image operand out of the input inside the k-loop rather than materialising the
+im2col matrix. This tree now does the same, through one hook.
+
+**Why, measured first.** The matrix a `3x3` convolution multiplies is nine times
+its own input, and building it costs a write plus a read of that. Against the
+staged GEMM's own rate on the identical shape:
+
+    conv                 GEMM alone   measured   im2col costs
+    144 -> 144  @1024²     25.1 ms     67.9 ms      +42.8
+    288 -> 288  @1024²     82.7       167.7         +85.0
+    288 -> 144  @1024²    ~46         136.6         +90
+    576 -> 576  @512²      71.6       105.9         +34.2
+    1152 -> 1152 @256²     78.0        81.3          +3.3
+
+`Mantle.apair` is the staged kernel's one A-operand read; `nothing` is a plain
+matrix and a `ConvGather` computes the element where the GEMM would have read
+it. The plain path's arguments are unchanged.
+
+**Three things had to be right, and two of them measured wrong first.**
+
+*Branchless.* Guarding the load — `if in bounds; v = x[...]; end` — measured
+**0.54x**, bit-identical and half the speed. llama.cpp does not guard either: it
+clamps the address, reads unconditionally, and selects zero afterwards.
+
+*The queue must be registers.* Mantle's prefetch kernel holds its tile in an
+`MVector`, which Lava scalar-replaces **only when the staging loop unrolls**.
+A gathering load in that loop stops the unroll, and the queue becomes a packed
+`[N x i64]` with dynamically indexed sub-element access. It is now `@nexprs`
+scalars: the same schedule with the unroll made explicit rather than hoped for,
+and the docstring already recorded that spelling as bit-exact and neutral.
+
+*Its own tiling.* `128x128x16`, not the materialised path's `128x128x32` — a
+`bk` of 16 halves the gathered elements in flight, and it is llama.cpp's
+`BS_CRS = 16`. At `128x128x32` the kernel spilled 16 VGPRs to 2048 bytes of
+scratch and its inverse throughput went 12176 -> 22510, which is the 1.85x
+slowdown to three digits. RADV shaderstats said this; reading the kernel would
+not have.
+
+**And it only pays where `Cout` is small.** The gather recomputes an element
+once per 128-wide column block, while im2col writes it once and each block
+reads it, so the cost grows with the block count and the saving does not.
+Three blocks wins, five loses, and the rule is `CoutP <= 384`.
+
+End to end, interleaved in one process, min of seven, outputs compared:
+
+    conv               gather    im2col    chosen  speedup  bit-exact
+    vae-144-1024         true     75.25     70.50    1.07x       yes
+    vae-288-1024         true    187.93    182.04    1.03        yes
+    vae-288-144-1024     true    153.93    123.30    1.25        yes
+    vae-576-512         false    141.58    138.36    1.02        yes
+    vae-1152-256        false    125.05    125.42    1.00        yes
+    vae-1152-128         true     15.87      4.54    3.49        yes
+    TOTAL                        699.61    644.16    1.09x
+
+The two `false` rows are the control: same plan in both arms, and they read
+1.00x and 1.02x, which is the noise floor this table is quoted against.
+
+**It also cost four Lava defects**, all in packing a VECTOR into a wider private
+slot and none reachable before, because nothing had put an `f16vec2` in a
+dynamically indexed `MVector`. See that repo's commit; `llvm_type_size` having
+no `VectorType` branch is the root of three of them.
+
+**What is left on these shapes is the GEMM, not the convolution.** `vae-144-1024`
+is 70.50 ms against a GEMM that would take 25.1 at its own measured rate, so the
+remaining gap is no longer traffic — it is that `Cout = 144` pads to 256 and
+half the arithmetic is multiplying by zero. That is the `CoutP` note in
+`convcoutpad`, and it is the next thing worth measuring here.

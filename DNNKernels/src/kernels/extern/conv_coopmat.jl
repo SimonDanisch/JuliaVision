@@ -156,7 +156,8 @@ when the graph is built.
 """
 function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
                            outsize::Dims, wsize::Dims; crspad::Float64 = 1.25,
-                           im2colcap::Int = IM2COL_CAP[]) where {Tx,Tw}
+                           im2colcap::Int = IM2COL_CAP[],
+                           gather::Union{Bool,Nothing} = nothing) where {Tx,Tw}
     Tx === Float16 && Tw === Float16 || return Decline(:eltype)
     out, w = outsize, wsize
     KW, KH, Cin, Cout = wsize
@@ -311,7 +312,10 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     nchunk = cld(NPQ, rows)
     even = cld(cld(NPQ, nchunk), GEMM_BLOCK) * GEMM_BLOCK
     even <= rows && cld(NPQ, even) == nchunk && (rows = even)
-    ConvCoopMatPlan(CRS, CRSP, Cout, convcoutpad(padgemm(rows), Cout, CRSP), NPQ, rows)
+    CoutP = convcoutpad(padgemm(rows), Cout, CRSP)
+    ConvCoopMatPlan(CRS, CRSP, Cout, CoutP, NPQ, rows,
+                    gather === nothing ?
+                        convgather_worth(padgemm(rows), CoutP, CRSP) : gather)
 end
 
 """
@@ -589,6 +593,200 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
 end
 
 """
+The tiling the GATHERING convolution runs at, which is not the one the
+materialised path picks.
+
+`128x128x16` against the materialised path's `128x128x32`: a `bk` of 16 halves
+how many gathered elements are in flight per k-block, and the address arithmetic
+is what this kernel is short of registers for. It is also llama.cpp's
+`BS_CRS = 16` in `conv2d_mm.comp`, arrived at there for the same operand.
+
+Measured per chunk on the VAE's six convolutions, gather at each tiling against
+`im2col pass + planner GEMM` (speedup, higher is better):
+
+    conv                128x128x32  128x128x16  64x128x32  32x128x32  64x64x32
+    vae-144-1024             1.07x       1.22x      1.23x      1.07x     0.76x
+    vae-288-1024             1.04        1.07       1.05       0.91      0.64
+    vae-288-144-1024         1.12        1.23       1.19       1.01      0.73
+    vae-576-512              0.83        0.92       0.84       0.75      0.53
+    vae-1152-256             0.81        0.87       0.84       0.74      0.54
+    vae-1152-128             1.46        1.71       1.56       1.38      1.03
+
+`64x128x32` is within noise of it on three shapes and behind on the other three.
+Everything narrower loses: the gather's cost is per A ELEMENT, so shrinking the
+row block without shrinking the work per element just buys less arithmetic to
+amortise it against.
+"""
+const CONVGATHER_TILING = (4, 2, 2, 4, 16, 8)
+
+"""
+    convgather_tiling(MP, CoutP, CRSP) -> tiling | nothing
+
+[`CONVGATHER_TILING`](@ref) when this shape can run at it, `nothing` otherwise.
+"""
+function convgather_tiling(MP::Int, CoutP::Int, CRSP::Int)
+    c = CONVGATHER_TILING
+    bm, bn, bk = Mantle.GEMM_TILE * c[1] * c[3], Mantle.GEMM_TILE * c[2] * c[4], c[5]
+    (MP % bm == 0 && CoutP % bn == 0 && CRSP % bk == 0) || return nothing
+    haskey(Mantle.GEMM_STAGED_PREFETCH_KERNELS, c) || return nothing
+    return c
+end
+
+"""
+    convgather_worth(MP, CoutP, CRSP) -> Bool
+
+Whether this convolution should gather its A operand instead of materialising
+im2col. See [`ConvGather`](@ref) for the mechanism.
+
+**The staged kernel is a precondition, not a preference.** It is the only one
+with the loader hook, and it refuses any `splitk > 1`; a convolution small enough
+for the planner to split the reduction has no staged tiling and must materialise.
+`Mantle.coopmat_gemm!` throws rather than ignoring a loader, so this has to agree
+with it.
+
+**Then `CoutP`, and that is the whole rule.** The gather recomputes an A element
+once per 128-wide COLUMN block, because each block is its own workgroup walking
+its own k-loop; im2col instead writes the element once and each block reads it.
+So the gather's cost grows with the number of column blocks while what it saves
+does not, and the crossover is where those meet. Measured per chunk against
+`im2col pass + planner GEMM`, at `CONVGATHER_TILING`:
+
+    conv                Cout   CoutP  blocks   gather
+    vae-1152-128         128     128       1    1.71x
+    vae-288-144-1024     144     256       2    1.23
+    vae-144-1024         144     256       2    1.22
+    vae-288-1024         288     384       3    1.07
+    vae-576-512          576     640       5    0.92
+    vae-1152-256        1152    1152       9    0.87
+
+Three blocks wins and five loses, so the line is `CoutP <= 384`. It is stated in
+`CoutP` and not in `Cout` because the column blocks are what the GEMM actually
+launches, and `convcoutpad` has already rounded `Cout` up to them.
+"""
+function convgather_worth(MP::Int, CoutP::Int, CRSP::Int)
+    _, splitk = Mantle.coopmat_gemm_shape(MP, CoutP, CRSP)
+    Mantle.staged_gemm_tiling(MP, CoutP, CRSP, 1, splitk) === nothing && return false
+    convgather_tiling(MP, CoutP, CRSP) === nothing && return false
+    return CoutP <= CONVGATHER_MAXCOUT
+end
+
+"How wide the output-channel block may be before gathering stops paying; see
+[`convgather_worth`](@ref), where the measurement is."
+const CONVGATHER_MAXCOUT = 384
+
+"""
+    ConvGather{OW,OH,KW,KH,SX,SY,PX,PY,DX,DY}
+
+The im2col matrix as an address rule rather than as a buffer.
+
+`Mantle.apair` is the staged GEMM's one A-operand read. The plain kernel reads
+`A[m, k]` out of a matrix; given one of these it computes the same element from
+the image instead, so the matrix never exists. Every index below is the one
+[`im2col_kernel!`](@ref) would have written to that position, which is what
+makes the two paths interchangeable: same `k = kx + KW*(ky + KH*c)` column
+order, same zero for a row past `npqc` or a column past `Cin`, same clamp on the
+spatial pad.
+
+**Why it is worth a second path.** The matrix a `3x3` convolution multiplies is
+nine times its own input. Writing it and reading it back is traffic the direct
+form does not have, and it is not small: against the staged GEMM's own measured
+rate on the identical shape,
+
+    conv                 GEMM alone   measured   im2col costs
+    144 -> 144  @1024²     25.1 ms     67.9 ms      +42.8
+    288 -> 288  @1024²     82.7       167.7         +85.0
+    288 -> 144  @1024²    ~46         136.6         +90
+    576 -> 576  @512²      71.6       105.9         +34.2
+    1152 -> 1152 @256²     78.0        81.3          +3.3
+
+The cost tracks `Cout` inversely because `Cout` *is* the arithmetic intensity
+here: one A element is read once and used `2*Cout` times. That is why the last
+row has nothing to gain and the first three have half their time in it.
+
+The construction is llama.cpp's `conv2d_mm.comp`, which gathers its B operand
+out of the image inside the k-loop for exactly this reason. The orientation
+differs — theirs is `Cout x CRS` by `CRS x NPQ`, ours the transpose — so the
+operand gathered along the pixel axis is A here and B there.
+
+**The spatial extents are type parameters and the rest are fields.** Decomposing
+a pixel index divides by `OW` and by `OH*OW`; this device has no integer divide,
+so as literals they become a multiply and a shift and as arguments they are two
+real divisions per element. `im2col_kernel!` measures that at 15-20%. `p0` and
+`npqc` change per chunk and so cannot be literals without compiling a kernel per
+chunk.
+
+Note what does **not** need hoisting: for every tiling in use each thread owns a
+single `m` across all its staging repetitions (`p = (tid + r*WG) % BM2` is
+independent of `r` when `WG` is a multiple of `BM2`), and `m` does not depend on
+the k-block either, so the pixel decomposition is loop-invariant and LLVM lifts
+it out of the k-loop on its own. Only the `k -> (kx, ky, c)` split stays inside.
+That is the same work llama.cpp does with `subgroupShuffle` under
+`USE_COLLECTIVES`, reached here by construction instead.
+"""
+struct ConvGather{OW,OH,KW,KH,SX,SY,PX,PY,DX,DY}
+    Wid::Int32
+    Hei::Int32
+    Cin::Int32
+    npqc::Int32     # real pixels in this chunk; rows past it are the `MP` pad
+    p0::Int32       # the chunk's first pixel, as `im2col_kernel!` means it
+end
+
+function ConvGather(OW, OH, KW, KH, stride, padding, dilation,
+                    Wid, Hei, Cin, npqc, p0)
+    ConvGather{OW, OH, KW, KH, stride[1], stride[2],
+               padding[1], padding[2], dilation[1], dilation[2]}(
+        Int32(Wid), Int32(Hei), Int32(Cin), Int32(npqc), Int32(p0))
+end
+
+# One element, spelled exactly as `im2col_kernel!` spells it. `x` is indexed in
+# four dimensions and not linearly because the caller's input may be a view.
+#
+# **Branchless, and that is the whole difference between winning and losing.**
+# The obvious spelling guards the load — `if in bounds; v = x[...]; end` — and it
+# measured **0.54x against im2col**, bit-identical and half the speed. This is
+# sixteen of these per k-block sitting inside the staging loop of a kernel whose
+# own notes record the structurizer leaving a `muladd` under an
+# `OpSelectionMerge` and costing 3x. llama.cpp's `conv2d_mm.comp` does not guard
+# the load either: it clamps the address into range, reads unconditionally, and
+# then selects zero if the coordinates were out of bounds. Every clamp below is
+# that, and none of them can fault because the clamp is what makes the address
+# legal.
+@inline function convgather1(g::ConvGather{OW,OH,KW,KH,SX,SY,PX,PY,DX,DY}, x,
+                             m::Int32, kx::Int32, ky::Int32, c::Int32,
+                             inch::Bool) where {OW,OH,KW,KH,SX,SY,PX,PY,DX,DY}
+    npq = m + g.p0
+    n = npq ÷ Int32(OH * OW)
+    r = npq - n * Int32(OH * OW)
+    oh = r ÷ Int32(OW)
+    ow = r - oh * Int32(OW)
+    ix = ow * Int32(SX) - Int32(PX) + kx * Int32(DX)
+    iy = oh * Int32(SY) - Int32(PY) + ky * Int32(DY)
+    ok = (m < g.npqc) & inch &
+         (ix >= Int32(0)) & (ix < g.Wid) & (iy >= Int32(0)) & (iy < g.Hei)
+    # `n` too: a row past `npqc` is the `MP` pad, and its pixel index can run off
+    # the end of the batch as easily as off the end of a row.
+    ixc = clamp(ix, Int32(0), g.Wid - Int32(1))
+    iyc = clamp(iy, Int32(0), g.Hei - Int32(1))
+    cc = clamp(c, Int32(0), g.Cin - Int32(1))
+    nc = clamp(n, Int32(0), Int32(size(x, 4)) - Int32(1))
+    @inbounds v = Float16(x[ixc + Int32(1), iyc + Int32(1),
+                            cc + Int32(1), nc + Int32(1)])
+    return ifelse(ok, v, zero(Float16))
+end
+
+@inline function Mantle.apair(g::ConvGather{OW,OH,KW,KH}, x, m, k,
+                              lda) where {OW,OH,KW,KH}
+    kx = k % Int32(KW)
+    t  = k ÷ Int32(KW)
+    ky = t % Int32(KH)
+    c  = t ÷ Int32(KH)
+    inch = c < g.Cin
+    m32 = Int32(m)
+    (VecElement(convgather1(g, x, m32, kx, ky, c, inch)),
+     VecElement(convgather1(g, x, m32 + Int32(1), kx, ky, c, inch)))
+end
+
+"""
 How many consecutive rows of `col` one thread writes.
 
 **Two.** `col` is `Float16`, so one element a thread is a 2-byte store — half
@@ -714,7 +912,10 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     ROWS = plan.rows
     MP = padgemm(ROWS)
 
-    col = scratch!(ctx, Float16, MP, CRSP)
+    # Not allocated at all on the gathering path: the whole point is that this
+    # buffer does not exist. `scratch!` hands out a shared arena, so reserving it
+    # anyway would keep the arena at the size the materialised path needs.
+    col = plan.gather ? nothing : scratch!(ctx, Float16, MP, CRSP)
 
     # Untouched when `CRS` is already on the tile AND the channels need no
     # widening, which is every convolution that took this path before — same
@@ -735,15 +936,24 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
 
     for p0 in 0:ROWS:(NPQ - 1)
         npqc = min(ROWS, NPQ - p0)
-        vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
-        im2col_kernel!(backend)(col, x, Val(MP), Val(vec),
-                                Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
-                                Val(padding[1]), Val(padding[2]),
-                                Val(dilation[1]), Val(dilation[2]),
-                                Val(OW), Val(OH),
-                                Wid, Hei, npqc, MP * CRSP, Cin, p0;
-                                ndrange = cld(MP * CRSP, vec))
-        Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C, reduce = false)
+        if plan.gather
+            Mantle.coopmat_gemm!(C, x, B, MP, CoutP, CRSP; partials = C,
+                                 reduce = false,
+                                 tiling = convgather_tiling(MP, CoutP, CRSP),
+                                 aload = ConvGather(OW, OH, KW, KH, stride, padding,
+                                                    dilation, Wid, Hei, Cin, npqc, p0))
+        else
+            vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
+            im2col_kernel!(backend)(col, x, Val(MP), Val(vec),
+                                    Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
+                                    Val(padding[1]), Val(padding[2]),
+                                    Val(dilation[1]), Val(dilation[2]),
+                                    Val(OW), Val(OH),
+                                    Wid, Hei, npqc, MP * CRSP, Cin, p0;
+                                    ndrange = cld(MP * CRSP, vec))
+            Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C,
+                                 reduce = false)
+        end
         conv_epilogue_kernel!(backend, (256, 1))(
             out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
             OW * OH, Cout, npqc, p0, MP * CoutP;
