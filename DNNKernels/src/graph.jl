@@ -237,6 +237,9 @@ end
 
 function evalexpr(ex, dims)
     ex isa Integer && return Int(ex)
+    # A float literal, which a shape never has and an ATTRIBUTE does: an
+    # upsample's scale factor comes through here as `2.0`.
+    ex isa Real && return ex
     ex isa Symbol && return Int(getproperty(dims, ex))
     if ex isa Expr && ex.head === :call
         f = ex.args[1]
@@ -254,6 +257,15 @@ function evalexpr(ex, dims)
         (f === :floor || f === :floordiv) && return length(as) == 1 ? as[1] : as[1] ÷ as[2]
         f === :ceiling && return length(as) == 1 ? as[1] : cld(as[1], as[2])
         f === :Pow && return as[1]^as[2]
+        # sympy's explicit casts and its FLOAT division, which arrive once a
+        # spatial axis is symbolic. `interpolate` records its scale as
+        # `FloatTrueDiv(ToFloat(2*h), 2.0*ToFloat(2*h))` — algebraically one
+        # half, but written in terms of the axis, so it cannot be folded away
+        # before the symbol is bound. `/` above is integer division because
+        # every SHAPE that uses it is exact; this one is not a shape.
+        f === :ToFloat && return Float64(as[1])
+        f === :FloatTrueDiv && return as[1] / as[2]
+        (f === :TruncToInt || f === :ToInt) && return trunc(Int, as[1])
         error("unsupported shape expression: $ex")
     end
     error("unsupported shape expression: $ex")

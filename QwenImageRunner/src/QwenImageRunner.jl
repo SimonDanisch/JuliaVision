@@ -498,17 +498,38 @@ submission does not have to exceed the driver's limit (`maxpasses = 8` records
 and replays; 64 is what times out).
 """
 function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=vaedir(),
-                      record::Bool=false, maxpasses::Integer=8)
+                      record::Bool=false, latent::Union{Nothing,Tuple{Integer,Integer}}=nothing,
+                      maxpasses::Integer=8)
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
     model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend,
                   fuseattn = !record)
     prepared = model.graphs["qwenimage21_vae_decoder"]
+    # Only the RECORDED path needs the grid up front, because a recording is of
+    # concrete dispatches. The interpreted path reads it off each call's latents
+    # — see `vaedims` — which is the whole reason it is the default here.
+    if record && !isempty(prepared.symbols) && latent === nothing
+        throw(ArgumentError(
+            "this VAE decoder graph is symbolic in $(join(prepared.symbols, ", ")), so a " *
+            "recorded plan needs the latent grid: `qwenimagevae(; record = true, " *
+            "latent = (h, w))`. Leave `record = false` to decode any grid interpreted."))
+    end
     plan = record ?
-        planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses)) :
+        planfor(model.device, prepared, model.weights,
+                latent === nothing ? (;) : (; h = Int(latent[1]), w = Int(latent[2]));
+                maxpasses=Int(maxpasses)) :
         nothing
     QwenVAEDecoder(model.backend, model.device, prepared, model.weights, plan)
 end
+
+"""The decoder's `h` and `w` symbols, read off the latents being decoded.
+
+`(width, height, 1, channels, batch)` is the Julia order, so `w` is the first
+extent and `h` the second. Derived here rather than stored on the decoder
+because the interpreted path has no plan and therefore no resolution of its own:
+it can decode whatever it is handed, and the grid IS the argument.
+"""
+vaedims(latents) = (; h = size(latents, 2), w = size(latents, 1))
 
 """
     decode!(model, latents)
@@ -519,7 +540,7 @@ is alpha — on the same backend.
 """
 decode!(model::QwenVAEDecoder{<:Any,<:Any,<:Any,<:Any,Nothing}, latents) =
     DNNKernels.execute!(model.graph, Dict(only(model.graph.inputs) => latents),
-                        model.weights; dims=(;), backend=model.backend)[
+                        model.weights; dims=vaedims(latents), backend=model.backend)[
         DNNKernels.viewroot(model.graph, only(model.graph.outputs))]
 
 decode!(model::QwenVAEDecoder, latents) =

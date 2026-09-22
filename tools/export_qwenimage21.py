@@ -44,16 +44,21 @@ ROOT = find_root()
 QWEN_MAX_PROMPT_TOKENS = 1024
 
 # The image axis is a symbol too, and these are the bounds it is checked
-# against. One image token is a 16x16 pixel block, so the range is 256x256 up to
-# 2048x2048 -- 256 to 16384 tokens. They are BOUNDS and not a menu: any latent
-# grid whose token count lands inside gets the same graph, and the runner binds
-# the symbol per plan.
+# against. One image token is a 16x16 pixel block, so the range is a 64x64
+# thumbnail up to 2048x2048 -- 16 to 16384 tokens. They are BOUNDS and not a
+# menu: any latent grid whose token count lands inside gets the same graph, and
+# the runner binds the symbol per plan.
 #
 # Both ends are load-bearing. `min` may not be 1: `torch.export` specialises a
 # dimension it can prove is 0 or 1, which silently turns the symbol back into a
 # constant. `max` is what the export is CHECKED at, so a graph is only as
 # general as this number claims.
-QWEN_MIN_IMAGE_TOKENS = 256
+#
+# **A bound is not a recommendation.** The checkpoint is trained around 1024x1024
+# and the rotary grid is centred on the latent extent, so a 64x64 picture is far
+# off-distribution and will look like it. The floor is here so the graph does
+# not stand in the way, not because the output at the floor is any good.
+QWEN_MIN_IMAGE_TOKENS = 16
 QWEN_MAX_IMAGE_TOKENS = 16384
 
 
@@ -571,16 +576,33 @@ def export_vae(module, args):
     #
     # `(1, z, 1, h, w)` — batch, latent channels, the single temporal frame this
     # wrapper already squeezes, then the grid.
-    # `dims()` spans 2..256 latent cells, which is a 32x32 picture up to a
-    # 4096x4096 one, and covers both the 2x2 smoke trace and the 64x64 of 1024².
-    table = EG.dims()
-    spatial = ({3: table["h"], 4: table["w"]},)
+    # `Dim.AUTO` and not the `dims()` algebra, which is what this wanted to be.
+    # The decoder's upsampling stages compute `min(2*w, 4*w)`-shaped guards, and
+    # `torch.export`'s solver will not assume `w > 0`, so it cannot discharge
+    # them and rejects an explicit `Dim` with "Not all values of w in the
+    # specified range satisfy the generated guard". AUTO asks export to make the
+    # axis dynamic where it can and specialise where it must, which is exactly
+    # the judgement being asked for. The result is CHECKED below rather than
+    # assumed: a silent specialisation here would put the fixed-resolution
+    # decoder back without saying so.
+    spatial = ({3: torch.export.Dim.AUTO, 4: torch.export.Dim.AUTO},)
     with torch.no_grad():
         program = torch.export.export(
             wrapper, (example,), dynamic_shapes=spatial, strict=False
         ).run_decompositions()
 
     graph = EG.convert(program, ({3: "h", 4: "w"},), "qwenimage21_vae_decoder")
+    # Did AUTO actually keep them dynamic? A decoder that specialised back to the
+    # traced grid is the bug this whole change exists to remove, and it would
+    # otherwise be discovered by a wrong-sized picture much later.
+    latent_shape = next(b["shape"] for b in graph["buffers"] if b["id"] in graph["inputs"])
+    dynamic = [d for d in latent_shape if isinstance(d, str)]
+    if len(dynamic) < 2:
+        raise SystemExit(
+            f"the VAE decoder's spatial axes did not stay dynamic: latents are "
+            f"{latent_shape}. torch.export specialised them, so this graph is "
+            f"pinned to {shape} and `Dim.AUTO` is not enough here."
+        )
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     (out / "qwenimage21_vae_decoder.json").write_text(json.dumps(graph, indent=1))
