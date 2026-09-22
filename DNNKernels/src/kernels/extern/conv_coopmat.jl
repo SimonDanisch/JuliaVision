@@ -348,6 +348,28 @@ is the same test [`Mantle.gemm_padn`](@ref) makes — this differs from that one
 only in scoring by tile WIDTH rather than by least padding, because the matmul
 path's alternative is another GEMM and a convolution's is the implicit-GEMM
 kernel at one TFLOP/s.
+
+**Splitting the columns instead of padding them loses, and that is measured
+rather than assumed.** `Cout = 144` is `128 + 16`, so the padding could in
+principle be avoided entirely by running a full-width block and a narrow
+remainder into the same destination. On `vae-144-1024`'s chunk GEMM,
+`M = 95360, K = 1312`, 36.0 GFLOP of useful work:
+
+    arm                          ms   useful TFLOP/s
+    N=256 padded, 128x128x32   3.45            10.44
+    N=256 padded, 128x128x16   3.66             9.85
+    N=192 padded, 64x64x32     4.49             8.03
+    N=192 padded, 32x64x32     4.75             7.59
+    N=128 + N=16 split         3.82             9.44
+
+The split's own 128-wide half is about 1.73 ms, so its sixteen columns cost
+roughly 2.1 ms — more than the hundred and twelve columns of zeros they were
+meant to save. Padding to 256 is the best of all of these, and the 1.78x of
+arithmetic it wastes is the whole of what separates this convolution from
+PyTorch on this shape: 10.44 useful TFLOP/s against a padded-work rate of 15.6
+and torch's 20.5. It is not reducible inside this tiling family — a `bn` of 16
+gives a workgroup `128*16/144 = 14` elements of reuse against `128*128/256 = 64`,
+which is why every narrow-`N` number in the sweep above is around one.
 """
 function convcoutpad(MP::Int, Cout::Int, CRSP::Int)
     best, bestscore = Cout, 0.0
