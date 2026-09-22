@@ -1276,3 +1276,48 @@ end
         @test_skip false
     end
 end
+
+@testset "the padding budget is set against the fallback, not against an unpadded flash" begin
+    back = LavaBackend()
+    ctx = DNNKernels.Ctx(back)
+    dev = ctx.dev
+
+    if dev.coopmat && dev.coopmatsubgroup == 32
+        mk(E, L, H) = KA.allocate(back, Float16, E, L, H, 1)
+        pad(E, Lq, Lk, H) = DNNKernels.flashcm_padded_plan(
+            dev, mk(E, Lq, H), mk(E, Lk, H), mk(E, Lk, H), nothing)
+
+        # SAM 2's decoder, five of its seven attentions. `Lq = 23` pads to 32 and
+        # `Lk` divides `BC` exactly, so the ratio is 1.391 — over the 1.25 this
+        # used to carry, which sent them to `threepass!` at **15.3x** the cost of
+        # the padded flash. Admitted now.
+        @test pad(16, 23, 4096, 8) isa DNNKernels.FlashCMPlan
+        @test pad(16, 4096, 23, 8) isa DNNKernels.FlashCMPlan
+
+        # And the shape the budget EXISTS to refuse is still refused: the
+        # encoder's `Lq = 16` windowed calls pad to 32 against 16 keys, 4.0, and
+        # taking them cost 2.12 ms of encode for nothing. Nothing in either SAM 2
+        # graph lies between these two, which is what makes 1.5 a choice rather
+        # than a fitted constant.
+        @test pad(72, 16, 16, 4).reason === :padding
+        # `Lq = 4` against exactly one key tile is 4x padding and admitted
+        # ANYWAY — the documented exception above the budget, because four real
+        # rows in a 16-row tile still beats writing the scores plus two padded
+        # products. It is here so the exception is pinned rather than rediscovered.
+        @test pad(72, 4, 16, 8) isa DNNKernels.FlashCMPlan
+        # The decoder's own 23x23 self-attentions are 1.936 and stay out too.
+        @test pad(32, 23, 23, 8).reason === :padding
+
+        # The limit is a keyword, so the boundary itself is testable rather than
+        # inferred from which shapes happen to sit either side of it.
+        @test DNNKernels.flashcm_padded_plan(dev, mk(16, 23, 8), mk(16, 4096, 8),
+                                             mk(16, 4096, 8), nothing;
+                                             limit = 1.25).reason === :padding
+        @test DNNKernels.flashcm_padded_plan(dev, mk(72, 16, 4), mk(72, 16, 4),
+                                             mk(72, 16, 4), nothing;
+                                             limit = 4.5) isa DNNKernels.FlashCMPlan
+        GC.gc()
+    else
+        @test_skip false
+    end
+end

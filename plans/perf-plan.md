@@ -18,6 +18,49 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22: the padding budget sent SAM 2's decoder to the fallback — 9.23 -> 2.41 ms
+
+With the decoder in fp16 its attentions still ran `threepass!`. The profile said
+so plainly once the pass names were read rather than skimmed: `.ap`, `.sc`, `.so`
+truncated from `.apply`, `.scores`, `.softmax`, and the three `Lq = 23, Lk = 4096`
+attentions were 58% of the decode.
+
+`emitsdpa!` asks `flashcm_plan` unclamped (declines, `Lq = 23` divides no tile),
+then `flashcm_padded_plan` — and that refused it on the padding budget:
+
+    padded = cld(23,16)*16 * cld(4096,32)*32 = 32 * 4096 = 131072
+    budget = 1.25 * 23 * 4096                            = 117760
+
+1.391 against a limit of 1.25. The pad is on the QUERY axis alone; `Lk = 4096`
+divides `BC` exactly.
+
+**The predicate compares padded flash against unpadded flash, and that is not
+the choice being made.** Refusing does not buy an unpadded flash, it buys the
+three-pass fallback and an `Lq x Lk` score matrix:
+
+    E = 16, H = 8    threepass   padded flash
+    Lq 23, Lk 4096    1.746 ms     0.114 ms    15.3x
+    Lq 4096, Lk 23    0.173        0.123        1.4x
+
+`limit` is 1.5 now. That is a choice and not a fitted constant, because the
+shapes are far apart — every attention in either SAM 2 graph sits at 1.000,
+1.391, 1.936 or 4.000, and nothing is between 1.5 and 4. The 4.000 is what the
+budget was written to exclude (the encoder's `Lq = 16` windowed calls, 2.12 ms
+of encode for nothing) and it still is; 1.25 was never measured against the
+fallback, only against that case.
+
+    decode  9.23 -> 2.41 ms p50   (min 8.89 -> 2.34)   3.8x
+            130.7% of eager PyTorch, 84% of torch.compile's 2.03
+    encode  unchanged at 155.4
+    masks   0.98750 / 0.99961 / 0.97674 — mask 3 back up from 0.95455
+
+Together with the fp16 decoder above, decode went **13.65 -> 2.41 ms today, 5.7x**,
+and SAM 2 is now past eager PyTorch on both halves.
+
+`test_flash.jl` pins the boundary from both sides, including the documented
+`Lq < tile` exception, which is admitted at 4x padding on purpose — I asserted
+it was refused, and the code was right.
+
 ## 2026-09-22: the decoder was shipping fp32 again — decode 13.65 -> 9.23 ms
 
 The 2026-08-02 entry below made the autocast decoder the default and measured

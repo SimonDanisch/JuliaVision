@@ -2256,7 +2256,7 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
 end
 
 """
-    flashcm_padded_plan(dev, q, k, v, bias; limit = 1.25) -> FlashCMPlan | Decline
+    flashcm_padded_plan(dev, q, k, v, bias; limit = 1.5) -> FlashCMPlan | Decline
 
 The clamped plan, taken only where the padding is cheaper than not having flash
 attention at all.
@@ -2274,12 +2274,30 @@ SAM 2's encoder has `Lq = 16` calls that would pad to 32 and lose 2.12 ms of
 encode for nothing — so this asks how much padding the shape actually needs and
 declines when it is more than `limit`.
 
+**`limit` is 1.5 and was 1.25, which sent SAM 2's decoder to `threepass!`.** The
+number it excludes is the encoder's 4.0, and the two are far apart: every
+attention in either graph is at 1.000, 1.391, 1.936 or 4.000, and nothing lies
+between 1.5 and 4. The decoder's five expensive attentions are the 1.391 — a
+`Lq = 23` padded to 32, with `Lk = 4096` dividing `BC` exactly, so the pad is on
+the query axis alone. Refusing it does not buy an unpadded flash, it buys the
+three-pass fallback and an `Lq x Lk` score matrix:
+
+    E = 16, H = 8    threepass   padded flash
+    Lq 23, Lk 4096    1.746 ms     0.114 ms    15.3x
+    Lq 4096, Lk 23    0.173        0.123        1.4x
+
+which is 5.0 ms of an 8.8 ms decode. The comparison this predicate makes is
+"padded flash against unpadded flash", and that is not the choice being made;
+1.25 was never measured against the alternative, only against the 4.0 case it
+was written to exclude. 1.5 keeps that exclusion — the `Lq = 16` and `Lq = 4`
+calls still decline — with margin on both sides.
+
 The one exception is a query shorter than a single tile against exactly one key
 tile: four real rows in a 16-row tile is 4x padding and still beats writing the
 scores plus two padded products, which is why `flashcm_tiling` has a rule for
 that shape and this has one too.
 """
-function flashcm_padded_plan(dev, q, k, v, bias; limit::Real = 1.25)
+function flashcm_padded_plan(dev, q, k, v, bias; limit::Real = 1.5)
     plan = flashcm_plan(dev, q, k, v, bias; clamp = true)
     plan isa FlashCMPlan || return plan
     Lq, Lk = size(q, 2), size(k, 2)
