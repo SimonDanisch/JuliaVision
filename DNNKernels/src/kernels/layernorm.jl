@@ -453,10 +453,45 @@ end
 #
 # Identical to `rmsnorm_kernel!` except that `γ` is indexed by position within the
 # ROW rather than within the group, which is the only thing "grouped" changes.
+"""
+    rmsgroup(C) -> Int
+
+How wide a workgroup [`groupedrms_kernel!`](@ref) should reduce a row of `C`
+with.
+
+`LN_WG` for every row was the wrong answer where `C` is small: 128 lanes each
+loading ONE value, then seven barriers to combine them. Qwen-Image 2.1 norms
+per head, so `C` is 128 and that is the whole shape of the op -- 131776
+workgroups of almost no work.
+
+Measured on this M5 at fixed total elements, in GB/s, with the answers checked
+against a host reference at every point:
+
+    C      wg=32   wg=64   wg=128  wg=256
+    64      25.3    16.7    11.7     5.8
+    128     34.9    37.9    21.4    11.2
+    256     64.1    45.7    37.3    20.5
+    512     76.7    91.2    62.1    36.8
+    4096    75.9    92.3    86.0    93.6
+
+so the group wants to GROW with `C` rather than be a constant. This picks the
+measured best or within 8% of it at every column above. It is deliberately not
+"one subgroup always": that reading came from an earlier sweep where the kernel
+still sized its shared memory from `LN_WG`, so every small-group number in it
+was a NaN produced quickly.
+"""
+rmsgroup(C::Integer) = clamp(nextpow(2, max(1, cld(Int(C), 8))), 32, 256)
+
 @kernel cpu=false function groupedrms_kernel!(out, @Const(a), @Const(γ), C::Int32,
                                               NG::Int32, eps::Float32,
-                                              ::Val{MIDROUND} = Val(false)) where {MIDROUND}
-    red = @localmem Float32 (LN_WG,)
+                                              ::Val{MIDROUND} = Val(false),
+                                              ::Val{WG} = Val(LN_WG)) where {MIDROUND,WG}
+    # `WG` and not the `LN_WG` constant: the shared array and the tree's first
+    # stride have to be the size of the group that was actually LAUNCHED. They
+    # were the constant, so launching this at any smaller group read `red` past
+    # what the live lanes wrote -- NaN out, and fast, which is how a group-size
+    # sweep can look like a 4.9x that is not there.
+    red = @localmem Float32 (WG,)
     g = @index(Group, Linear) - 1
     t = @index(Local, Linear) - 1
     base = g * Int(C)
@@ -468,12 +503,12 @@ end
     @inbounds while i < C
         x = Float32(a[base + i + 1])
         s += x * x
-        i += LN_WG
+        i += WG
     end
     @inbounds red[t + 1] = s
     @synchronize
     # The barrier sits outside the `if`, as in `rmsnorm_kernel!` above.
-    stride = LN_WG ÷ 2
+    stride = WG ÷ 2
     while stride > 0
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
@@ -496,7 +531,7 @@ end
             y = Float32(eltype(out)(y))
         end
         out[base + i + 1] = eltype(out)(y * Float32(γ[gof + i + 1]))
-        i += LN_WG
+        i += WG
     end
 end
 

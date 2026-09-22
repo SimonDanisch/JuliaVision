@@ -3082,10 +3082,13 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.groupedrms")})
         "DNNKernels: `fused.groupedrms` (op $(op.id)) needs $(C * NG) gain " *
         "values for $NG groups of $C, but received $(length(γ)).")
     groups = length(a) ÷ C
+    # `rmsgroup(C)` and not `LN_WG`: a row of 128 reduced by 128 lanes is one
+    # value a lane and seven barriers, and Qwen-Image 2.1 norms per head.
+    wg = rmsgroup(C)
     M.dispatch!(emitctx.g, groupedrms_kernel!,
                 (out, a, γ, Int32(C), Int32(NG), ε,
-                 Val(Bool(get(op.attrs, "midround", false)))),
-                groups * LN_WG; group = LN_WG, name = op.id)
+                 Val(Bool(get(op.attrs, "midround", false))), Val(wg)),
+                groups * wg; group = wg, name = op.id)
     return out
 end
 

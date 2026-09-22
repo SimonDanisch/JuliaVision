@@ -29,6 +29,7 @@ silently picks the second changes the model.
 """
 
 using Test, DNNKernels, Mantle
+import KernelAbstractions as KAR
 
 const DKR = DNNKernels
 
@@ -132,7 +133,10 @@ end
 # backend-independently", which drives the same kernel with `ng = 3` and no
 # `midround` attribute, i.e. through the new argument's default.
 @testset "grouped RMS: the fused op computes the chain it replaced" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists
+    # only where Lava does, so naming it made this file error out rather than
+    # run on a machine with a different GPU.
+    backend = first(Mantle.eachbackend())
     rows, NG, C, eps = 3, 2, 4, 1.0f-5
     for order in (:qwen,)
         g0 = rmsgraph(; order, rows, NG, C, eps)
@@ -163,5 +167,53 @@ end
             want[:, grp, row] .= eltype(chain).(y .* Float32.(gain))
         end
         @test fused == want
+    end
+end
+
+# How wide a workgroup reduces a row, and that a narrower one is still RIGHT.
+#
+# The kernel sized its shared array and its first tree stride from the `LN_WG`
+# constant rather than from the group it was launched with, so launching it
+# narrower read `red` past what the live lanes wrote. That produces NaN, and it
+# produces them fast: a group-size sweep taken before this was fixed reported a
+# 4.9x that was entirely the wrong answer arriving sooner. Both halves are
+# pinned here — the width choice, and the values at every width.
+@testset "a narrower reduction group is still the same norm" begin
+    @test DKR.rmsgroup(64) == 32
+    @test DKR.rmsgroup(128) == 32
+    @test DKR.rmsgroup(256) == 32
+    @test DKR.rmsgroup(512) == 64
+    @test DKR.rmsgroup(4096) == 256
+    # Clamped at both ends, and always a power of two, because the tree halves.
+    @test DKR.rmsgroup(1) == 32
+    @test DKR.rmsgroup(1 << 20) == 256
+    @test all(ispow2(DKR.rmsgroup(c)) for c in (1, 3, 64, 100, 128, 333, 512, 4096))
+
+    backend = first(Mantle.eachbackend())
+    for C in (64, 128, 256)
+        R = 32
+        ah = Float16.(reshape(sin.(range(0.3, 9.0; length = C * R)), C * R))
+        gh = Float16.(range(0.5, 1.5; length = C))
+        av = DKR.toback(backend, ah); gv = DKR.toback(backend, gh)
+        want = Array{Float32}(undef, C * R)
+        for r in 0:(R - 1)
+            row = Float32.(ah[r*C+1 : r*C+C])
+            rr = 1f0 / sqrt(sum(abs2, row) / C + 1f-6)
+            for i in 1:C
+                want[r*C+i] = Float32(Float16(row[i] * rr)) * Float32(gh[i])
+            end
+        end
+        # Every width the rule can pick, not just the one it does pick.
+        for wg in (32, 64, 128, 256)
+            out = KAR.allocate(backend, Float16, C * R)
+            # NaN, so a lane that never wrote is not read as an answer.
+            fill!(out, Float16(NaN))
+            DKR.groupedrms_kernel!(backend, wg)(out, av, gv, Int32(C), Int32(1), 1f-6,
+                                                Val(true), Val(wg); ndrange = R * wg)
+            KAR.synchronize(backend)
+            got = Float32.(Array(out))
+            @test all(isfinite, got)
+            @test maximum(abs, got .- want) / maximum(abs, want) < 3e-3
+        end
     end
 end

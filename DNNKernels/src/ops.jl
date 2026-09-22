@@ -943,9 +943,11 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.groupedrms")})
     out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
     xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
     n = length(xd) ÷ C
-    groupedrms_kernel!(ctx.backend, LN_WG)(
+    # The same width the declared path picks — see `rmsgroup`.
+    wg = rmsgroup(C)
+    groupedrms_kernel!(ctx.backend, wg)(
         out, xd, γ, Int32(C), Int32(NG), ε,
-        Val(Bool(get(op.attrs, "midround", false))); ndrange = n * LN_WG)
+        Val(Bool(get(op.attrs, "midround", false))), Val(wg); ndrange = n * wg)
     out
 end
 
