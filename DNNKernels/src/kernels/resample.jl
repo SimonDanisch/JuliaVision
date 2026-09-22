@@ -441,6 +441,68 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
 end
 
 """
+    deform_im2col_kernel!(col, x, offset, mask, …)
+
+The gathered window of a modulated deformable convolution, as a matrix, once.
+
+The direct kernel below re-gathers every tap for every OUTPUT channel, and the
+gather is the whole cost: at `Cout = 64` that is sixty-four reads of the same
+bilinear sample. Nothing in the gather depends on `co` -- the offsets and the mask
+are indexed by pixel, deform group and tap, and the sample by the INPUT channel --
+so the window can be built once and multiplied by the weights as a GEMM. That is
+what torchvision does and what the note above this file used to deny: the pattern
+is data-dependent, but the MATRIX is still there to build.
+
+Measured on BasicVSR++, whose `SecondOrderDeformableAlignment` runs sixteen of
+these a clip: 52.5 ms each on the direct kernel, 0.0115 TFLOP/s, 71% of the whole
+frame.
+
+`col` is `(W*H*N, KW*KH*Cin)`, whose column index is `kw + KW*(kh-1) +
+KW*KH*(cin-1)` -- the order `w`'s own `(KW, KH, Cin, Cout)` memory already has, so
+the weight reshapes into the GEMM's right operand for free and the result lands
+in `out`'s `(W, H, Cout, N)` as it stands.
+"""
+@kernel function deform_im2col_kernel!(col, @Const(x), @Const(offset), @Const(mask),
+                                       sx::Int32, sy::Int32, px::Int32, py::Int32,
+                                       dlx::Int32, dly::Int32, dg::Int32,
+                                       ::Val{HASMASK}, KW::Int32, KH::Int32,
+                                       W4::Int32, H4::Int32, NPIX::Int32) where {HASMASK}
+    t = Int32(@index(Global, Linear)) - Int32(1)
+    @inbounds begin
+        pix = t % NPIX                       # (i, j, n) flattened, `col`'s row
+        rest = t ÷ NPIX
+        kw = rest % KW
+        rest = rest ÷ KW
+        kh = rest % KH
+        cin = rest ÷ KH                      # 0-based input channel
+        W, H, Cin = size(x, 1), size(x, 2), size(x, 3)
+        i = pix % W4
+        j = (pix ÷ W4) % H4
+        n = pix ÷ (W4 * H4)
+        tap = kh * KW + kw                   # torch orders the taps y-outer
+        dgi = Int32(cin * dg ÷ Cin)
+        och = dgi * KH * KW * Int32(2) + tap * Int32(2)
+        offy = Float32(offset[i + Int32(1), j + Int32(1), och + Int32(1), n + Int32(1)])
+        offx = Float32(offset[i + Int32(1), j + Int32(1), och + Int32(2), n + Int32(1)])
+        m = HASMASK ? Float32(mask[i + Int32(1), j + Int32(1),
+                                   dgi * KH * KW + tap + Int32(1), n + Int32(1)]) : 1.0f0
+        sxp = Float32(i * sx - px + kw * dlx) + offx + 1.0f0
+        syp = Float32(j * sy - py + kh * dly) + offy + 1.0f0
+        xi0 = floor(Int32, sxp); yi0 = floor(Int32, syp)
+        fx = sxp - Float32(xi0); fy = syp - Float32(yi0)
+        sacc = zero(Float32)
+        for ddy in Int32(0):Int32(1), ddx in Int32(0):Int32(1)
+            xi = xi0 + ddx; yi = yi0 + ddy
+            if 1 <= xi <= W && 1 <= yi <= H
+                bw = (ddx == 0 ? 1.0f0 - fx : fx) * (ddy == 0 ? 1.0f0 - fy : fy)
+                sacc += bw * Float32(x[xi, yi, cin + Int32(1), n + Int32(1)])
+            end
+        end
+        col[t + Int32(1)] = eltype(col)(m * sacc)
+    end
+end
+
+"""
     flip!(out, x, dims)
 
 Reverse `x` along `dims` on whatever backend it lives on.

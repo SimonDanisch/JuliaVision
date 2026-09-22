@@ -2945,6 +2945,8 @@ torch orders the stride, padding and dilation `(h, w)` and Julia's first axis is
 and a `Val` decides, with the offset standing in for it when absent — a kernel
 cannot be handed `nothing` for an array it indexes.
 """
+const DEFORM_IM2COL = Ref(true)
+
 function emitop!(emitctx::EmitCtx, op::Op,
                  ::Val{Symbol("torchvision.deform_conv2d.default")})
     x = operand(emitctx, op.ins[1])
@@ -2955,6 +2957,51 @@ function emitop!(emitctx::EmitCtx, op::Op,
     out = dest(emitctx)
     length(out) == 0 && return out
     a(k, d) = Int(something(get(op.attrs, k, nothing), d))
+
+    # im2col + GEMM, when the weights are one group.
+    #
+    # Nothing in the gather depends on the OUTPUT channel, so the direct kernel below
+    # re-reads every bilinear sample `Cout` times — sixty-four times, on BasicVSR++,
+    # where these sixteen ops were 840 ms of a 969 ms frame at 0.0115 TFLOP/s. Built
+    # once into `(W*H*N, KW*KH*Cin)` the product is an ordinary GEMM, which on a
+    # backend with a library one is the library.
+    #
+    # `groups == 1` only: with several weight groups the product is one GEMM per
+    # group over its own slice of the columns, and the direct kernel already handles
+    # it. `arg11` is the weight groups and `arg12` the DEFORM groups, which are a
+    # partition of the input channels and cost nothing here.
+    KW, KH, Cin, Cout = size(w)
+    npix = length(out) ÷ Cout
+    if a("arg11", 1) == 1 && length(out) > 0 && DEFORM_IM2COL[]
+        col = scratch(emitctx, eltype(out), npix, KW * KH * Cin)
+        M.dispatch!(emitctx.g, deform_im2col_kernel!,
+                    (col, x, offset, mask === nothing ? offset : mask,
+                     Int32(a("arg5", 1)), Int32(a("arg6", 1)),
+                     Int32(a("arg7", 0)), Int32(a("arg8", 0)),
+                     Int32(a("arg9", 1)), Int32(a("arg10", 1)),
+                     Int32(a("arg12", 1)), Val(mask !== nothing),
+                     Int32(KW), Int32(KH), Int32(size(out, 1)), Int32(size(out, 2)),
+                     Int32(npix)),
+                    length(col); group = launchgroup((length(col),)),
+                    name = "$(op.id).im2col")
+        # `out` is `(W, H, Cout, N)` and its memory is `(W*H*N, Cout)`; `w` is
+        # `(KW, KH, Cin, Cout)` and its memory is `(KW*KH*Cin, Cout)`. Both reshapes
+        # are free, and the column order the kernel wrote is `w`'s own.
+        gemm!(emitctx, op, M.viewof(out, (npix, Cout)), col,
+              M.viewof(w, (KW * KH * Cin, Cout)))
+        # The bias afterwards rather than as the GEMM's, because it is one value per
+        # OUTPUT CHANNEL — axis 3 of `(W, H, Cout, N)` — and not per row of the
+        # product. One elementwise pass, the same one the convolution path emits.
+        if bias !== nothing
+            od = size(out)
+            bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
+            ewdispatch!(emitctx, out, od, (out, bias),
+                        (bcstrides(od, od), bcstrides(od, bd)), +;
+                        name = "$(op.id).bias")
+        end
+        return out
+    end
+
     nd, W4, H4, C4 = flat4(out)
     M.dispatch!(emitctx.g, deform_conv2d_kernel!,
                 (out, x, offset, mask === nothing ? offset : mask, w, bias,
