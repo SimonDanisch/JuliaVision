@@ -3106,6 +3106,22 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
        prod(sg.dims) == length(out) &&
        max(length(sg.parent), length(su.parent)) <= typemax(Int32) &&
        max(sg.offset, su.offset) + 1 <= typemax(Int32)
+        # A run on the innermost axis is worth more than any group shape — see
+        # `swiglu_run_kernel!` for the measurement. `out` is dense over `sg.dims`,
+        # so its strides are the cumulative product and its innermost is 1.
+        os = ntuple(d -> d == 1 ? 1 : prod(sg.dims[1:d-1]), length(sg.dims))
+        V = swiglurun(sg.dims, sg.strides, su.strides, os)
+        if V !== nothing && prod(sg.dims) ÷ V <= typemax(Int32)
+            nd = ntuple(d -> d == 1 ? sg.dims[1] ÷ V : sg.dims[d], length(sg.dims))
+            M.dispatch!(emitctx.g, swiglu_run_kernel!,
+                        (swiglustridedflat(out),
+                         swiglustridedflat(sg.parent), swiglustridedflat(su.parent),
+                         Int32(sg.offset + 1), Int32(su.offset + 1), Int32(1),
+                         map(Int32, sg.strides), map(Int32, su.strides),
+                         map(Int32, os), Val(V)),
+                        nd; name = op.id)
+            return out
+        end
         M.dispatch!(emitctx.g, swiglu_strided_kernel!,
                     (M.viewof(out, sg.dims), swiglustridedflat(sg.parent),
                      swiglustridedflat(su.parent),

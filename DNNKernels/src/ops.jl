@@ -765,6 +765,71 @@ end
     end
 end
 
+# The same SwiGLU where the innermost axis is a RUN on all three operands, `V`
+# elements to a thread.
+#
+# Identical arithmetic to the kernel above and the same `exp` in the same place;
+# what differs is how many bytes a thread moves. One fp16 element per thread is
+# six bytes against a Cartesian index computed per element, and on Qwen-Image
+# 2.1's `12288 x 4118` that measured 26.6 GB/s with the `exp` TAKEN OUT — so the
+# sigmoid was never the ceiling, and no group shape fixes it either (12.1 ms at
+# the best of six against 14.8 at the default). At `V = 8` the same op runs at
+# 104.7 GB/s: 12.06 ms to 2.90. `V = 16` gives it back (3.64), which is why
+# `swiglurun` stops at eight.
+@kernel cpu=false function swiglu_run_kernel!(out, @Const(gate), @Const(up),
+                                              gb, ub, ob, gs, us, os,
+                                              ::Val{V}) where {V}
+    i = @index(Global, Cartesian)
+    @inbounds begin
+        # Axis one is the run, so it advances `V` at a time; every other axis is
+        # walked exactly as the scalar kernel walks it.
+        gi = gb + (Int32(i[1]) - Int32(1)) * Int32(V)
+        ui = ub + (Int32(i[1]) - Int32(1)) * Int32(V)
+        oi = ob + (Int32(i[1]) - Int32(1)) * Int32(V)
+        for d in 2:length(gs)
+            gi += Int32(i[d]-1)*gs[d]
+            ui += Int32(i[d]-1)*us[d]
+            oi += Int32(i[d]-1)*os[d]
+        end
+        for v in Int32(0):Int32(V - 1)
+            x = Float32(gate[gi + v])
+            out[oi + v] = eltype(out)(Float32(eltype(out)(x / (1f0 + exp(-x)))) *
+                                      Float32(up[ui + v]))
+        end
+    end
+end
+
+"""
+Off sends every SwiGLU back to [`swiglu_strided_kernel!`](@ref).
+
+A declared switch rather than an edit, because the two kernels can only be
+compared on ONE machine at ONE temperature: this M5 drifts about 10% over six
+back-to-back denoiser steps, which is the size of the difference being measured.
+Flip it, rebuild the plan in the same session, and the two numbers are
+comparable.
+"""
+const SWIGLU_RUN = Ref(true)
+
+"""
+    swiglurun(dims, gs, us, os) -> V or nothing
+
+How many elements of `dims` one thread of [`swiglu_run_kernel!`](@ref) may take.
+
+All three operands have to be a RUN on the innermost axis — that is what makes
+`+ v` the right address for all of them — and the extent has to divide `V`,
+because the kernel has no tail. Eight where it fits, then four, then two;
+measured on Qwen-Image 2.1, sixteen is past the turn.
+"""
+function swiglurun(dims, gs, us, os)
+    SWIGLU_RUN[] || return nothing
+    isempty(dims) && return nothing
+    (gs[1] == 1 && us[1] == 1 && os[1] == 1) || return nothing
+    for V in (8, 4, 2)
+        dims[1] % V == 0 && return V
+    end
+    return nothing
+end
+
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.swiglu")})
     g = lhs(ctx, op); u = value(ctx, op.ins[2])
     ob = ctx.graph.buffers[ctx.outid[]]
@@ -773,9 +838,21 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.swiglu")})
     if size(g) == size(u) == size(out) &&
        gr !== nothing && ur !== nothing &&
        max(length(gr[1]),length(ur[1])) <= typemax(Int32)
+        gst, ust, ost = Int32.(strides(g)), Int32.(strides(u)), Int32.(strides(out))
+        # The same run predicate the declared path asks, so the two cannot end up
+        # exercising different kernels on the same operands.
+        V = swiglurun(size(out), gst, ust, ost)
+        if V !== nothing
+            nd = ntuple(d -> d == 1 ? size(out, 1) ÷ V : size(out, d), ndims(out))
+            swiglu_run_kernel!(ctx.backend, 256)(reshape(out, length(out)),
+                reshape(gr[1],length(gr[1])), reshape(ur[1],length(ur[1])),
+                Int32(gr[2]+1), Int32(ur[2]+1), Int32(1), gst, ust, ost, Val(V);
+                ndrange = nd)
+            return out
+        end
         swiglu_strided_kernel!(ctx.backend, 256)(out,
             reshape(gr[1],length(gr[1])),reshape(ur[1],length(ur[1])),
-            Int32(gr[2]+1),Int32(ur[2]+1),Int32.(strides(g)),Int32.(strides(u));
+            Int32(gr[2]+1),Int32(ur[2]+1),gst,ust;
             ndrange=size(out))
         return out
     end
