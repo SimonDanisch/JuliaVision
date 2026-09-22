@@ -1,0 +1,111 @@
+# What every benchmarked model is, stated ONCE for both runtimes.
+#
+# `julia_models.jl` and `torch_models.py` both read this file — Julia through
+# the `TOML` stdlib, Python through `tomllib`, neither needing a dependency.
+# Nothing here is a display string that one side computes and the other
+# reproduces: these are the parameters, and each side ASSERTS that the model it
+# built matches them rather than deriving them again.
+#
+# **That assert is the whole point of this file.** The harness this replaces
+# declared its shapes twice, once per language, and they drifted: the PyTorch
+# Kokoro row ran 30 tokens against the Julia row's 50 for long enough to be
+# committed, and the ratio between them meant nothing while it did. A number
+# that differs between the two sides is not a slow model, it is a different
+# program, and the only way to not have that bug is to not have two places to
+# write the number down.
+#
+# `dtype` is what the ARTIFACT we load actually contains, not what the export
+# was meant to produce. Comparing our fp32 against PyTorch fp16 measures a dtype
+# choice and reports it as an engine gap.
+
+[suite]
+# Seconds of sustained load before any sample is recorded. This card idles at
+# 210 MHz of 3105 and takes seconds to boost, so a benchmark that starts
+# measuring before it does reports the ramp — measured at 2 s the SAM 2 row read
+# 69.4 ms against a 14 s ramp's 67.3 on the same card minutes apart, and a
+# longer ramp giving the FASTER number is the signature of a card still
+# climbing.
+ramp_seconds = 6.0
+samples = 15
+# Fraction of the measured clock plateau a sample must hold to count, on the
+# Julia side. See `tools/measure.jl`.
+clock_floor = 0.90
+
+[models.sam2-encode]
+runner  = "SAM2Runner"
+dtype   = "autocast fp16"
+shape   = "1024x1024"
+note    = ""
+[models.sam2-encode.params]
+variant    = "large"
+resolution = 1024
+
+[models.whisper-encode]
+runner  = "WhisperRunner"
+dtype   = "fp16"
+shape   = "30 s window"
+note    = ""
+[models.whisper-encode.params]
+checkpoint = "openai/whisper-large-v3-turbo"
+mel_frames = 3000
+mel_bins   = 128
+
+[models.kokoro-speak]
+runner  = "KokoroRunner"
+dtype   = "fp32"
+shape   = "50 tokens"
+# Ours includes our own G2P and PyTorch's KPipeline would time misaki's, which
+# is a different program in a different language, so both sides time the model
+# halves from the phonemes below and neither times phonemisation.
+note    = "model only, no G2P"
+[models.kokoro-speak.params]
+sentence = "The quick brown fox jumps over the lazy dog."
+# The phonemisation of that sentence, taken from `KokoroRunner.phonemize`, so
+# PyTorch runs the same token sequence rather than misaki's of the same text.
+phonemes = "ðə kwˈɪk bɹˈWn fˈɑks ʤˈʌmps ˈOvəɹ ðə lˈAzi dˈɔɡ."
+voice    = "af_heart"
+# Asserted on both sides. This is the number that silently differed.
+tokens   = 50
+
+[models.matanyone-step]
+runner  = "MatAnyoneRunner"
+dtype   = "fp16"
+shape   = "512x288"
+# Ours is a fixed 5-frame capacity, upstream's `InferenceCore.step` carries its
+# own memory bank. Same work, different bookkeeping.
+note    = "upstream memory bank"
+[models.matanyone-step.params]
+width  = 512
+height = 288
+
+[models.depthanything]
+runner  = "DepthAnythingRunner"
+dtype   = "fp32"
+shape   = "518x518"
+note    = ""
+[models.depthanything.params]
+width  = 518
+height = 518
+
+[models.neurallut]
+runner  = "NeuralLUTRunner"
+dtype   = "fp32"
+shape   = "256x256 classifier"
+note    = ""
+[models.neurallut.params]
+width      = 256
+height     = 256
+colorspace = "sRGB"
+pairing    = "paired"
+
+[models.rife]
+runner  = "RIFERunner"
+dtype   = "fp32"
+shape   = "1920x1152"
+note    = ""
+[models.rife.params]
+# The UNPADDED frame. Both sides pad to the network's multiple and assert the
+# padded size agrees, rather than each computing its own.
+width  = 1920
+height = 1152
+timestep = 0.5

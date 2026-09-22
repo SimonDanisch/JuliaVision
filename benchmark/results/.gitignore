@@ -1,0 +1,4 @@
+# Run outputs are kept: the point of this folder is a history to judge against.
+# The raw PyTorch hand-off is not — it is regenerated on every run and its
+# contents are already in the saved BenchmarkGroup.
+torch-raw.json
