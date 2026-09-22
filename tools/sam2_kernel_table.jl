@@ -74,29 +74,35 @@ end
 
 """`{aten => (calls, ms)}` for one encode, device time, serialised per op.
 
-**`call`, not `encode`.** `encode` runs a baked Mantle plan — the first call
-records command buffers and every later call replays them — and a replay never
-reaches `timeop!`, so instrumenting `encode` yields an EMPTY table: a page of
-zeros with nothing saying it is empty. `sam2_attn_share.jl` has the same note.
-The interpreted path is slower and is the only one that can be attributed.
+**`execute!`, not `call` and not `encode`.** Only the interpreted path reaches
+`timeop!`. `encode` replays a baked Mantle plan, and `call` now builds and
+replays one too — one plan per `(graph, dims, kernels)`, on the first call — so
+neither can attribute device time to a source-level op. Instrumenting either
+yields an EMPTY table, which is why the check below is an error and not a page
+of zeros. `sam2_attn_share.jl` has the same note.
+
+The interpreted path is slower than the plan, and its per-op synchronisation
+makes it slower again, so the TOTAL here exceeds a free-running encode. The
+shares are what this is for.
 """
 function ourtimes(model, img; iters = 5)
     m = model.model
-    DNNKernels.call(m, "sam2_encoder", img; dims = model.dims)   # warm
+    g = m.graphs["sam2_encoder"]
+    inputs = Dict{String,Any}(only(g.inputs) => img)
+    run() = DNNKernels.execute!(g, inputs, m.weights;
+                                dims = model.dims, device = m.device, diag = m.diag)
+    m.diag.optimes = nothing
+    run()                                        # warm
     KA.synchronize(m.backend)
-    # `DNNKernels.OPTIMES[]`, a module-level Ref, became `m.diag.optimes` on the
-    # model's `Diagnostics` — so two differently instrumented runs can coexist in
-    # one process and a failure cannot leave module state flipped.
     t = Dict{String,Tuple{Int,Float64}}()
     m.diag.optimes = t
     for _ in 1:iters
-        DNNKernels.call(m, "sam2_encoder", img; dims = model.dims)
+        run()
     end
     KA.synchronize(m.backend)
     m.diag.optimes = nothing
     isempty(t) && error("optimes recorded nothing — the run never went through " *
-                        "`timeop!`. A baked plan replays command buffers and " *
-                        "cannot be attributed; see this function's docstring.")
+                        "`timeop!`; see this function's docstring.")
     Dict(k => (v[1] ÷ iters, v[2] / iters) for (k, v) in t)
 end
 
