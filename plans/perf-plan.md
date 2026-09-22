@@ -18,6 +18,48 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22: the GEMM had no 128-row block — square-4096 1.55x -> 1.16x off torch
+
+Taken from the reference rather than invented. `ggml-vulkan.cpp` carries a
+chip-specific block, and for AMD with cooperative matrices it says
+
+    l_warptile = { 256, 128, 128, 16, ... }   // 256 threads, BM = BN = 128, BK = 16
+
+under the comment "This is intentionally using tx_m values, slight performance
+increase". `GEMM_TILINGS` had **no 128-row entry at all** — 96x128, 64x128,
+64x64, 32x128, 32x64 — and `gemm_aliasing` refuses the 96-row block whenever
+`K % 256 == 0`, which is every GEMM in this tree that matters. So Qwen-Image's
+projections and SAM 2's `addmm`s were all running the 64-row block.
+
+Forced per shape, interleaved, TFLOP/s:
+
+    shape              128x128x16   128x128x32   64x128x32 (was)
+    4096^3                18.26        23.85        20.53
+    12288x4224x4096       18.92        19.22        17.35
+    24576x4224x4096       18.70        20.02        17.49
+
+**The block transfers and their `BK` does not.** 128 rows is worth 1.11x-1.16x;
+llama.cpp's `BK = 16` loses to our 32 on every one of the three, by up to 1.31x
+on the square shape. The 16-entry is kept anyway because it is the only tiling
+a `K` that is a multiple of 16 and not of 32 can land on, and a convolution's
+`K` is `Cin*KH*KW` — `Cin = 48` gives 432.
+
+    gemm-fp16          ours          torch     gap
+    square-4096     6.14 ms 22.37    5.28       1.16x  (was 1.55x)
+    denoiser-qkv   22.36    19.02   17.16       1.30x  (was 1.54x)
+    denoiser-gateup 42.87   19.84   33.28       1.29x  (was 1.49x)
+
+SAM 2 does not move — encode 156.0, decode 2.29, parity identical — so the
+encoder's remaining time is not in the shapes this reaches. The VAE convolutions
+do not move either: their `M` is `NPQ` and rarely divides 128, so they keep the
+96-row block.
+
+`test_gemm_staged.jl` asserted the table's ORDER ("the 96-row block is what
+gets picked, since it now leads the table") and so failed on ten selections.
+It asserts the rule now — 128 where `M` divides it, 96 otherwise, and never a
+non-power-of-two block at `K % 256 == 0` — which is what the aliasing work was
+actually protecting.
+
 ## 2026-09-22: the padding budget sent SAM 2's decoder to the fallback — 9.23 -> 2.41 ms
 
 With the decoder in fp16 its attentions still ran `threepass!`. The profile said
