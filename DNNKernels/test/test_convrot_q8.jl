@@ -17,9 +17,18 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random
 const DKA = DNNKernels
 
 @testset "ConvRot and the packed product it feeds" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists only
+    # where Lava does, so naming it made this file ERROR on a machine with a
+    # different GPU rather than take the capability skip below that was written
+    # for exactly this case.
+    backend = first(Mantle.eachbackend())
     caps = DNNKernels.caps(backend)
-    if caps.coopmat && caps.coopmatsubgroup == 32
+    # `coopmatkernels`, not `caps.coopmat` alone: Metal reports cooperative
+    # matrices (simdgroup matrices are real) while the staged GEMM these tests
+    # exercise -- `GEMM_TILINGS`, `q8gemm_tiling`, `conv_coopmat_plan` -- is
+    # compiled in only where Lava is. Asking the narrower question is what makes
+    # the skip below fire instead of a `Decline(:host)` failing an assertion.
+    if DNNKernels.coopmatkernels(caps) && caps.coopmatsubgroup == 32
         rng = MersenneTwister(11)
         # A pass per stage, on the host, rounding to fp16 in between — the form
         # the kernel replaced.
@@ -138,9 +147,18 @@ end
 # bit for bit the same words, and that decode runs once per weight over a 6.9
 # GB checkpoint.
 @testset "the W4A8 checkpoint decodes into the same words, stacked or not" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists only
+    # where Lava does, so naming it made this file ERROR on a machine with a
+    # different GPU rather than take the capability skip below that was written
+    # for exactly this case.
+    backend = first(Mantle.eachbackend())
     caps = DNNKernels.caps(backend)
-    if caps.coopmat
+    # `coopmatkernels`, not `caps.coopmat` alone: Metal reports cooperative
+    # matrices (simdgroup matrices are real) while the staged GEMM these tests
+    # exercise -- `GEMM_TILINGS`, `q8gemm_tiling`, `conv_coopmat_plan` -- is
+    # compiled in only where Lava is. Asking the narrower question is what makes
+    # the skip below fire instead of a `Decline(:host)` failing an assertion.
+    if DNNKernels.coopmatkernels(caps)
         rng = MersenneTwister(13)
         # `M` a multiple of four and not; a stacked part at a non-zero group
         # offset; a group size that is not the k-block.
@@ -185,9 +203,18 @@ end
 end
 
 @testset "the int8 checkpoint packs four rows to a word, whatever the tail" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists only
+    # where Lava does, so naming it made this file ERROR on a machine with a
+    # different GPU rather than take the capability skip below that was written
+    # for exactly this case.
+    backend = first(Mantle.eachbackend())
     caps = DNNKernels.caps(backend)
-    if caps.coopmat
+    # `coopmatkernels`, not `caps.coopmat` alone: Metal reports cooperative
+    # matrices (simdgroup matrices are real) while the staged GEMM these tests
+    # exercise -- `GEMM_TILINGS`, `q8gemm_tiling`, `conv_coopmat_plan` -- is
+    # compiled in only where Lava is. Asking the narrower question is what makes
+    # the skip below fire instead of a `Decline(:host)` failing an assertion.
+    if DNNKernels.coopmatkernels(caps)
         rng = MersenneTwister(11)
         # `M` a multiple of four and not; `M/4` a multiple of the words a thread
         # takes and not; `K` beyond one workgroup.

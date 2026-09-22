@@ -41,9 +41,18 @@ function convref(x, w, bias, stride, pad, dil)
 end
 
 @testset "a chunked, channel-padded convolution is the same convolution" begin
-    backend = Mantle.LavaBackend()
+    # Whatever backend is loaded, not a named one: `Mantle.LavaBackend` exists only
+    # where Lava does, so naming it made this file ERROR on a machine with a
+    # different GPU rather than take the capability skip below that was written
+    # for exactly this case.
+    backend = first(Mantle.eachbackend())
     caps = DNNKernels.caps(backend)
-    if caps.coopmat && caps.coopmatsubgroup == 32
+    # `coopmatkernels`, not `caps.coopmat` alone: Metal reports cooperative
+    # matrices (simdgroup matrices are real) while the staged GEMM these tests
+    # exercise -- `GEMM_TILINGS`, `q8gemm_tiling`, `conv_coopmat_plan` -- is
+    # compiled in only where Lava is. Asking the narrower question is what makes
+    # the skip below fire instead of a `Decline(:host)` failing an assertion.
+    if DNNKernels.coopmatkernels(caps) && caps.coopmatsubgroup == 32
         ctx = DKC.Ctx(backend)
         rng = MersenneTwister(19)
         dev = KernelAbstractions.allocate
@@ -102,19 +111,30 @@ end
 # The channel pad is chosen by tile WIDTH and not by least padding, which is the
 # one place this differs from `Mantle.gemm_padn`.
 @testset "the channel pad reaches for the wider column tile" begin
-    bns = sort(unique(Mantle.gemm_bn.(Mantle.GEMM_TILINGS)))
-    @test 128 in bns
-    # `MP` and `CRSP` chosen so every staged tiling is admissible.
-    MP, CRSP = 65536, 2592
-    @test DKC.convcoutpad(MP, 288, CRSP) == 384      # 1.33x at 17.3 TFLOP/s
-    @test DKC.convcoutpad(MP, 144, CRSP) == 256      # 1.78x at 16.2, over 192 at 9.3
-    @test DKC.convcoutpad(MP, 576, CRSP) == 640
-    @test DKC.convcoutpad(MP, 1152, CRSP) == 1152    # already a column tile
-    # Nothing within the budget, so the shape keeps its own extent.
-    @test DKC.convcoutpad(MP, 100, CRSP) == 128
-    @test DKC.convcoutpad(MP, 130, CRSP) == 192 || DKC.convcoutpad(MP, 130, CRSP) == 256
-    # A reduction axis no staged tiling divides admits nothing to pad onto.
-    @test DKC.convcoutpad(MP, 288, 2590) == 288
+    # `GEMM_TILINGS` and `gemm_bn` are the cooperative-matrix tilings, compiled
+    # in only where that path is — the same thing `coopmatkernels` asks with
+    # `isdefined(M, :GEMM_TILINGS)`. `convcoutpad` is not arithmetic that stands
+    # apart from them: it READS the table to find the widest admissible column
+    # tile, so the whole testset needs the guard and not just the claim about
+    # `bns`.
+    if isdefined(Mantle, :GEMM_TILINGS)
+        bns = sort(unique(Mantle.gemm_bn.(Mantle.GEMM_TILINGS)))
+        @test 128 in bns
+        # `MP` and `CRSP` chosen so every staged tiling is admissible.
+        MP, CRSP = 65536, 2592
+        @test DKC.convcoutpad(MP, 288, CRSP) == 384      # 1.33x at 17.3 TFLOP/s
+        @test DKC.convcoutpad(MP, 144, CRSP) == 256      # 1.78x at 16.2, over 192 at 9.3
+        @test DKC.convcoutpad(MP, 576, CRSP) == 640
+        @test DKC.convcoutpad(MP, 1152, CRSP) == 1152    # already a column tile
+        # Nothing within the budget, so the shape keeps its own extent.
+        @test DKC.convcoutpad(MP, 100, CRSP) == 128
+        @test DKC.convcoutpad(MP, 130, CRSP) == 192 ||
+              DKC.convcoutpad(MP, 130, CRSP) == 256
+        # A reduction axis no staged tiling divides admits nothing to pad onto.
+        @test DKC.convcoutpad(MP, 288, 2590) == 288
+    else
+        @test_skip false
+    end
 end
 
 # The chunks are even, so the last one is not mostly padding.
@@ -127,9 +147,15 @@ end
 # 102144 rows of work, and `1152 -> 1152 @ 128²` ran two chunks of 12864 for
 # 16384 pixels — 57% padding.
 @testset "the im2col chunks are even" begin
-    back = LavaBackend()
+    # See the note above: the capability check below is the one that decides.
+    back = first(Mantle.eachbackend())
     dev = DNNKernels.caps(back)
-    if dev.coopmat && dev.coopmatsubgroup == 32
+    # `coopmatkernels`, not `caps.coopmat` alone: Metal reports cooperative
+    # matrices (simdgroup matrices are real) while the staged GEMM these tests
+    # exercise -- `GEMM_TILINGS`, `q8gemm_tiling`, `conv_coopmat_plan` -- is
+    # compiled in only where Lava is. Asking the narrower question is what makes
+    # the skip below fire instead of a `Decline(:host)` failing an assertion.
+    if DNNKernels.coopmatkernels(dev) && dev.coopmatsubgroup == 32
         GB = DKC.GEMM_BLOCK
         # `(Cin, Cout, H, W)` from the Qwen-Image 2.1 VAE decoder, the shapes
         # `tools/gap_vs_rocm.jl` tracks.
