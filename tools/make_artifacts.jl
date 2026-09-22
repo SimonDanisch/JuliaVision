@@ -282,6 +282,16 @@ const TREES = Dict(
     # both.
     "qwenimage21-vae" => ("QwenImageRunner", "qwenimage21-vae",
         ["qwenimage21_vae_decoder.json", "vae.safetensors", "vae_op_histogram.json"]),
+    # SAM 2.1: two graphs, so `pack`'s "one `<name>.json`" does not fit either.
+    # It was bound by hand before this entry existed, which is how the decoder
+    # came to ship as the fp32 export long after `--decoder-precision` had been
+    # measured at 11.30 -> 3.93 ms in autocast: nothing rebuilt it from the
+    # exporter, so nothing carried the flag. `refs.safetensors` stays out — it
+    # is 1.2 GB and only the tests read it, which is what `sam2-large-refs` is
+    # for.
+    "sam2-large" => ("SAM2Runner", "sam2-large",
+        ["sam2_encoder.json", "sam2_decoder.json",
+         "op_histogram.json", "weights.safetensors"]),
 )
 
 """
@@ -425,6 +435,12 @@ const FIXTURES = Dict(
     "kokoro-refs" => ("KokoroRunner", "kokoro-dyn",
                       ["refs_speak.safetensors", "refs_speak.json",
                        "g2p_reference.json"]),
+    # The per-node PyTorch activations `verify_sam2.jl` and `bench_sam2.jl`
+    # compare against. They are dumped under the SAME precision policy the
+    # graphs were exported with — `dump_sam2_refs.py` says why — so this
+    # artifact and `sam2-large` have to be rebound together or the node-by-node
+    # pass reports a dtype difference as a bug.
+    "sam2-large-refs" => ("SAM2Runner", "sam2-large", ["refs.safetensors"]),
 )
 
 """

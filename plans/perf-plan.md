@@ -18,6 +18,67 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22: the decoder was shipping fp32 again — decode 13.65 -> 9.23 ms
+
+The 2026-08-02 entry below made the autocast decoder the default and measured
+11.30 -> 3.93 ms. **The shipped artifact was the fp32 export.** Its decoder had
+174 ops and 1288 float32 buffers, not one float16; that entry states the fp32
+decoder is 174 ops and the autocast one 308. So it reverted at some point, and
+`--decoder-precision` in `export_sam2.py` still defaulted to `fp32` with a
+justification the same document disproves.
+
+**Nothing rebuilt it from the exporter, which is why nothing carried the flag.**
+`make_artifacts.jl` had no sam2 recipe at all — the assets were bound by hand —
+so `sam2-large` is now a `TREES` entry and `sam2-large-refs` a `FIXTURES` one,
+and the documented command reproduces both.
+
+Re-measured here, fp32 decoder against fp16, same frame, same harness:
+
+    decode   13.65 -> 9.23 ms p50   (min 12.99 -> 8.89)    1.48x
+             16% -> 34.1% of eager PyTorch
+    encode   unchanged at 156.7 — the encoder graph is byte-identical,
+             same 1353 op ids, so the references still apply to it
+    masks    0.99375 / 0.99969 / 0.95455
+    iou      got [0.0338, 0.0402, 0.0282] against [0.0338, 0.0402, 0.0281]
+
+The mechanism is the one that entry already named and that a profile
+rediscovered from scratch: six of the decoder's seven attentions are 23x4096 or
+4096x23 at head dim 16, `flashcm_plan` refuses fp32 on `:eltype`, and they ran a
+scalar fallback. In fp16 they take the cooperative-matrix path — those six were
+44% of the decode.
+
+**`is it PyTorch's choice?` No.** `sam2_pytorch_baseline.py` times `dec(...)`
+INSIDE `EG.precision_ctx(a.precision)` and both recorded baselines carry
+`'precision': 'autocast'`, so the 2.03 ms we compare against is an fp16 decoder.
+SAM 2's own demo server wraps its click path in
+`torch.autocast("cuda", dtype=torch.bfloat16)`. We were the only ones running it
+in fp32.
+
+### The references had to be re-dumped, and the frame had to be recovered
+
+`dump_sam2_refs.py` records each graph under the policy it was exported with —
+its own comment says why — so its `--decoder-precision` default moves with the
+exporter's. Re-dumping restores the node-by-node decoder pass, which had been
+comparing a 311-op graph against a 174-op dump: `verifygraph` now returns
+`ok = true` with zero diffs.
+
+**The first re-dump was wrong and the output looked fine**, which is the part
+worth remembering. `media/spatz.png` does not exist in this checkout, so the
+dumper silently fell back to its synthetic gradient and produced a reference
+whose second mask covers 99.1% of the frame — a mask that selects nearly
+everything tests nearly nothing, and the IoUs against it were 1.00000 /
+0.99986 / 0.98844. The give-away was `iou want` moving from
+`[0.0338, 0.0403, 0.0282]` to `[0.002, 0.928, 0.7056]`: the REFERENCE changed,
+not the model.
+
+The original frame was recoverable from the old refs artifact —
+`sam2_encoder/in0` IS the frame, and its values are exact multiples of 1/255
+because it came from a uint8 PNG, so writing it back out round-trips to the
+identical tensor (verified: max abs difference 0.0). It is committed as
+`media/spatz.png` so the reference is regenerable, which is what its own
+docstring asks for: "a reference you cannot regenerate identically is not a
+reference."
+
 ## 2026-09-22 (later still): the gathered-A convolution, built and REJECTED
 
 The obvious next move after the im2col pairing was to delete the im2col matrix

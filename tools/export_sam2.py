@@ -156,10 +156,12 @@ def main():
     ap.add_argument("--precision", default="autocast", choices=["autocast", "fp32"],
                     help="encoder precision; autocast is what SAM 2 itself runs under "
                          "and what puts its matmuls on fp16 tensor cores")
-    ap.add_argument("--decoder-precision", default="fp32", choices=["autocast", "fp32"],
-                    help="decoder precision, fp32 by default: it is 205 ops on a 64x64 "
-                         "embedding, so fp16 buys no measurable time and only costs "
-                         "precision in the mask logits the threshold is taken from")
+    ap.add_argument("--decoder-precision", default="autocast",
+                    choices=["autocast", "fp32"],
+                    help="decoder precision. autocast, the same policy the encoder "
+                         "and SAM 2's own demo server use; fp32 is kept for "
+                         "re-dumping the node references the old graph was dumped "
+                         "against")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     npoints = args.points

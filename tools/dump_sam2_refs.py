@@ -192,7 +192,11 @@ if __name__ == "__main__":
                          "comma separated; a trailing `*` takes a family "
                          "(`--keep 'add_*'`). See `run`")
     ap.add_argument("--precision", default="autocast", choices=["autocast", "fp32"])
-    ap.add_argument("--decoder-precision", default="fp32", choices=["autocast", "fp32"])
+    # Must track `export_sam2.py`'s default: the comment in `run` is the reason —
+    # a decoder recorded under one policy and compared against a graph exported
+    # under the other reports a dtype difference as a bug.
+    ap.add_argument("--decoder-precision", default="autocast",
+                    choices=["autocast", "fp32"])
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
     out = Path(a.out) if a.out else ROOT / "gen" / "graphs" / f"sam2-{a.size}" / "refs.safetensors"
