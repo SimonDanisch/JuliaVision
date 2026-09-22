@@ -1016,15 +1016,26 @@ end
     end
 end
 
-# One pass over the scores or two, by head width.
+# One pass over the scores or two: head width AND rows per warp.
 #
 # One pass reads each score once and redoes the block when a row's maximum grew
-# past the fp16 headroom; two passes read every score twice and never redo.
-# Which wins is a property of `E`, and the default used to be one answer for
-# both halves of it: measured on an 8060S at `Lq = Lk = 4096`, two passes win
-# by 7.6% at `E = 128` and 3.1% at 96, one pass wins by 2.8% at 80 and 3.8% at
-# 64. Qwen-Image 2.1's head is 128.
-@testset "the score pass count follows the head width" begin
+# past the fp16 headroom; two passes read every score twice and never redo. The
+# width half is the older measurement: at `Lq = Lk = 4096`, two passes win by
+# 7.6% at `E = 128` and 3.1% at 96, one pass by 2.8% at 80 and 3.8% at 64.
+#
+# Rows per warp is the second half and it dominates, because the more rows a
+# warp owns the likelier one of them forces the redo. Measured at `L = 4096`,
+# two passes winning:
+#
+#     BR/NW   E=64 H=8   E=64 H=32   E=80 H=8
+#       8      -19.4%      -50.4%     -20.2%
+#       4       +0.3%       +0.8%      -2.6%
+#       2       +6.5%
+#
+# The width rule alone was calibrated when the chooser picked large tiles; it
+# now picks `BR = 16, NW = 2` for several shapes, where one pass costs 19% to
+# 50%.
+@testset "the score pass count follows width and rows per warp" begin
     back = LavaBackend()
     dev = DNNKernels.Ctx(back).dev
     if dev.coopmat
@@ -1033,14 +1044,21 @@ end
         wide = plan(128)
         narrow = plan(64)
         @test wide isa DNNKernels.FlashCMPlan && narrow isa DNNKernels.FlashCMPlan
+        # A wide head is two passes whatever the tile.
         @test !wide.onepass
-        @test narrow.onepass
-        # The crossing, which is where the measurement put it.
         @test !plan(96).onepass
-        @test plan(80).onepass
+        @test !plan(128; BC = 32, BR = 16, NW = 4).onepass
+        # A narrow head follows the tile: 4 rows a warp or fewer keeps one pass,
+        # 8 does not.
+        @test plan(64; BC = 32, BR = 16, NW = 4).onepass
+        @test plan(80; BC = 32, BR = 16, NW = 4).onepass
+        @test !plan(64; BC = 32, BR = 16, NW = 2).onepass
+        @test !plan(64; BC = 32, BR = 64, NW = 8).onepass
+        # Whatever the chooser picked, the rule is the one above.
+        @test narrow.onepass == (narrow.BR ÷ narrow.NW < 8)
         # And a caller who asks gets what it asked for, both ways.
         @test plan(128; onepass = true).onepass
-        @test !plan(64; onepass = false).onepass
+        @test !plan(64; BC = 32, BR = 16, NW = 4, onepass = false).onepass
     else
         @test_skip false
     end

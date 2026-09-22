@@ -2097,7 +2097,20 @@ function flashcm_plan(dev::M.DeviceCaps, q, k, v, bias;
     # grow the maximum, and `E = 64, Lk = 256, H = 128` — SAM 2's windowed
     # attention — wants two passes too, by 17.9%. That is a different rule on a
     # different variable and it is not measured here beyond the one point.
-    op = onepass === nothing ? E < 96 : onepass
+    # Rows per warp is the second variable, and it dominates the width. One pass
+    # REDOES a block when any row's maximum grows past the fp16 headroom, so the
+    # more rows a warp owns the likelier it pays that redo. Measured at
+    # `L = 4096` (onepass/twopass), all on the tiling named:
+    #
+    #     BR/NW   E=64 H=8   E=64 H=32   E=80 H=8   E=128 H=32
+    #       8      -19.4%      -50.4%     -20.2%      declined
+    #       4       +0.3%       +0.8%      -2.6%      -20.2%
+    #       2       +6.5%
+    #
+    # Negative is two passes winning. At 4 rows and fewer the width rule above
+    # is right and the difference is inside noise; at 8 it is worth 19% to 50%.
+    # `E = 128` wants two passes at either, which is what `E < 96` already said.
+    op = onepass === nothing ? (E < 96 && BR ÷ NW < 8) : onepass
     FlashCMPlan(BR, BC, NW, NT, E, EP, clamp, holdregs, holdtiles, rescale, op,
                 lazyrescale, nsplit, tailsplit, tiled)
 end
