@@ -457,10 +457,32 @@ with `M` padded onto a tiling runs at 19.7 TF/s.
 convolutions looked fine and the mid-size ones did not; the difference was luck,
 not shape.
 
-At most 191 extra rows against thousands, and the im2col kernel already zero-fills
+At most 127 extra rows against thousands, and the im2col kernel already zero-fills
 past `NPQ`, so the padding costs a fraction of a percent and needs no new code.
+
+**128 and not 192, since `GEMM_TILINGS` gained a 128-row block.** This was the
+LCM of the blocks a padded `M` could land on when those were 96/64/32.
+llama.cpp's AMD cooperative-matrix `l_warptile` put a 128-row entry in the
+table; `192 % 128 == 64`, so every convolution in this tree was locked out of
+the faster block by THIS number. Forced per tiling on the VAE's four GEMM
+shapes, with `M` rounded so both blocks apply (TFLOP/s):
+
+    conv            M       N      K    128x128   96x128   64x128
+    144 -> 144   95232    256   1312     15.60    15.61    14.55
+    288 -> 288   50304    384   2592     18.92    17.81    14.65
+    576 -> 576   24192    640   5184     21.86    17.48    15.48
+    1152 ->      10752   1152  10368     20.08    18.93    16.52
+
+**Not the LCM, which is 384 and is wrong here.** 128 is enough because 64 and 32
+divide it, so every smaller block in the table is still reachable as a fallback;
+only 96 is not, and 96 is dominated by 128 on all four shapes above. Taking the
+LCM instead makes the pad coarser than small convolutions can afford — a
+`16x16` output is `NPQ = 256`, which cannot round to 384 without blowing the
+im2col budget, and those convolutions fell off this path to the scalar kernel
+at about one TFLOP/s. `test_conv_coopmat_chunk.jl` caught it by losing twenty
+assertions to `Decline(:im2colsize)` while still reporting green.
 """
-const GEMM_BLOCK = 192
+const GEMM_BLOCK = 128
 
 "Round `n` up to a multiple of [`GEMM_BLOCK`](@ref)."
 @inline padgemm(n::Integer) = cld(n, GEMM_BLOCK) * GEMM_BLOCK

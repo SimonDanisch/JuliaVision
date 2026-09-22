@@ -4459,3 +4459,35 @@ cooperative-matrix GEMM, not just a graph pass.
 Worth roughly `51/98 x 3.37 = 1.75 ms` gross, less the residual tile read the GEMM
 then pays — call it **~1.2 ms**, i.e. a third of the gap, for a change that spans
 both repos. Size it against that before starting.
+
+## 2026-09-22 — The convolution padding constant was locking us out of the new block
+
+`GEMM_BLOCK` rounds a convolution's `M` up so the GEMM tiling chooser has a
+block that divides it. It was 192, the LCM of the blocks that existed when it
+was written (96/64/32). Landing llama.cpp's 128-row AMD `l_warptile` entry put a
+better block in the table that `192 % 128 == 64` made unreachable, so every
+convolution in this tree kept the old tiling. Forced per tiling on the VAE's
+four GEMM shapes (TFLOP/s, `M` rounded so both apply):
+
+    conv            M       N      K    128x128   96x128   64x128
+    144 -> 144   95232    256   1312     15.60    15.61    14.55
+    288 -> 288   50304    384   2592     18.92    17.81    14.65
+    576 -> 576   24192    640   5184     21.86    17.48    15.48
+    1152 ->      10752   1152  10368     20.08    18.93    16.52
+
+**The constant is 128, not the LCM.** I set 384 = LCM(128,96,64,32) first and it
+was wrong twice over. 128 suffices because 64 and 32 divide it, so every smaller
+block stays reachable as a fallback; only 96 does not, and 96 loses to 128 on all
+four shapes above. And the LCM makes the pad coarser than a small convolution can
+afford: a `16x16` output is `NPQ = 256`, which cannot round to 384 inside the
+im2col budget, so those shapes fell off this path to the scalar kernel entirely.
+
+That regression shipped green. `test_conv_coopmat_chunk.jl` passed at 384 while
+quietly dropping from 72 assertions to 52, because its loops `continue` on
+`Decline` instead of asserting the plan exists. **The assertion count is the
+signal there** — at 128 it is 81, higher than the 72 that 192 gave, since the
+finer pad also admits shapes the old constant rejected.
+
+Six VAE convolutions, `gap_vs_rocm`: 631.7 ms at 192, 581.6 at 384, 584.2 at
+128 — 384 and 128 are the same tiling and the same time, and only 128 keeps the
+small shapes. vae-1152-256 is now 1.27x off torch, vae-576-512 1.66x.
