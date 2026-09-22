@@ -647,12 +647,29 @@ the same thing here as it does for a recording, and two exported `release!`s
 are an ambiguity at every call site that has both packages in scope.
 """
 function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVAEDecoder})
+    dev = Mantle.todevice(component.backend)
     component.plan === nothing || Mantle.free!(component.plan.plan)
     # The weight dict is the only reference the component holds to the device
     # arrays; the `Model` that built them is long gone.
     empty!(component.weights)
+    # …but dropping the last Julia reference frees nothing while the DEVICE still
+    # names them: a command buffer retains every resource it references until it
+    # completes, so the upload that wrote these weights holds them until it does.
+    # Measured without this: 15.1 GiB still allocated after releasing the denoiser.
+    Mantle.waitidle(dev)
     GC.gc(true)
-    Mantle.trim_gpu_pool!()
+    # `reclaim!` then `trim!`, both core's pool verbs, rather than Vulkan's
+    # `trim_gpu_pool!`: that name lives in Mantle's Vulkan tree and does not exist
+    # on another backend, and this is the one thing in the pipeline that has to
+    # work on every one of them — the denoiser is 7.26 GB and the conditioner 6.9,
+    # and they fit only because each is gone before the next arrives.
+    #
+    # `reclaim!(…; wait = true)` first: a block is handed back only when nothing is
+    # out on loan, and a region retired this frame is still pinned until the device
+    # is past it. Trimming without the wait finds every block still live and frees
+    # nothing.
+    Mantle.reclaim!(Mantle.pool(dev), dev; wait = true)
+    Mantle.trim!(Mantle.pool(dev), dev)
     GC.gc(true)
     nothing
 end
