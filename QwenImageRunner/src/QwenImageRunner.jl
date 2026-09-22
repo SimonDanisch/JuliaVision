@@ -493,10 +493,22 @@ end
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
 
-**Pass `latent = (h, w)`.** It records a plan, and the interpreted path this
-falls back to without one holds every intermediate of the whole graph at once —
-there is no liveness analysis to reuse a buffer, so the peak is the SUM of the
-decoder's activations rather than its high-water mark. Measured on an 8060S,
+**Pass `latent = (h, w)`.** It records a plan, and without one this falls back
+to `DNNKernels.execute!`, which allocates one buffer per op and frees none.
+
+That is not a property of interpreting a graph, and the difference is not how
+the launches reach the command buffer. Both paths had a placer until
+`ea74587`: DNNKernels' own slab allocator laid every intermediate into one
+buffer aliased by live range, and it was deleted on the reasoning that
+"declared, Mantle owns the arena — and a second placer is a second answer to
+one question" (`DNNKernels/src/plan.jl`). What that left behind is
+`place(::Nothing, …) = nothing` as the only method, so every `dest` on this
+path falls through to a fresh `KA.allocate`, and `execute!` keeps each result
+in `ctx.values` for the whole run and returns the dictionary. The peak is the
+SUM of the decoder's activations by construction.
+
+`decode!` is the last caller of that path anywhere in this tree — everything
+else goes through `DNNKernels.call`, which always plans. Measured on an 8060S,
 device memory for one decode and the one-time plan build:
 
     output     interpreted   recorded   build    decode
@@ -507,6 +519,9 @@ device memory for one decode and the one-time plan build:
 66 GB for one 1024² image, which runs here only because this APU can hand out
 114 GB of GTT and is an immediate out-of-memory on any discrete card. The
 decode is faster recorded at every size as well.
+
+The unplanned column is what an unplaced graph costs, then, not what one more
+level of indirection costs.
 
 This default used to be `record = false` on the argument that a plan "costs more
 to build than it saves": 4.79 s interpreted at 1024² against ~50 s to build.
