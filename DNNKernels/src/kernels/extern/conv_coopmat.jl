@@ -655,7 +655,7 @@ min of seven, outputs compared and bit-identical:
 
     conv                Cout   CoutP  blocks   gather
     c256 -> 128 @256²    128     128       1    3.52x
-    vae-1152-128         128     128       1    3.33
+    1152 -> 128 @128²    128     128       1    3.33
     c128 -> 128 @256²    128     128       1    1.66
     c64  -> 128 @512²    128     128       1    1.61
     c512 -> 128 @128²    128     128       1    1.37
@@ -669,6 +669,16 @@ block. Shapes at `CoutP >= 256` are carried as controls — the same plan runs i
 both arms — and they read 0.99x to 1.16x, which is what this harness's noise
 looks like and the band the wins above are quoted against.
 
+**Nothing currently benchmarked in this tree has `Cout = 128`, so this rule
+admits nothing today.** SAM 2 builds two convolution plans and both are
+`CoutP = 256`; the Qwen-Image VAE's six are 144, 288, 288, 576, 1152 and 1152.
+The path is kept because it is a common CNN width, because the rule is measured
+rather than guessed, and because `apair` is the hook a wider schedule would need
+— see the note at the end of this docstring for what would light up `CoutP =
+256`. It is NOT kept on the grounds that it might be useful: it is correct and
+covered, and `test_conv_coopmat_chunk.jl` asserts `plan.gather` on shapes chosen
+to reach it, so it cannot rot unnoticed.
+
 **The first version of this rule said `<= 384` and was measured against a
 baseline this work had itself broken.** Putting the gather's `@nexprs` register
 queue into the SHARED prefetch kernel cost the plain path up to 1.38x, and the
@@ -676,6 +686,14 @@ materialised arm runs on that kernel — so `288 -> 288` read 194.86 ms as the
 thing to beat when it is really 157.28. Splitting the kernels fixed the baseline
 and three of the four shapes stopped winning. The controls in the table above
 are carried for exactly this reason.
+
+**What would make two blocks pay.** The gather's cost is per workgroup, and at
+`CoutP = 256` two workgroups gather the identical A tile for the same rows.
+One workgroup covering both column blocks — a `bn` of 256, or a schedule that
+keeps its staged A and loops over column blocks — would gather once and pay
+im2col's write and read never. That is worth `vae-144-1024` and
+`vae-288-144-1024`, which are 65 and 126 ms and the two largest remaining
+convolution gaps where `Cout` is small.
 """
 function convgather_worth(MP::Int, CoutP::Int, CRSP::Int)
     _, splitk = Mantle.coopmat_gemm_shape(MP, CoutP, CRSP)

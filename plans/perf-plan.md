@@ -4551,7 +4551,7 @@ seven, outputs compared and bit-identical:
 
     conv                Cout   CoutP  blocks   gather
     c256 -> 128 @256²    128     128       1    3.52x
-    vae-1152-128         128     128       1    3.33
+    1152 -> 128 @128²    128     128       1    3.33
     c128 -> 128 @256²    128     128       1    1.66
     c64  -> 128 @512²    128     128       1    1.61
     c512 -> 128 @128²    128     128       1    1.37
@@ -4563,6 +4563,20 @@ So the rule is ONE column block, `CoutP <= 128`. At one block the gather does
 exactly the addressing im2col would have done and skips the write and the read
 outright; at two it is already addressing twice to save one write. Five
 independent one-block shapes and all five win.
+
+**And at that rule nothing currently benchmarked here gathers.** SAM 2 builds
+two convolution plans, both `CoutP = 256`; the VAE's six are 144, 288, 288, 576,
+1152, 1152. So this lands as a correct, covered, measured path that fires on no
+model in the suite today — worth saying plainly rather than letting the 3.52x
+in the table above imply otherwise.
+
+**What would make it fire is one workgroup per output tile rather than per
+column block.** At `CoutP = 256` two workgroups gather the identical A tile for
+the same rows; a `bn` of 256, or a schedule that keeps its staged A and loops
+over column blocks, would gather once and pay im2col's write and read never.
+That is `vae-144-1024` (65 ms) and `vae-288-144-1024` (126 ms), the two largest
+remaining convolution gaps where `Cout` is small, and it is the next thing to
+try here.
 
 **It also cost four Lava defects**, all in packing a VECTOR into a wider private
 slot and none reachable before, because nothing had put an `f16vec2` in a
