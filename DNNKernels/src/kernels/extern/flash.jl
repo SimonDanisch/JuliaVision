@@ -1755,6 +1755,37 @@ admissible grid, with the operands read as tiles and `O` held in fragments:
     (64, 32, 16)        1.28x           1.43x          1.58x
 
 The last row is what `FLASHCM_TILINGS` picks, and it is 28% to 58% off.
+
+## A WIDER KEY BLOCK LOSES, at both head widths, and the reason it looks right
+
+AOTriton's RDNA4 tuning notes argue for it: "small head_dim is softmax-bound,
+not saturation-bound ... a wider KV tile amortises the per-tile part of that —
+the correction exp, the m/l update, the O rescale and the barriers — across
+more KV columns", with `head_dim 16: BN=32 -> 37.4, BN=64 -> 44.6, BN=128 ->
+48.2 TFLOP/s`. Two more things point the same way from here: `BC` is 32 in
+every entry above, and at `BR = 16` the score product is `RT*CT = 2` tiles over
+`NW = 4` subgroups, so HALF the subgroups are idle in `Q·Kᵀ` and a wider `BC`
+is what balances them.
+
+It is still a loss, measured both ways round:
+
+    E = 72, L = 256, H = 8, B = 16, `rego` matched on both sides
+      (64, 32)/16   0.812 ms     (64, 64)/16   1.391 ms    +71%
+    E = 128, L = 4096, H = 32   (TFLOP/s, higher is better)
+      (16, 32)/4   12.58        (16,  64)/4   10.79
+      (32, 32)/8   11.67        (32,  64)/8    7.83
+                                (16, 128)/8    7.35
+
+Every entry with `RT*CT / NW == 1` — no idle subgroup in the score product —
+loses to the one at `0.5` beside it. AMD's measurement is at head_dim 16 and
+32, where the softmax really is the whole cost; at 72 and 128 it is not, and
+what a wider `BC` buys in balance it loses somewhere else. The tiling this
+table already picks is the best of everything that compiles at both widths.
+
+**The `(64, 64)/16` entry at `E = 72` is also a good way to waste an afternoon**:
+it needs `rego = false` to fit 65536 bytes of LDS at all, and asking for it
+without that used to be admitted by an under-counting budget check and then
+answered by the driver with a SIGFPE. See `flashholdregs`.
 """
 const FLASHCM_TILINGS_TILED = [(16, 32, 2), (16, 32, 4), (16, 16, 2), (16, 16, 4),
                                (16, 64, 2), (16, 64, 4), (32, 32, 8), (32, 16, 8),
