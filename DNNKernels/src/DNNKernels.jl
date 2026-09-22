@@ -120,7 +120,7 @@ that is deliberate.
 # through a same-width bitcast rather than a `zext`/`trunc` built on a float, so
 # any kernel with a dynamically indexed `@private Float16` array wider than the
 # scalariser folds now emits different (and valid) SPIR-V.
-const KERNELS_VERSION = "44"
+const KERNELS_VERSION = "45"
 
 include("assets.jl")
 include("safetensors.jl")

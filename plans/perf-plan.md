@@ -4533,24 +4533,36 @@ scratch and its inverse throughput went 12176 -> 22510, which is the 1.85x
 slowdown to three digits. RADV shaderstats said this; reading the kernel would
 not have.
 
-**And it only pays where `Cout` is small.** The gather recomputes an element
-once per 128-wide column block, while im2col writes it once and each block
-reads it, so the cost grows with the block count and the saving does not.
-Three blocks wins, five loses, and the rule is `CoutP <= 384`.
 
-End to end, interleaved in one process, min of seven, outputs compared:
+**The first version of this entry had the rule at `CoutP <= 384` and was wrong,
+because the baseline it measured against was one this work had itself broken.**
+The `@nexprs` queue went into the SHARED prefetch kernel, which cost the plain
+path up to 1.38x; the materialising arm runs its GEMM on that kernel, so it was
+being timed at up to 1.24x its real cost. `288 -> 288` read 194.86 ms as the
+thing to beat when it is 157.28. Splitting the kernels fixed the baseline and
+three of the four admitted shapes stopped winning.
 
-    conv               gather    im2col    chosen  speedup  bit-exact
-    vae-144-1024         true     75.25     70.50    1.07x       yes
-    vae-288-1024         true    187.93    182.04    1.03        yes
-    vae-288-144-1024     true    153.93    123.30    1.25        yes
-    vae-576-512         false    141.58    138.36    1.02        yes
-    vae-1152-256        false    125.05    125.42    1.00        yes
-    vae-1152-128         true     15.87      4.54    3.49        yes
-    TOTAL                        699.61    644.16    1.09x
+The controls are what should have caught it sooner: the same plan in both arms
+must read 1.00x, and they did — the error was not in the A/B, it was that the
+quantity the A/B was comparing against had moved.
 
-The two `false` rows are the control: same plan in both arms, and they read
-1.00x and 1.02x, which is the noise floor this table is quoted against.
+End to end against the corrected baseline, interleaved in one process, min of
+seven, outputs compared and bit-identical:
+
+    conv                Cout   CoutP  blocks   gather
+    c256 -> 128 @256²    128     128       1    3.52x
+    vae-1152-128         128     128       1    3.33
+    c128 -> 128 @256²    128     128       1    1.66
+    c64  -> 128 @512²    128     128       1    1.61
+    c512 -> 128 @128²    128     128       1    1.37
+    vae-288-144-1024     144     256       2    0.95 to 1.00
+    vae-144-1024         144     256       2    0.95
+    vae-288-1024         288     384       3    0.82
+
+So the rule is ONE column block, `CoutP <= 128`. At one block the gather does
+exactly the addressing im2col would have done and skips the write and the read
+outright; at two it is already addressing twice to save one write. Five
+independent one-block shapes and all five win.
 
 **It also cost four Lava defects**, all in packing a VECTOR into a wider private
 slot and none reachable before, because nothing had put an `f16vec2` in a

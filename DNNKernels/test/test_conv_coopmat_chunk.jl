@@ -108,6 +108,88 @@ end
     end
 end
 
+# The gathering convolution computes what the materialising one computes.
+#
+# `ConvGather` replaces the im2col matrix with an address rule, so the property
+# that matters is not "close to the definition" but "the same numbers": both paths
+# hand the identical operand to the identical GEMM schedule, so they agree
+# BIT-FOR-BIT and the assertion below is `==` rather than a tolerance. One host
+# comparison is carried as well, because two paths agreeing says nothing if the
+# shared half is wrong.
+#
+# **The shapes are chosen so that `plan.gather` is actually true, and the test
+# asserts that first.** Nothing in this file's other testsets reaches the gathering
+# path — every shape there is either too small for a staged tiling or too wide in
+# `Cout` — so a rule change that quietly stopped gathering would leave the whole
+# kernel untested while every assertion still passed.
+@testset "the gathered convolution is the materialised one" begin
+    backend = first(Mantle.eachbackend())
+    caps = DNNKernels.caps(backend)
+    if DNNKernels.coopmatkernels(caps) && caps.coopmatsubgroup == 32
+        ctx = DKC.Ctx(backend)
+        rng = MersenneTwister(23)
+        dev = KernelAbstractions.allocate
+        # `Cout = 128` is the rule: one column block. The 1x1 cases are the
+        # cheap ones; the 3x3 at 48x128 is the smallest spatial shape whose
+        # plan still chooses a single GEMM plane, which is what gathering needs.
+        for (Wid, Hei, Cin, Cout, KW, KH, st, pd, dl, bias, act) in
+                ((24, 20, 16, 128, 1, 1, (1, 1), (0, 0), (1, 1), true,  :none),
+                 (24, 20, 32, 128, 1, 1, (1, 1), (0, 0), (1, 1), false, :relu),
+                 (48, 128,  8, 128, 3, 3, (1, 1), (1, 1), (1, 1), true,  :none),
+                 (80, 80,   8, 128, 3, 3, (1, 1), (1, 1), (1, 1), false, :relu))
+            OW = (Wid + 2pd[1] - dl[1] * (KW - 1) - 1) ÷ st[1] + 1
+            OH = (Hei + 2pd[2] - dl[2] * (KH - 1) - 1) ÷ st[2] + 1
+            xh = Float16.(randn(rng, Float32, Wid, Hei, Cin, 1) .* 0.3f0)
+            wh = Float16.(randn(rng, Float32, KW, KH, Cin, Cout) .* 0.05f0)
+            bh = bias ? Float16.(randn(rng, Float32, Cout) .* 0.2f0) : nothing
+
+            x = DKC.toback(backend, xh)
+            w = DKC.toback(backend, wh)
+            b = bh === nothing ? nothing : DKC.toback(backend, bh)
+            out = dev(backend, Float16, OW, OH, Cout, 1)
+
+            pg = DKC.conv_coopmat_plan(caps, Float16, Float16, size(out), size(w))
+            pm = DKC.conv_coopmat_plan(caps, Float16, Float16, size(out), size(w);
+                                       gather = false)
+            @test pg isa DKC.ConvCoopMatPlan
+            # Without this the rest of the testset can pass vacuously.
+            @test pg.gather
+            @test !pm.gather
+
+            fill!(out, Float16(0))
+            DKC.convolution_coopmat!(ctx, out, pg, x, w, b, st, pd, dl; act)
+            KernelAbstractions.synchronize(backend)
+            gathered = Array(out)
+
+            fill!(out, Float16(0))
+            DKC.convolution_coopmat!(ctx, out, pm, x, w, b, st, pd, dl; act)
+            KernelAbstractions.synchronize(backend)
+            materialised = Array(out)
+
+            @test gathered == materialised
+        end
+
+        # And that the shared half is right, on the cheapest gathering shape.
+        Wid, Hei, Cin, Cout = 24, 20, 16, 128
+        xh = Float16.(randn(rng, Float32, Wid, Hei, Cin, 1) .* 0.3f0)
+        wh = Float16.(randn(rng, Float32, 1, 1, Cin, Cout) .* 0.05f0)
+        bh = Float16.(randn(rng, Float32, Cout) .* 0.2f0)
+        ref = convref(xh, wh, bh, (1, 1), (0, 0), (1, 1))
+        x = DKC.toback(backend, xh); w = DKC.toback(backend, wh)
+        b = DKC.toback(backend, bh)
+        out = dev(backend, Float16, Wid, Hei, Cout, 1)
+        plan = DKC.conv_coopmat_plan(caps, Float16, Float16, size(out), size(w))
+        @test plan.gather
+        fill!(out, Float16(0))
+        DKC.convolution_coopmat!(ctx, out, plan, x, w, b, (1, 1), (0, 0), (1, 1))
+        KernelAbstractions.synchronize(backend)
+        got = Float32.(Array(out))
+        @test maximum(abs, got .- ref) / max(1f-3, maximum(abs, ref)) < 5e-3
+    else
+        @test_skip false
+    end
+end
+
 # The channel pad is chosen by tile WIDTH and not by least padding, which is the
 # one place this differs from `Mantle.gemm_padn`.
 @testset "the channel pad reaches for the wider column tile" begin

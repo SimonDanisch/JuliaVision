@@ -644,24 +644,38 @@ for the planner to split the reduction has no staged tiling and must materialise
 `Mantle.coopmat_gemm!` throws rather than ignoring a loader, so this has to agree
 with it.
 
-**Then `CoutP`, and that is the whole rule.** The gather recomputes an A element
-once per 128-wide COLUMN block, because each block is its own workgroup walking
-its own k-loop; im2col instead writes the element once and each block reads it.
-So the gather's cost grows with the number of column blocks while what it saves
-does not, and the crossover is where those meet. Measured per chunk against
-`im2col pass + planner GEMM`, at `CONVGATHER_TILING`:
+**Then `CoutP`, and it must be a SINGLE column block.** The gather recomputes an
+A element once per 128-wide column block, because each block is its own
+workgroup walking its own k-loop; im2col instead writes the element once and
+each block reads it back. At one block the gather does exactly the work im2col
+would have done and skips the write and the read, so it wins outright. At two it
+is already doing the addressing twice to save one write, and it stops paying.
+Measured end to end against the materialised path, interleaved in one process,
+min of seven, outputs compared and bit-identical:
 
     conv                Cout   CoutP  blocks   gather
-    vae-1152-128         128     128       1    1.71x
-    vae-288-144-1024     144     256       2    1.23
-    vae-144-1024         144     256       2    1.22
-    vae-288-1024         288     384       3    1.07
-    vae-576-512          576     640       5    0.92
-    vae-1152-256        1152    1152       9    0.87
+    c256 -> 128 @256²    128     128       1    3.52x
+    vae-1152-128         128     128       1    3.33
+    c128 -> 128 @256²    128     128       1    1.66
+    c64  -> 128 @512²    128     128       1    1.61
+    c512 -> 128 @128²    128     128       1    1.37
+    vae-288-144-1024     144     256       2    0.95 to 1.00
+    vae-144-1024         144     256       2    0.95
+    vae-288-1024         288     384       3    0.82
 
-Three blocks wins and five loses, so the line is `CoutP <= 384`. It is stated in
-`CoutP` and not in `Cout` because the column blocks are what the GEMM actually
-launches, and `convcoutpad` has already rounded `Cout` up to them.
+Five independent one-block shapes and every one of them wins; the two-block
+shapes straddle 1.0 and the three-block one is a clear loss, so the line is one
+block. Shapes at `CoutP >= 256` are carried as controls — the same plan runs in
+both arms — and they read 0.99x to 1.16x, which is what this harness's noise
+looks like and the band the wins above are quoted against.
+
+**The first version of this rule said `<= 384` and was measured against a
+baseline this work had itself broken.** Putting the gather's `@nexprs` register
+queue into the SHARED prefetch kernel cost the plain path up to 1.38x, and the
+materialised arm runs on that kernel — so `288 -> 288` read 194.86 ms as the
+thing to beat when it is really 157.28. Splitting the kernels fixed the baseline
+and three of the four shapes stopped winning. The controls in the table above
+are carried for exactly this reason.
 """
 function convgather_worth(MP::Int, CoutP::Int, CRSP::Int)
     _, splitk = Mantle.coopmat_gemm_shape(MP, CoutP, CRSP)
@@ -670,9 +684,12 @@ function convgather_worth(MP::Int, CoutP::Int, CRSP::Int)
     return CoutP <= CONVGATHER_MAXCOUT
 end
 
-"How wide the output-channel block may be before gathering stops paying; see
-[`convgather_worth`](@ref), where the measurement is."
-const CONVGATHER_MAXCOUT = 384
+"""
+How wide the output-channel block may be before gathering stops paying: one
+128-wide column block and no more. See [`convgather_worth`](@ref), where the
+measurement is.
+"""
+const CONVGATHER_MAXCOUT = 128
 
 """
     ConvGather{OW,OH,KW,KH,SX,SY,PX,PY,DX,DY}
