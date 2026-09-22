@@ -69,15 +69,28 @@ function timeop(dev, g, weights, dims, op; R = 4)
 end
 
 """Every op of `g`, slowest first. Ops that cannot stand alone are reported as such."""
-function census(dev, g, weights, dims; top = 15)
+function census(dev, g, weights, dims; top = 15, showfailures = 5)
     rows = Any[]
+    failures = Any[]
     for op in g.ops
         isempty(op.ins) && continue
         try
             ms, nlib, np = timeop(dev, g, weights, dims, op)
             push!(rows, (op.id, op.aten, ms, nlib, np))
         catch e
+            # KEPT, not swallowed: "could not stand alone" is a count, and a
+            # count does not say whether the op needs an operand this cannot
+            # promote or whether its emit is broken. Those want opposite
+            # responses and the message is what tells them apart.
             push!(rows, (op.id, op.aten, NaN, -1, 0))
+            push!(failures, (op.id, op.aten, sprint(showerror, e)))
+        end
+    end
+    if !isempty(failures)
+        println(length(failures), " op(s) could not stand alone; first ",
+                min(showfailures, length(failures)), ":")
+        for (id, aten, msg) in first(failures, showfailures)
+            println("  ", rpad(id, 22), rpad(aten, 30), first(replace(msg, '\n' => ' '), 110))
         end
     end
     ok = [r for r in rows if !isnan(r[3])]
@@ -98,4 +111,106 @@ function census(dev, g, weights, dims; top = 15)
                 lpad(round(100v/tot, digits=1), 5), "%")
     end
     ok
+end
+
+# ── the same question asked of a RECORDED plan, one command at a time ────────
+#
+# `census` above re-emits each op alone, which cannot see what a command costs
+# where it actually sits. `commandcensus` replays single commands out of a
+# recording instead. Three things make it wrong if they are left out, and all
+# three produced confident numbers before they were:
+#
+#   * WARM UP. The first replay of a command loads its pipeline variant — 49 ms
+#     against 0.37 warm, on an M5 that also reports "exceeded compiled variants
+#     footprint limit", so variants are being evicted and reloaded. Measured
+#     cold, this tree's Qwen-Image 2.1 denoiser came to 3.425 s of kernel time;
+#     warm it is 1.416, and the warm figure is the one that matches a standalone
+#     benchmark of the same kernel (3.01 ms against 2.90).
+#   * WAIT. `closesubmit!` commits and returns a fence; it does not block. Time
+#     it alone and a 9 ms segment reads 0.0.
+#   * MAP the commands. An ICB command index is not a pass index: `planshape`
+#     skips `:update` passes and inserts a writer per predicate CHANGE. Kokoro
+#     has 1051 passes and 983 commands, and indexing one by the other named two
+#     convolutions as a cast and a split.
+#
+# The floor is still real — a single command costs a submission the frame
+# amortises — so a command whose work is well under ~0.1 ms is reported as
+# roughly that floor. Sum by KERNEL and compare ratios, not absolutes.
+
+"""`(command, pass)` pairs for one recorded piece, by `planshape`'s own rule."""
+function commandowners(pl, chunk, head::Bool)
+    owner = Int[]
+    head && push!(owner, 0)                 # the range reset owns no pass
+    prev = nothing
+    for i in chunk
+        pp = pl.passes[i]
+        pp.pass.kind === :update && continue
+        pred = pp.pass.predicate
+        (pred === nothing || M.samepredicate(pred, prev)) || push!(owner, i)
+        prev = pred
+        for d in pp.dispatches
+            d isa M.Call || push!(owner, i)
+        end
+    end
+    owner
+end
+
+"""Seconds for one warm replay of commands `lo:hi` of `part`."""
+function replaycost(dev, part, ids, slot, lo, hi; R = 5)
+    seg = M.MetalSegment(lo, hi, slot)
+    sub = M.opensubmit!(dev, ids)          # warm: the variant load is not the work
+    M.executesegment!(dev, sub, part, seg)
+    M.closesubmit!(dev, sub); M.waitidle(dev)
+    sub = M.opensubmit!(dev, ids)
+    for _ in 1:R
+        M.executesegment!(dev, sub, part, seg)
+    end
+    M.closesubmit!(dev, sub)
+    return (@elapsed M.waitidle(dev)) / R   # closesubmit! does NOT wait
+end
+
+"""
+    commandcensus(dev, plan; R = 5, top = 12) -> Dict
+
+Every ICB command of a recorded plan, warm, summed by kernel.
+
+Refuses rather than guesses when the command map and the recording disagree:
+that mismatch is what silently renames every row.
+"""
+function commandcensus(dev, pl; R = 5, top = 12)
+    rec = pl.recording
+    rec === nothing && throw(ArgumentError("commandcensus: this plan was not recorded."))
+    parts = rec isa M.RecordingParts ? rec.parts : [rec]
+    maxp = rec isa M.RecordingParts ? pl.record_maxpasses : length(pl.passes)
+    agg = Dict{String,Tuple{Int,Float64}}()
+    for (pi, part) in enumerate(parts)
+        chunk = ((pi - 1) * maxp + 1):min(pi * maxp, length(pl.passes))
+        _, nwriters, _ = M.planshape(pl, chunk)
+        owner = commandowners(pl, chunk, pi == 1 && nwriters > 0)
+        length(owner) == part.ncommands || throw(ErrorException(
+            "commandcensus: piece $pi maps $(length(owner)) commands and the " *
+            "recording holds $(part.ncommands). Every name below would be the " *
+            "wrong one, so this refuses rather than reporting them."))
+        ids = M.ensureresident!(dev, part)
+        slot = fill(-1, part.ncommands)
+        for s in part.segments, c in s.first:s.last
+            slot[c] = s.slot
+        end
+        for c in 1:part.ncommands
+            i = owner[c]
+            i == 0 && continue
+            k = string(pl.passes[i].pass.dispatches[1].kernel)
+            n, tot = get(agg, k, (0, 0.0))
+            agg[k] = (n + 1, tot + replaycost(dev, part, ids, slot[c], c, c; R))
+        end
+    end
+    total = sum(v[2] for v in values(agg); init = 0.0)
+    println("kernel commands: ", round(total, digits = 3), " s over ",
+            sum(v[1] for v in values(agg); init = 0), " commands")
+    for (k, (n, s)) in first(sort(collect(agg); by = x -> x[2][2], rev = true), top)
+        println("  ", rpad(first(k, 32), 34), "n=", rpad(n, 6),
+                lpad(round(s, digits = 3), 7), " s  ",
+                lpad(round(1000s / n, digits = 3), 8), " ms each")
+    end
+    agg
 end
