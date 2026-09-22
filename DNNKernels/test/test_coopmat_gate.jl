@@ -35,7 +35,12 @@ const CAPS0  = Mantle.DeviceCaps(CAPS16; coopmat = false, tile = 0)
 # below is conditional on it, and that is the point rather than a concession: the
 # predicate is a claim about the library as well as the device, so a machine
 # without the tree must answer no to a 16-wide caps too.
-const STAGED = isdefined(Mantle, :GEMM_TILINGS)
+#
+# Asked through `staged_gemm_tile`, which is the library's own declaration.
+# `isdefined(Mantle, :GEMM_TILINGS)` stood here and in the gate, and a test that
+# reproduces the implementation it is checking cannot catch that implementation
+# being the wrong question.
+const STAGED = Mantle.staged_gemm_tile() !== nothing
 
 @testset "the gate itself" begin
     @test DKG.coopmatkernels(CAPS16) == STAGED
@@ -45,7 +50,26 @@ const STAGED = isdefined(Mantle, :GEMM_TILINGS)
     # Wave64 is not the question — the staged GEMM runs on RDNA 3.5 — the TILE is.
     @test DKG.coopmatkernels(Mantle.DeviceCaps(CAPS16; subgroup = 64,
                                                coopmatsubgroup = 64)) == STAGED
-    @test DKG.COOPMAT_TILE == 16
+end
+
+# The library half of the gate, on both sides of the `@static include`.
+#
+# `staged_gemm_tile` is declared in Mantle's portable code and answered by the
+# backend that has the kernels, so it is a name every build can call — which is
+# the property the gate needs and the one `isdefined` only imitated. A build
+# WITH the tree must also agree with itself: the tile it declares is the tile its
+# kernels are emitted at, and nothing here may restate `16` as a literal to
+# compare against.
+@testset "the library declares its own tile" begin
+    t = Mantle.staged_gemm_tile()
+    @test t isa Union{Int,Nothing}
+    if t !== nothing
+        @test t == Mantle.GEMM_TILE
+        @test isdefined(Mantle, :GEMM_TILINGS)
+        # And the gate is exactly this and the device, not a second copy of it.
+        @test DKG.coopmatkernels(Mantle.DeviceCaps(CAPS16; tile = t))
+        @test !DKG.coopmatkernels(Mantle.DeviceCaps(CAPS16; tile = t + 1))
+    end
 end
 
 @testset "every planner declines an 8-wide device" begin

@@ -194,12 +194,12 @@ end
 # one place this differs from `Mantle.gemm_padn`.
 @testset "the channel pad reaches for the wider column tile" begin
     # `GEMM_TILINGS` and `gemm_bn` are the cooperative-matrix tilings, compiled
-    # in only where that path is — the same thing `coopmatkernels` asks with
-    # `isdefined(M, :GEMM_TILINGS)`. `convcoutpad` is not arithmetic that stands
-    # apart from them: it READS the table to find the widest admissible column
-    # tile, so the whole testset needs the guard and not just the claim about
-    # `bns`.
-    if isdefined(Mantle, :GEMM_TILINGS)
+    # in only where that path is — the same thing `coopmatkernels` asks
+    # `Mantle.staged_gemm_tile` about. `convcoutpad` is not arithmetic that
+    # stands apart from them: it READS the table to find the widest admissible
+    # column tile, so the whole testset needs the guard and not just the claim
+    # about `bns`.
+    if Mantle.staged_gemm_tile() !== nothing
         bns = sort(unique(Mantle.gemm_bn.(Mantle.GEMM_TILINGS)))
         @test 128 in bns
         # `MP` and `CRSP` chosen so every staged tiling is admissible.

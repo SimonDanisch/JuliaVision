@@ -66,29 +66,33 @@ Pinning the tile also closes a hazard Mantle documents from the other side. Its
 `caps` reads `tile` from the driver's shape table precisely because a constant 16
 was wrong: "on a card reporting anything but 16 the kernels strided by 16 and
 read another fragment's registers, and nothing would have crashed." The staged
-kernels are still emitted at 16. So a device whose best square is not 16 has no
-kernel here either, and this says so instead of striding.
+kernels are still emitted at one extent, whichever it is. So a device whose best
+square is not that one has no kernel here either, and this says so instead of
+striding.
 
-`isdefined` is the third term, and is not reflection standing in for a capability.
-The staged kernels are DEFINED in the tree that implements them, so on a build
-without that tree `Mantle.GEMM_TILINGS` and `Mantle.coopmat_load` are not an empty
-table and an unavailable intrinsic — they are not bindings at all. The tile alone
-makes this a claim about the DEVICE that is only conditionally a claim about the
-LIBRARY, and a hand-built 16-wide `DeviceCaps` then admits a plan that reaches an
-undefined name two frames later. It is the guard the runners put on
-`use_frozen_kernels` for the same reason: nothing to ask is not an error, it is no
-kernel. Asked once per plan.
+The second term is Mantle's, and that is the whole of the third question. The
+staged kernels are DEFINED in the tree that implements them, so on a build
+without that tree `Mantle.GEMM_TILINGS` and `Mantle.coopmat_load` are not an
+empty table and an unavailable intrinsic — they are not bindings at all. The
+device alone therefore cannot answer: a hand-built 16-wide `DeviceCaps` admits a
+plan that reaches an undefined name two frames later.
+
+`M.staged_gemm_tile()` is that answer: declared in Mantle's portable code and
+answered by whichever backend tree the build included, so it is askable
+everywhere and `nothing` where there are no kernels. **It replaced
+`isdefined(M, :GEMM_TILINGS)`, which was this package guessing at another
+package's contents by name.** That guess was true,
+and for the right reason, and it would have stayed true through a rename, a
+split of the table, or a second backend whose kernels are 8 wide — silently
+admitting plans in the last case. A capability is the provider's to state.
+
+Taking the TILE rather than a `Bool` also removes the copy of `16` this file had
+to keep in order to compare against `dev.tile` at all. Asked once per plan.
 """
-coopmatkernels(dev::M.DeviceCaps) =
-    dev.coopmat && dev.tile == COOPMAT_TILE && isdefined(M, :GEMM_TILINGS)
-
-
-"""The one tile extent every cooperative-matrix kernel reachable from here is emitted
-at, which is `Mantle.GEMM_TILE` and the `16x16` in `_lava_coopmat_load_f16_16x16_a`.
-Restated rather than imported: the constant lives in the tree that defines those
-kernels, and the whole point of [`coopmatkernels`](@ref) is to be answerable where
-they do not exist."""
-const COOPMAT_TILE = 16
+function coopmatkernels(dev::M.DeviceCaps)
+    tile = M.staged_gemm_tile()
+    return dev.coopmat && tile !== nothing && dev.tile == tile
+end
 
 """
     FlashCMPlan
