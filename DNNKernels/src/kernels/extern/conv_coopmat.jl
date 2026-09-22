@@ -638,6 +638,14 @@ Measured per chunk on the VAE's six convolutions, gather at each tiling against
 Everything narrower loses: the gather's cost is per A ELEMENT, so shrinking the
 row block without shrinking the work per element just buys less arithmetic to
 amortise it against.
+
+**Measured on gfx1151 / RDNA 3.5 (Radeon 8060S), 2026-09-22.** One number for
+every device, like `Mantle.GEMM_TILINGS` itself — this is a TUNING constant and
+not a vendor switch, and the tree does not carry per-vendor code paths. What it
+rests on is that a gathered element costs the same everywhere and a wider `bk`
+keeps more of them in flight; a device with a different register budget could
+want the other entry, and re-running the sweep in this docstring is how anyone
+would find out.
 """
 const CONVGATHER_TILING = (4, 2, 2, 4, 16, 8)
 
@@ -650,7 +658,11 @@ function convgather_tiling(MP::Int, CoutP::Int, CRSP::Int)
     c = CONVGATHER_TILING
     bm, bn, bk = Mantle.GEMM_TILE * c[1] * c[3], Mantle.GEMM_TILE * c[2] * c[4], c[5]
     (MP % bm == 0 && CoutP % bn == 0 && CRSP % bk == 0) || return nothing
-    haskey(Mantle.GEMM_STAGED_PREFETCH_KERNELS, c) || return nothing
+    # The GATHERING dict and not the prefetch one: this asks whether the kernel
+    # that will actually be launched exists. The two are generated side by side
+    # so they have the same keys today, and asking the wrong one would still be
+    # wrong the day they do not.
+    haskey(Mantle.GEMM_STAGED_GATHER_KERNELS, c) || return nothing
     return c
 end
 
@@ -690,6 +702,12 @@ shapes straddle 1.0 and the three-block one is a clear loss, so the line is one
 block. Shapes at `CoutP >= 256` are carried as controls — the same plan runs in
 both arms — and they read 0.99x to 1.16x, which is what this harness's noise
 looks like and the band the wins above are quoted against.
+
+**Measured on gfx1151 / RDNA 3.5 (Radeon 8060S), 2026-09-22**, and it is a
+tuning line rather than a vendor switch: one rule runs on every backend. The
+MECHANISM behind it is not device-specific — a gather recomputes per column
+block where im2col writes once — so the shape of the rule should hold anywhere;
+where the crossover sits is what a different card could move.
 
 **Nothing currently benchmarked in this tree has `Cout = 128`, so this rule
 admits nothing today.** SAM 2 builds two convolution plans and both are
