@@ -227,10 +227,37 @@ end
         # DNNKernels-on-ROCm 1.398. A second backend should not be held to this
         # number. What the gate is still good for is a CHANGE on this one:
         # same node, same magnitude, and a move either way fails.
+        #
+        # ── RE-BANDED 2026-09-22, 0.2–0.6 -> 0.6–1.6, and here is the whole
+        # evidence, because moving a change-detector is the one edit that can
+        # quietly make it useless.
+        #
+        # `E = 72` — SAM 2's head width in all 48 encoder attentions — stopped
+        # staging K and V through shared memory and now reads them as tiles,
+        # with the last `e` tile slid onto the tensor (`flasheslide`). Encode
+        # went 178.05 -> 156.00 ms in one order and 179.40 <- 152.95 in the
+        # other, i.e. ~1.15x either way, crossing from 94% to 108% of eager
+        # PyTorch on this part. `add_129` went 0.4752 -> 1.014, deterministic on
+        # repeat.
+        #
+        # The slide is NOT what moved it, and that is measured rather than
+        # argued: the same plan run tiled and staged is **bit-identical** at
+        # `E = 72` — `maxabs 0.000e+00` at the windowed and global shapes both,
+        # and at `E = 80` as a control. Nor is it the accumulator form: holding
+        # `O` in fragments at the OLD tiling gives 0.4211, slightly better than
+        # the 0.4752 it replaced. What is left is the TILING the tiled table
+        # picks, `(64, 32)/16 -> (16, 32)/2`, which changes only which rows
+        # share a workgroup — and this node has ~500x gain on any change at all.
+        #
+        # The model's own outputs went the other way, which is the reason this
+        # is a re-band and not a revert: mask 3's IoU against the reference
+        # 0.95455 -> 0.97727, mask 2 0.99975 -> 0.99978, mask 1 unchanged at
+        # 0.98750, and the three IoU scores equally close. An intermediate that
+        # amplifies is not the thing the model is judged on.
         f = first(diffse)
         @test !oke
         @test f.id == "add_129"
-        @test 0.2 < f.maxabs < 0.6
+        @test 0.6 < f.maxabs < 1.6
     end
 end
 

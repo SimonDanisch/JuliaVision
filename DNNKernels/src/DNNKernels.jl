@@ -116,7 +116,11 @@ that is deliberate.
 # add or change kernels reachable from frozen model graphs.
 # "40": Bonsai wide prefill decodes PTQ1 tiles directly into fp16 cooperative
 # matrix operands, with fused Hadamard and recurrent-state kernels.
-const KERNELS_VERSION = "41"
+# "42": Lava packs and unpacks a non-integer scalar in an oversized private slot
+# through a same-width bitcast rather than a `zext`/`trunc` built on a float, so
+# any kernel with a dynamically indexed `@private Float16` array wider than the
+# scalariser folds now emits different (and valid) SPIR-V.
+const KERNELS_VERSION = "42"
 
 include("assets.jl")
 include("safetensors.jl")

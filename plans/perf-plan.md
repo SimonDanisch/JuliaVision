@@ -18,6 +18,55 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22: `E = 72` stopped staging K and V — encode 178.1 -> 156.0 ms, past eager PyTorch
+
+Measured on the 8060S (RADV STRIX_HALO), not the Ada the entries below use.
+
+`flashglobalkv` refused the tiled path whenever `EP != E`, and the reason was
+real: a cooperative-matrix load has no per-ROW bound either, so the `e` tile at
+`EP - GEMM_TILE` reaches past the head, and for the last head and batch past the
+tensor — at `E = 72` a 16-byte overrun of both K and V. SAM 2's encoder is
+`E = 72` in all 48 of its attentions, so every one of them staged.
+
+The answer is the one `kwin` already gives on the KEY axis: slide the last tile
+back onto the tensor. The overlap it creates cannot be masked — the `e` axis is
+summed inside the tensor core, where nothing downstream can reach it — so it is
+cancelled in **Q** instead, which is ours: the rows the slide re-covers are
+staged as zero. `flasheslide`, and the staging loop in the kernel.
+
+    shape (E=72)          staged    slid tiled
+    windowed 256x256      0.845      0.505 ms    1.67x
+    global 4096x4096      7.551      4.094 ms    1.84x
+
+interleaved over three rounds, minimum of twenty timed runs each. Head widths
+that already filled their tiles are untouched to within noise (`E = 64` 1.01x,
+`E = 80` 0.98x), which is what a compile-time-false `Val` should do.
+
+End to end, both orderings in fresh processes, because the second run of
+anything in a worn session is ~5% slow:
+
+                        before    after
+    encode p50       178.05 ms  156.00 ms     (after second)
+    encode p50       179.40 ms  152.95 ms     (after first)
+    vs eager PyTorch     94.5%     107.9%
+
+Memory is unchanged at 1219 MiB live. The 2055 MiB an earlier read showed was a
+second model built in the same session, not a difference between the two.
+
+**The parity gate moved and was re-banded, not silenced.** `add_129` went 0.4752
+-> 1.014 and `SAM2Runner/test/runtests.jl` carries the whole argument: the slide
+is bit-identical to staging on the same plan (`0.000e+00`, three shapes), the
+fragment accumulator at the old tiling is 0.4211, so what moved it is the tiling
+the tiled table picks — and this node has ~500x gain on any change at all. The
+model's own outputs went the OTHER way: mask 3's IoU 0.95455 -> 0.97727.
+
+Two bugs fell out of the same afternoon and are fixed with tests:
+`Lava/test/spirv/test_packed_private_scalar.jl` (a `zext`/`trunc` built on a
+`half` — invalid LLVM the C builder accepts, which reached SPIR-V as a bare
+`OpUConvert %uint`), and `flashcmfits` exempting `pvs` for any HELD plan when
+only the FRAGMENT-held one is without it, which admitted `(64, 64)/16` at 47112
+bytes against a kernel that then declared 67912.
+
 ## 2026-08-11: attention improved 33% and is STILL the largest gap
 
 **Do not read the section below as "attention is done".** After the coopmat2
