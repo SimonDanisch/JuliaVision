@@ -128,24 +128,32 @@ end
     end
 
     @testset "scalar flash is a recordable declared pass" begin
-        dev = Mantle.Device(back)
+        # `gdev`, NOT `dev`. Allocating a buffer needs the concrete device while
+        # every predicate in this file takes the `DeviceCaps` bound above, and
+        # `@testset` does not open a scope that an assignment stays inside: a
+        # `dev = Mantle.Device(back)` here REBOUND the outer `dev` for every
+        # testset that follows, so the tiling chooser and the plan builders were
+        # handed a `LavaDevice` and threw `MethodError` from there to the end of
+        # the file. Only the testsets after this one failed, which is what an
+        # order-dependent rebinding looks like.
+        gdev = Mantle.Device(back)
         E, L, H, B = 72, 128, 2, 1
         qh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
         kh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
         vh = Float16.(randn(Float32, E,L,H,B) .* 0.2f0)
-        q = Mantle.Buffer(dev, qh)
-        k = Mantle.Buffer(dev, kh)
-        v = Mantle.Buffer(dev, vh)
-        out = Mantle.Buffer(dev, Float16, (E,L,H,B))
-        graph = Mantle.Graph(dev)
+        q = Mantle.Buffer(gdev, qh)
+        k = Mantle.Buffer(gdev, kh)
+        v = Mantle.Buffer(gdev, vh)
+        out = Mantle.Buffer(gdev, Float16, (E,L,H,B))
+        graph = Mantle.Graph(gdev)
         op = DNNKernels.Op("flash", "fused.sdpa", String[], "flash",
                            Dict{String,Any}())
         emitctx = DNNKernels.EmitCtx(
             DNNKernels.Graph("flash", String[], String[], String[],
                              Dict{String,DNNKernels.Buffer}(), String[],
                              DNNKernels.Op[], Vector{Vector{String}}()),
-            graph, dev, NamedTuple(), Dict{String,Any}("flash" => out),
-            Set{String}(), Ref("flash"), Any[])
+            graph, gdev, NamedTuple(), Dict{String,Any}("flash" => out),
+            Set{String}(), Ref("flash"), Any[], Dict{String,Any}())
         scale = Float32(inv(sqrt(E)))
         @test DNNKernels.scalarflash_dispatch!(emitctx, op, out, q, k, v,
                                                 nothing, scale)
@@ -153,7 +161,7 @@ end
         plan = Mantle.Plan(graph)
         Mantle.record!(plan)
         Mantle.run!(plan)
-        Mantle.waitidle(dev)
+        Mantle.waitidle(gdev)
         got = Array(Mantle.storage(out))
         ref = attnref(Float32.(qh), Float32.(kh), Float32.(vh), scale)
         @test maximum(abs, Float32.(got) .- ref) < 2e-3
