@@ -3,10 +3,38 @@ Convolution as an explicit im2col followed by a tensor-core GEMM.
 
 `conv_implicit.jl` never materialises the im2col matrix, which is the right call
 for a scalar kernel: it trades memory traffic for index arithmetic that the ALUs
-would otherwise be idle for. It cannot use cooperative matrices, though, because
-Lava lowers a `OpCooperativeMatrixLoadKHR` from a `PhysicalStorageBuffer`
-address — there is no workgroup-storage load — so the B operand has to exist in
-global memory before the multiply starts.
+would otherwise be idle for.
+
+**The reason this one materialises it is NOT that a cooperative matrix cannot be
+loaded from shared memory.** It said so here until 2026-09-22 — "Lava lowers a
+`OpCooperativeMatrixLoadKHR` from a `PhysicalStorageBuffer` address, there is no
+workgroup-storage load" — and that stopped being true a long time before anyone
+noticed: `flash.jl` declares `kvs = @localmem Float16` and builds its `MatrixB`
+operands straight out of it.
+
+The real reason is the one below, and it was measured by writing the other
+kernel. A gathered-A convolution — the staged GEMM with its `A` staging replaced
+by the im2col expression, so the matrix never exists — re-does the gather **once
+per `BN`-wide output-channel block**, where this path computes it once and pays
+a memory round trip for it. Same tiling as the staged GEMM's shipped
+`64 x 128 x 32`, output correct to 1e-4 against the definition:
+
+    Cin -> Cout   spatial     im2col     gathered
+     144 -> 144   1024x1024    84.0 ms    75.7 ms   1.11x   2 column blocks
+     288 -> 144   1024x1024   145.2      169.7      0.86x   2
+     288 -> 288   1024x1024   181.7      285.3      0.64x   3
+     576 -> 576     512x512   131.1      271.9      0.48x   5
+    1152 -> 1152    256x256    90.0      279.0      0.32x   9
+    1152 -> 1152    128x128    32.2       63.8      0.50x   9
+
+The speedup tracks the column-block count and nothing else: the gather is 2x
+this path's work at `Cout = 144` and 9x at 1152. It wins on exactly one shape
+and by 11%, so it is not in the tree — `plans/perf-plan.md` has the rest,
+including the three tuning hypotheses that did NOT explain the gap (block width,
+hoisting the pixel decomposition, and the tap loop unrolling nine times).
+
+The im2col round trip wins because it is largely cache-resident, which is the
+same effect `IM2COL_CAP` records from the other side.
 
 Materialising it is cheap here. The reduction extent `CRS = Cin*KH*KW` is large
 and the pixel count `NPQ = N*OH*OW` small (the dominant layer is 15x8), so the

@@ -18,6 +18,61 @@ Every figure below is from a *fresh* session — see "How to measure this", whic
 is not boilerplate: three separate confident numbers in this document's history
 were artefacts of how they were taken.
 
+## 2026-09-22 (later still): the gathered-A convolution, built and REJECTED
+
+The obvious next move after the im2col pairing was to delete the im2col matrix
+altogether: stage the `A` tile into shared memory by gathering it from `x`, one
+`(BM x BK)` block at a time, exactly as `Mantle`'s staged GEMM stages its own.
+The header of `conv_coopmat.jl` said that was impossible — no cooperative-matrix
+load from workgroup storage — and **that was stale**: `flash.jl` has been doing
+it for months. So the reason the tree materialises a 9x-amplified matrix was a
+premise that had expired, which is a good reason to go and check.
+
+It was built, it is correct, and it loses. Staged GEMM tiling `64 x 128 x 32` on
+256 threads, output within 1e-4 of the definition on every shape:
+
+    Cin -> Cout   spatial     im2col     gathered   column blocks
+     144 -> 144   1024x1024    84.0 ms    75.7 ms   1.11x    2
+     288 -> 144   1024x1024   145.2      169.7      0.86x    2
+     288 -> 288   1024x1024   181.7      285.3      0.64x    3
+     576 -> 576     512x512   131.1      271.9      0.48x    5
+    1152 -> 1152    256x256    90.0      279.0      0.32x    9
+    1152 -> 1152    128x128    32.2       63.8      0.50x    9
+                                         TOTAL      0.58x
+
+**The speedup tracks the column-block count and nothing else.** A gathered `A`
+is recomputed once per `BN`-wide block of output channels; the im2col matrix is
+computed once and re-read. At `Cout = 144` that is 2x the gather work, at 1152
+it is 9x, and the column is the ratio. The memory round trip wins because it is
+largely cache-resident — the same effect `IM2COL_CAP`'s note records from the
+other side. No tiling fixes this; it is the schedule.
+
+Three hypotheses were tested on the way and **none of them explained the gap**,
+which is why the table above is the conclusion rather than a waypoint:
+
+  * *Block too narrow.* The first cut was `64 x 64` on 128 threads — half the
+    arithmetic per staged element. Widening to the reference's `64 x 128` on 256
+    moved a flat 3.5 TFLOP/s to a flat 4.7. Not it.
+  * *The gather recomputes the pixel decomposition.* `WG % BM == 0` makes `i`
+    equal `tid % BM` for every iteration, so `ow`, `oh` and `n` are loop
+    invariant. Hoisting them moved 3.14 -> 3.14 TFLOP/s on the shape it should
+    have helped most. The compiler had already done it.
+  * *The tap loop unrolls nine times.* `KW*KH` is a `Val`, and RADV reported 184
+    live scalar registers against the staged GEMM's 13, with 74 spilled. Passing
+    the trip count as a runtime argument so it cannot unroll changed the
+    register pressure by one and the time by nothing.
+
+What DID help was blocking the reduction by TAP rather than walking `CRS` flat,
+which takes the two divisions that recover `(kw, kh, cin)` out of the innermost
+loop: 3.14 -> 5.23 TFLOP/s on `144 -> 144`, and it is what makes that one shape
+win at all. Worth knowing if anyone writes this kernel for a device where the
+arithmetic is cheaper relative to the memory.
+
+**Also worth knowing: RADV's `Latency` stat did not track this kernel.** It went
+31302 -> 59444 across the change that made the kernel 15% FASTER, and back to
+30838 across one that did nothing. `SALU` and `Pre-Sched SGPRs` were informative;
+that field was not.
+
 ## 2026-09-22 (later): the im2col writes a PAIR — the six VAE convolutions 682.7 -> 613.3 ms
 
 Also on the 8060S. With attention off the top of the list, the widest gaps in
