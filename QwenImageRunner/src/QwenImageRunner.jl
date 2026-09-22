@@ -48,7 +48,7 @@ using Artifacts: artifact_hash, artifact_exists
 # it has to answer without downloading anything.
 const ARTIFACTS_TOML = normpath(joinpath(@__DIR__, "..", "Artifacts.toml"))
 
-export QWEN_IMAGE_21, assetdir, vaedir, processordir, ready, rotarytables
+export QWEN_IMAGE_21, assetdir, vaedir, processordir, ready, rotarytables, prompttokens
 export qwenimagegraph, qwenimageweights, compact_denoiser, compact_encoder
 export compact_transformer_weights, compact_text_encoder_weights
 export QwenTokenizer, encode, decode
@@ -427,6 +427,24 @@ function qwenimagetransformer(; context_tokens::Integer,
     rotary = (DNNKernels.toback(backend, rc), DNNKernels.toback(backend, rs))
     QwenTransformer(model.backend, prepared, model.weights, plan, rotary, ctx,
                     (lh, lw), img)
+end
+
+"""
+    prompttokens(prompt; dir, processor_dir) -> (used, capacity)
+
+How many tokens `prompt` becomes, and how many the exported encoder holds.
+
+Cheap on purpose. The tokenizer is three small files and the capacity is read off
+the encoder GRAPH, so a caller can refuse an over-long prompt BEFORE paying to
+load 6.9 GB of encoder weights. `encode_prompt` enforces the same limit, but only
+once those weights are resident — about a minute in, which is a poor moment to
+learn the prompt was four words too long.
+"""
+function prompttokens(prompt::AbstractString; dir::AbstractString=assetdir(),
+                      processor_dir::AbstractString=processordir())
+    used = length(encode(QwenTokenizer(processor_dir), qwen_prompt_template(prompt)))
+    graph = qwenimagegraph(:text_encoder; dir)
+    (used, Int(graph.buffers[only(graph.inputs)].shape[2]))
 end
 
 """

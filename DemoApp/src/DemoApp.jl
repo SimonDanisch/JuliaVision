@@ -43,6 +43,47 @@ struct Model
 end
 Model(n, t, m, k, e, r; assets = nothing, blurb = "") = Model(n, t, m, k, e, r, assets, blurb)
 
+"""
+The side this demo WANTS Qwen to generate at.
+
+1024² is 4096 image tokens and about 9 s a denoise step; 256² is 256 tokens, and
+the attention that dominates the step is quadratic in them.
+
+Whether it can have it is a property of the shipped GRAPH, not of the runner.
+The denoiser became generic in an `i` symbol and the decoder in `h`/`w`, but the
+artifacts bound today were exported before that — `latents` is still
+`[1, 4096, 64]` and the decoder carries no symbol at all — so asking for another
+grid is an `ArgumentError` naming the exporter flag. [`qwengrid`](@ref) falls
+back to the export's own grid rather than leaving the model unusable, and says
+which happened.
+"""
+const DEMO_IMAGE_SIDE = 256
+
+"""
+    qwengrid(mod, ctx) -> (transformer, (lh, lw), note)
+
+The denoiser at [`DEMO_IMAGE_SIDE`](@ref) if the shipped graph can serve it, and
+at whatever it WAS exported for otherwise.
+
+Asked by building it, because the bounds a `Dim` was exported with are not on the
+graph: a generic denoiser still refuses a grid outside them, and only the
+constructor knows. The refusal is cheap — it precedes the weight load.
+"""
+function qwengrid(mod, ctx::Integer)
+    sf = mod.QWEN_IMAGE_21.vae_scale_factor
+    want = DEMO_IMAGE_SIDE ÷ sf
+    build(g) = Base.invokelatest(getfield(mod, :qwenimagetransformer);
+                                 context_tokens = ctx, latent = g)
+    try
+        return (build((want, want)), (want, want), "")
+    catch err
+        err isa ArgumentError || rethrow()
+        lh, lw = Base.invokelatest(mod.latentshape, Base.invokelatest(mod.assetdir))
+        return (build((lh, lw)), (lh, lw),
+                "  ·  $(DEMO_IMAGE_SIDE)² needs a re-exported graph; running at $(lw * sf)²")
+    end
+end
+
 "Constructed models are expensive (weights + kernel compile), so build once."
 const BUILT = Dict{Symbol,Any}()
 built(mod, sym, args...; kw...) = get!(BUILT, Symbol(nameof(mod), :_, sym)) do
@@ -115,18 +156,16 @@ const MODELS = Model[
                   Base.invokelatest(mantle.release!, enc)
               end
 
-              # Both graphs bake the resolution in — the decoder declares
-              # `(64, 64)` latents and a `1024 x 1024` image, and the denoiser
-              # 4096 image tokens. Prompt length is the only symbol either
-              # carries, so the size is read from the export, never chosen here.
-              lh, lw = Base.invokelatest(mod.latentshape, Base.invokelatest(mod.assetdir))
+              # Both graphs are symbolic in the resolution now — the denoiser in
+              # `i` and the decoder in `h`/`w` — so the grid is a choice rather
+              # than whatever the export traced at. 256² is a sixteenth of 1024²'s
+              # image tokens, which is where the denoise loop's time goes.
               sf = mod.QWEN_IMAGE_21.vae_scale_factor
-              w, h = lw * sf, lh * sf
               ch = mod.QWEN_IMAGE_21.latent_channels
 
               say("loading the denoiser…")
-              tr = Base.invokelatest(getfield(mod, :qwenimagetransformer);
-                                     context_tokens = size(emb, 2))
+              tr, (lh, lw), gridnote = qwengrid(mod, size(emb, 2))
+              w, h = lw * sf, lh * sf
               denoised = try
                   back = tr.backend
                   ntok = Base.invokelatest(mod.image_sequence_length, w, h)
@@ -151,8 +190,14 @@ const MODELS = Model[
                   Base.invokelatest(mantle.release!, tr)
               end
 
+              # RECORDED, and therefore placed. The interpreted path allocates
+              # every transient of the graph at once — 63 GiB at 1024², and still
+              # a multiple of what the same decode needs at any other size. That
+              # ratio is the defect, not the absolute number, so it is not a trade
+              # that gets acceptable by shrinking the image.
               say("loading the decoder…")
-              vae = Base.invokelatest(getfield(mod, :qwenimagevae))
+              vae = Base.invokelatest(getfield(mod, :qwenimagevae);
+                                      record = true, latent = (lh, lw))
               img = try
                   say("decoding…")
                   side = w ÷ sf
@@ -168,6 +213,7 @@ const MODELS = Model[
               # declared output `(W, H, 4, 1)` while the interpreted path returns
               # its view root `(W, H, 1, 4, 1)`, so drop the singletons and the two
               # agree. Alpha is opaque for a text-to-image generation.
+              isempty(gridnote) || say("decoding…" * gridnote)
               a = Float32.(img)
               a = reshape(a, filter(>(1), size(a))...)
               rgb = clamp.(a[:, :, 1:3] ./ 2f0 .+ 0.5f0, 0f0, 1f0)
@@ -637,7 +683,7 @@ end
 
 function gui(::Val{:prompt_image}, m, mod, live, session)
     prompt = TextField("a brushed steel bracket under raking light")
-    steps = Slider(4:2:50; value = 8)   # 9 s a step, so 20 is three minutes
+    steps = Slider(4:2:50; value = 16)
     out = Observable{Any}(fill(RGB(0.97, 0.96, 0.99), 64, 64))
     st = Observable(live ? "Ready." : "Disabled — see above."); btn = Button("Generate"; disabled = !live)
     on(btn.value) do _
