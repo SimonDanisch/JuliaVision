@@ -178,29 +178,51 @@ end
 
 Comfy-Org's INT8 ConvRot denoiser, merged from its six shards.
 
-`readsafetensors` memory-maps, and `merge` of six mmapped dictionaries reads
-nothing — the 7.26 GB is paged in per tensor as
-[`compact_transformer_weights`](@ref) walks the graph.
+`mmap = true` EXPLICITLY, and that is the whole point of this docstring.
+`readsafetensors` maps a file above 4 GiB and reads one below it, on the
+reasoning that a small read is cheap and a mapping that outlives its `open`
+block is a subtler thing to hand back. That threshold is per FILE, and this
+checkpoint is 6.92 GB in six shards of about 1.15 GB — so every one of them
+took the read path and the merged dictionary was 6.92 GB of ANONYMOUS memory
+before the graph was walked. This docstring used to claim the opposite.
+
+It matters most on the machine this is built for. An 8060S has no separate
+VRAM: the weights the host has read and the weights the device holds come out
+of the same pool, so a checkpoint read rather than mapped is charged twice.
+Measured, the six shards:
+
+    mmap = false   1.51 s   +6920.7 MB resident, all of it anonymous
+    mmap = true    0.07 s   +1.6 MB
+
+The bytes are still read, later and one tensor at a time, as
+[`compact_transformer_weights`](@ref) walks the graph — as page cache the
+kernel can drop under pressure rather than anonymous memory it has to kill for.
+`readsafetensors` measures that fault-in at ~1.5 GB/s against 6.0 GB/s for a
+plain read, which is the price.
 """
 compact_denoiser() = merge(
-    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w1"), DIT_SHARDS[1])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w2"), DIT_SHARDS[2])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w3"), DIT_SHARDS[3])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w4"), DIT_SHARDS[4])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w5"), DIT_SHARDS[5])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w6"), DIT_SHARDS[6])))
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w1"), DIT_SHARDS[1]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w2"), DIT_SHARDS[2]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w3"), DIT_SHARDS[3]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w4"), DIT_SHARDS[4]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w5"), DIT_SHARDS[5]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w6"), DIT_SHARDS[6]); mmap = true))
 
 """
     compact_encoder() -> Dict
 
 Comfy-Org's W4A8 Qwen3-VL conditioner, merged from its five shards.
+
+`mmap = true` for the reason [`compact_denoiser`](@ref) gives at length: five
+shards, none of them over `readsafetensors`' per-file threshold, 6.9 GB read
+into anonymous memory on a machine that then has to hold the device copy too.
 """
 compact_encoder() = merge(
-    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w1"), ENC_SHARDS[1])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w2"), ENC_SHARDS[2])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w3"), ENC_SHARDS[3])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w4"), ENC_SHARDS[4])),
-    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w5"), ENC_SHARDS[5])))
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w1"), ENC_SHARDS[1]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w2"), ENC_SHARDS[2]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w3"), ENC_SHARDS[3]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w4"), ENC_SHARDS[4]); mmap = true),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w5"), ENC_SHARDS[5]); mmap = true))
 
 @inline _bf16(x::UInt16) = Float16(reinterpret(Float32, UInt32(x) << 16))
 _bf16array(x::AbstractArray{UInt16}) = map(_bf16, x)
@@ -466,15 +488,32 @@ struct QwenVAEDecoder{B,D,G,W,P}
 end
 
 """
-    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), record=false)
+    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), latent=nothing)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
 
-`record = false`, unlike the denoiser, because for this graph a recorded plan
-costs more to build than it saves. At 1024² on an 8060S, decoding one denoised
-latent: **4.79 s interpreted**, against ~50 s to build the plan and one decode
-per image to amortise it.
+**Pass `latent = (h, w)`.** It records a plan, and the interpreted path this
+falls back to without one holds every intermediate of the whole graph at once —
+there is no liveness analysis to reuse a buffer, so the peak is the SUM of the
+decoder's activations rather than its high-water mark. Measured on an 8060S,
+device memory for one decode and the one-time plan build:
+
+    output     interpreted   recorded   build    decode
+    256x256        5 590 MB   1 014 MB    1.2 s    0.17 s
+    512x512       19 889 MB   1 504 MB   14.4 s    0.64 s
+    1024x1024     66 048 MB   3 880 MB   14.4 s    2.51 s
+
+66 GB for one 1024² image, which runs here only because this APU can hand out
+114 GB of GTT and is an immediate out-of-memory on any discrete card. The
+decode is faster recorded at every size as well.
+
+This default used to be `record = false` on the argument that a plan "costs more
+to build than it saves": 4.79 s interpreted at 1024² against ~50 s to build.
+The build is 14.4 s now — the convolutions stopped falling off the tensor-core
+path, see below — so the one-shot case is 16.9 s against 4.79 s and that is the
+only case the old default wins, at 17x the memory. A caller who really wants it,
+or who has no grid to name, still gets it.
 
 Both were three times that — 12.8 and 16.0 s — until the convolutions stopped
 falling off the tensor-core path. Eighty-two percent of this graph is
@@ -498,7 +537,12 @@ submission does not have to exceed the driver's limit (`maxpasses = 8` records
 and replays; 64 is what times out).
 """
 function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=vaedir(),
-                      record::Bool=false, latent::Union{Nothing,Tuple{Integer,Integer}}=nothing,
+                      latent::Union{Nothing,Tuple{Integer,Integer}}=nothing,
+                      # After `latent`, and derived from it: a recorded plan is
+                      # of concrete dispatches, so a caller who names the grid
+                      # can have one and a caller who does not cannot. See the
+                      # table above for what the interpreted path costs.
+                      record::Bool=latent !== nothing,
                       maxpasses::Integer=8)
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
@@ -507,7 +551,7 @@ function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=vae
     prepared = model.graphs["qwenimage21_vae_decoder"]
     # Only the RECORDED path needs the grid up front, because a recording is of
     # concrete dispatches. The interpreted path reads it off each call's latents
-    # — see `vaedims` — which is the whole reason it is the default here.
+    # — see `vaedims` — which is why it is what a caller without a grid gets.
     if record && !isempty(prepared.symbols) && latent === nothing
         throw(ArgumentError(
             "this VAE decoder graph is symbolic in $(join(prepared.symbols, ", ")), so a " *

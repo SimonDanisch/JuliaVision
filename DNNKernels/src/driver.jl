@@ -238,6 +238,34 @@ asset can hold — merges them in its own `*weights()` and nothing here changes.
 And there is exactly one way to hand a model its weights, rather than a path
 form and a dict form that drift.
 """
+
+"""
+    handoff!(old, new) -> new
+
+`new`, with `old` emptied unless the pass handed back the dictionary it was given.
+
+Every host weight pass below takes a dictionary and returns a new one holding
+whatever it kept, so the one it was handed is dead the moment it returns. It is
+not COLLECTED, though: it sits in this frame's slot until `Model` returns, and
+it names every tensor in the checkpoint. One such reference is all it takes to
+defeat the upload loop, which drops its own host copy tensor by tensor
+specifically so a checkpoint never has to be resident twice.
+
+Measured on Qwen-Image 2.1's denoiser, which is 6.9 GB of host weights against
+8.3 GB on the device: `gc_live_bytes` came out of the upload at 7.11 GB with
+`host` already emptied and a full `GC.gc(true)` just run, and the process peaked
+at 9.95 GB resident against 7.88 GB of GTT — 17.8 GB of one APU's shared memory
+for a 6.9 GB model. The same `GC.gc(true)` one frame later, with `Model` gone,
+reported 176 MB.
+
+So the hand-off is explicit. `old === new` because a pass that had nothing to do
+is free to return its argument, and emptying that would delete the weights.
+"""
+function handoff!(old::AbstractDict, new::AbstractDict)
+    old === new || empty!(old)
+    return new
+end
+
 function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                backend=nothing, device=nothing, memevery=5, memframes=5, topk=30,
                # Off is how the fusion passes get checked: build the model twice
@@ -264,7 +292,24 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # [`record`](@ref) — it is off by default because it is not free
                # of preconditions, and a model that does not meet them comes out
                # WRONG rather than slow.
-               record::Bool = false, record_maxpasses = Dict{String,Int}())
+               record::Bool = false, record_maxpasses = Dict{String,Int}(),
+               # Take ownership of `weights`: empty the caller's dictionary once
+               # this one has its own, so the upload below holds the only
+               # reference to each host tensor and dropping it actually frees it.
+               #
+               # Without this the streaming upload frees NOTHING, which is the
+               # failure its own comment says it exists to prevent. Measured on
+               # Qwen-Image 2.1's denoiser: the caller's dict pins all 6.9 GB
+               # through the upload, so the peak is host plus device — 9.95 GB
+               # resident against 7.88 GB of GTT, 17.8 GB for a model that is
+               # 6.9. With it the host copy is gone tensor by tensor.
+               #
+               # Default `true` because every caller in this tree builds a fresh
+               # dictionary and hands it over: `compact_transformer_weights`,
+               # `rifeweights`, `readsafetensors` at a call site. A caller that
+               # wants to build two models from one checkpoint passes `false`
+               # and pays the peak it asked for.
+               consume::Bool = true)
     backend !== nothing && device !== nothing &&
         throw(ArgumentError("pass either `device` or `backend`, not both"))
     # Resolve the convenience `backend` spelling exactly once, at this public
@@ -284,23 +329,32 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # groups materialises tens of GiB — so the first number is disk as much as
     # it is CPU.
     t0 = time_ns()
-    graphs, host, nfold = foldbatchnorm(graphs, Dict{String,Any}(weights))
+    src = Dict{String,Any}(weights)
+    # `src` now names every tensor, so the caller's dictionary is the only
+    # thing keeping a second reference. See `consume` above.
+    consume && empty!(weights)
+    graphs, host, nfold = foldbatchnorm(graphs, src); host = handoff!(src, host)
+
     graphs, nact = foldrelu(graphs)
     # Before anything that reads a convolution's operands, and before the
     # weight passes, because it only rewrites one attribute and one input and
     # every pass after it sees a shorter graph.
     graphs, npad = foldconvpad(graphs)
     npad > 0 && @info "foldconvpad: $npad explicit pad(s) -> the convolution's own"
-    graphs, host, nhoist = hoistcasts(graphs, host)
+    graphs, next, nhoist = hoistcasts(graphs, host); host = handoff!(host, next)
+
     # After the casts: under autocast a weight's transposed view sits on top of
     # its fp16 cast, and hoisting the cast first turns that into a plain weight
     # this pass can then permute.
-    graphs, host, nperm = hoistpermutes(graphs, host)
-    graphs, host, nconst = hoistconstants(graphs, host)
+    graphs, next, nperm = hoistpermutes(graphs, host); host = handoff!(host, next)
+
+    graphs, next, nconst = hoistconstants(graphs, host); host = handoff!(host, next)
+
     # After the permutes are materialised, because the stack is over the weights
     # in the layout the GEMM reads, and before the live-key sweep so the parts
     # that are now only reachable through the stack get dropped.
-    graphs, host, nqkv = fuseqkv(graphs, host)
+    graphs, next, nqkv = fuseqkv(graphs, host); host = handoff!(host, next)
+
     nqkv > 0 && @info "fuseqkv: $nqkv matmul group(s) stacked"
     # The other side of `hoistcasts`: a cast that narrows something the graph
     # just computed, rather than a constant. After the weight passes, because
@@ -346,7 +400,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # tensors no op reads.
     live = livekeys(graphs)
     dropped = length(host) - count(k -> k in live, keys(host))
-    host = Dict{String,Any}(k => v for (k, v) in host if k in live)
+    host = handoff!(host, Dict{String,Any}(k => v for (k, v) in host if k in live))
     # Upload one tensor at a time, dropping each host copy as it lands. A
     # comprehension holds BOTH dicts alive at once, so peak is twice the
     # weights: fine at SAM 2's 943 MB, fatal at K2 Horizon 32B's
@@ -375,10 +429,21 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
             d = nothing
             delete!(host, k)
             n += 1
-            n % 32 == 0 && GC.gc(false)
+            # FULL, not `GC.gc(false)`. A checkpoint's tensors are read and
+            # converted before the first one is uploaded, so by the time this
+            # loop runs they have survived several collections and are all in
+            # the OLD generation, which an incremental pass does not visit. The
+            # incremental call was therefore free and did nothing: measured on
+            # Qwen-Image 2.1's denoiser, `gc_live_bytes` came out of this loop
+            # at 7.1 GB and one `GC.gc(true)` afterwards took it to 176 MB.
+            #
+            # Every 32 and not every tensor because a full collection walks the
+            # whole heap: at 298 tensors that is nine of them, and the load goes
+            # from 2.4 s to 2.7 s for 6.9 GB of peak that is no longer paid.
+            n % 32 == 0 && GC.gc(true)
         end
         empty!(host)
-        GC.gc()
+        GC.gc(true)
         quantize && @info "Model: $nq of $(length(ks)) weights stored as int8"
     end
     tupload = (time_ns() - t0) / 1e9 - thost

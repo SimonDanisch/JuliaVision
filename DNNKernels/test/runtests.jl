@@ -55,6 +55,9 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 include(joinpath(@__DIR__, "test_stridedview.jl"))
 include(joinpath(@__DIR__, "test_dynamic_slice.jl"))
 include(joinpath(@__DIR__, "test_plan.jl"))
+# What a checkpoint costs while it is being uploaded, which is a reachability
+# question and not a byte count. See the file.
+include(joinpath(@__DIR__, "test_upload_frees_host.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
 include(joinpath(@__DIR__, "test_fusegroupedrms.jl"))
