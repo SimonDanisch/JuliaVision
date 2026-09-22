@@ -53,6 +53,7 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 # descriptor and a copy, and the refusals that keep a strided reshape from
 # reading the wrong elements.
 include(joinpath(@__DIR__, "test_stridedview.jl"))
+include(joinpath(@__DIR__, "test_dynamic_slice.jl"))
 include(joinpath(@__DIR__, "test_plan.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))

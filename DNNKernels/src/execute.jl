@@ -387,7 +387,11 @@ function makeview(ctx::Ctx, b::Buffer)
         # silently returns the whole (possibly padded) axis.
         n = ndims(parent)
         d = jdim(Int(get(a, "arg1", 0)), n)
-        lo = Int(something(get(a, "arg2", 0), 0))
+        # Through `intattr`: the START can be symbolic too, and it arrives as
+        # `"$sym_size_int_844"` naming a host scalar. Read as a plain `Int` it
+        # threw; read as the schema default of 0 — which is what the declared
+        # path did before this — it silently began the view in the wrong place.
+        lo = intattr(ctx, something(get(a, "arg2", 0), 0))
         # torch clamps a negative start into range rather than wrapping past the
         # front: `x[-2:]` on a length-1 axis is the whole axis, not index -1.
         # Without the clamp this indexes `0:0` and throws a BoundsError several
