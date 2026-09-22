@@ -71,8 +71,13 @@ same store.
 struct GridChunk
     first::Int          # 0-based index of this chunk's first point
     G::Int              # points per axis
-    lo::Float64
-    step::Float64
+    # Single precision, though `occupancy` computes the spacing in double to
+    # `np.linspace`'s definition: these cross into `gridqueries_kernel!`, and a
+    # GPU need not have Float64 at all. Where it does not, the kernel fails to
+    # COMPILE ("unsupported use of double value"). `lo + step * i` in single is
+    # exact to far more digits than the Float16 query input keeps.
+    lo::Float32
+    step::Float32
     N::Int              # points in the whole grid, for the tail clamp
 end
 
