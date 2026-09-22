@@ -43,6 +43,19 @@ ROOT = find_root()
 # encoder itself is capped at.
 QWEN_MAX_PROMPT_TOKENS = 1024
 
+# The image axis is a symbol too, and these are the bounds it is checked
+# against. One image token is a 16x16 pixel block, so the range is 256x256 up to
+# 2048x2048 -- 256 to 16384 tokens. They are BOUNDS and not a menu: any latent
+# grid whose token count lands inside gets the same graph, and the runner binds
+# the symbol per plan.
+#
+# Both ends are load-bearing. `min` may not be 1: `torch.export` specialises a
+# dimension it can prove is 0 or 1, which silently turns the symbol back into a
+# constant. `max` is what the export is CHECKED at, so a graph is only as
+# general as this number claims.
+QWEN_MIN_IMAGE_TOKENS = 256
+QWEN_MAX_IMAGE_TOKENS = 16384
+
 
 def import_qwen21(diffusers_source: Path | None):
     if diffusers_source is not None:
@@ -237,14 +250,41 @@ def export_transformer(module, args):
     wrapper, examples, shape = build(module, args)
     _, _, context_tokens = shape
 
-    # The prompt axis is the one symbol in this graph. The rotary tables span
-    # the JOINT sequence, so their length is that symbol plus the fixed image
-    # token count -- declared as the affine expression rather than a second
-    # free symbol, so export knows the two move together.
+    # TWO symbols: the prompt axis and the image axis. The rotary tables span
+    # the JOINT sequence, so their length is the SUM of the two -- declared as
+    # the affine expression rather than a third free symbol, so export knows the
+    # three move together.
+    #
+    # The image axis used to be the fixed `latent_height * latent_width` of
+    # whatever resolution the export was run at, which bound the graph to one
+    # picture size and meant a new resolution needed a re-export. Nothing in
+    # `StaticTextToImageTransformer.forward` wanted that: it already reads
+    # `target_tokens = latents.shape[1]` and builds its mask from it, so the
+    # body followed the symbol as soon as the spec stopped pinning it.
     target_tokens = examples[0].shape[1]
+    # The bounds have to admit the tracing example: `--smoke` traces a 2x2
+    # latent, which is four image tokens and well under the real floor, and
+    # `torch.export` rejects a `Dim` its own example violates. Widening for that
+    # case rather than raising the smoke resolution keeps the smoke export as
+    # cheap as it is meant to be.
+    img_lo = min(QWEN_MIN_IMAGE_TOKENS, target_tokens)
+    img_hi = max(QWEN_MAX_IMAGE_TOKENS, target_tokens)
+    #
+    # THREE symbols and not two-plus-an-expression, which is what this wanted to
+    # be. `t + target_tokens` worked while the image axis was an integer;
+    # `Dim + Dim` is not expressible — `torch.export` supports only "increasing
+    # linear operations with integer coefficients" on a `Dim`, so a sum of two
+    # free symbols raises. The joint axis therefore gets its own symbol and the
+    # graph does not encode that it is the sum. Nothing needs it to: the rotary
+    # tables are INPUTS, built host-side by `QwenImageRunner.rotarytables` for
+    # the prompt and grid actually being run, so `tj == t + i` is guaranteed by
+    # the caller rather than by the graph. The runner binds all three together
+    # for that reason.
     t = Dim("t", min=2, max=QWEN_MAX_PROMPT_TOKENS)
-    dynamic_shapes = ({}, {1: t}, {}, {0: t + target_tokens}, {0: t + target_tokens})
-    specs = ({}, {1: "t"}, {}, {0: "tj"}, {0: "tj"})
+    i = Dim("i", min=img_lo, max=img_hi)
+    tj = Dim("tj", min=2 + img_lo, max=QWEN_MAX_PROMPT_TOKENS + img_hi)
+    dynamic_shapes = ({1: i}, {1: t}, {}, {0: tj}, {0: tj})
+    specs = ({1: "i"}, {1: "t"}, {}, {0: "tj"}, {0: "tj"})
 
     with torch.no_grad():
         reference = wrapper(*examples)
@@ -300,11 +340,15 @@ def export_transformer(module, args):
                 "image_width": lw * 16,
                 "latent_height": lh,
                 "latent_width": lw,
-                "image_tokens": lh * lw,
-                # The prompt length is the graph's `t` symbol, not a number:
-                # `context` above was only the shape of the tracing example.
-                # `max_context_tokens` is the `Dim` bound the graph was checked
-                # against, and is what the runner may bind `t` up to.
+                # Neither length is a number any more: both are symbols, and
+                # the values above are only the shapes of the tracing example.
+                # The `*_symbol` names are what the runner binds and the
+                # `max_*` / `min_*` are the `Dim` bounds the graph was checked
+                # against, which is how far it may be bound.
+                "image_tokens": None,
+                "image_symbol": "i",
+                "min_image_tokens": img_lo,
+                "max_image_tokens": img_hi,
                 "context_tokens": None,
                 "context_symbol": "t",
                 "max_context_tokens": QWEN_MAX_PROMPT_TOKENS,
@@ -517,10 +561,26 @@ def build_vae(module, args):
 def export_vae(module, args):
     torch.manual_seed(0)
     wrapper, example, shape, reference = build_vae(module, args)
-    with torch.no_grad():
-        program = torch.export.export(wrapper, (example,), strict=False).run_decompositions()
 
-    graph = EG.convert(program, ({},), "qwenimage21_vae_decoder")
+    # The decoder's spatial axes are symbols too, because a resolution-generic
+    # denoiser in front of a fixed-size decoder still cannot change resolution.
+    # `EG.dims()` rather than two fresh `Dim`s: the decoder's upsampling stages
+    # are exact multiples of the latent grid, and deriving them from `h` and `w`
+    # is what lets export know that rather than leaving it three unrelated
+    # symbols to reconcile.
+    #
+    # `(1, z, 1, h, w)` — batch, latent channels, the single temporal frame this
+    # wrapper already squeezes, then the grid.
+    # `dims()` spans 2..256 latent cells, which is a 32x32 picture up to a
+    # 4096x4096 one, and covers both the 2x2 smoke trace and the 64x64 of 1024².
+    table = EG.dims()
+    spatial = ({3: table["h"], 4: table["w"]},)
+    with torch.no_grad():
+        program = torch.export.export(
+            wrapper, (example,), dynamic_shapes=spatial, strict=False
+        ).run_decompositions()
+
+    graph = EG.convert(program, ({3: "h", 4: "w"},), "qwenimage21_vae_decoder")
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     (out / "qwenimage21_vae_decoder.json").write_text(json.dumps(graph, indent=1))

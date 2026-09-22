@@ -44,6 +44,7 @@ export QwenTransformer, qwenimagetransformer, denoise!
 export QwenVAEDecoder, qwenimagevae, decode!
 export generate!
 export packlatents, unpacklatents, image_sequence_length
+export latentshape, imagetokenbounds
 export calculate_shift, qwen_schedule, euler_step!
 
 const QWEN_IMAGE_21 = (
@@ -290,19 +291,41 @@ struct QwenTransformer{B,G,W,P,R}
     # between steps of one generation.
     rotary::R
     context_tokens::Int
+    # The latent grid this plan was recorded for, and the token count it
+    # implies. Both are here because `rotarytables` needs the two extents
+    # separately — the image's height and width rotary axes are a grid centred
+    # on zero — while the graph's `i` symbol only ever sees their product.
+    latent::Tuple{Int,Int}
+    image_tokens::Int
 end
 
 """
-    qwenimagetransformer(; context_tokens, backend=Mantle.defaultbackend(),
-                         dir=assetdir(), compact=compact_denoiser())
+    qwenimagetransformer(; context_tokens, dir=assetdir(),
+                         latent=latentshape(dir), backend=Mantle.defaultbackend(),
+                         compact=compact_denoiser())
 
-Load and prepare the exported denoiser for a prompt of `context_tokens` tokens.
+Load and prepare the exported denoiser for a prompt of `context_tokens` tokens
+at a latent grid of `latent = (height, width)`.
 
-The graph is static in latent resolution but **generic in prompt length**: its
-`t` symbol is bound here, once, for the generation about to run. That mirrors
-the reference, where `QwenImagePipeline` pads nothing for a single prompt and
-`QwenImage21Transformer2DModel.forward` simply runs at whatever length it is
+The graph is **generic in both**: its `t` and `i` symbols are bound here, once,
+for the generation about to run. That mirrors the reference, where
+`QwenImagePipeline` pads nothing for a single prompt and
+`QwenImage21Transformer2DModel.forward` simply runs at whatever lengths it is
 given.
+
+`latent` defaults to the grid the export was TRACED at, which is what the old
+behaviour was — that grid used to be the only one the graph could run, because
+the exporter pinned the image axis to an integer while making the prompt axis a
+symbol. It is now `Dim("i", ...)` and the trace grid is only a default. Use
+[`image_sequence_length`](@ref) to go from pixels to tokens, or pass the latent
+grid directly; a `1024x1024` picture is `(64, 64)`.
+
+**Binding a symbol is not free, and running at a bound one is.** Each distinct
+`(context_tokens, latent)` needs its own recorded plan, because a plan is a
+recording of concrete dispatches — that is the cost, paid once per shape at
+construction. The replay afterwards is the same work per step it always was:
+the graph carries the same 3473 ops at every resolution, and nothing in the step
+consults a symbol.
 
 The rotary tables come from [`rotarytables`](@ref) rather than from the export,
 because they are not independent of the prompt length: `QwenImage21Rope` freezes
@@ -317,7 +340,12 @@ points cost nothing measurable and the barriers between the pieces are still
 the ones the graph derived. `0` restores the single submission.
 """
 function qwenimagetransformer(; context_tokens::Integer,
-                              backend=Mantle.defaultbackend(), dir::AbstractString=assetdir(),
+                              dir::AbstractString=assetdir(),
+                              # After `dir`, because a keyword default may only
+                              # refer to keywords declared before it and this one
+                              # reads the export's own trace grid.
+                              latent::Tuple{Integer,Integer}=latentshape(dir),
+                              backend=Mantle.defaultbackend(),
                               compact::Union{Nothing,AbstractDict}=compact_denoiser(),
                               maxpasses::Integer=64)
     graph_path = joinpath(dir, first(COMPONENT_FILES[:transformer]))
@@ -328,7 +356,14 @@ function qwenimagetransformer(; context_tokens::Integer,
     2 <= ctx <= QWEN_IMAGE_21.max_prompt_tokens || throw(ArgumentError(
         "context_tokens must be in 2..$(QWEN_IMAGE_21.max_prompt_tokens), got $ctx"))
     graph = qwenimagegraph(:transformer; dir)
-    lh, lw = latentshape(dir)
+    lh, lw = Int(latent[1]), Int(latent[2])
+    lh > 0 && lw > 0 || throw(ArgumentError("latent grid must be positive, got $((lh, lw))"))
+    img = lh * lw
+    lo, hi = imagetokenbounds(dir)
+    lo <= img <= hi || throw(ArgumentError(
+        "a latent grid of $(lh)x$(lw) is $img image tokens and the graph was " *
+        "exported for $lo..$hi; re-export with wider `Dim(\"i\", ...)` bounds " *
+        "in `tools/export_qwenimage21.py` if this resolution is wanted"))
     # `nothing` takes the half-precision route instead, which needs a `dir` that
     # has `transformer.safetensors` in it. Nothing ships one: it is 41 GB, and
     # the whole reason the compact checkpoint is the default is that it fits.
@@ -336,26 +371,61 @@ function qwenimagetransformer(; context_tokens::Integer,
         compact_transformer_weights(graph; compact, constants_dir=dir)
     model = Model(Dict("qwenimage21_transformer" => graph), weights; backend)
     prepared = model.graphs["qwenimage21_transformer"]
-    plan = planfor(model.device, prepared, model.weights, (; t = ctx); maxpasses=Int(maxpasses))
+    plan = planfor(model.device, prepared, model.weights, (; t = ctx, i = img);
+                   maxpasses=Int(maxpasses))
     rc, rs = rotarytables(ctx, lh, lw)
     rotary = (DNNKernels.toback(backend, rc), DNNKernels.toback(backend, rs))
-    QwenTransformer(model.backend, prepared, model.weights, plan, rotary, ctx)
+    QwenTransformer(model.backend, prepared, model.weights, plan, rotary, ctx,
+                    (lh, lw), img)
 end
 
 """
     latentshape(dir) -> (latent_height, latent_width)
 
-The latent grid the denoiser graph was exported for, from the export's own
-metadata. It cannot be read back off the graph: the graph knows only that there
-are `latent_height * latent_width` image tokens, and 4096 of them is 64x64 or
-128x32 with nothing to tell them apart. `rotarytables` needs the two separately,
-because the image's height and width rotary axes are a grid centred on zero.
+The latent grid the denoiser graph was **traced** at, from the export's own
+metadata. A default and no longer a constraint: the image axis is the graph's
+`i` symbol, so any grid inside [`imagetokenbounds`](@ref) runs on the same
+graph. `qwenimagetransformer` uses this when the caller names no grid, which
+keeps the old call sites meaning what they meant.
+
+The grid cannot be read back off the graph in any case: the graph knows only
+that there are `latent_height * latent_width` image tokens, and 4096 of them is
+64x64 or 128x32 with nothing to tell them apart. `rotarytables` needs the two
+separately, because the image's height and width rotary axes are a grid centred
+on zero — which is also why the resolution is a pair here rather than one
+number.
 """
 function latentshape(dir::AbstractString)
+    meta = exportmeta(dir)
+    Int(meta.latent_height), Int(meta.latent_width)
+end
+
+"""
+    imagetokenbounds(dir) -> (min, max)
+
+How many image tokens the exported graph was checked for — the `Dim("i", ...)`
+bounds `tools/export_qwenimage21.py` declared.
+
+Read rather than assumed, because a graph exported with different bounds is a
+different graph and binding `i` outside them is undefined rather than slow. An
+export predating the symbol has no bounds recorded; it is pinned to the grid it
+was traced at, and says so.
+"""
+function imagetokenbounds(dir::AbstractString)
+    meta = exportmeta(dir)
+    haskey(meta, :min_image_tokens) && haskey(meta, :max_image_tokens) || begin
+        lh, lw = Int(meta.latent_height), Int(meta.latent_width)
+        n = lh * lw
+        return (n, n)
+    end
+    Int(meta.min_image_tokens), Int(meta.max_image_tokens)
+end
+
+"""The denoiser export's metadata, as written by `tools/export_qwenimage21.py`."""
+function exportmeta(dir::AbstractString)
     path = joinpath(dir, "qwenimage21_export.json")
     isfile(path) || throw(ArgumentError("no Qwen-Image 2.1 export metadata at $path"))
-    meta = JSON3.read(read(path, String))
-    Int(meta.latent_height), Int(meta.latent_width)
+    JSON3.read(read(path, String))
 end
 
 """
@@ -372,6 +442,16 @@ function denoise!(model::QwenTransformer, latents, prompt_embeddings, timestep)
         "and was given $(size(prompt_embeddings, 2)); the graph is length-generic " *
         "but a recorded plan is not, so build it with " *
         "`qwenimagetransformer(; context_tokens = $(size(prompt_embeddings, 2)))`"))
+    # The same statement for the image axis, which became a symbol at the same
+    # time. Without it a wrong-sized latent reaches `replay!`, whose own check
+    # names the buffer rather than the resolution — true and two steps further
+    # from the cause.
+    size(latents, 2) == model.image_tokens || throw(DimensionMismatch(
+        "this denoiser was prepared for a $(model.latent[1])x$(model.latent[2]) " *
+        "latent grid ($(model.image_tokens) image tokens) and was given " *
+        "$(size(latents, 2)); the graph is resolution-generic but a recorded plan " *
+        "is not, so build it with `qwenimagetransformer(; context_tokens, " *
+        "latent = (h, w))` for the grid you want"))
     first(replay!(model.plan, "qwenimage21_transformer",
                   (latents, prompt_embeddings, timestep, model.rotary...)))
 end

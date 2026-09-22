@@ -52,13 +52,20 @@ DROP_OPS = {"_assert_tensor_metadata.default", "_assert_scalar.default"}
 
 # every dim name in graphs.py is a fixed multiple of h or w
 #
-# `t` is Qwen-Image 2.1's prompt length, and `tj` the joint text+image sequence
-# it implies. Both come from `export_qwenimage21.py`, which declares its own
-# dims rather than going through `dims()` above: its second axis is an affine
-# expression `t + image_tokens` rather than a multiple of anything here.
+# Qwen-Image 2.1's three: `t` the prompt length, `i` the image token count, and
+# `tj` the joint text+image sequence the rotary tables span. All three come from
+# `export_qwenimage21.py`, which declares its own dims rather than going through
+# `dims()` above.
+#
+# `tj` maps to ITSELF and not to `t`, which it used to. While the image axis was
+# a fixed integer the joint axis was the affine expression `t + image_tokens` —
+# one free symbol, `t`, plus an offset — so naming it `t` was right. Now the
+# image axis is a symbol too, `Dim + Dim` is not expressible in `torch.export`,
+# and the joint axis is a free symbol in its own right. Leaving the old alias in
+# place would have silently bound the rotary length to the prompt length.
 ROOT = {"h": "h", "H": "h", "h2": "h", "h4": "h", "h8": "h",
         "w": "w", "W": "w", "w2": "w", "w4": "w", "w8": "w",
-        "t": "t", "tj": "t"}
+        "t": "t", "i": "i", "tj": "tj"}
 
 
 def symbol_names(ep, specs):
@@ -190,9 +197,22 @@ def convert(ep, specs, name):
                     #
                     # Same `"$name"` spelling as the mixed-list case below, and
                     # `intattr`/`numattr` already resolve it.
+                    #
+                    # **Unless the value is SYMBOLIC, in which case the reference
+                    # dangles.** `"$name"` resolves by looking the producing node
+                    # up among the graph's scalars, and a node that only computes
+                    # a shape is a host-side fact this converter drops — the same
+                    # rule that drops `sym_size`. Qwen-Image 2.1 slices the image
+                    # half off its joint sequence with `x[:, -i:]`, which is a
+                    # `neg` of a `SymInt`; that `neg` never reached the JSON and
+                    # the runner died on `KeyError: "neg"` at plan time. Emitting
+                    # the EXPRESSION instead needs no surviving node and is what
+                    # every shape in this file already does, so `evalexpr`
+                    # resolves it against the same bound symbols.
                     av = a.meta.get("val")
-                    if isinstance(av, (int, bool, float, torch.SymInt,
-                                       torch.SymBool, torch.SymFloat)):
+                    if isinstance(av, (torch.SymInt, torch.SymBool, torch.SymFloat)):
+                        attrs[f"arg{j}"] = sym_str(av, names)
+                    elif isinstance(av, (int, bool, float)):
                         attrs[f"arg{j}"] = f"${a.name}"
                 elif isinstance(a, (list, tuple)) and any(isinstance(v, torch.fx.Node) for v in a):
                     # A list mixing buffers and constants, e.g. constant_pad_nd's
