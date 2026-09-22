@@ -27,14 +27,32 @@ a memory round trip for it. Same tiling as the staged GEMM's shipped
     1152 -> 1152    256x256    90.0      279.0      0.32x   9
     1152 -> 1152    128x128    32.2       63.8      0.50x   9
 
-The speedup tracks the column-block count and nothing else: the gather is 2x
-this path's work at `Cout = 144` and 9x at 1152. It wins on exactly one shape
-and by 11%, so it is not in the tree — `plans/perf-plan.md` has the rest,
-including the three tuning hypotheses that did NOT explain the gap (block width,
-hoisting the pixel decomposition, and the tap loop unrolling nine times).
+**Not because of the repetition**, which is what the column figures look like
+they say and what this note claimed for half a day. Doubling `BN` halves the
+column-block count, and on the same shapes it changes the time by -0.7% to
++21%: `1152 -> 1152` goes from nine blocks to five and from 276.0 ms to 274.1.
+The apparent correlation was a confound — shapes with more column blocks also
+have deeper reductions.
 
-The im2col round trip wins because it is largely cache-resident, which is the
-same effect `IM2COL_CAP` records from the other side.
+What it is, from the same kernel with the gather deliberately broken (the
+`LDOFF` trick, one step at a time):
+
+    shape        real   no bounds test   no channel stride
+    144 -> 144   5.5 TFLOP/s   6.6           7.4
+    1152 ->      5.3           6.1           7.5
+    288 ->       5.6           9.5          10.0
+
+So the bounds predicate is worth 1.2-1.7x and the address arithmetic another
+1.05-1.24x — and with **both** gone the kernel still only reaches 7.4-10.0
+against this path's staged GEMM at 18-19 on the same tiling. Most of the gap is
+not the gather: it is that the experiment was the PLAIN staged kernel, and
+`Mantle` ships `vec2`, `vec4`, double-buffered and prefetching variants of that
+kernel which are where its rate comes from.
+
+A gathered-A convolution is therefore not refuted — but it has to be the gather
+ported into those tuned variants rather than a fresh basic kernel, and on this
+evidence it would still only win where `Cout` is small. `plans/perf-plan.md`
+has the full table and the four hypotheses tested along the way.
 
 Materialising it is cheap here. The reduction extent `CRS = Cin*KH*KW` is large
 and the pixel count `NPQ = N*OH*OW` small (the dominant layer is 15x8), so the

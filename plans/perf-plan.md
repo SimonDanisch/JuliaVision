@@ -40,15 +40,44 @@ It was built, it is correct, and it loses. Staged GEMM tiling `64 x 128 x 32` on
     1152 -> 1152    128x128    32.2       63.8      0.50x    9
                                          TOTAL      0.58x
 
-**The speedup tracks the column-block count and nothing else.** A gathered `A`
-is recomputed once per `BN`-wide block of output channels; the im2col matrix is
-computed once and re-read. At `Cout = 144` that is 2x the gather work, at 1152
-it is 9x, and the column is the ratio. The memory round trip wins because it is
-largely cache-resident — the same effect `IM2COL_CAP`'s note records from the
-other side. No tiling fixes this; it is the schedule.
+**It looked like the column-block count, and that was wrong.** A gathered `A`
+is recomputed once per `BN`-wide block of output channels, the column above is
+that count, and it correlates beautifully — so the first conclusion here was
+"the schedule, not the tuning", and it was published as such. It does not
+survive the controlled version. Doubling `BN` halves the block count and
+changes the time by -0.7% to +21%:
 
-Three hypotheses were tested on the way and **none of them explained the gap**,
-which is why the table above is the conclusion rather than a waypoint:
+    shape            BN=128           BN=256
+    1152 -> 1152   276.0 ms  9 blk   274.1 ms  5 blk
+     576 ->  576   285.2     5       299.0     3
+     288 ->  288   274.8     3       333.1     2
+     144 ->  144    75.1     2        68.6     1
+
+The correlation was a confound: shapes with more column blocks also have deeper
+reductions. **Vary the thing itself and it does almost nothing.**
+
+What it actually is, from the same kernel with the gather deliberately broken
+one step at a time — the `LDOFF` trick from `flash.jl`, wrong on purpose:
+
+    shape          real    no bounds test   no channel stride
+    144 -> 144     5.5      6.6              7.4   TFLOP/s
+    1152 -> 1152   5.3      6.1              7.5
+    288 -> 288     5.6      9.5             10.0
+
+The bounds predicate is worth 1.2-1.7x and the address arithmetic another
+1.05-1.24x. But with **both** gone it still only reaches 7.4-10.0 against
+`Mantle`'s staged GEMM at 18-19 on the identical tiling — so most of the gap is
+not the gather at all. The experiment was the PLAIN staged kernel; Mantle ships
+`vec2`, `vec4`, double-buffered and prefetching variants of it, and that is
+where its rate comes from.
+
+**So the honest verdict is narrower than "rejected".** A gathered-A convolution
+needs the gather ported into those tuned variants, not a fresh basic kernel.
+Even then the table above suggests it wins only where `Cout` is small — at
+`Cout = 144` the im2col path is paying a 1.78x column pad and two full re-reads
+of a 250 MB matrix, and that is the shape the experiment already beat.
+
+Four hypotheses were tested on the way and **none of them explained the gap**:
 
   * *Block too narrow.* The first cut was `64 x 64` on 128 threads — half the
     arithmetic per staged element. Widening to the reference's `64 x 128` on 256
@@ -61,6 +90,9 @@ which is why the table above is the conclusion rather than a waypoint:
     live scalar registers against the staged GEMM's 13, with 74 spilled. Passing
     the trip count as a runtime argument so it cannot unroll changed the
     register pressure by one and the time by nothing.
+
+  * *The gather is repeated per column block.* The one above. `BN` 128 -> 256
+    halves the repetition and moves nothing.
 
 What DID help was blocking the reduction by TAP rather than walking `CRS` flat,
 which takes the two divisions that recover `(kw, kh, cin)` out of the innermost
