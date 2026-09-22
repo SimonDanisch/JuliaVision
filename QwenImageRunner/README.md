@@ -17,20 +17,52 @@ is in hand.
 Measured, 20 steps at 1024x1024 (`examples/generate.jl`), one run of the script
 against another:
 
-| stage | was | now |
+| stage | was | then | now |
+| --- | --- | --- | --- |
+| prompt encoding, including building the 36-layer encoder | 74.1 s | 55.1 s | 60.7 s |
+| denoiser build and record | 56.5 s | 43.0 s | 44.2 s |
+| 20 denoising steps | 138 s (6.89 s/step) | 100.5 s (5.02 s/step) | **89.8 s (4.49 s/step)** |
+| VAE decode, including its build | 40.2 s | 34.4 s | 40.0 s |
+| **total** | **314.9 s** | **234.6 s** | 239.2 s |
+
+**The three columns are not all the same machine, so read the last one against
+the A/B below rather than against the one beside it.** Re-measured on the same
+day, same session, warm, with only the attention change stashed and unstashed:
+
+| stage | without | with |
 | --- | --- | --- |
-| prompt encoding, including building the 36-layer encoder | 74.1 s | **55.1 s** |
-| denoiser build and record | 56.5 s | **43.0 s** |
-| 20 denoising steps | 138 s (6.89 s/step) | **100.5 s (5.02 s/step)** |
-| VAE decode, including its build | 40.2 s | **34.4 s** |
-| **total** | **314.9 s** | **234.6 s** |
+| prompt encoding | 60.6 s | 60.7 s |
+| denoiser build and record | 45.5 s | 44.2 s |
+| 20 denoising steps | 100.1 s (5.01 s/step) | **89.8 s (4.49 s/step)** |
+| VAE decode | 40.9 s | 40.0 s |
+| **total** | **251.8 s** | **239.2 s** |
 
-Every row moved, and only one of them is the denoiser.
+So the attention change is **-12.6 s**, effectively all of it in the denoising
+steps, and it costs nothing in the three build rows.
 
-Most of what is left in the three build rows is **Julia inference and codegen**,
-not work: `emitgraph` is 97% compilation and `Mantle.record!` 99.6%, and the
-second call to each in one process is 0.4 s and 0.0. `plans/2026-09-21-qwen-denoiser-layer.md`
-has the measurement and why a plain `precompile` directive does not fix it.
+That A/B isolates the attention kernel. The convolution work from the same day
+— `im2col_kernel!`'s two integer divisions per element, and chunks that put the
+whole remainder in the last one at full cost — is 10% to 36% per VAE layer and
+does **not** show up here, which is the expected result rather than a
+disappointment: the VAE decode row is ~34 s of compilation around ~2-3 s of
+convolution, so a fifth off the convolution is a fraction of a second under a
+row that swings by several. It is measured where it can be seen, per kernel, in
+`plans/2026-09-21-rocm-baseline.md`, and it is worth having for the
+convolution-heavy models rather than for this one. The middle column of the
+first table was recorded in an earlier session; this machine is about 17 s
+slower across every row today than it was then, which is why the two tables
+disagree about the totals and agree about the change.
+
+What moved: the attention kernel reads its K and V operands as cooperative
+matrices straight from the tensors instead of staging them through shared
+memory, and the tiling that is fastest then is a different one —
+`plans/2026-09-21-rocm-baseline.md` has the measurements.
+
+Most of what is left in the three build rows is still **Julia inference and
+codegen**, not work: `emitgraph` is 97% compilation and `Mantle.record!` 99.6%,
+and the second call to each in one process is 0.4 s and 0.0.
+`plans/2026-09-21-qwen-denoiser-layer.md` has the measurement and why a plain
+`precompile` directive does not fix it.
 
 **Both checkpoints reach the device through a pack kernel that was a transpose
 done a byte at a time**, and rewriting it takes the denoiser's weight upload
@@ -157,27 +189,80 @@ this head width for two different reasons. The plan file has both.
 - **Host pipeline** — architecture constants, unpatched stride-16 latent
   flattening, the dynamic-shift FlowMatch schedule and its Euler update.
 
-## The exports are static
-
-`tools/export_qwenimage21.py` binds resolution and prompt length at export:
+## The resolution is bound at export; the prompt length is not
 
 ```sh
 uv run tools/export_qwenimage21.py --component text_encoder --prompt-tokens 64
 uv run tools/export_qwenimage21.py --component transformer --graph-only \
-    --height 1024 --width 1024 --context-tokens 22
+    --height 1024 --width 1024
 uv run tools/export_qwenimage21.py --component vae --height 1024 --width 1024
 ```
 
-The encoder's length is a maximum: it is causal, so a shorter prompt is padded
-on the right and the kept rows are bit-identical. The denoiser's context length
-is **exact** — its text stream is part of a joint attention, so a padded prompt
-would change the image — and it is the token count of the prompt template minus
-the system turn the pipeline drops (14 tokens). `examples/generate.jl` reports
-the number to re-export with when they disagree.
+The denoiser graph carries a `t` symbol for the prompt axis, and
+`qwenimagetransformer(; context_tokens)` binds it when the plan is recorded —
+once per generation, which is when the prompt is already known. That is what
+the reference does: `QwenImagePipeline` pads nothing for a single prompt and
+`encode_prompt` drops the mask outright when it is all ones, so
+`QwenImage21Transformer2DModel.forward` runs at whatever length it is given.
+`--context-tokens` now only sizes the tracing example.
 
-Set `JULIA_QWENIMAGE21_ASSETS` to the export directory,
-`JULIA_QWENIMAGE21_COMPACT` to the Comfy-Org checkpoint directory, and
-`JULIA_QWENIMAGE21_PROCESSOR` to the tokenizer's `processor/` directory.
+**The rotary tables are graph inputs, not constants.** They are not independent
+of the prompt length: `QwenImage21Rope` advances a shared position one step per
+text token and then freezes the image block's frame axis at the position the
+text reached, so the image's rotary depends on how long the text was. Earlier
+exports lifted them as constants, which silently bound the whole graph to one
+prompt. `rotarytables` is the port of that loop and runs on the host per
+generation, as the reference's `self.pos_embed(...)` does per forward. It
+matches PyTorch to 5.96e-8 — half a Float32 ULP — over every element at both
+lengths that were checked.
+
+The encoder is the remaining limit: it is exported for prompts up to 64 tokens.
+It is causal, so a shorter prompt is padded on the right and the kept rows are
+bit-identical.
+
+## The weights ship as artifacts
+
+Nothing has to be fetched or configured by hand. `assetdir()`, `vaedir()`,
+`processordir()`, `compact_denoiser()` and `compact_encoder()` resolve through
+`Artifacts.toml`, and `ready()` answers whether they are downloaded without
+downloading them.
+
+| artifact | size | holds |
+| --- | ---: | --- |
+| `qwenimage21` | 22 MB | denoiser and encoder graphs, their lifted constants, the tokenizer tables |
+| `qwenimage21-vae` | 644 MB | VAE decoder graph and weights |
+| `qwenimage21-dit-w1..w6` | 6.8 GB | the INT8 ConvRot denoiser checkpoint |
+| `qwenimage21-enc-w1..w5` | 5.9 GB | the W4A8 Qwen3-VL conditioner checkpoint |
+
+Thirteen rather than one, for two reasons. A caller that only wants prompt
+embeddings has no reason to fetch the denoiser, and a GitHub release asset caps
+at 2 GiB — the two compact checkpoints are 7.26 GB and 6.31 GB, so they are
+split byte-for-byte by `tools/shard_safetensors.jl` and merged back on load.
+The split was checked by comparing every tensor of the merge against the
+original: 649 and 1762 tensors, zero mismatches.
+
+Re-pack and re-bind them with:
+
+```sh
+julia --project=. tools/make_artifacts.jl qwenimage21 qwenimage21-vae \
+    qwenimage21-dit-w{1,2,3,4,5,6} qwenimage21-enc-w{1,2,3,4,5}
+```
+
+## Licence
+
+The weights are **not** ours to relicense. Qwen-Image 2.1 is released under the
+Qwen Research License Agreement, which permits redistribution (section 3) on
+three conditions: every recipient gets a copy of the Agreement, modified files
+say they were modified, and the attribution notice from 3(c) travels with them.
+Every artifact above therefore carries `LICENSE` and `NOTICE`, copied by
+`make_artifacts.jl` from `tools/licenses/qwenimage21/`; the `NOTICE` also lists
+what was changed and how.
+
+Two terms bind anyone who downloads them. Section 2(b) grants a
+**non-commercial** licence only, for research and academic use; commercial use
+needs a separate licence from Hangzhou Tongyi Laboratory. Section 4(c) forbids
+using "Qwen" as the primary name or identifier of a derivative work, while
+allowing descriptive use.
 
 ## Not ported
 

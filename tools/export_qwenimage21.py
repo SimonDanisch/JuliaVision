@@ -31,12 +31,17 @@ from pathlib import Path
 
 import torch
 from safetensors.torch import save_file
+from torch.export import Dim
 
 import export_graphs as EG
 from common import find_root
 
 
 ROOT = find_root()
+
+# `max_prompt_tokens` from the checkpoint config, which is what the text
+# encoder itself is capped at.
+QWEN_MAX_PROMPT_TOKENS = 1024
 
 
 def import_qwen21(diffusers_source: Path | None):
@@ -75,29 +80,44 @@ def real_rotary(x, freqs_cis, **_kwargs):
 
 
 class StaticTextToImageTransformer(torch.nn.Module):
-    """Qwen 2.1 denoiser with static host metadata and tensor-only inputs."""
+    """Qwen 2.1 denoiser with host metadata as inputs and tensor-only arguments.
 
-    def __init__(self, model, context_tokens: int, latent_height: int, latent_width: int):
+    The prompt length is a graph SYMBOL, not a constant. That matches the
+    reference: ``QwenImagePipeline`` pads nothing for a single prompt, and
+    ``encode_prompt`` drops the mask outright when it is all ones
+    (``pipeline_qwenimage.py``), so ``QwenImage21Transformer2DModel.forward``
+    runs at whatever length the prompt has.
+
+    The rotary tables are inputs for the same reason. They are not free of the
+    prompt length: ``QwenImage21Rope`` advances a shared position one step per
+    text token and then FREEZES the image block's frame axis at the position
+    the text reached, so the image's rotary depends on how long the text was.
+    Baking them in is what bound the graph to one prompt. They cannot be
+    computed inside the graph either -- ``QwenImage21Rope.forward`` uses
+    ``.tolist()`` and ``list.index`` -- which is exactly the "host-side
+    preparation ``torch.export`` cannot represent" this wrapper exists to
+    lift out. The reference calls ``self.pos_embed(...)`` per forward and hands
+    the result to the blocks; here the host does it and hands it in.
+    """
+
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        target_tokens = latent_height * latent_width
 
-        # Text-to-image has one text run followed by the target image.  Keep
-        # these as plain attributes: export lifts them as constants, and
-        # EG.save_constants serializes the corresponding graph weights.
+    def forward(self, latents, prompt_embeddings, timestep, rotary_real, rotary_imag):
+        # Both derive from the input shapes, so both follow the symbol rather
+        # than pinning it. Text-to-image is one text run followed by the target
+        # image, which is what `segments` and `target_mask` say.
+        context_tokens = prompt_embeddings.shape[1]
+        target_tokens = latents.shape[1]
         target_mask = torch.cat(
-            [torch.zeros(context_tokens, dtype=torch.bool), torch.ones(target_tokens, dtype=torch.bool)]
+            [
+                torch.zeros(context_tokens, dtype=torch.bool, device=latents.device),
+                torch.ones(target_tokens, dtype=torch.bool, device=latents.device),
+            ]
         )
-        complex_rope = model.pos_embed(
-            [(1, latent_height, latent_width)], target_mask, torch.device("cpu")
-        )
-        self.rotary = (complex_rope.real.contiguous(), complex_rope.imag.contiguous())
-        self.target_mask = target_mask
-        self.segments = [(0, context_tokens, True)]
-
-    def forward(self, latents, prompt_embeddings, timestep):
-        target_mask = self.target_mask.to(latents.device)
-        rotary = tuple(value.to(latents.device) for value in self.rotary)
+        segments = [(0, context_tokens, True)]
+        rotary = (rotary_real, rotary_imag)
         hidden = self.model.img_in(latents)
         context = self.model.txt_in(prompt_embeddings)
         joint = torch.cat((context, hidden), dim=1)
@@ -118,7 +138,7 @@ class StaticTextToImageTransformer(torch.nn.Module):
                 layer_cache=None,
                 kv_cache_mode=None,
                 cache_write_slice=None,
-                segments=self.segments,
+                segments=segments,
                 key_valid=None,
             )
 
@@ -185,13 +205,29 @@ def build(module, args):
     # Replace only the representation of complex multiplication.  This was
     # checked against Diffusers exactly; it does not alter model arithmetic.
     module.apply_rotary_emb_qwen = real_rotary
-    wrapper = StaticTextToImageTransformer(model, context_tokens, latent_height, latent_width).eval()
+    wrapper = StaticTextToImageTransformer(model).eval()
     dtype = next(model.parameters()).dtype
     device = "meta" if args.graph_only else "cpu"
+    target_tokens = latent_height * latent_width
+
+    # The example rotary is the real one for `context_tokens`, built on CPU the
+    # way the reference builds it. At runtime the host recomputes it for the
+    # prompt actually given; `QwenImageRunner.rotarytables` is the port of the
+    # same loop.
+    example_mask = torch.cat(
+        [torch.zeros(context_tokens, dtype=torch.bool), torch.ones(target_tokens, dtype=torch.bool)]
+    )
+    complex_rope = model.pos_embed([(1, latent_height, latent_width)], example_mask, torch.device("cpu"))
+    rope_dtype = torch.float32
+    rotary_real = complex_rope.real.contiguous().to(dtype=rope_dtype, device=device)
+    rotary_imag = complex_rope.imag.contiguous().to(dtype=rope_dtype, device=device)
+
     examples = (
-        torch.randn(1, latent_height * latent_width, model.config.in_channels, dtype=dtype, device=device),
+        torch.randn(1, target_tokens, model.config.in_channels, dtype=dtype, device=device),
         torch.randn(1, context_tokens, model.config.context_in_dim, dtype=dtype, device=device),
         torch.tensor([0.5], dtype=dtype, device=device),
+        rotary_real,
+        rotary_imag,
     )
     return wrapper, examples, (latent_height, latent_width, context_tokens)
 
@@ -199,11 +235,24 @@ def build(module, args):
 def export_transformer(module, args):
     torch.manual_seed(0)
     wrapper, examples, shape = build(module, args)
+    _, _, context_tokens = shape
+
+    # The prompt axis is the one symbol in this graph. The rotary tables span
+    # the JOINT sequence, so their length is that symbol plus the fixed image
+    # token count -- declared as the affine expression rather than a second
+    # free symbol, so export knows the two move together.
+    target_tokens = examples[0].shape[1]
+    t = Dim("t", min=2, max=QWEN_MAX_PROMPT_TOKENS)
+    dynamic_shapes = ({}, {1: t}, {}, {0: t + target_tokens}, {0: t + target_tokens})
+    specs = ({}, {1: "t"}, {}, {0: "tj"}, {0: "tj"})
+
     with torch.no_grad():
         reference = wrapper(*examples)
-        program = torch.export.export(wrapper, examples, strict=False).run_decompositions()
+        program = torch.export.export(
+            wrapper, examples, dynamic_shapes=dynamic_shapes, strict=False
+        ).run_decompositions()
 
-    graph = EG.convert(program, ({}, {}, {}), "qwenimage21_transformer")
+    graph = EG.convert(program, specs, "qwenimage21_transformer")
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     (out / "qwenimage21_transformer.json").write_text(json.dumps(graph, indent=1))
@@ -252,7 +301,13 @@ def export_transformer(module, args):
                 "latent_height": lh,
                 "latent_width": lw,
                 "image_tokens": lh * lw,
-                "context_tokens": context,
+                # The prompt length is the graph's `t` symbol, not a number:
+                # `context` above was only the shape of the tracing example.
+                # `max_context_tokens` is the `Dim` bound the graph was checked
+                # against, and is what the runner may bind `t` up to.
+                "context_tokens": None,
+                "context_symbol": "t",
+                "max_context_tokens": QWEN_MAX_PROMPT_TOKENS,
                 "layers": len(wrapper.model.transformer_blocks),
                 "dtype": str(next(wrapper.parameters()).dtype).removeprefix("torch."),
                 "patch_size": 1,

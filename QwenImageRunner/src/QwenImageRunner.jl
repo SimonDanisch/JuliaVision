@@ -27,8 +27,15 @@ using DNNKernels: JSON3
 using KernelAbstractions
 using Lava
 import Mantle
+using LazyArtifacts
+using Artifacts: artifact_hash, artifact_exists
 
-export QWEN_IMAGE_21, assetdir, ready, qwenimagegraph, qwenimageweights
+# `@artifact_str` finds this itself; `ready` needs the path explicitly, because
+# it has to answer without downloading anything.
+const ARTIFACTS_TOML = normpath(joinpath(@__DIR__, "..", "Artifacts.toml"))
+
+export QWEN_IMAGE_21, assetdir, vaedir, processordir, ready, rotarytables
+export qwenimagegraph, qwenimageweights, compact_denoiser, compact_encoder
 export compact_transformer_weights, compact_text_encoder_weights
 export QwenTokenizer, encode, decode
 export QwenTextEncoder, qwenimagetextencoder, encode_prompt, token_embeddings
@@ -64,15 +71,50 @@ const COMPONENT_FILES = Dict(
     :vae_decoder => ("qwenimage21_vae_decoder.json", "vae.safetensors"),
 )
 
-"""Directory containing an exported Qwen-Image 2.1 pipeline."""
-function assetdir()
-    dir = get(ENV, "JULIA_QWENIMAGE21_ASSETS", "")
-    isempty(dir) && error(
-        "QwenImageRunner: no Qwen-Image 2.1 export is installed. Set " *
-        "JULIA_QWENIMAGE21_ASSETS to the directory produced by " *
-        "`uv run tools/export_qwenimage21.py`.")
-    dir
-end
+"""
+    COMPONENT_ARTIFACTS
+
+Which artifacts each component needs, for [`ready`](@ref).
+
+The pipeline is thirteen artifacts rather than one tree, for the reason
+Hunyuan3D is four: the parts are 22 MB, 644 MB, 6.8 GB and 5.9 GB, and a caller
+that only wants prompt embeddings has no reason to fetch the denoiser. The two
+large checkpoints are also past what a single release asset can hold, so they
+arrive as shards regardless of how they are grouped here.
+"""
+const COMPONENT_ARTIFACTS = Dict(
+    :transformer  => vcat(["qwenimage21"], ["qwenimage21-dit-w$i" for i in 1:6]),
+    :text_encoder => vcat(["qwenimage21"], ["qwenimage21-enc-w$i" for i in 1:5]),
+    :vae_decoder  => ["qwenimage21-vae"],
+)
+
+"""
+    DIT_SHARDS, ENC_SHARDS
+
+The compact checkpoints, split to fit a release asset. `weights-<i>of<n>` is a
+byte-for-byte piece of Comfy-Org's file: [`compact_denoiser`](@ref) and
+[`compact_encoder`](@ref) merge them back and nothing downstream knows they were
+ever apart.
+"""
+const DIT_SHARDS = ntuple(i -> "weights-$(i)of6.safetensors", 6)
+const ENC_SHARDS = ntuple(i -> "weights-$(i)of5.safetensors", 5)
+
+"""
+    assetdir(), vaedir(), processordir() -> String
+
+Where the exported graphs live. `assetdir` holds the denoiser and text encoder
+graphs with the constants their traces lifted out; `vaedir` holds the VAE
+decoder graph beside its weights, which are small enough to travel with it;
+`processordir` holds the three tokenizer tables `QwenTokenizer` reads.
+
+These replaced `JULIA_QWENIMAGE21_ASSETS`, `JULIA_QWENIMAGE21_COMPACT` and
+`JULIA_QWENIMAGE21_PROCESSOR`. Every one of those had to be set by hand against
+a tree only the machine that ran the exporter had, so the package installed and
+could not run anywhere else.
+"""
+assetdir() = @artifact_str("qwenimage21")
+vaedir() = @artifact_str("qwenimage21-vae")
+processordir() = joinpath(assetdir(), "processor")
 
 function _component(component::Symbol)
     haskey(COMPONENT_FILES, component) || throw(ArgumentError(
@@ -81,31 +123,83 @@ function _component(component::Symbol)
     COMPONENT_FILES[component]
 end
 
-"""Whether all exported graphs, or one requested `component`, are installed."""
-function ready(component::Union{Nothing,Symbol}=nothing;
-               dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_ASSETS", ""))
-    isempty(dir) && return false
-    files = component === nothing ? values(COMPONENT_FILES) : (_component(component),)
-    all(files) do (graph, weights)
-        isfile(joinpath(dir, graph)) && isfile(joinpath(dir, weights))
+"""Where `component`'s graph lives; only the VAE keeps its weights beside it."""
+function componentdir(component::Symbol)
+    _component(component)              # rejects an unknown name before downloading
+    component === :vae_decoder ? vaedir() : assetdir()
+end
+
+"""
+Whether the whole pipeline, or one requested `component`, is already downloaded.
+
+Deliberately does NOT go through `@artifact_str`: that downloads, and this is
+the question asked to decide whether to.
+"""
+function ready(component::Union{Nothing,Symbol}=nothing)
+    names = component === nothing ?
+        sort!(unique(reduce(vcat, values(COMPONENT_ARTIFACTS)))) :
+        (haskey(COMPONENT_ARTIFACTS, component) ? COMPONENT_ARTIFACTS[component] :
+         throw(ArgumentError("unknown Qwen-Image 2.1 component `$component`; expected " *
+             join(sort!(string.(collect(keys(COMPONENT_ARTIFACTS)))), ", "))))
+    all(names) do n
+        h = artifact_hash(n, ARTIFACTS_TOML)
+        h !== nothing && artifact_exists(h)
     end
 end
 
 """Load one of `:transformer`, `:text_encoder`, or `:vae_decoder`."""
-function qwenimagegraph(component::Symbol; dir::AbstractString=assetdir())
+function qwenimagegraph(component::Symbol; dir::AbstractString=componentdir(component))
     graph, _ = _component(component)
     path = joinpath(dir, graph)
     isfile(path) || throw(ArgumentError("Qwen-Image 2.1 graph not found at $path"))
     loadgraph(path)
 end
 
-"""Load the weights belonging to one exported component."""
-function qwenimageweights(component::Symbol; dir::AbstractString=assetdir())
+"""
+Load the weights belonging to one exported component.
+
+Only `:vae_decoder` ships these. The denoiser and text encoder run from
+Comfy-Org's quantized checkpoints — see [`compact_denoiser`](@ref) — because the
+released half-precision pair is some 60 GB and neither fits this device even
+alone. `tools/export_qwenimage21.py` without `--graph-only` still writes
+`transformer.safetensors` and `text_encoder.safetensors`, so this reaches them
+when handed an explicit `dir`.
+"""
+function qwenimageweights(component::Symbol; dir::AbstractString=componentdir(component))
     _, weights = _component(component)
     path = joinpath(dir, weights)
     isfile(path) || throw(ArgumentError("Qwen-Image 2.1 weights not found at $path"))
     readsafetensors(path)
 end
+
+"""
+    compact_denoiser() -> Dict
+
+Comfy-Org's INT8 ConvRot denoiser, merged from its six shards.
+
+`readsafetensors` memory-maps, and `merge` of six mmapped dictionaries reads
+nothing — the 7.26 GB is paged in per tensor as
+[`compact_transformer_weights`](@ref) walks the graph.
+"""
+compact_denoiser() = merge(
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w1"), DIT_SHARDS[1])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w2"), DIT_SHARDS[2])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w3"), DIT_SHARDS[3])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w4"), DIT_SHARDS[4])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w5"), DIT_SHARDS[5])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-dit-w6"), DIT_SHARDS[6])))
+
+"""
+    compact_encoder() -> Dict
+
+Comfy-Org's W4A8 Qwen3-VL conditioner, merged from its five shards.
+"""
+compact_encoder() = merge(
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w1"), ENC_SHARDS[1])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w2"), ENC_SHARDS[2])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w3"), ENC_SHARDS[3])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w4"), ENC_SHARDS[4])),
+    readsafetensors(joinpath(@artifact_str("qwenimage21-enc-w5"), ENC_SHARDS[5])))
 
 @inline _bf16(x::UInt16) = Float16(reinterpret(Float32, UInt32(x) << 16))
 _bf16array(x::AbstractArray{UInt16}) = map(_bf16, x)
@@ -118,25 +212,23 @@ function _densebool(x::BitArray{N}) where {N}
 end
 
 """
-    compact_transformer_weights(graph; checkpoint_dir, constants_dir)
+    compact_transformer_weights(graph; compact, constants_dir)
 
 Map Comfy-Org's compact Qwen-Image 2.1 denoiser into the exported Diffusers
 graph. Quantized matrices remain packed host views and are decoded/repacked by
 DNNKernels while uploading to the selected backend. Dense BF16 tensors are
 converted to Float16; lifted RoPE, mask, and timestep constants come from the
 allocation-free graph export.
+
+`compact` is the checkpoint as a dictionary rather than a directory to read it
+from, because it arrives as six artifacts that [`compact_denoiser`](@ref)
+merges. Pass one read by hand to use a checkpoint from somewhere else.
 """
 function compact_transformer_weights(graph;
-        checkpoint_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""),
+        compact::AbstractDict=compact_denoiser(),
         constants_dir::AbstractString=assetdir())
-    isempty(checkpoint_dir) && throw(ArgumentError(
-        "set JULIA_QWENIMAGE21_COMPACT to the Comfy-Org checkpoint directory"))
-    checkpoint = joinpath(checkpoint_dir, "diffusion_models",
-                          "qwen_image_2.1_int8_convrot.safetensors")
     constants_path = joinpath(constants_dir, "transformer_constants.safetensors")
-    isfile(checkpoint) || throw(ArgumentError("compact denoiser not found at $checkpoint"))
     isfile(constants_path) || throw(ArgumentError("graph constants not found at $constants_path"))
-    compact = readsafetensors(checkpoint)
     constants = readsafetensors(constants_path; mmap=false)
     out = Dict{String,Any}()
 
@@ -187,18 +279,35 @@ A prepared, backend-independent Qwen-Image 2.1 denoiser graph. `plan` is
 declared and recorded once at construction; each diffusion step is therefore a
 GPU replay rather than 124+ host-side launches.
 """
-struct QwenTransformer{B,G,W,P}
+struct QwenTransformer{B,G,W,P,R}
     backend::B
     graph::G
     weights::W
     plan::P
+    # The rotary tables for this prompt length, on the device. They are graph
+    # inputs, so they are passed to every replay rather than uploaded as
+    # weights, and they are built once here because the length does not change
+    # between steps of one generation.
+    rotary::R
+    context_tokens::Int
 end
 
 """
-    qwenimagetransformer(; backend=Mantle.LavaBackend(), dir=assetdir())
+    qwenimagetransformer(; context_tokens, backend=Mantle.LavaBackend(),
+                         dir=assetdir(), compact=compact_denoiser())
 
-Load and prepare the exported denoiser. The graph is static in latent resolution
-and prompt length; those are selected when running `tools/export_qwenimage21.py`.
+Load and prepare the exported denoiser for a prompt of `context_tokens` tokens.
+
+The graph is static in latent resolution but **generic in prompt length**: its
+`t` symbol is bound here, once, for the generation about to run. That mirrors
+the reference, where `QwenImagePipeline` pads nothing for a single prompt and
+`QwenImage21Transformer2DModel.forward` simply runs at whatever length it is
+given.
+
+The rotary tables come from [`rotarytables`](@ref) rather than from the export,
+because they are not independent of the prompt length: `QwenImage21Rope` freezes
+the image block's frame axis at the position the text reached. An earlier export
+lifted them as constants, which silently bound the whole graph to one prompt.
 
 `maxpasses` splits the recording into submissions of that many passes. One step
 of the 32-layer model at 1024² is ~9.6 s of device time, and a single
@@ -207,20 +316,46 @@ device loss, and nothing in the Julia frame naming the cause. The completion
 points cost nothing measurable and the barriers between the pieces are still
 the ones the graph derived. `0` restores the single submission.
 """
-function qwenimagetransformer(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
-                              compact_dir::Union{Nothing,AbstractString}=nothing,
+function qwenimagetransformer(; context_tokens::Integer,
+                              backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
+                              compact::Union{Nothing,AbstractDict}=compact_denoiser(),
                               maxpasses::Integer=64)
     graph_path = joinpath(dir, first(COMPONENT_FILES[:transformer]))
     isfile(graph_path) || throw(ArgumentError(
         "no Qwen-Image 2.1 transformer graph at $dir — run " *
         "`tools/export_qwenimage21.py --graph-only` first"))
+    ctx = Int(context_tokens)
+    2 <= ctx <= QWEN_IMAGE_21.max_prompt_tokens || throw(ArgumentError(
+        "context_tokens must be in 2..$(QWEN_IMAGE_21.max_prompt_tokens), got $ctx"))
     graph = qwenimagegraph(:transformer; dir)
-    weights = compact_dir === nothing ? qwenimageweights(:transformer; dir) :
-        compact_transformer_weights(graph; checkpoint_dir=compact_dir, constants_dir=dir)
+    lh, lw = latentshape(dir)
+    # `nothing` takes the half-precision route instead, which needs a `dir` that
+    # has `transformer.safetensors` in it. Nothing ships one: it is 41 GB, and
+    # the whole reason the compact checkpoint is the default is that it fits.
+    weights = compact === nothing ? qwenimageweights(:transformer; dir) :
+        compact_transformer_weights(graph; compact, constants_dir=dir)
     model = Model(Dict("qwenimage21_transformer" => graph), weights; backend)
     prepared = model.graphs["qwenimage21_transformer"]
-    plan = planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses))
-    QwenTransformer(model.backend, prepared, model.weights, plan)
+    plan = planfor(model.device, prepared, model.weights, (; t = ctx); maxpasses=Int(maxpasses))
+    rc, rs = rotarytables(ctx, lh, lw)
+    rotary = (DNNKernels.toback(backend, rc), DNNKernels.toback(backend, rs))
+    QwenTransformer(model.backend, prepared, model.weights, plan, rotary, ctx)
+end
+
+"""
+    latentshape(dir) -> (latent_height, latent_width)
+
+The latent grid the denoiser graph was exported for, from the export's own
+metadata. It cannot be read back off the graph: the graph knows only that there
+are `latent_height * latent_width` image tokens, and 4096 of them is 64x64 or
+128x32 with nothing to tell them apart. `rotarytables` needs the two separately,
+because the image's height and width rotary axes are a grid centred on zero.
+"""
+function latentshape(dir::AbstractString)
+    path = joinpath(dir, "qwenimage21_export.json")
+    isfile(path) || throw(ArgumentError("no Qwen-Image 2.1 export metadata at $path"))
+    meta = JSON3.read(read(path, String))
+    Int(meta.latent_height), Int(meta.latent_width)
 end
 
 """
@@ -232,8 +367,13 @@ Run one transformer step. Arrays use Julia/DNNKernels order: `latents` is
 The returned device array has the same shape as `latents`.
 """
 function denoise!(model::QwenTransformer, latents, prompt_embeddings, timestep)
+    size(prompt_embeddings, 2) == model.context_tokens || throw(DimensionMismatch(
+        "this denoiser was prepared for $(model.context_tokens) prompt embeddings " *
+        "and was given $(size(prompt_embeddings, 2)); the graph is length-generic " *
+        "but a recorded plan is not, so build it with " *
+        "`qwenimagetransformer(; context_tokens = $(size(prompt_embeddings, 2)))`"))
     first(replay!(model.plan, "qwenimage21_transformer",
-                  (latents, prompt_embeddings, timestep)))
+                  (latents, prompt_embeddings, timestep, model.rotary...)))
 end
 
 """A prepared Qwen-Image 2.1 VAE decoder. `plan === nothing` runs interpreted."""
@@ -246,7 +386,7 @@ struct QwenVAEDecoder{B,D,G,W,P}
 end
 
 """
-    qwenimagevae(; backend=Mantle.LavaBackend(), dir=assetdir(), record=false)
+    qwenimagevae(; backend=Mantle.LavaBackend(), dir=vaedir(), record=false)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
@@ -277,11 +417,8 @@ Two numbers that were in this docstring and are wrong: the decode is not 38.4 s
 submission does not have to exceed the driver's limit (`maxpasses = 8` records
 and replays; 64 is what times out).
 """
-function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=assetdir(),
+function qwenimagevae(; backend=Mantle.LavaBackend(), dir::AbstractString=vaedir(),
                       record::Bool=false, maxpasses::Integer=8)
-    ready(:vae_decoder; dir) || throw(ArgumentError(
-        "no Qwen-Image 2.1 VAE export at $dir — run " *
-        "`tools/export_qwenimage21.py --component vae` first"))
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
     model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend,
@@ -319,6 +456,70 @@ function image_sequence_length(width::Integer, height::Integer)
     width % 16 == 0 && height % 16 == 0 || throw(ArgumentError(
         "Qwen-Image 2.1 dimensions must be divisible by 16, got $(width)x$(height)"))
     (width ÷ 16) * (height ÷ 16)
+end
+
+"""
+    rotarytables(context_tokens, latent_height, latent_width) -> (cos, sin)
+
+Qwen-Image 2.1's three-axis rotary tables over the joint text/image sequence, as
+two `(64, context_tokens + latent_height*latent_width)` Float32 matrices.
+
+A port of `QwenImage21Rope.forward`. Text tokens advance one shared position per
+token on all three axes; the image block then freezes its frame axis at the
+position the text reached and lays its tokens out on a height/width grid centred
+on zero. **The image's rotary therefore depends on how long the text was**,
+which is why this is computed per prompt rather than exported as a constant, and
+why a graph with it baked in only works for one prompt length.
+
+The reference precomputes a table of 8192 non-negative rows followed by 1024
+negative ones so that it can gather with a signed index tensor. A row's angle is
+`index * theta^(-2j/d)` either way, so this evaluates it directly; the negative
+half of the reference table exists for indexing, not for different arithmetic.
+"""
+function rotarytables(context_tokens::Integer, latent_height::Integer,
+                      latent_width::Integer;
+                      axes::NTuple{3,Int}=QWEN_IMAGE_21.rope_axes, theta::Real=10000)
+    nt, h, w = Int(context_tokens), Int(latent_height), Int(latent_width)
+    nt >= 0 || throw(ArgumentError("context_tokens must be non-negative, got $nt"))
+    h > 0 && w > 0 || throw(ArgumentError("latent dimensions must be positive"))
+    total = nt + h * w
+
+    # The frame axis: text at 0..nt-1, then the whole image block frozen at nt.
+    frame = Vector{Int}(undef, total)
+    for i in 1:nt
+        frame[i] = i - 1
+    end
+    for i in (nt + 1):total
+        frame[i] = nt
+    end
+    # Height and width follow the frame axis over the text and become the
+    # centred grid over the image. Height varies slowest, as in the reference's
+    # `for h in ... for _ in range(width)`.
+    height, width = copy(frame), copy(frame)
+    k = nt
+    for hh in -(h - h ÷ 2):(h ÷ 2 - 1), ww in -(w - w ÷ 2):(w ÷ 2 - 1)
+        k += 1
+        height[k] = hh
+        width[k] = ww
+    end
+
+    ncols = sum(axes) ÷ 2
+    co = Matrix{Float32}(undef, ncols, total)
+    si = Matrix{Float32}(undef, ncols, total)
+    row = 0
+    for (dim, index) in zip(axes, (frame, height, width))
+        half = dim ÷ 2
+        for j in 1:half
+            invfreq = 1f0 / Float32(theta)^(Float32(2 * (j - 1)) / Float32(dim))
+            @inbounds for i in 1:total
+                angle = Float32(index[i]) * invfreq
+                co[row + j, i] = cos(angle)
+                si[row + j, i] = sin(angle)
+            end
+        end
+        row += half
+    end
+    co, si
 end
 
 """

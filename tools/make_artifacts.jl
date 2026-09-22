@@ -170,6 +170,20 @@ const SHARDS = Dict(
     "bonsai2-ptq1-p2" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-2of4"),
     "bonsai2-ptq1-p3" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-3of4"),
     "bonsai2-ptq1-p4" => ("BonsaiRunner", "bonsai2", "Ternary-Bonsai-2-27B-PTQ1_0-part-4of4"),
+    # Qwen-Image 2.1's two compact checkpoints, 7.26 GB and 6.31 GB. Six and
+    # five pieces rather than four each: `shard_safetensors.jl` splits on
+    # tensor boundaries, so the pieces come out uneven, and four would have put
+    # the largest past 2 GiB. As published they run 1.11 to 1.48 GiB, the last
+    # of which is the largest asset in the release.
+    #
+    # Both merge back byte-exact — checked by reading the original and the
+    # merged shards and comparing every tensor, 649 and 1762 of them, zero
+    # mismatches. That check is what makes it safe for `QwenImageRunner` to
+    # treat the merge as the checkpoint.
+    ("qwenimage21-dit-w$i" => ("QwenImageRunner", "qwenimage21-dit",
+                               "weights-$(i)of6.safetensors") for i in 1:6)...,
+    ("qwenimage21-enc-w$i" => ("QwenImageRunner", "qwenimage21-enc",
+                               "weights-$(i)of5.safetensors") for i in 1:5)...,
 )
 
 function packshard(name::AbstractString, tag::AbstractString)
@@ -179,8 +193,41 @@ function packshard(name::AbstractString, tag::AbstractString)
                          "`julia --project=. tools/shard_safetensors.jl <weights> <outdir> <n>`")
     hash = create_artifact() do d
         cp(src, joinpath(d, file))
+        copylicense(name, d)
     end
     return finishartifact(name, pkg, hash, tag, String[])
+end
+
+# ── Licences that have to travel WITH the weights.
+#
+# Most of what is packed here is permissively licensed and says so once, in the
+# package. Qwen-Image 2.1 is the first that does not: section 3 of the Qwen
+# Research License Agreement permits redistribution only if every recipient is
+# given a copy of the Agreement, modified files carry a notice saying they were
+# changed, and a `Notice` file carries the attribution text quoted in 3(c).
+#
+# The obligation attaches to the MATERIALS, not to the repository, and each
+# artifact is separately downloadable — someone who fetches one weight shard has
+# received the Materials and has to receive the Agreement with them. So the
+# licence goes into every tarball of the family rather than once into the small
+# one, which costs 15 KiB against 14 GiB.
+#
+# artifact name => directory under tools/licenses holding LICENSE and NOTICE
+const LICENSED = Dict{String,String}(
+    n => "qwenimage21" for n in vcat(
+        ["qwenimage21", "qwenimage21-vae"],
+        ["qwenimage21-dit-w$i" for i in 1:6],
+        ["qwenimage21-enc-w$i" for i in 1:5]))
+
+function copylicense(name::AbstractString, dest::AbstractString)
+    haskey(LICENSED, name) || return nothing
+    src = joinpath(JV, "tools", "licenses", LICENSED[name])
+    for f in ("LICENSE", "NOTICE")
+        path = joinpath(src, f)
+        isfile(path) || error("$name must ship $f and $path does not exist")
+        cp(path, joinpath(dest, f))
+    end
+    return nothing
 end
 
 const GRAPHFILES = Dict(
@@ -197,6 +244,68 @@ const GRAPHFILES = Dict(
     "hunyuan3d-vae"  => ["hunyuan3d_vae.json", "scale_factor.json"],
     "hunyuan3d-geo"  => ["hunyuan3d_geo.json"],
 )
+
+# ── Exports whose runnable set is an explicit list rather than `SHIPPED`.
+#
+# `pack` above assumes one graph called `<name>.json` beside a
+# `weights.safetensors` and an `op_histogram.json`. Qwen-Image 2.1 has none of
+# those names: three graphs exported at different times, one `*_constants`
+# file per graph holding the tensors the trace lifted out, one histogram each,
+# and a tokenizer directory that is not an export at all. Bending `pack` to
+# fit would mean a second exclusion set beside `NOWEIGHTS`, so the list is
+# given directly. Entries may name directories as well as files.
+#
+# The split is the same one `SHIPPED` makes: what a caller needs to RUN the
+# model. `vae_reference.safetensors` (17 MB of PyTorch activations that only
+# `tools/verify_qwenimage21.py` reads) stays out, and `processor/` ships the
+# three files `QwenTokenizer` opens rather than the seven the repository has —
+# `tokenizer.json` alone is 11 MB of BPE table this package never reads.
+#
+# The denoiser graph is exported at ONE prompt length. See `context_tokens` in
+# `qwenimage21_export.json`: its text stream is part of a joint attention and
+# the export passes `attention_mask=None`, so a shorter prompt cannot be padded
+# into it. The graph here is the 22-token one `examples/generate.jl` uses.
+# Making it length-generic means threading the mask back through
+# `tools/export_qwenimage21.py` and is not something the packaging can fix.
+#
+# artifact name => (package that binds it, dir under gen/graphs, what to take)
+const TREES = Dict(
+    "qwenimage21" => ("QwenImageRunner", "qwenimage21",
+        ["qwenimage21_transformer.json", "qwenimage21_text_encoder.json",
+         "qwenimage21_export.json", "qwenimage21_text_encoder_export.json",
+         "transformer_constants.safetensors", "text_encoder_constants.safetensors",
+         "transformer_op_histogram.json", "text_encoder_op_histogram.json",
+         "processor"]),
+    # The VAE is its own artifact for the reason Hunyuan3D's four are: it is
+    # 644 MB and runs once per image, against the denoiser's 6.8 GB twenty
+    # times. Its graph travels with its weights so one `vaedir()` resolves
+    # both.
+    "qwenimage21-vae" => ("QwenImageRunner", "qwenimage21-vae",
+        ["qwenimage21_vae_decoder.json", "vae.safetensors", "vae_op_histogram.json"]),
+)
+
+"""
+Pack `name` from the explicit file list in [`TREES`](@ref).
+
+Unlike [`pack`](@ref) nothing is implied: every file and directory that ends up
+in the tarball is named in the table, which is what lets an export with its own
+naming scheme ship without teaching `pack` about it.
+"""
+function packtree(name::AbstractString, tag::AbstractString)
+    pkg, dirname_, want = TREES[name]
+    src = joinpath(ROOT, "gen", "graphs", dirname_)
+    isdir(src) || error("no export at $src — run `uv run tools/export_$(name).py`")
+    for f in want
+        ispath(joinpath(src, f)) || error("$src is missing $f")
+    end
+    hash = create_artifact() do dir
+        for f in want
+            cp(joinpath(src, f), joinpath(dir, f))
+        end
+        copylicense(name, dir)
+    end
+    return finishartifact(name, pkg, hash, tag, want)
+end
 
 # ── Upstream checkpoints, for models that are FETCHED but not yet TRACED.
 #
@@ -425,16 +534,17 @@ end
 names = isempty(args) ? ["depthanything", "neurallut", "rife"] : args   # the ported ones
 for n in names
     haskey(MODELS, n) || haskey(REFS, n) || haskey(CHECKPOINTS, n) ||
-        haskey(FIXTURES, n) || haskey(SHARDS, n) || error(
+        haskey(FIXTURES, n) || haskey(SHARDS, n) || haskey(TREES, n) || error(
         "unknown target $n; known: " *
         join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)),
                        collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)),
-                       collect(keys(SHARDS)))), ", "))
+                       collect(keys(SHARDS)), collect(keys(TREES)))), ", "))
 end
 
 println("binding artifacts against release tag `$tag`\n")
 made = [haskey(REFS, n) ? packrefs(n, tag) :
         haskey(FIXTURES, n) ? packfixtures(n, tag) :
+        haskey(TREES, n) ? packtree(n, tag) :
         haskey(SHARDS, n) ? packshard(n, tag) :
         haskey(CHECKPOINTS, n) ? packcheckpoints(n, tag) : pack(n, tag) for n in names]
 
