@@ -4357,6 +4357,44 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
 end
 
 """
+A 1-D convolution operand as the 2-D one with a singleton second spatial axis.
+
+A descriptor-only view, so lifting costs nothing and copies nothing. It is the
+lift `emitconvtranspose!` already used to reach the portable 2-D gather; what it
+also buys is the BACKEND, whose convolution hook is a 2-D one and which has no
+trouble with an extent of 1.
+"""
+lift1d(a) = M.viewof(a, (size(a, 1), 1, size(a, 2), size(a, 3)))
+
+"""
+    convfollowup!(emitctx, op, out, bias, convact, native) -> out
+
+The parts a library convolution could not fold, as declared passes.
+
+`native` is what [`Mantle.native_conv2d_dispatch!`](@ref) answered: which of the
+bias and the activation it took. Shared by the forward and transposed lowerings
+and by the 1-D lift of each, because what is left over depends only on that
+answer and on `out`, whose channel axis is 3 in every layout that reaches here —
+including a lifted `(W, 1, Cout, N)`.
+"""
+function convfollowup!(emitctx::EmitCtx, op::Op, out, bias, convact, native)
+    od = size(out)
+    needbias = bias !== nothing && !native.bias
+    needact = convact !== identity && !native.epilogue
+    if needbias
+        # Per output CHANNEL, which is axis 3 of `(OW, OH, Cout, N)`.
+        bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
+        ewdispatch!(emitctx, out, od, (out, bias),
+                    (bcstrides(od, od), bcstrides(od, bd)),
+                    needact ? biasact(convact) : +; name = "$(op.id).bias")
+    elseif needact
+        ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),), convact;
+                    name = "$(op.id).act")
+    end
+    return out
+end
+
+"""
 `aten::convolution`, forward and dense, as the implicit GEMM plus whatever
 split-K needs.
 
@@ -4416,9 +4454,35 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     # a trip count of 1. MatAnyone's mask encoders are 1-D convolutions over a
     # flattened mask, and the layout is `(x, c, n)` with the weight reversed to
     # `(kx, ci, co)`, which is what the export already hands over.
-    length(stride) == 1 && return mapbody!(emitctx, op, conv1d, out, x, w, bias,
-                                           Val(stride[1]), Val(pad[1]), Val(dil[1]),
-                                           Val(groups))
+    #
+    # That reasoning picks `conv1d` over `convolution2d` among the PORTABLE
+    # kernels, and it stays true. It was never a reason to skip the library,
+    # which has no inner loop of ours to carry a trip count of 1 — and skipping
+    # it left every convolution in Kokoro on the gather: 1.586 s of a 1.790 s
+    # utterance, 89% of the model, in 93 ops. Measured one by one against
+    # MPSGraph over the lifted shapes: 11.0 -> 0.08 ms and 26.0 -> 0.12 ms.
+    #
+    # No `onebyone` exclusion here, unlike the 2-D ask below. That one is not a
+    # refusal but a redirection — the 2-D path routes a 1x1 to `matmul!` a few
+    # lines down, which on a backend with a library product IS the library. The
+    # 1-D lowering has no such route, so asking the same question here would only
+    # hand the work back to `conv1d`.
+    if length(stride) == 1
+        convact = actfn(act)
+        native1d = M.native_conv2d_dispatch!(emitctx.dev, emitctx.g,
+                                             lift1d(out), lift1d(x), lift1d(w);
+                                             bias, stride = (stride[1], 1),
+                                             pad = (pad[1], 0),
+                                             dilation = (dil[1], 1), groups,
+                                             epilogue = convact, name = op.id)
+        if native1d !== nothing
+            convfollowup!(emitctx, op, lift1d(out), bias, convact, native1d)
+            return out
+        end
+        return mapbody!(emitctx, op, conv1d, out, x, w, bias,
+                        Val(stride[1]), Val(pad[1]), Val(dil[1]),
+                        Val(groups))
+    end
     length(stride) == 2 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(length(stride))-D, and only " *
         "the 1-D and 2-D convolutions are declared. 3-D has `convolution3d!` and " *
@@ -4443,22 +4507,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
                                   pad = (pad[1], pad[2]),
                                   dilation = (dil[1], dil[2]), groups,
                                   epilogue = convact, name = op.id)
-    if convnative !== nothing
-        od = size(out)
-        needbias = bias !== nothing && !convnative.bias
-        needact = convact !== identity && !convnative.epilogue
-        if needbias
-            # Per output CHANNEL, which is axis 3 of `(OW, OH, Cout, N)`.
-            bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
-            ewdispatch!(emitctx, out, od, (out, bias),
-                        (bcstrides(od, od), bcstrides(od, bd)),
-                        needact ? biasact(convact) : +; name = "$(op.id).bias")
-        elseif needact
-            ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),), convact;
-                        name = "$(op.id).act")
-        end
-        return out
-    end
+    convnative === nothing ||
+        return convfollowup!(emitctx, op, out, bias, convact, convnative)
 
     groups == 1 || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) has $(groups) groups, and only " *
@@ -4626,9 +4676,27 @@ function emitconvtranspose!(emitctx::EmitCtx, op::Op, x, w, bias, out,
         # axis.  These are descriptor-only views, so this declares one portable
         # kernel and does not duplicate either its arithmetic or a backend
         # implementation.  The interpreted path performs the same lift.
-        x2 = M.viewof(x, (size(x, 1), 1, size(x, 2), size(x, 3)))
-        w2 = M.viewof(w, (size(w, 1), 1, size(w, 2), size(w, 3)))
-        out2 = M.viewof(out, (size(out, 1), 1, size(out, 2), size(out, 3)))
+        x2, w2, out2 = lift1d(x), lift1d(w), lift1d(out)
+        # The lift reaches the BACKEND too, and that is where it matters most:
+        # the gather below gets 0.03-0.04 TFLOP/s, and the 2-D branch has asked a
+        # library first since RIFE's decoder cost 438 ms of a 581 ms frame on it.
+        # The 1-D branch returned before ever asking, which left Kokoro's iSTFTNet
+        # upsampler on the gather: its two transposed convolutions were 803 ms of
+        # a 1.790 s utterance, 45% of the model in two ops. Against MPSGraph over
+        # these same views, 394.5 -> 1.23 ms and 408.7 -> 0.57 ms.
+        #
+        # `outpad` has to be zero for the same reason it does below.
+        convact1d = actfn(act === :none ? :identity : act)
+        native1d = all(iszero, outpad) ?
+            M.native_conv2d_dispatch!(emitctx.dev, emitctx.g, out2, x2, w2;
+                                      bias, stride = (stride[1], 1),
+                                      pad = (pad[1], 0), dilation = (dil[1], 1),
+                                      groups, epilogue = convact1d,
+                                      transposed = true, name = op.id) : nothing
+        if native1d !== nothing
+            convfollowup!(emitctx, op, out2, bias, convact1d, native1d)
+            return out
+        end
         mapbody!(emitctx, op, convtranspose2d, out2, x2, w2, bias,
                  Val(stride[1]), Val(1), Val(pad[1]), Val(0),
                  Val(dil[1]), Val(1), Val(groups))
@@ -4660,21 +4728,8 @@ function emitconvtranspose!(emitctx::EmitCtx, op::Op, x, w, bias, out,
                                   dilation = (dil[1], dil[2]), groups,
                                   epilogue = convact, transposed = true,
                                   name = op.id) : nothing
-    if native !== nothing
-        od = size(out)
-        needbias = bias !== nothing && !native.bias
-        needact = convact !== identity && !native.epilogue
-        if needbias
-            bd = ntuple(k -> k == 3 ? length(bias) : 1, length(od))
-            ewdispatch!(emitctx, out, od, (out, bias),
-                        (bcstrides(od, od), bcstrides(od, bd)),
-                        needact ? biasact(convact) : +; name = "$(op.id).bias")
-        elseif needact
-            ewdispatch!(emitctx, out, od, (out,), (bcstrides(od, od),), convact;
-                        name = "$(op.id).act")
-        end
-        return out
-    end
+    native === nothing ||
+        return convfollowup!(emitctx, op, out, bias, convact, native)
 
     if shufflecase(w, stride, pad, dil, outpad, groups) && size(x, 4) == 1
         emitconvtransposeshuffle!(emitctx, op, x, w, bias, out, stride)

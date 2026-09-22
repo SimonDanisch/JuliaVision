@@ -67,6 +67,7 @@ include(joinpath(@__DIR__, "test_constfold.jl"))
 include(joinpath(@__DIR__, "test_diagnostics.jl"))
 # The non-overlapping transposed convolution against the gather it replaces.
 include(joinpath(@__DIR__, "test_convtranspose_gemm.jl"))
+include(joinpath(@__DIR__, "test_conv1d_library.jl"))
 # Element functions that must not be evaluated at the operand's own precision.
 include(joinpath(@__DIR__, "test_activation_width.jl"))
 # Which advanced-index forms are an outer product and which are genuinely paired.

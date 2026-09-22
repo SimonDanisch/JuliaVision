@@ -16,16 +16,36 @@ using Mantle, KernelAbstractions, DNNKernels
 const DK = DNNKernels
 const M = Mantle
 
-"""`op` alone as a graph, its first input promoted to a graph input."""
+"""
+`op` alone as a graph, with every operand it does not own promoted to a graph input.
+
+EVERY one, not just the first: an op whose second input is another op's result
+cannot stand alone otherwise, and that is most of them — on Qwen-Image 2.1's
+denoiser, promoting only the first left 119 of 140 ops untimed, which is exactly
+the ops a census exists to find. A `:weight` keeps its kind so the real tensor is
+uploaded; a VIEW keeps its kind too, because its parent is what has to be promoted
+and the view resolves off it.
+"""
 function soloop(g::DK.Graph, op::DK.Op)
     bufs = Dict{String,DK.Buffer}()
-    for id in [op.ins; op.out]
+    inputs = String[]
+    function promote!(id)
+        haskey(bufs, id) && return
         b = g.buffers[id]
-        bufs[id] = id == op.ins[1] ?
-            DK.Buffer(b.id, :input, b.shape, b.dtype, b.key, b.live, b.of, b.viewop,
-                      b.attrs) : b
+        if b.kind === :view && !isempty(b.of)
+            promote!(b.of)                      # the parent carries the bytes
+            bufs[id] = b
+        elseif b.kind === :weight
+            bufs[id] = b
+        else
+            bufs[id] = DK.Buffer(b.id, :input, b.shape, b.dtype, b.key, b.live, b.of,
+                                 b.viewop, b.attrs)
+            push!(inputs, id)
+        end
     end
-    DK.Graph(g.name, g.symbols, [op.ins[1]], [op.out], bufs, [op.ins; op.out], [op],
+    foreach(promote!, op.ins)
+    bufs[op.out] = g.buffers[op.out]
+    DK.Graph(g.name, g.symbols, inputs, [op.out], bufs, [collect(keys(bufs))...], [op],
              Vector{String}[])
 end
 
@@ -36,10 +56,11 @@ function timeop(dev, g, weights, dims, op; R = 4)
     nlib = sum(count(d -> d.ndrange === nothing, p.dispatches) for p in mg.passes)
     p = M.Plan(mg); M.record!(p)
     # After `record!`: a graph input has no storage until the plan is materialised.
-    xs = M.storage(ec.res[op.ins[1]])
-    if xs isa AbstractArray && eltype(xs) <: AbstractFloat
+    for id in gr.inputs
+        xs = M.storage(ec.res[id])
+        xs isa AbstractArray && eltype(xs) <: AbstractFloat || continue
         copyto!(xs, convert(Array{eltype(xs)},
-                reshape(Float32.((1:length(xs)) .% 37) ./ 37 .- 0.5, size(xs))))
+                reshape(Float32.((1:length(xs)) .% 37) ./ 37f0 .- 0.5f0, size(xs))))
     end
     M.run!(p); M.waitidle(dev)
     t = minimum([@elapsed (M.run!(p); M.waitidle(dev)) for _ in 1:R])
