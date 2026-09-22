@@ -687,13 +687,16 @@ thing to beat when it is really 157.28. Splitting the kernels fixed the baseline
 and three of the four shapes stopped winning. The controls in the table above
 are carried for exactly this reason.
 
-**What would make two blocks pay.** The gather's cost is per workgroup, and at
-`CoutP = 256` two workgroups gather the identical A tile for the same rows.
-One workgroup covering both column blocks — a `bn` of 256, or a schedule that
-keeps its staged A and loops over column blocks — would gather once and pay
-im2col's write and read never. That is worth `vae-144-1024` and
-`vae-288-144-1024`, which are 65 and 126 ms and the two largest remaining
-convolution gaps where `Cout` is small.
+**Two blocks cannot be bought with a wider `bn`, and that is already measured.**
+The obvious fix is to have one workgroup cover both column blocks so the A tile
+is gathered once: at `CoutP = 256` two workgroups gather the identical tile for
+the same rows. But a 256-wide block needs sixteen subgroups, and
+`Mantle.GEMM_TILINGS`' own notes record `96 x 256, 16 warps` as built, measured
+and **losing everywhere by 8-13%** against `96 x 128`, with every other
+16-subgroup block losing by 10-30%. A GEMM that starts 8-13% down is not going
+to be repaid by halving an addressing cost that is worth 5% at this shape. The
+route out is a schedule that keeps its staged A across column blocks at eight
+subgroups, which is a different kernel and not a tiling change.
 """
 function convgather_worth(MP::Int, CoutP::Int, CRSP::Int)
     _, splitk = Mantle.coopmat_gemm_shape(MP, CoutP, CRSP)

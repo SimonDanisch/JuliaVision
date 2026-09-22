@@ -4570,13 +4570,19 @@ two convolution plans, both `CoutP = 256`; the VAE's six are 144, 288, 288, 576,
 model in the suite today — worth saying plainly rather than letting the 3.52x
 in the table above imply otherwise.
 
-**What would make it fire is one workgroup per output tile rather than per
-column block.** At `CoutP = 256` two workgroups gather the identical A tile for
-the same rows; a `bn` of 256, or a schedule that keeps its staged A and loops
-over column blocks, would gather once and pay im2col's write and read never.
-That is `vae-144-1024` (65 ms) and `vae-288-144-1024` (126 ms), the two largest
-remaining convolution gaps where `Cout` is small, and it is the next thing to
-try here.
+**The obvious way to make it fire is already refuted.** At `CoutP = 256` two
+workgroups gather the identical A tile for the same rows, so one workgroup
+covering both column blocks would gather once. That means a `bn` of 256, which
+needs sixteen subgroups — and `GEMM_TILINGS`' own notes record `96 x 256, 16
+warps` as built, measured and losing everywhere by 8-13% against `96 x 128`,
+with every other 16-subgroup block losing 10-30%. A GEMM starting 8-13% down
+will not be repaid by removing an addressing cost worth about 5% here. I was
+about to add that tiling; the table in the file I was adding it to had already
+answered it.
+
+What is left is a schedule that keeps its staged A across column blocks at
+eight subgroups — a different kernel, not a tiling entry — and it is worth
+`vae-144-1024` (65 ms) and `vae-288-144-1024` (126 ms) if it works.
 
 **It also cost four Lava defects**, all in packing a VECTOR into a wider private
 slot and none reachable before, because nothing had put an `f16vec2` in a
