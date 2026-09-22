@@ -529,12 +529,19 @@ end
         sh[i + Int32(1)] = v
     end
     @synchronize
+    # `stride` doubles from one, so it is a power of two at every stage and the
+    # butterfly's index split is a shift and a mask. Written as `÷` and `%` on a
+    # runtime value it was two integer divisions per pair per stage — forty per
+    # thread — on a device with no integer divide. Same defect, and same fix, as
+    # `im2col_kernel!`'s `OW`; see the note there for what it was worth in a
+    # pass that is bandwidth-bound rather than this one.
     stride = Int32(1)
+    lg = Int32(0)
     while stride < Int32(1024)
         @inbounds for pass in Int32(0):Int32(1)
             p = t + pass * Int32(256)
-            group = p ÷ stride
-            j = p % stride
+            group = p >> lg
+            j = p & (stride - Int32(1))
             aidx = group * (stride << 1) + j
             bidx = aidx + stride
             a = sh[aidx + Int32(1)]
@@ -544,6 +551,7 @@ end
         end
         @synchronize
         stride <<= 1
+        lg += Int32(1)
     end
     @inbounds for j in Int32(0):Int32(3)
         i = t + j * Int32(256)
