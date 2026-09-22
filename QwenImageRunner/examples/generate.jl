@@ -9,11 +9,13 @@ decodes to 7.26 GB of INT8 on the device and the Qwen3-VL conditioner to another
 6.9 GB, which do not fit at once on an 8060S. Each is released as soon as its
 output is in hand — the prompt embeddings are 360 KB and the latents 512 KB.
 
-The exports are static. `JULIA_QWENIMAGE21_ASSETS` must hold a text encoder at
-least as long as this prompt's token count, and a denoiser whose context length
-is exactly the prompt's embedding count — `tools/export_qwenimage21.py` binds
-both. A mismatch is reported rather than padded around: the denoiser's text
-stream is part of a joint attention, so padding it would change the image.
+Everything downloads itself: thirteen artifacts, 13.4 GB, fetched on the first
+call and cached in the depot.
+
+The latent resolution is bound at export time; the prompt length is not. The
+denoiser graph carries a `t` symbol and the plan binds it to this prompt's
+length, which is why nothing here has to match a number chosen by the exporter.
+The encoder is the one limit: it is exported for prompts up to 64 tokens.
 
 Writes a binary PPM, which needs no image package in this environment.
 """
@@ -54,13 +56,9 @@ release!(encoder)
 println("prompt: $(size(prompt_embeds, 2)) embeddings in $(round(time() - t0, digits=1)) s")
 
 t0 = time()
-transformer = qwenimagetransformer(; backend,
-                                   compact_dir=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""))
-context = Int(transformer.graph.buffers["prompt_embeddings"].shape[2])
-context == size(prompt_embeds, 2) || error(
-    "the denoiser was exported for $context prompt embeddings and this prompt " *
-    "makes $(size(prompt_embeds, 2)); re-export with " *
-    "`--component transformer --context-tokens $(size(prompt_embeds, 2))`")
+# The graph is generic in prompt length; the recorded plan is bound to this
+# prompt's length here, which is the only place it has to be known.
+transformer = qwenimagetransformer(; backend, context_tokens = size(prompt_embeds, 2))
 println("denoiser ready in $(round(time() - t0, digits=1)) s")
 
 Random.seed!(SEED)

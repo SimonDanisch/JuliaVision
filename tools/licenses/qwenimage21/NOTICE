@@ -1,0 +1,60 @@
+Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT, Copyright (c)
+2026 Hangzhou Tongyi Laboratory Technology Co., Ltd. All Rights Reserved.
+
+Built with Qwen.
+
+
+WHAT THIS ARTIFACT CONTAINS
+
+Every file in this artifact is derived from Qwen-Image 2.1 and is covered by
+the Qwen RESEARCH LICENSE AGREEMENT in the LICENSE file beside this notice.
+Read that file before using them; the terms below are a summary of the ones
+that bind a user of this artifact and are not a substitute for it.
+
+Upstream model:        https://huggingface.co/Qwen/Qwen-Image-2.1
+Compact checkpoint:    https://huggingface.co/Comfy-Org/Qwen-Image-2.1
+
+
+MODIFICATIONS, per section 3(b) of the Agreement
+
+The files here are NOT the upstream files. Each was changed, as follows.
+
+  * `qwenimage21_*.json` are graph exports: the transformer, text encoder and
+    VAE decoder traced out of the Diffusers implementation by
+    `tools/export_qwenimage21.py` into JuliaVision's own operator format.
+    They describe the upstream model's structure and carry no weights.
+
+  * `*_constants.safetensors` hold tensors the export lifted out of the
+    traced graph -- the rotary position tables, the output selection mask and
+    the timestep frequency table. They are computed from the upstream
+    configuration, at the one latent resolution and prompt length the graph
+    was exported for.
+
+  * `vae.safetensors` is the upstream VAE decoder converted to half precision
+    and renamed to the exported graph's buffer names.
+
+  * `weights-<i>of<n>.safetensors` are Comfy-Org's quantized checkpoints --
+    themselves a modification of Qwen's released weights -- split into pieces
+    that fit a release asset. The split is byte-for-byte: concatenating the
+    tensors of all `n` pieces reproduces Comfy-Org's file exactly, and no
+    value was altered. Comfy-Org's own quantization (tensor-wise INT8 with
+    ConvRot for the denoiser, asymmetric W4A8 for the encoder) is a change to
+    the upstream weights and is described at the compact checkpoint's page.
+
+  * `processor/` is Qwen's tokenizer and chat template, copied unchanged.
+
+
+TERMS THAT BIND YOU AS A RECIPIENT
+
+  * Section 2(b): the license is for NON-COMMERCIAL research and academic
+    use. Commercial use requires a separate license from the licensor.
+
+  * Section 4(b): if you use these materials to create, train, fine-tune or
+    improve an AI model that you distribute, you must prominently display
+    "Built with Qwen" or "Improved using Qwen" in its documentation.
+
+  * Section 4(c): you may not use "Qwen" as the primary name or identifier of
+    a derivative work or product. Descriptive use is permitted.
+
+  * Section 6: the materials are provided AS IS, without warranty of any
+    kind.

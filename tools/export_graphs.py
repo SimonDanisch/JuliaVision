@@ -51,8 +51,14 @@ VIEW_OPS = {
 DROP_OPS = {"_assert_tensor_metadata.default", "_assert_scalar.default"}
 
 # every dim name in graphs.py is a fixed multiple of h or w
+#
+# `t` is Qwen-Image 2.1's prompt length, and `tj` the joint text+image sequence
+# it implies. Both come from `export_qwenimage21.py`, which declares its own
+# dims rather than going through `dims()` above: its second axis is an affine
+# expression `t + image_tokens` rather than a multiple of anything here.
 ROOT = {"h": "h", "H": "h", "h2": "h", "h4": "h", "h8": "h",
-        "w": "w", "W": "w", "w2": "w", "w4": "w", "w8": "w"}
+        "w": "w", "W": "w", "w2": "w", "w4": "w", "w8": "w",
+        "t": "t", "tj": "t"}
 
 
 def symbol_names(ep, specs):
@@ -166,6 +172,28 @@ def convert(ep, specs, name):
                 if isinstance(a, torch.fx.Node):
                     args.append(a.name)
                     last_use[a.name] = i
+                    # A SymInt argument is a POSITION, not an operand. Tensor
+                    # operands are identified by their order in `in`, so they
+                    # need no attr; a symbolic scalar does, because `arg2` and
+                    # `arg3` of `slice.Tensor` are its start and its end and
+                    # mean nothing without the index.
+                    #
+                    # Dropping it is silent and it is not a crash: a dynamic
+                    # `x[:, n:]` exported with a literal `n` carries
+                    # `{"arg1": 1, "arg2": 22, "arg3": ...}`, and the same slice
+                    # with `n` symbolic carried only `{"arg1": 1}`, so the view
+                    # started at 0 and read 22 rows that belonged to the tensor
+                    # before it. Qwen-Image 2.1's denoiser slices the image half
+                    # off a joint text+image sequence exactly that way, and the
+                    # text half stayed correct while every image token read the
+                    # wrong rows.
+                    #
+                    # Same `"$name"` spelling as the mixed-list case below, and
+                    # `intattr`/`numattr` already resolve it.
+                    av = a.meta.get("val")
+                    if isinstance(av, (int, bool, float, torch.SymInt,
+                                       torch.SymBool, torch.SymFloat)):
+                        attrs[f"arg{j}"] = f"${a.name}"
                 elif isinstance(a, (list, tuple)) and any(isinstance(v, torch.fx.Node) for v in a):
                     # A list mixing buffers and constants, e.g. constant_pad_nd's
                     # [0, sub_141]. The buffers go into `in` so the dependency and

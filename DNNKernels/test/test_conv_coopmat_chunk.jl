@@ -116,3 +116,50 @@ end
     # A reduction axis no staged tiling divides admits nothing to pad onto.
     @test DKC.convcoutpad(MP, 288, 2590) == 288
 end
+
+# The chunks are even, so the last one is not mostly padding.
+#
+# `im2col` writes every row of its buffer and the GEMM multiplies every row of
+# it, because `MP` is the leading dimension and there is nowhere to say "only
+# this many rows are real". Taking the largest chunk the budget allows therefore
+# puts the whole remainder in the last chunk AT FULL COST: the VAE's
+# `144 -> 144 @ 1024²` ran ten chunks of 102144 and a last of 27136 doing
+# 102144 rows of work, and `1152 -> 1152 @ 128²` ran two chunks of 12864 for
+# 16384 pixels — 57% padding.
+@testset "the im2col chunks are even" begin
+    back = LavaBackend()
+    dev = DNNKernels.caps(back)
+    if dev.coopmat && dev.coopmatsubgroup == 32
+        GB = DKC.GEMM_BLOCK
+        # `(Cin, Cout, H, W)` from the Qwen-Image 2.1 VAE decoder, the shapes
+        # `tools/gap_vs_rocm.jl` tracks.
+        for (Cin, Cout, H, W) in ((288, 288, 1024, 1024), (144, 144, 1024, 1024),
+                                  (576, 576, 512, 512), (1152, 1152, 256, 256),
+                                  (1152, 1152, 128, 128))
+            x = KA.allocate(back, Float16, W, H, Cin, 1)
+            w = KA.allocate(back, Float16, 3, 3, Cin, Cout)
+            o = KA.allocate(back, Float16, W, H, Cout, 1)
+            p = DNNKernels.conv_coopmat_plan(dev, o, x, w)
+            @test p isa DNNKernels.ConvCoopMatPlan
+            cap = DNNKernels.im2colbudget(x)
+            nchunk = cld(p.NPQ, p.rows)
+            # Still a whole number of GEMM blocks, still inside the budget, and
+            # still the same number of chunks the budget forces.
+            @test p.rows % GB == 0
+            @test DNNKernels.padgemm(p.rows) * p.CRSP * sizeof(Float16) <= cap
+            @test nchunk == cld(p.NPQ, min(p.NPQ, (cap ÷ (p.CRSP * 2) ÷ GB) * GB))
+            # And the last chunk is nearly full rather than nearly empty. The
+            # deficit is at most one `GEMM_BLOCK` per earlier chunk — rounding
+            # the even size up to a block is the only slack — so the bound is
+            # stated as a fraction, generously: every shape here measures 92% or
+            # better, and the rule this replaced gave 27% on two of them.
+            last = p.NPQ - (nchunk - 1) * p.rows
+            @test 0 < last <= p.rows
+            @test 4 * last >= 3 * p.rows
+            @test last > p.rows - nchunk * GB
+            x = w = o = nothing; GC.gc()
+        end
+    else
+        @test_skip false
+    end
+end

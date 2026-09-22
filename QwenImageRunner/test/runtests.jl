@@ -1,4 +1,5 @@
 using Test, QwenImageRunner
+using Artifacts: artifact_hash, artifact_exists, artifact_path
 
 @testset "Qwen-Image 2.1 architecture" begin
     c = QWEN_IMAGE_21
@@ -40,17 +41,82 @@ end
     @test x ≈ fill(0.4f0, 2, 3)
 end
 
-@testset "export discovery" begin
-    @test !ready(dir="")
-    withenv("JULIA_QWENIMAGE21_ASSETS" => nothing) do
-        @test_throws ErrorException assetdir()
+@testset "every artifact the loaders ask for is bound" begin
+    toml = QwenImageRunner.ARTIFACTS_TOML
+    @test isfile(toml)
+
+    # Scanned out of the source rather than retyped here. The failure this
+    # catches is a shard added to `compact_denoiser` and not to
+    # `Artifacts.toml`: the package installs, `ready()` says yes, and the first
+    # generation dies inside `@artifact_str` on a name nobody bound.
+    asked = Set{String}()
+    for f in readdir(dirname(pathof(QwenImageRunner)); join=true)
+        endswith(f, ".jl") || continue
+        for m in eachmatch(r"@artifact_str\(\"([^\"]+)\"\)", read(f, String))
+            push!(asked, m.captures[1])
+        end
     end
+    @test length(asked) == 13
+    for n in sort!(collect(asked))
+        @test artifact_hash(n, toml) !== nothing
+    end
+
+    # `ready` is the question asked to decide whether to download, so it has to
+    # cover every name a loader will reach for. One missing and it answers yes
+    # to a pipeline that then fetches 6.8 GB.
+    @test asked == Set(reduce(vcat, values(QwenImageRunner.COMPONENT_ARTIFACTS)))
+    @test ready() isa Bool
+    @test ready(:vae_decoder) isa Bool
+    @test_throws ArgumentError ready(:not_a_component)
     @test_throws ArgumentError qwenimagegraph(:not_a_component; dir=".")
-    mktempdir() do dir
-        touch(joinpath(dir, "qwenimage21_transformer.json"))
-        touch(joinpath(dir, "transformer.safetensors"))
-        @test ready(:transformer; dir)
-        @test !ready(; dir)
+end
+
+@testset "each artifact carries the licence it is redistributed under" begin
+    # Section 3 of the Qwen Research License Agreement permits redistribution
+    # only if each recipient gets a copy of the Agreement and the attribution
+    # notice from 3(c). Each artifact is separately downloadable, so each has to
+    # carry both — this asserts the condition on whichever are present rather
+    # than downloading 14 GB to check.
+    toml = QwenImageRunner.ARTIFACTS_TOML
+    names = sort!(unique(reduce(vcat, values(QwenImageRunner.COMPONENT_ARTIFACTS))))
+    present = filter(names) do n
+        h = artifact_hash(n, toml)
+        h !== nothing && artifact_exists(h)
+    end
+    for n in present
+        dir = artifact_path(artifact_hash(n, toml))
+        @test isfile(joinpath(dir, "LICENSE"))
+        notice = joinpath(dir, "NOTICE")
+        @test isfile(notice)
+        @test occursin("Qwen RESEARCH LICENSE AGREEMENT", read(notice, String))
+    end
+    isempty(present) && @test_skip false
+end
+
+@testset "the downloaded trees have the files the loaders open" begin
+    if ready()
+        @test isfile(joinpath(assetdir(), "qwenimage21_transformer.json"))
+        @test isfile(joinpath(assetdir(), "qwenimage21_text_encoder.json"))
+        @test isfile(joinpath(assetdir(), "transformer_constants.safetensors"))
+        @test isfile(joinpath(assetdir(), "text_encoder_constants.safetensors"))
+        # The three `QwenTokenizer` opens, and only those: `tokenizer.json` is
+        # 11 MB of BPE table this package never reads.
+        @test isfile(joinpath(processordir(), "vocab.json"))
+        @test isfile(joinpath(processordir(), "merges.txt"))
+        @test isfile(joinpath(processordir(), "added_tokens.json"))
+        @test isfile(joinpath(vaedir(), "qwenimage21_vae_decoder.json"))
+        @test isfile(joinpath(vaedir(), "vae.safetensors"))
+
+        toml = QwenImageRunner.ARTIFACTS_TOML
+        for (shards, stem) in ((QwenImageRunner.DIT_SHARDS, "qwenimage21-dit-w"),
+                               (QwenImageRunner.ENC_SHARDS, "qwenimage21-enc-w"))
+            for (i, file) in enumerate(shards)
+                dir = artifact_path(artifact_hash(stem * string(i), toml))
+                @test isfile(joinpath(dir, file))
+            end
+        end
+    else
+        @test_skip false
     end
 end
 
@@ -79,9 +145,8 @@ end
     @test endswith(template, "<|im_start|>assistant\n")
     @test startswith(template, QwenImageRunner.qwen_system_prefix())
 
-    dir = get(ENV, "JULIA_QWENIMAGE21_PROCESSOR", "")
-    if isfile(joinpath(dir, "vocab.json"))
-        tk = QwenTokenizer(dir)
+    if ready()
+        tk = QwenTokenizer(processordir())
         # Against `AutoTokenizer` on the same string, which is where these came
         # from. The leading 14 are the system turn the pipeline drops.
         ids = QwenImageRunner.encode(tk, template)

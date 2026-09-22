@@ -3,9 +3,11 @@ uuid = "c9f7083c-8461-4622-afdd-95dfb5dadffd"
 version = "0.1.0"
 
 [deps]
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 

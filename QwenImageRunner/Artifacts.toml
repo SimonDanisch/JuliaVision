@@ -1,0 +1,103 @@
+[qwenimage21]
+git-tree-sha1 = "b592b38d198afb5f070acbbd35995f5b7e2568c8"
+lazy = true
+
+    [[qwenimage21.download]]
+    sha256 = "7f05d72b3e4d6abf0a52aa901f6ad1fa5272fce642c61987f88a37f83ca2c1e0"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21.tar.gz"
+
+[qwenimage21-dit-w1]
+git-tree-sha1 = "6848cf9d58ef60b2ab3341d778a054a73142765b"
+lazy = true
+
+    [[qwenimage21-dit-w1.download]]
+    sha256 = "18fc13db7e489963fc63da27d0b6daa70b11794f025a3aec97d25f78c841967f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-dit-w1.tar.gz"
+
+[qwenimage21-dit-w2]
+git-tree-sha1 = "e2ea60f8bd86abbc02e6a8dc3a5c0fa99b0c02a0"
+lazy = true
+
+    [[qwenimage21-dit-w2.download]]
+    sha256 = "c1dc16919ea7e63174a2b370d574cf142c567669ca5afd1b0ec27b6c48b4fbcc"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-dit-w2.tar.gz"
+
+[qwenimage21-dit-w3]
+git-tree-sha1 = "64147b140893569cff27e9d6053bc9dd9ce0618d"
+lazy = true
+
+    [[qwenimage21-dit-w3.download]]
+    sha256 = "1446c409d0ba14d380870c7ada807ad7d62e7493772e9a633bbdea6d5d49d615"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-dit-w3.tar.gz"
+
+[qwenimage21-dit-w4]
+git-tree-sha1 = "62c2f909899a99f3e8c5c9907ea448d9eec5042a"
+lazy = true
+
+    [[qwenimage21-dit-w4.download]]
+    sha256 = "9811601c6a5f718c83c61e3295936004b0c76f5f75416b5da11f95c28ed33bfe"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-dit-w4.tar.gz"
+
+[qwenimage21-dit-w5]
+git-tree-sha1 = "e22ed913ccd33771bf872a9774e69b170ab5e873"
+lazy = true
+
+    [[qwenimage21-dit-w5.download]]
+    sha256 = "d02813e3d7f9d30ebc0f3e45d634a876b1645ff9decbffe40bbc443ffe28f75b"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-dit-w5.tar.gz"
+
+[qwenimage21-dit-w6]
+git-tree-sha1 = "bd1ce9bbc4ba245125d7fb98ca40c089a9ab75f5"
+lazy = true
+
+    [[qwenimage21-dit-w6.download]]
+    sha256 = "16c2f6c23d90b4c67fef7d63b529c1b106ad173f4cd6d94ccdff7fee65eac272"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-dit-w6.tar.gz"
+
+[qwenimage21-enc-w1]
+git-tree-sha1 = "96083ec98dc539c839f8c8733bc6fc9befb98d3d"
+lazy = true
+
+    [[qwenimage21-enc-w1.download]]
+    sha256 = "4ada89aa40ddedd928e48698f17447e46f8189351312bd359c00b113499c9f60"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-enc-w1.tar.gz"
+
+[qwenimage21-enc-w2]
+git-tree-sha1 = "75db2d83c0009d49e085689207b6cac0b64354b6"
+lazy = true
+
+    [[qwenimage21-enc-w2.download]]
+    sha256 = "0bb33c5c8f8188f31fb04a133aa36b14646e4805d53e914eed94c526b964aebd"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-enc-w2.tar.gz"
+
+[qwenimage21-enc-w3]
+git-tree-sha1 = "b339514b80597881715488c4c788ef2f6d654ab1"
+lazy = true
+
+    [[qwenimage21-enc-w3.download]]
+    sha256 = "9d17fe8484d5221a8154052d1c25a4b848820ab53a2bb8189c70d6139dc17697"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-enc-w3.tar.gz"
+
+[qwenimage21-enc-w4]
+git-tree-sha1 = "1a4aec105a559a9ab2922eed87f43f6c95b9cc49"
+lazy = true
+
+    [[qwenimage21-enc-w4.download]]
+    sha256 = "a47d5db4842c421aa2e2bdebfa0651c4a1f21f08ef33337740e9bdfb4a0b3836"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-enc-w4.tar.gz"
+
+[qwenimage21-enc-w5]
+git-tree-sha1 = "6ba234ff4813ac171b462dcade9cb92c79a49e3b"
+lazy = true
+
+    [[qwenimage21-enc-w5.download]]
+    sha256 = "fa4fe011aa8284b205bf241d09fd9664e3567cb8e0b541d61dbfaa3c8f3ee137"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-enc-w5.tar.gz"
+
+[qwenimage21-vae]
+git-tree-sha1 = "3939fb7ebd7e14ecc7058c2b0cfb6bd101aa9261"
+lazy = true
+
+    [[qwenimage21-vae.download]]
+    sha256 = "40f056d5fcaa17c54b62c19c9db3d5f6a359575e2a69df2a7e8b35b1bf5d40a8"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-vae.tar.gz"

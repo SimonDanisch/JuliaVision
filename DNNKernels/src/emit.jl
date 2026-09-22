@@ -947,13 +947,22 @@ function viewstrides(emitctx::EmitCtx, b, ps::Dims, pst::Dims, od::Dims)
         # Optional torch arguments are represented as JSON `null`, not merely
         # omitted.  `get` therefore can return `nothing`; apply the schema
         # defaults in both cases, as the interpreted view path does.
-        start = fromend(Int(something(get(b.attrs, "arg2", nothing), 0)),
+        #
+        # Through `intattr`, NOT `Int`: a bound that depends on a graph symbol
+        # arrives as `"$sym_size_int_844"` rather than as a number, and is only
+        # knowable once `dims` has bound the symbol. `x[:, n:]` with a literal
+        # `n` carries `arg2 = 22`; the same slice with `n` symbolic carries the
+        # reference. See `tools/export_graphs.py` for the export half and
+        # `test_dynamic_slice.jl` for what reading it as 0 did.
+        start = fromend(intattr(emitctx.dims, emitctx.res,
+                                something(get(b.attrs, "arg2", nothing), 0)),
                         ps[jd], b.id, op)
-        step = Int(something(get(b.attrs, "arg4", nothing), 1))
+        step = intattr(emitctx.dims, emitctx.res,
+                       something(get(b.attrs, "arg4", nothing), 1))
         return (ntuple(k -> k == jd ? pst[k] * step : pst[k], n), start * pst[jd])
     elseif op == "select.int"
         jd = jdim(Int(b.attrs["arg1"]), n)
-        i = fromend(Int(b.attrs["arg2"]), ps[jd], b.id, op)
+        i = fromend(intattr(emitctx.dims, emitctx.res, b.attrs["arg2"]), ps[jd], b.id, op)
         # The axis is DROPPED, so the view has rank n-1 and the axis's
         # contribution is a constant offset.
         keep = Tuple(k for k in 1:n if k != jd)
@@ -4325,7 +4334,8 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
         M.dispatch!(emitctx.g, im2col_kernel!,
                     (col, x, Val(MP), Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
                      Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
-                     Wid, Hei, OW, OH, npqc, MP * CRSP, Cin, p0), MP * CRSP;
+                     Val(OW), Val(OH),
+                     Wid, Hei, npqc, MP * CRSP, Cin, p0), MP * CRSP;
                     name = "$(op.id).im2col$(sfx)")
         if native
             M.native_gemm_dispatch!(emitctx.dev, emitctx.g,

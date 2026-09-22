@@ -73,15 +73,14 @@ function convrot!(x::AbstractMatrix{Float32}, group_size::Integer=256)
 end
 
 """
-    token_embeddings(ids; checkpoint_dir) -> Matrix{Float16}
+    token_embeddings(ids; compact) -> Matrix{Float16}
 
 The `(hidden, tokens)` input embeddings for `ids` (0-based token ids), read from
 the compact checkpoint's INT8 table and rotated back out of the ConvRot basis.
 """
 function token_embeddings(ids::AbstractVector{<:Integer};
-        checkpoint_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""),
+        compact::AbstractDict=compact_encoder(),
         group_size::Integer=256)
-    compact = readsafetensors(_encoder_checkpoint(checkpoint_dir))
     q = compact["model.embed_tokens.weight"]            # (hidden, vocab), Int8
     scale = compact["model.embed_tokens.weight_scale"]  # (1, vocab), Float32
     hidden, vocab = size(q)
@@ -96,30 +95,23 @@ function token_embeddings(ids::AbstractVector{<:Integer};
     Float16.(convrot!(out, group_size))
 end
 
-function _encoder_checkpoint(dir::AbstractString)
-    isempty(dir) && throw(ArgumentError(
-        "set JULIA_QWENIMAGE21_COMPACT to the Comfy-Org checkpoint directory"))
-    path = joinpath(dir, "text_encoders", "qwen3vl_8b_w4a8.safetensors")
-    isfile(path) || throw(ArgumentError("compact text encoder not found at $path"))
-    path
-end
-
 """
-    compact_text_encoder_weights(graph; checkpoint_dir, constants_dir)
+    compact_text_encoder_weights(graph; compact, constants_dir)
 
 Map Comfy-Org's W4A8 Qwen3-VL encoder into the exported graph. The quantized
 matrices stay packed until DNNKernels decodes them onto the backend; the norms
 are BF16 in the file and Float16 in the graph; the rotary tables come from the
 export's own constants.
+
+`compact` is the checkpoint as a dictionary rather than a directory to read it
+from, because it arrives as five artifacts that `compact_encoder` merges.
 """
 function compact_text_encoder_weights(graph;
-        checkpoint_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""),
+        compact::AbstractDict=compact_encoder(),
         constants_dir::AbstractString=assetdir())
-    checkpoint = _encoder_checkpoint(checkpoint_dir)
     constants_path = joinpath(constants_dir, "text_encoder_constants.safetensors")
     isfile(constants_path) || throw(ArgumentError(
         "text encoder graph constants not found at $constants_path"))
-    compact = readsafetensors(checkpoint)
     constants = readsafetensors(constants_path; mmap=false)
     out = Dict{String,Any}()
 
@@ -150,7 +142,7 @@ function compact_text_encoder_weights(graph;
 end
 
 """A prepared Qwen3-VL text encoder: its recorded plan, tokenizer and lengths."""
-struct QwenTextEncoder{B,G,W,P}
+struct QwenTextEncoder{B,G,W,P,C}
     backend::B
     graph::G
     weights::W
@@ -158,11 +150,16 @@ struct QwenTextEncoder{B,G,W,P}
     tokenizer::QwenTokenizer
     tokens::Int
     drop::Int
-    checkpoint_dir::String
+    # The checkpoint is kept, not the path it came from: `encode_prompt` reads
+    # the embedding table out of it once per prompt, and re-opening five
+    # memory-mapped shards for two tensors is work for nothing. Holding it
+    # resident costs nothing either — `readsafetensors` maps, so this is five
+    # mappings and no pages.
+    compact::C
 end
 
 """
-    qwenimagetextencoder(; backend, dir=assetdir(), compact_dir, processor_dir)
+    qwenimagetextencoder(; backend, dir=assetdir(), compact, processor_dir)
 
 Load and prepare the exported Qwen3-VL conditioner.
 
@@ -173,11 +170,11 @@ denoiser runs every step.
 """
 function qwenimagetextencoder(; backend=Mantle.defaultbackend(),
                               dir::AbstractString=assetdir(),
-                              compact_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_COMPACT", ""),
-                              processor_dir::AbstractString=get(ENV, "JULIA_QWENIMAGE21_PROCESSOR", ""),
+                              compact::AbstractDict=compact_encoder(),
+                              processor_dir::AbstractString=processordir(),
                               maxpasses::Integer=64)
     graph = qwenimagegraph(:text_encoder; dir)
-    weights = compact_text_encoder_weights(graph; checkpoint_dir=compact_dir, constants_dir=dir)
+    weights = compact_text_encoder_weights(graph; compact, constants_dir=dir)
     model = Model(Dict("qwenimage21_text_encoder" => graph), weights; backend)
     prepared = model.graphs["qwenimage21_text_encoder"]
     plan = planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses))
@@ -185,7 +182,7 @@ function qwenimagetextencoder(; backend=Mantle.defaultbackend(),
     tokens = Int(prepared.buffers[only(prepared.inputs)].shape[2])
     drop = length(encode(tokenizer, qwen_system_prefix()))
     QwenTextEncoder(model.backend, prepared, model.weights, plan, tokenizer, tokens,
-                    drop, String(compact_dir))
+                    drop, compact)
 end
 
 """
@@ -204,7 +201,7 @@ function encode_prompt(encoder::QwenTextEncoder, prompt::AbstractString;
         "$(encoder.tokens); re-export with " *
         "`--component text_encoder --prompt-tokens $(length(ids))`"))
     padded = vcat(ids, fill(Int(pad_token), encoder.tokens - length(ids)))
-    embeddings = token_embeddings(padded; checkpoint_dir=encoder.checkpoint_dir)
+    embeddings = token_embeddings(padded; compact=encoder.compact)
     input = DNNKernels.toback(encoder.backend, reshape(embeddings, size(embeddings, 1),
                                                        size(embeddings, 2), 1))
     hidden = first(replay!(encoder.plan, "qwenimage21_text_encoder", (input,)))

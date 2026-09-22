@@ -169,6 +169,69 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     # convolution is **0.442 ms** (3.2x) and the step goes **11.08 -> 9.78 ms,
     # 90.2 -> 102.3 steps/s**. Cout=16 is a legal single N-tile, and the cap has
     # to clear the 35 MB those layers ask for.
+    #
+    # **The reuse rule is right and the route still loses on narrow `Cin`, and
+    # that is arithmetic rather than tuning.** At `144 -> 144 @ 1024²` the
+    # matrix is `H*W` by `Cin*9` = 1048576 x 1296 fp16 = **2.72 GB**. Writing it
+    # once and reading it once, at the 213 GB/s this device moves under
+    # `copyto!`, is **25.5 ms** — a lower bound, and torch does the WHOLE
+    # convolution in 19.32. No GEMM gets under the vendor from there. Ours is
+    # 87.6 ms, so the matrix is about 29% of it and the skinny `N = 144`
+    # product, nine 16-wide column tiles, is most of the rest. The gap closes as
+    # `Cin` grows for the same reason: at `Cin = 1152` the matrix is 8x larger
+    # but the arithmetic is 64x, and that shape measures 1.80x rather than 5.02x.
+    #
+    # What would fix it is the trick `GLOBALKV` plays in `flash.jl`: read the
+    # A tile with `OpCooperativeMatrixLoadKHR` straight from the input and never
+    # write the matrix. A 16x16 tile whose rows are consecutive `p` (stride 1 in
+    # `x`) and whose columns are 16 consecutive `c` (stride `W*H`) is a
+    # constant-2D-stride tile, which is exactly what the load takes, and
+    # `Cin % 16 == 0` holds for every VAE layer here.
+    #
+    # **But only after the reduction axis is reordered.** `im2col_kernel!` lays
+    # the columns out `k = kx + KW*ky + KW*KH*c`, `kx` fastest, because that is
+    # the order the weight already has — so sixteen consecutive columns span
+    # several kernel offsets, each a different spatial shift, and there is no
+    # single stride. Channel-fastest, `k = c + Cin*(kx + KW*ky)`, puts sixteen
+    # consecutive columns inside one `(kx, ky)` and makes the tile addressable.
+    # That is a permutation of the WEIGHT, done once where `Bp` is built rather
+    # than per step.
+    #
+    # **It was built, and it loses.** The addressing is right — a spike computing
+    # one 16x16 output tile that way agrees with the host to 4.5e-06 — and it is
+    # still the wrong kernel:
+    #
+    #     Cin   shape    im2col+GEMM   direct 4x1   direct 4x4
+    #      144  1024²        85.3 ms     110.4 ms     133.5 ms
+    #      288  1024²       191.3        867.1            -
+    #     1152   256²        93.3        428.3        714.6
+    #
+    # The reason is arithmetic intensity, and it is the thing materialising the
+    # matrix BUYS. A direct-load kernel has no reuse: each subgroup loads its own
+    # A and B tiles from global every k-step, 5 loads per 4 muladds in the 4x1
+    # form. Raising the per-subgroup tile to 4x4 improves the ratio to 8 loads
+    # per 16 muladds and measures WORSE still, because sixteen accumulators plus
+    # eight operands do not fit the register budget. im2col exists so that a
+    # blocked GEMM can stage A once into LDS and reuse it across the whole
+    # column strip; nothing here does that.
+    #
+    # So the design that could win is not this one. It is to fuse the im2col
+    # ADDRESSING into a blocked GEMM's LDS staging — stage A tiles into shared
+    # straight from `x`, keep the blocking — which saves writing and re-reading
+    # the 2.72 GB matrix (~26 ms of the 85) and keeps the reuse. That needs a
+    # blocked cooperative-matrix GEMM in this package, because the one in use is
+    # `Mantle.coopmat_gemm!` and Mantle is a pinned dependency.
+    #
+    # The other half of the gap is in the same place: `Cout = 144` is padded to
+    # 256 because Mantle's narrow-`N` path measures 14.418 ms against 3.985 for
+    # the padded shape, so the product does 1.8x the necessary arithmetic and
+    # the fix is a 16-wide `N` tile that is not slow.
+    #
+    # (The border cases the direct path would also have to solve — a tile
+    # touching the zero pad, and a 16-row tile crossing a `W` boundary — are
+    # confined to a few tiles per thousand at 1024², so they were never the
+    # obstacle. The spike above clamps rather than masks them and is a speed
+    # measurement only.)
     Cout >= dev.tile || return Decline(:reuse)
     NPQ = out[4] * out[2] * out[1]
     # `CRSP`, not `padtile(CRS)` — the scratch is allocated at the extent the plan
@@ -185,6 +248,23 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     # One M-block is the floor: below it there is no chunk to take, and a
     # reduction axis that wide is beyond anything this can serve.
     rows >= GEMM_BLOCK || return Decline(:im2colsize)
+    # ── Spread the pixels EVENLY over the chunks the cap forces.
+    #
+    # Taking the largest chunk that fits leaves the remainder in the last one,
+    # and the last one still costs a full `MP`: `im2col` writes every row of the
+    # buffer and the GEMM multiplies every row of it, because `MP` is the
+    # leading dimension and there is nowhere to say "only this many are real".
+    # At the VAE's `144 -> 144 @ 1024²` that was 1048576 pixels in chunks of
+    # 102144 — ten full and a last one of 27136 doing 102144 rows of work, 74%
+    # of it on padding, and 6.5% of the whole convolution.
+    #
+    # Same chunk COUNT, so the cap still holds and nothing else about the plan
+    # moves; the chunk is just the smallest block-aligned size that still needs
+    # only that many. Rounding up can only lower the count, never raise it, and
+    # the guard keeps it inside the budget when the rounding would not fit.
+    nchunk = cld(NPQ, rows)
+    even = cld(cld(NPQ, nchunk), GEMM_BLOCK) * GEMM_BLOCK
+    even <= rows && cld(NPQ, even) == nchunk && (rows = even)
     ConvCoopMatPlan(CRS, CRSP, Cout, convcoutpad(padgemm(rows), Cout, CRSP), NPQ, rows)
 end
 
@@ -345,11 +425,42 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
 @kernel function im2col_kernel!(col, @Const(x), ::Val{MP},
                                 ::Val{KW}, ::Val{KH}, ::Val{SX}, ::Val{SY},
                                 ::Val{PX}, ::Val{PY}, ::Val{DX}, ::Val{DY},
-                                Wid, Hei, OW, OH, NPQ, ntot,
-                                Cin, p0) where {MP,KW,KH,SX,SY,PX,PY,DX,DY}
+                                ::Val{OW}, ::Val{OH},
+                                Wid, Hei, NPQ, ntot,
+                                Cin, p0) where {MP,KW,KH,SX,SY,PX,PY,DX,DY,OW,OH}
     # Flat launch, like `conv_epilogue_kernel!`: a 2-D `ndrange` is partitioned
     # into 2-D workgroups, so a warp spans only a handful of consecutive `m` and
     # the writes to `col` (which is `m`-major) are fragmented.
+    #
+    # `OW` and `OH` are `Val`s and not arguments because the decomposition of a
+    # pixel index below divides by `OW` and by `OH*OW`. As runtime values those
+    # are two REAL integer divisions per element and this device has no integer
+    # divide; as literals LLVM turns each into a multiply and a shift. Measured
+    # against the identical kernel with the two as arguments, interleaved in one
+    # process, one chunk each, **output compared and bit-identical**:
+    #
+    #     Cin    shape      Val      runtime
+    #      144   1024²    3.506 ms   4.353 ms   -19.5%
+    #      288   1024²    3.712      4.393      -15.5%
+    #      576    512²    3.551      4.291      -17.3%
+    #     1152    256²    3.639      4.327      -15.9%
+    #     1152    128²    3.610      4.346      -16.9%
+    #
+    # RADV agrees on the mechanism: 239 instructions against 341, 50 scalar ALU
+    # against 86. im2col is about half of this convolution, so it is worth
+    # ~8-10% of the whole.
+    #
+    # It costs no extra specialisation: `MP` is already a `Val` and is derived
+    # from `NPQ` and `CRSP`, so a shape differing in `OW` or `OH` differs in
+    # `MP` too and was compiling its own kernel regardless.
+    #
+    # **Do not try to confirm this by timing `convolution!` across two
+    # processes.** The whole convolution allocates a multi-GB im2col scratch and
+    # its wall time on this machine swings ~40% run to run — the same shape
+    # measured 35.48, 51.10, 37.17 and 36.89 ms in one session. A cross-process
+    # A/B of the convolution reported this change as +30% on one shape and -8%
+    # on another; both were noise. The table above is interleaved in one process
+    # and is what the change is worth.
     lin = @index(Global, Linear)
     # `return` is not permitted in a KernelAbstractions kernel; guard instead.
     if lin <= ntot
@@ -497,7 +608,8 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
                                 Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
                                 Val(padding[1]), Val(padding[2]),
                                 Val(dilation[1]), Val(dilation[2]),
-                                Wid, Hei, OW, OH, npqc, MP * CRSP, Cin, p0;
+                                Val(OW), Val(OH),
+                                Wid, Hei, npqc, MP * CRSP, Cin, p0;
                                 ndrange = MP * CRSP)
         Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C, reduce = false)
         conv_epilogue_kernel!(backend, (256, 1))(

@@ -391,6 +391,21 @@ struct FlashCMPlan
     # merge dispatch already do the right thing; what differs is that the two
     # launches carry their own key ranges rather than halving one.
     tailsplit::Bool
+
+    # ── Read K and V as cooperative matrices, rather than staging them.
+    #
+    # `OpCooperativeMatrixLoadKHR` takes a pointer in any storage class, so the
+    # tile the tensor core wants can come straight from the tensor. What that
+    # removes is a store to shared, a barrier, and a load, for both operands, on
+    # every key block: **37.36 ms -> 25.56** at Qwen-Image 2.1's attention.
+    #
+    # It lives on the plan rather than being re-derived at launch because it also
+    # decides the TILING. The table `flashcm_tiling` orders was measured with
+    # staging, and staging is what made a wide workgroup pay: with the operands
+    # read as tiles the same shape ranks the other way round, 128 threads over
+    # 512 at every block width, and the two decisions cannot be allowed to
+    # disagree about which kernel is being chosen for.
+    globalkv::Bool
 end
 
 """
