@@ -130,8 +130,9 @@ end
 # `fuseattn` exists because a fused attention and a RECORDED graph are not
 # always both available: `emitgraph` needs the chosen plan to have a declared
 # form, and `CoopMatSDPAPlan` has none. Qwen-Image 2.1's VAE decoder is the
-# case, one mid-block head 1152 wide, so `qwenimagevae(record = true)` asks for
-# the chain instead of the fusion. It is a switch on that one pass and not on
+# case, one mid-block head 1152 wide, so `qwenimagevae` builds its `Model` with
+# `fuseattn = false` and gets the chain instead of the fusion. It used to say
+# `!record`; the decoder always plans now, so the flag is simply false. It is a switch on that one pass and not on
 # `fuse`, which would also take the elementwise groups with it.
 @testset "the attention fusion can be switched off on its own" begin
     fused = DKA.Model(Dict("g" => safesoftmaxgraph()), Dict{String,Any}();

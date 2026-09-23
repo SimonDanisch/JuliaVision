@@ -160,3 +160,6 @@ end
         @test_skip false
     end
 end
+
+# The decoder holds a Model and plans per grid; there is no unplanned path left.
+include(joinpath(@__DIR__, "test_vae_plans.jl"))

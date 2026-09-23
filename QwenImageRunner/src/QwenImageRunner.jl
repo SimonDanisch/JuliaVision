@@ -478,115 +478,97 @@ function denoise!(model::QwenTransformer, latents, prompt_embeddings, timestep)
                   (latents, prompt_embeddings, timestep, model.rotary...)))
 end
 
-"""A prepared Qwen-Image 2.1 VAE decoder. `plan === nothing` runs interpreted."""
-struct QwenVAEDecoder{B,D,G,W,P}
+"""The VAE decoder graph's name, which is also its key in the `Model`."""
+const VAEGRAPH = "qwenimage21_vae_decoder"
+
+"""
+A prepared Qwen-Image 2.1 VAE decoder.
+
+It holds its `Model` and nothing else, because a `Model` is what knows how to
+plan a graph for a grid and how to keep the plan. There is no second field for
+"the plan" and no field for "no plan": see [`decode!`](@ref).
+"""
+struct QwenVAEDecoder{B,M}
     backend::B
-    device::D
-    graph::G
-    weights::W
-    plan::P
+    model::M
 end
 
 """
-    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), latent=nothing)
+    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), maxpasses=8)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
 
-**Pass `latent = (h, w)`.** It records a plan, and without one this falls back
-to `DNNKernels.execute!`, which allocates one buffer per op and frees none.
+The grid is not an argument. `decode!` plans for whatever latents it is handed
+and the `Model` keeps that plan, so decoding two sizes builds two plans and
+decoding one size twice builds one. A caller that knows its grid gains nothing
+by saying so up front.
 
-That is not a property of interpreting a graph, and the difference is not how
-the launches reach the command buffer. Both paths had a placer until
-`ea74587`: DNNKernels' own slab allocator laid every intermediate into one
-buffer aliased by live range, and it was deleted on the reasoning that
-"declared, Mantle owns the arena — and a second placer is a second answer to
-one question" (`DNNKernels/src/plan.jl`). What that left behind is
-`place(::Nothing, …) = nothing` as the only method, so every `dest` on this
-path falls through to a fresh `KA.allocate`, and `execute!` keeps each result
-in `ctx.values` for the whole run and returns the dictionary. The peak is the
-SUM of the decoder's activations by construction.
+## What the interpreted path cost, and why there is no longer one
 
-`decode!` is the last caller of that path anywhere in this tree — everything
-else goes through `DNNKernels.call`, which always plans. Measured on an 8060S,
-device memory for one decode and the one-time plan build:
+This used to take `record::Bool`, defaulting to `latent !== nothing`, and
+`record = false` fell through to `DNNKernels.execute!` — which allocates one
+buffer per op and frees none, so the peak is the SUM of the decoder's
+activations by construction. That was never a property of interpreting a graph.
+Both paths had a placer until `ea74587`, when DNNKernels' slab allocator was
+deleted for the good reason that "declared, Mantle owns the arena — and a second
+placer is a second answer to one question"; what it left behind was
+`place(::Nothing, …) = nothing` as the only method, so every `dest` on the
+unplanned path fell through to a fresh `KA.allocate`.
+
+Measured on an 8060S, device memory for one decode plus the one-time build:
 
     output     interpreted   recorded   build    decode
     256x256        5 590 MB   1 014 MB    1.2 s    0.17 s
     512x512       19 889 MB   1 504 MB   14.4 s    0.64 s
     1024x1024     66 048 MB   3 880 MB   14.4 s    2.51 s
 
-66 GB for one 1024² image, which runs here only because this APU can hand out
-114 GB of GTT and is an immediate out-of-memory on any discrete card. The
-decode is faster recorded at every size as well.
+Re-measured 2026-09-23 at 256² on the same card, GTT+VRAM peak sampled at 100 Hz
+while decoding: 7025 MiB for `qwenimagevae(; backend)` as it was against 1439
+MiB as it is, both including the weights and the build. The two outputs are
+BYTE-IDENTICAL — 1 048 576 bytes compared, old recorded against new — so this
+changed what the default costs and not what it computes.
 
-The unplanned column is what an unplaced graph costs, then, not what one more
-level of indirection costs.
+66 GB for one 1024² image, which ran here only because this APU hands out 114 GB
+of GTT and is an immediate out-of-memory on any discrete card. The decode is
+faster planned at every size as well. The one case the old default won was a
+single 1024² decode and nothing else — 4.79 s against 16.9 s including the
+build — at seventeen times the memory.
 
-This default used to be `record = false` on the argument that a plan "costs more
-to build than it saves": 4.79 s interpreted at 1024² against ~50 s to build.
-The build is 14.4 s now — the convolutions stopped falling off the tensor-core
-path, see below — so the one-shot case is 16.9 s against 4.79 s and that is the
-only case the old default wins, at 17x the memory. A caller who really wants it,
-or who has no grid to name, still gets it.
+`fuseattn = false`, because the fused form cannot be recorded: the mid-block
+attention is a single head 1152 wide, which `flashcm_plan` declines and
+`coopmat_sdpa_plan` accepts, and that plan has no declared form. Unfusing costs
+nothing measurable — 12.7 s against 12.8 s — because it is one attention among
+422 ops. It used to be `!record`, which is to say it was already false whenever
+a plan was built.
 
-Both were three times that — 12.8 and 16.0 s — until the convolutions stopped
-falling off the tensor-core path. Eighty-two percent of this graph is
-convolution, and twenty-seven of its forty-five were refused because their
-im2col matrix is gigabytes; they ran at about 1 TFLOP/s where the eighteen that
-fit reach 19-22. `conv_coopmat_plan` now divides the pixel axis into chunks
-instead of refusing, and pads the output channels onto a column tile the staged
-GEMM has. See `DNNKernels.IM2COL_CAP`. The two paths agree to
-9.3e-5 rms and 4.9e-4 peak of a [-1, 1] range, so this is a speed choice and not
-a correctness one.
+Eighty-two percent of this graph is convolution, and twenty-seven of its
+forty-five used to be refused because their im2col matrix is gigabytes; they ran
+at about 1 TFLOP/s where the eighteen that fit reach 19-22. `conv_coopmat_plan`
+now chunks the pixel axis instead of refusing, and pads the output channels onto
+a column tile the staged GEMM has. See `DNNKernels.IM2COL_CAP`. The two paths
+agreed to 9.3e-5 rms and 4.9e-4 peak of a [-1, 1] range, so dropping the
+interpreted one is a memory and speed choice and not a correctness one.
 
-`record = true` builds the model with `fuseattn = false`, because the fused form
-cannot be recorded: the mid-block attention is a single head 1152 wide, which
-`flashcm_plan` declines and `coopmat_sdpa_plan` accepts, and that plan has no
-declared form. Unfusing it costs nothing measurable here (12.7 s against 12.8 s
-interpreted) because it is one attention among 422 ops.
-
-Two numbers that were in this docstring and are wrong: the decode is not 38.4 s
-(that was a first call, whose extra ~6 s is shader compilation), and a recorded
-submission does not have to exceed the driver's limit (`maxpasses = 8` records
-and replays; 64 is what times out).
+`maxpasses` is the recording's explicit submission split; 8 records and replays,
+64 is what times out.
 """
 function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=vaedir(),
-                      latent::Union{Nothing,Tuple{Integer,Integer}}=nothing,
-                      # After `latent`, and derived from it: a recorded plan is
-                      # of concrete dispatches, so a caller who names the grid
-                      # can have one and a caller who does not cannot. See the
-                      # table above for what the interpreted path costs.
-                      record::Bool=latent !== nothing,
                       maxpasses::Integer=8)
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
-    model = Model(Dict("qwenimage21_vae_decoder" => graph), weights; backend,
-                  fuseattn = !record)
-    prepared = model.graphs["qwenimage21_vae_decoder"]
-    # Only the RECORDED path needs the grid up front, because a recording is of
-    # concrete dispatches. The interpreted path reads it off each call's latents
-    # — see `vaedims` — which is why it is what a caller without a grid gets.
-    if record && !isempty(prepared.symbols) && latent === nothing
-        throw(ArgumentError(
-            "this VAE decoder graph is symbolic in $(join(prepared.symbols, ", ")), so a " *
-            "recorded plan needs the latent grid: `qwenimagevae(; record = true, " *
-            "latent = (h, w))`. Leave `record = false` to decode any grid interpreted."))
-    end
-    plan = record ?
-        planfor(model.device, prepared, model.weights,
-                latent === nothing ? (;) : (; h = Int(latent[1]), w = Int(latent[2]));
-                maxpasses=Int(maxpasses)) :
-        nothing
-    QwenVAEDecoder(model.backend, model.device, prepared, model.weights, plan)
+    model = Model(Dict(VAEGRAPH => graph), weights; backend, fuseattn = false,
+                  record_maxpasses = Dict(VAEGRAPH => Int(maxpasses)))
+    QwenVAEDecoder(model.backend, model)
 end
 
 """The decoder's `h` and `w` symbols, read off the latents being decoded.
 
 `(width, height, 1, channels, batch)` is the Julia order, so `w` is the first
 extent and `h` the second. Derived here rather than stored on the decoder
-because the interpreted path has no plan and therefore no resolution of its own:
-it can decode whatever it is handed, and the grid IS the argument.
+because the decoder has no resolution of its own: it decodes whatever it is
+handed, and the grid IS the argument. `call` keys its plan cache on these, so
+one decoder serves any number of grids at one plan each.
 """
 vaedims(latents) = (; h = size(latents, 2), w = size(latents, 1))
 
@@ -597,13 +579,11 @@ Decode normalized latents in Julia order `(width, height, 1, channels, batch)`
 to an image `(width*16, height*16, 1, 4, batch)` — the decoder's fourth channel
 is alpha — on the same backend.
 """
-decode!(model::QwenVAEDecoder{<:Any,<:Any,<:Any,<:Any,Nothing}, latents) =
-    DNNKernels.execute!(model.graph, Dict(only(model.graph.inputs) => latents),
-                        model.weights; dims=vaedims(latents), backend=model.backend)[
-        DNNKernels.viewroot(model.graph, only(model.graph.outputs))]
-
+# One method. `call` plans for this grid on the first decode of it, keeps the
+# plan on the `Model`, and replays after — so the grid does not have to be known
+# when the decoder is built, and there is no unplanned path to fall down.
 decode!(model::QwenVAEDecoder, latents) =
-    first(replay!(model.plan, "qwenimage21_vae_decoder", (latents,)))
+    first(DNNKernels.call(model.model, VAEGRAPH, latents; dims = vaedims(latents)))
 
 """
     image_sequence_length(width, height) -> Int
@@ -806,12 +786,23 @@ A method on Mantle's own `release!` rather than a second name for it: it means
 the same thing here as it does for a recording, and two exported `release!`s
 are an ambiguity at every call site that has both packages in scope.
 """
+# The encoder and the denoiser hold one hand-rolled plan each and their weights
+# directly; the decoder holds a `Model`, which holds its weights and one plan per
+# grid decoded. Two things to free either way, reached differently, so two
+# methods rather than a branch inside one.
+freeplans!(c::Union{QwenTextEncoder,QwenTransformer}) =
+    (c.plan === nothing || Mantle.free!(c.plan.plan); nothing)
+freeplans!(c::QwenVAEDecoder) = (DNNKernels.releaseplans!(c.model); nothing)
+
+heldweights(c::Union{QwenTextEncoder,QwenTransformer}) = c.weights
+heldweights(c::QwenVAEDecoder) = c.model.weights
+
 function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVAEDecoder})
     dev = Mantle.todevice(component.backend)
-    component.plan === nothing || Mantle.free!(component.plan.plan)
+    freeplans!(component)
     # The weight dict is the only reference the component holds to the device
     # arrays; the `Model` that built them is long gone.
-    empty!(component.weights)
+    empty!(heldweights(component))
     # …but dropping the last Julia reference frees nothing while the DEVICE still
     # names them: a command buffer retains every resource it references until it
     # completes, so the upload that wrote these weights holds them until it does.

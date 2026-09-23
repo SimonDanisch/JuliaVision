@@ -747,6 +747,29 @@ function planfor(dev, g::Graph, weights::AbstractDict, dims;
 end
 
 """
+    releaseplans!(m::Model) -> m
+
+Free every plan `call` has built on `m` and drop the cache.
+
+`call` keys its plans on `(:plan, name, dims, clampattn, noisetype)` and keeps
+them in `m.scratch` for the model's life, which is the point — one build, many
+replays. A caller that is finished with a model wants the device memory back,
+and the key shape is this file's business, not a runner's: `release!` in
+QwenImageRunner used to reach for `component.plan.plan` because a component held
+exactly one plan and nothing else did.
+
+The model stays usable. `call` rebuilds on the next call to it, at the cost of
+another build.
+"""
+function releaseplans!(m::Model)
+    for (k, v) in m.scratch
+        v isa RecordedPlan && Mantle.free!(v.plan)
+    end
+    empty!(m.scratch)
+    return m
+end
+
+"""
     replay!(mp, name, args) -> outputs
 
 Write `args` into the buffers the plan was declared against, submit it, and hand
