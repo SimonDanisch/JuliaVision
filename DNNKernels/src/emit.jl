@@ -998,9 +998,17 @@ function splitview!(emitctx::EmitCtx, id::AbstractString, b::Buffer, parent)
             M.viewof(parent, od; offset = off * ast[d])
         else
             dst = make(emitctx, id, eltype(parent), od)
-            M.dispatch!(emitctx.g, stridedcopy!,
-                        (dst, od, parent, ast, off * ast[d]), prod(od);
-                        name = "$(id).split$(i)")
+            # Through the DISPATCHER, not straight at the 64-bit kernel. A piece
+            # is a slice and gets a slice's pass, which means it also gets the
+            # 32-bit index chain, the run width and the walk order that
+            # `stridedcopydispatch!` picks — its docstring says there is one
+            # place so the two cannot be reached under different rules, and this
+            # was the second place. Every split took six emulated 64-bit
+            # divisions per element however small its indices: 80 of
+            # BasicVSR++'s copies, 0.462 ms each against 0.105 for the 32-bit
+            # path beside them.
+            stridedcopydispatch!(emitctx, dst, od, parent, ast, off * ast[d];
+                                 name = "$(id).split$(i)")
             dst
         end
         emitctx.res[key] = piece
