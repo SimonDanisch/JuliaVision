@@ -3,6 +3,7 @@ The fused attention kernel: correct where it claims to be, refusing the shapes
 where it is not, and recordable through the declared `sdpa` path.
 """
 
+import KernelInterface
 using Test, DNNKernels, Lava, KernelAbstractions, Random
 import Mantle
 using Mantle: LavaBackend
@@ -92,9 +93,9 @@ end
         for (BQ, NT) in ((64, 256), (32, 256), (32, 128), (64, 128))
             @test DNNKernels.flashfits(E, BQ, 32, NT)
             o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
-            DNNKernels.attn_flash!(back, NT)(o, q, k, v, scale, Val(BQ), Val(32),
-                                             Val(E), Val(NT), Int32(L);
-                                             ndrange = (NT * div(L, BQ), H, B))
+            KernelInterface.Kernel(back, DNNKernels.attn_flash!)(
+                o, q, k, v, scale, Val(BQ), Val(32), Val(E), Val(NT), Int32(L);
+                ndrange = (NT * div(L, BQ), H, B), workgroupsize = NT)
             KA.synchronize(back)
             got = Array(o)
             @test maximum(abs, got) > 1e-3
@@ -662,11 +663,12 @@ end
         # Flat, one element per thread: `n` over `(e, lq, h, b)` and `nrow`
         # over the `(lq, h, b)` the split bookkeeping is indexed by.
         g = DNNKernels.FLASH_MERGE_GROUP
-        DNNKernels.attn_flash_cm_merge!(back, g)(out, DNNKernels.toback(back, ph),
+        KernelInterface.Kernel(back, DNNKernels.attn_flash_cm_merge!)(out, DNNKernels.toback(back, ph),
                                                  DNNKernels.toback(back, mh),
                                                  Val(ns), Val(E),
                                                  Int32(E * Lq * H * B), Int32(Lq * H * B);
-                                                 ndrange = cld(E * Lq * H * B, g) * g)
+                                                 ndrange = cld(E * Lq * H * B, g) * g,
+                                                 workgroupsize = g)
         KA.synchronize(back)
         @test maximum(abs, Array(out) .- mergeref(ph, mh)) /
               maximum(abs, mergeref(ph, mh)) < 1f-5

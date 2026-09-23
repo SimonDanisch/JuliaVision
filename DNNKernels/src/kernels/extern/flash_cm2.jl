@@ -467,8 +467,8 @@ Every operand arrives as a flat root array plus its base offset and four strides
 exactly as `attn_flash_cm!` takes them — attention's operands are wrappers, and
 the strides go into the tensor layouts rather than into hand-written indexing.
 """
-@kernel cpu=false unsafe_indices=true function attn_flash_cm2!(
-        out, @Const(q), @Const(k), @Const(v), scale::Float32,
+function attn_flash_cm2!(
+        out, q, k, v, scale::Float32,
         qbase::Int32, qsE::Int32, qsL::Int32, qsH::Int32, qsB::Int32,
         kbase::Int32, ksE::Int32, ksL::Int32, ksH::Int32, ksB::Int32,
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
@@ -478,7 +478,7 @@ the strides go into the tensor layouts rather than into hand-written indexing.
         ::Val{ABL} = Val(:all), ::Val{FUSED} = Val(true),
         ::Val{OSUM} = Val(:fill)) where {BR,BC,E,EP,ABL,FUSED,OSUM}
     WM = Lava.WorkgroupMatrix
-    grp = @index(Group, NTuple)
+    grp = Tuple(KI.get_group_id())
     qb, h, b = grp[1], grp[2], grp[3]
     q0 = Int32((qb - 1) * BR)
 
@@ -688,6 +688,7 @@ the strides go into the tensor layouts rather than into hand-written indexing.
     else
         Lava.tensor_store(acc, oa, olay)
     end
+    return nothing
 end
 
 """
@@ -941,7 +942,7 @@ function sdpaflashcm2!(ctx, out, plan::FlashCM2Plan, q, k, v, scale;
     sq, sk, sv, so = st(q), st(k), st(v), st(out)
     flat(r) = reshape(r[1], length(r[1]))
 
-    attn_flash_cm2!(ctx.backend, plan.NT)(
+    KI.Kernel(ctx.backend, attn_flash_cm2!)(
         flat(ro), flat(rq), flat(rk), flat(rv), Float32(scale),
         Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
         Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
@@ -950,7 +951,7 @@ function sdpaflashcm2!(ctx, out, plan::FlashCM2Plan, q, k, v, scale;
         Int32(Lq), Int32(Lk),
         Val(plan.BR), Val(plan.BC), Val(plan.E), Val(plan.EP), Val(abl), Val(fused),
         Val(osum);
-        ndrange = (plan.NT * cld(Lq, plan.BR), H, B))
+        ndrange = (plan.NT * cld(Lq, plan.BR), H, B), workgroupsize = plan.NT)
     out
 end
 

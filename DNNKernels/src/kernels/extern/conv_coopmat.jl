@@ -528,7 +528,7 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
 # `p0` is the first pixel this chunk covers and `NPQ` how many of them it has,
 # so the whole matrix is the single chunk `p0 = 0, NPQ = plan.NPQ`. See
 # `ConvCoopMatPlan.rows`.
-@kernel function im2col_kernel!(col, @Const(x), ::Val{MP}, ::Val{VEC},
+function im2col_kernel!(col, x, ::Val{MP}, ::Val{VEC},
                                 ::Val{KW}, ::Val{KH}, ::Val{SX}, ::Val{SY},
                                 ::Val{PX}, ::Val{PY}, ::Val{DX}, ::Val{DY},
                                 ::Val{OW}, ::Val{OH},
@@ -567,8 +567,8 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
     # A/B of the convolution reported this change as +30% on one shape and -8%
     # on another; both were noise. The table above is interleaved in one process
     # and is what the change is worth.
-    lin = @index(Global, Linear)
-    # `return` is not permitted in a KernelAbstractions kernel; guard instead.
+    lin = KI.get_global_id().x
+    # The ndrange need not be a multiple of the workgroup, so guard.
     if (lin - 1) * VEC < ntot
         @inbounds begin
             T = eltype(col)
@@ -612,6 +612,7 @@ inside `Int32`; `MP * CRS` for the largest convolution we take is 17.7M.
             end
         end
     end
+    return nothing
 end
 
 """
@@ -927,10 +928,10 @@ reshape — the rows past `NPQ` are dropped here.
 # than the whole of `P` — which the flat index cannot say without another
 # division. `p0` is the chunk's first pixel; `Cout` is the weight's own channel
 # count and `MP * CoutP` the padded plane `C` was written at.
-@kernel function conv_epilogue_kernel!(out, @Const(C), @Const(bias), ::Val{MP},
+function conv_epilogue_kernel!(out, C, bias, ::Val{MP},
                                        ::Val{ACT}, ::Val{SPLITK}, ::Val{NIMG},
                                        P, Cout, npqc, p0, plane) where {MP,ACT,SPLITK,NIMG}
-    pc, kc1 = @index(Global, NTuple)
+    pc, kc1 = Tuple(KI.get_global_id())
     if pc <= npqc
         @inbounds begin
             pixc = Int32(pc) - Int32(1)     # 0-based pixel within the chunk
@@ -956,6 +957,7 @@ reshape — the rows past `NPQ` are dropped here.
             out[lin] = eltype(out)(v)
         end
     end
+    return nothing
 end
 
 """
@@ -1022,7 +1024,7 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
                                                     dilation, Wid, Hei, Cin, npqc, p0))
         else
             vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
-            im2col_kernel!(backend)(col, x, Val(MP), Val(vec),
+            KI.Kernel(backend, im2col_kernel!)(col, x, Val(MP), Val(vec),
                                     Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
                                     Val(padding[1]), Val(padding[2]),
                                     Val(dilation[1]), Val(dilation[2]),
@@ -1032,10 +1034,10 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
             Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C,
                                  reduce = false)
         end
-        conv_epilogue_kernel!(backend, (256, 1))(
+        KI.Kernel(backend, conv_epilogue_kernel!)(
             out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
             OW * OH, Cout, npqc, p0, MP * CoutP;
-            ndrange = (cld(npqc, 256) * 256, Cout))
+            ndrange = (cld(npqc, 256) * 256, Cout), workgroupsize = (256, 1))
     end
     out
 end

@@ -342,9 +342,14 @@ function mm_coopmat_plan(dev::M.DeviceCaps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb}
 end
 
 """Copy `B` into the leading `N` columns of a `K x NP` scratch, zeroing the rest."""
-@kernel function padcols_kernel!(dst, @Const(B), ::Val{K}, N) where {K}
-    i, j = @index(Global, NTuple)
+function padcols_kernel!(dst, B, ::Val{K}, N) where {K}
+    i, j = Tuple(KI.get_global_id())
+    # The bounds check `@kernel` used to insert. The launch names no workgroup,
+    # so `KernelInterface` fills one up to the device limit and it need not
+    # divide `(K, NP)`.
+    (i <= K && i + K * (j - 1) <= length(dst)) || return nothing
     @inbounds dst[i + K * (j - 1)] = j <= N ? B[i, j] : zero(eltype(dst))
+    return nothing
 end
 
 """
@@ -352,13 +357,13 @@ end
 summing the split-K planes on the way — this pass already reads every element,
 so a separate reduction kernel would be a second full traversal for nothing.
 """
-@kernel function mm_epilogue_kernel!(out, @Const(C), @Const(bias), epi, ::Val{M},
+function mm_epilogue_kernel!(out, C, bias, epi, ::Val{M},
                                      ::Val{SPLITK}, plane, ntot) where {M,SPLITK}
     # Flat launch: a 2-D `ndrange` is partitioned into 2-D workgroups, so a warp
     # covers only a few consecutive `i` and neither the read of `C` nor the write
     # of `out` (both `i`-major) coalesces. Doing the same to the convolution
     # epilogue and im2col was worth 2.3 ms of a 31.7 ms step.
-    lin = @index(Global, Linear)
+    lin = KI.get_global_id().x
     if lin <= ntot
         @inbounds begin
             q = Int32(lin) - Int32(1)
@@ -377,6 +382,7 @@ so a separate reduction kernel would be a second full traversal for nothing.
             out[i, j] = epi(eltype(out)(v))
         end
     end
+    return nothing
 end
 
 # ── Why the GEMM writes `out` directly ───────────────────────────────────────
@@ -401,7 +407,7 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
     Bp = B
     if NP != N
         Bp = scratch!(ctx, Float16, K, NP)
-        padcols_kernel!(backend)(Bp, B, Val(K), N; ndrange = (K, NP))
+        KI.Kernel(backend, padcols_kernel!)(Bp, B, Val(K), N; ndrange = (K, NP))
     end
     blk_split = Mantle.coopmat_gemm_shape(M, NP, K)
     splitk = blk_split[2]
@@ -426,7 +432,7 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
     end
     C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
     Mantle.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false, gemm...)
-    mm_epilogue_kernel!(backend)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
+    KI.Kernel(backend, mm_epilogue_kernel!)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out
 end
@@ -663,9 +669,9 @@ end
 # `Val`-gated loop would put a tuple in the inner loop and not compile.
 for NB in (2, 4, 8, 16)
     kname = Symbol("bmm_n", NB, "!")
-    @eval @kernel cpu=false function $kname(P, @Const(A), @Const(Bm), M::Int32, K::Int32,
+    @eval function $kname(P, A, Bm, M::Int32, K::Int32,
                                             KC::Int32, NBATCH::Int32, ntot::Int32)
-        lin = @index(Global, Linear)
+        lin = KI.get_global_id().x
         if lin <= ntot
             @inbounds begin
                 l = Int32(lin) - Int32(1)
@@ -687,6 +693,7 @@ for NB in (2, 4, 8, 16)
                 Base.Cartesian.@nexprs $NB n -> (P[m, n, b, sp + Int32(1)] = acc_n)
             end
         end
+        return nothing
     end
 end
 
@@ -694,9 +701,9 @@ const BMM_N_KERNELS = Dict(2 => bmm_n2!, 4 => bmm_n4!, 8 => bmm_n8!, 16 => bmm_n
 
 # Flat launch for the same reason `indexput_kernel!` has one: a 3-D `ndrange` is
 # partitioned into 3-D workgroups and costs several times what a flat one does.
-@kernel cpu=false function bmm_nsplit_reduce!(C, @Const(P), S::Int32,
+function bmm_nsplit_reduce!(C, P, S::Int32,
                                               ::Val{SZ}, n::Int64) where {SZ}
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             I = CartesianIndices(SZ)[i]
@@ -707,6 +714,7 @@ const BMM_N_KERNELS = Dict(2 => bmm_n2!, 4 => bmm_n4!, 8 => bmm_n8!, 16 => bmm_n
             C[I] = eltype(C)(acc)
         end
     end
+    return nothing
 end
 
 # Threads to aim for, as in `Mantle.gemv_split`. A `Ref` because the split's cost is
@@ -735,11 +743,11 @@ function bmm_nblocked!(ctx, out, A, B)
     end
     KC = cld(K, S)
     P = scratch!(ctx.ws, ctx.backend, Float32, M, N, NBATCH, S)
-    BMM_N_KERNELS[N](ctx.backend, 256)(P, A, B, Int32(M), Int32(K), Int32(KC),
+    KI.Kernel(ctx.backend, BMM_N_KERNELS[N])(P, A, B, Int32(M), Int32(K), Int32(KC),
                                        Int32(NBATCH), Int32(M * NBATCH * S);
-                                       ndrange = M * NBATCH * S)
-    bmm_nsplit_reduce!(ctx.backend, 256)(out, P, Int32(S), Val((M, N, NBATCH)),
-                                         Int64(M * N * NBATCH); ndrange = M * N * NBATCH)
+                                       ndrange = M * NBATCH * S, workgroupsize = 256)
+    KI.Kernel(ctx.backend, bmm_nsplit_reduce!)(out, P, Int32(S), Val((M, N, NBATCH)),
+                                         Int64(M * N * NBATCH); ndrange = M * N * NBATCH, workgroupsize = 256)
     out
 end
 

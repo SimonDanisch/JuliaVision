@@ -242,6 +242,10 @@ function avg_pool2d_kernel!(out, x, kw::Int32, kh::Int32,
                                     sx::Int32, sy::Int32, px::Int32, py::Int32,
                                     W4::Int32, H4::Int32, C4::Int32)
     # 1-D ndrange + `coords4` — see `coords4`; the tuple index costs 3.5x at rank 4.
+    # The bounds check `@kernel` used to insert. `launchgroup` fills a workgroup
+    # up to 256 and need not divide the ndrange, so the last workgroup runs past
+    # the end — `flat4` gives a flat count, not a multiple of the group.
+    KI.get_global_id().x <= length(out) || return nothing
     i, j, c, n = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H = size(x, 1), size(x, 2)
@@ -289,6 +293,10 @@ function grid_sample2d_kernel!(out, x, grid, ::Val{ALIGN},
     # 1-D ndrange + `coords4`, not `Tuple(KI.get_global_id())`: the tuple index costs
     # 3.5x at rank 4 here, and a bare copy over this ndrange was 88% of this
     # kernel's runtime. See `coords4`.
+    #
+    # The bounds check `@kernel` used to insert: `launchgroup` fills a workgroup
+    # up to 256 and need not divide a flat count.
+    KI.get_global_id().x <= length(out) || return nothing
     i, j, c, n = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H = size(x, 1), size(x, 2)
@@ -382,6 +390,10 @@ function deform_conv2d_kernel!(out, x, offset, mask,
                                        dlx::Int32, dly::Int32, dg::Int32, groups::Int32,
                                        ::Val{HASMASK}, W4::Int32, H4::Int32,
                                        C4::Int32) where {HASMASK}
+    # The bounds check `@kernel` used to insert. `launchgroup` fills a workgroup
+    # up to 256 and need not divide the ndrange, so the last workgroup runs past
+    # the end — `flat4` gives a flat count, not a multiple of the group.
+    KI.get_global_id().x <= length(out) || return nothing
     i, j, co, n = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H, Cin = size(x, 1), size(x, 2), size(x, 3)
@@ -470,6 +482,9 @@ function deform_im2col_kernel!(col, x, offset, mask,
                                        dlx::Int32, dly::Int32, dg::Int32,
                                        ::Val{HASMASK}, KW::Int32, KH::Int32,
                                        W4::Int32, H4::Int32, NPIX::Int32) where {HASMASK}
+    # The bounds check `@kernel` used to insert: the ndrange is `length(col)` and
+    # `launchgroup` need not divide it.
+    KI.get_global_id().x <= length(col) || return nothing
     t = Int32(KI.get_global_id().x) - Int32(1)
     @inbounds begin
         pix = t % NPIX                       # (i, j, n) flattened, `col`'s row
@@ -517,6 +532,10 @@ option here. The reversed dimensions are a `Val` so the index arithmetic
 specialises and the kernel stays branch-free.
 """
 function flip_kernel!(out, x, ::Val{DIMS}, W4::Int32, H4::Int32, C4::Int32) where {DIMS}
+    # The bounds check `@kernel` used to insert. `launchgroup` fills a workgroup
+    # up to 256 and need not divide the ndrange, so the last workgroup runs past
+    # the end — `flat4` gives a flat count, not a multiple of the group.
+    KI.get_global_id().x <= length(out) || return nothing
     I = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         J = ntuple(k -> (k in DIMS) ? size(x, k) - I[k] + 1 : I[k], length(I))
@@ -556,7 +575,19 @@ function conv3d_kernel!(out, x, w, bias,
                                 px::Int32, py::Int32, pz::Int32,
                                 dx::Int32, dy::Int32, dz::Int32, groups::Int32,
                                 ::Val{ACT}) where {ACT}
-    i, j, k, co, n = Tuple(KI.get_global_id())
+    # Three global axes, not the output's five: `@index(Global, NTuple)` carried
+    # KernelAbstractions' flattening of an N-dimensional ndrange and
+    # `KernelInterface` has none. The launch folds `(W, H, D, Cout, N)` to
+    # `(W, H, D * Cout * N)` and the depth, channel and batch axes are recovered
+    # here from the output's own extents.
+    i, j, dcn = Tuple(KI.get_global_id())
+    # The bounds check `@kernel` used to insert; `launchgroup` need not divide.
+    (i <= size(out, 1) && j <= size(out, 2) &&
+     dcn <= size(out, 3) * size(out, 4) * size(out, 5)) || return nothing
+    D_, Cout_ = size(out, 3), size(out, 4)
+    k  = (dcn - 1) % D_ + 1
+    co = ((dcn - 1) ÷ D_) % Cout_ + 1
+    n  = (dcn - 1) ÷ (D_ * Cout_) + 1
     @inbounds begin
         W, H, D, Cin = size(x, 1), size(x, 2), size(x, 3), size(x, 4)
         KW, KH, KD, Cpg = size(w, 1), size(w, 2), size(w, 3), size(w, 4)
@@ -592,11 +623,13 @@ end
 function convolution3d!(out, x, w, bias, stride, pad, dil, groups::Integer;
                         act::Symbol = :none)
     backend = KernelAbstractions.get_backend(out)
+    # Folded to three axes; `conv3d_kernel!` unfolds the trailing three.
+    nd = (size(out, 1), size(out, 2), size(out, 3) * size(out, 4) * size(out, 5))
     KI.Kernel(backend, conv3d_kernel!)(out, x, w, bias === nothing ? w : bias,
                             Int32(stride[1]), Int32(stride[2]), Int32(stride[3]),
                             Int32(pad[1]), Int32(pad[2]), Int32(pad[3]),
                             Int32(dil[1]), Int32(dil[2]), Int32(dil[3]),
-                            Int32(groups), Val(act); ndrange = size(out),
-                            workgroupsize = launchgroup(size(out)))
+                            Int32(groups), Val(act); ndrange = nd,
+                            workgroupsize = launchgroup(nd))
     return out
 end

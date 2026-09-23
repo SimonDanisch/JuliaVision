@@ -212,9 +212,9 @@ function toback(backend, a::PermutedDimsArray{T,2,(2,1)}) where {T}
     d = KernelAbstractions.allocate(backend, T, L, E)
     st = map(Int32, strides(src))
     k = T === Float16 ? toLE_tiled_Float16! : toLE_tiled_Float32!
-    k(backend, (32, 4, 1))(reshape(d, L, E, 1, 1), reshape(src, length(src)),
+    KI.Kernel(backend, k)(reshape(d, L, E, 1, 1), reshape(src, length(src)),
         Int32(1), st[1], st[2], Int32(0), Int32(0), Int32(E), Int32(L), Int32(1);
-        ndrange = (32 * cld(E, 32), 4 * cld(L, 32), 1))
+        ndrange = (32 * cld(E, 32), 4 * cld(L, 32), 1), workgroupsize = (32, 4, 1))
     d
 end
 

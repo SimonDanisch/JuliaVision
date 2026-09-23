@@ -144,6 +144,11 @@ function checkpoint_q8pack_kernel!(q32, q, K::Int32,
     # division by a runtime extent — which is its own 3x elsewhere in this
     # package (see `attn_flash_cm_merge!`).
     kk, gg = Tuple(KI.get_global_id())
+    # The bounds check `@kernel` used to insert. The `gg` axis has a workgroup of
+    # one and so divides; `kk` has 256 and `K` need not be a multiple of it, so
+    # the last workgroup ran past the end of the `k` axis. The `g < MG` test
+    # below covers the other axis and never covered this one.
+    kk <= K || return nothing
     k = Int32(kk) - Int32(1)
     gb = (Int32(gg) - Int32(1)) * Int32(GPT)
     @inbounds for w in Int32(0):Int32(GPT - 1)
@@ -202,6 +207,11 @@ function w4a8_pack_kernel!(q32, q, srel,
                                              MG::Int32, GS::Int32, MGD::Int32,
                                              GOFF::Int32, ::Val{GPT}) where {GPT}
     kk, gg = Tuple(KI.get_global_id())
+    # The bounds check `@kernel` used to insert. The `gg` axis has a workgroup of
+    # one and so divides; `kk` has 256 and `K` need not be a multiple of it, so
+    # the last workgroup ran past the end of the `k` axis. The `g < MG` test
+    # below covers the other axis and never covered this one.
+    kk <= K || return nothing
     k = Int32(kk) - Int32(1)
     gb = (Int32(gg) - Int32(1)) * Int32(GPT)
     @inbounds for w in Int32(0):Int32(GPT - 1)

@@ -16,6 +16,7 @@ Against a host reference rather than against the other kernel: the two do not
 accumulate in the same order and never did.
 """
 
+import KernelInterface
 using Test, DNNKernels, Mantle, KernelAbstractions, Random
 
 const DKC = DNNKernels
@@ -303,7 +304,7 @@ end
             paired = KA.allocate(back, Float16, MP, plan.CRSP)
             for (dst, vec) in ((scalar, 1), (paired, DKC.IM2COL_VEC))
                 fill!(dst, Float16(0))
-                DNNKernels.im2col_kernel!(back)(dst, x, Val(MP), Val(vec),
+                KernelInterface.Kernel(back, DNNKernels.im2col_kernel!)(dst, x, Val(MP), Val(vec),
                     Val(3), Val(3), Val(1), Val(1), Val(1), Val(1), Val(1), Val(1),
                     Val(W), Val(H), W, H, plan.rows, ntot, Cin, 0;
                     ndrange = cld(ntot, vec))

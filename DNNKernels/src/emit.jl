@@ -3882,7 +3882,11 @@ function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
         transposeLE_dispatch!(emitctx.g, qt, q; name = "$(op.id).toLE")
         tk = blockfor(Lk, Lq)
         if tk > 1
-            nd = (Lq, Lk ÷ tk, H, B)
+            # Three axes, not four: the kernel reads three global ids and
+            # unfolds `H * B` itself — see `attn_scores_b*` in
+            # `kernels/extern/attention.jl`. The immediate launcher folds the
+            # same way, so both paths launch the identical shape.
+            nd = (Lq, Lk ÷ tk, H * B)
             M.dispatch!(emitctx.g, scoresblocked!kernel(tk),
                         (scores, qt, k, bias, T(scale)), nd;
                         group = launchgroup(nd), name = "$(op.id).scores")
@@ -3903,7 +3907,7 @@ function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
     if !native_apply
         tq = blockfor(Lq, Lk)
         if tq > 1
-            nd = (size(v, 1), Lq ÷ tq, H, B)
+            nd = (size(v, 1), Lq ÷ tq, H * B)
             M.dispatch!(emitctx.g, applyblocked!kernel(tq),
                         (out, scores, v, sums), nd;
                         group = launchgroup(nd), name = "$(op.id).apply")

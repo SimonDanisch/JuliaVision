@@ -1305,7 +1305,7 @@ const SOFTMAX_WG = 64
     sh = @localmem Float32 (WG,)
     # Values that have to survive a `@synchronize` need `@private` storage —
     # a plain local is not guaranteed to on the CPU backend.
-    keep = @private Float32 (2,)
+    keep = StaticArrays.MArray{Tuple{2}, Float32}(undef)
 
     # `base` — the first element of slice `grp-1` in the (pre, n, post) view of
     # `a`, with `pre` elements between consecutive entries along the reduced

@@ -27,6 +27,11 @@ const M = Mantle
 # `@index`, so `dispatch!` takes the function itself and Mantle compiles it for
 # whichever backend the graph is on.
 import KernelInterface as KI
+# `@private T (dims)` was KernelAbstractions' spelling for a per-workitem array,
+# and Lava lowers it to exactly this — see `Lava/src/device/ndrange.jl`. Taken
+# from Lava rather than added as a dependency of this package: the lowering and
+# the type have to agree, and there they are one line apart.
+import Lava: StaticArrays
 using LinearAlgebra: mul!, transpose
 using Random
 import AcceleratedKernels as AK

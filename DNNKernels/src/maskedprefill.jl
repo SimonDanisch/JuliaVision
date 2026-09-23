@@ -29,7 +29,7 @@ end
                                                   scale, ::Val{NK}, ::Val{NQ}) where {NK,NQ}
     lane = Int32(@index(Local, Linear))-Int32(1)
     row = Int32(@index(Group, Linear))-Int32(1)
-    vals = @private Float32 (cld(NK,32),)
+    vals = StaticArrays.MArray{Tuple{cld(NK,32)}, Float32}(undef)
     mx = -Inf32
     @inbounds for j in 0:cld(NK,32)-1
         key = lane+Int32(32j)

@@ -70,19 +70,19 @@ call in a fresh process pays the compile it exists to remove. It would also need
 Gate order is torch's: `i, f, g, o`, each `H` wide, stacked in that order down
 the `4H` axis.
 """
-@kernel cpu=false unsafe_indices=true function lstm_kernel!(
-        out, @Const(Gx), @Const(WhhT), @Const(bhh), @Const(h0), @Const(c0),
+function lstm_kernel!(
+        out, Gx, WhhT, bhh, h0, c0,
         T::Int, rowoff::Int, ::Val{H}, ::Val{REV}) where {H,REV}
-    gates = @localmem Float32 (4H,)
-    hs = @localmem Float32 (H,)
-    cs = @localmem Float32 (H,)
+    gates = KI.localmemory(Float32, Val((4H,)), Val(1))
+    hs = KI.localmemory(Float32, Val((H,)), Val(2))
+    cs = KI.localmemory(Float32, Val((H,)), Val(3))
 
-    g = @index(Local, Linear)                 # 1 .. 4H, one per gate
+    g = KI.get_local_id().x                 # 1 .. 4H, one per gate
     @inbounds if g <= H
         hs[g] = h0[g]
         cs[g] = c0[g]
     end
-    @synchronize
+    KI.barrier()
 
     for step in 1:T
         # Static direction: the reverse pass reads the sequence backwards but
@@ -97,7 +97,7 @@ the `4H` axis.
             end
             gates[g] = acc
         end
-        @synchronize
+        KI.barrier()
         @inbounds if g <= H
             i = 1.0f0 / (1.0f0 + exp(-gates[g]))
             f = 1.0f0 / (1.0f0 + exp(-gates[g + H]))
@@ -109,8 +109,9 @@ the `4H` axis.
             hs[g] = hv
             out[rowoff + g, t] = hv
         end
-        @synchronize
+        KI.barrier()
     end
+    return nothing
 end
 
 """
@@ -184,7 +185,7 @@ function lstm!(ctx, out, x, w_ih, w_hh, b_ih, b_hh, h0, c0, T::Int, H::Int,
     # `(H, 4H)` -> `(4H, H)`, so the loop below reads coalesced. See the header.
     WhhT = similar(w_hh, eltype(w_hh), 4H, H)
     permutedims!(WhhT, w_hh, (2, 1))
-    lstm_kernel!(ctx.backend)(out, Gx, WhhT, b_hh, h0, c0, T, rowoff,
+    KI.Kernel(ctx.backend, lstm_kernel!)(out, Gx, WhhT, b_hh, h0, c0, T, rowoff,
                               Val(H), Val(reverse);
                               ndrange = 4H, workgroupsize = 4H)
     return out

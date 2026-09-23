@@ -159,11 +159,11 @@ rather than used: the three-pass path is always available and always right.
     return true
 end
 
-@kernel cpu=false function attn_flash!(out, @Const(q), @Const(k), @Const(v), scale,
+function attn_flash!(out, q, k, v, scale,
                                        ::Val{BQ}, ::Val{BK}, ::Val{E}, ::Val{NT},
                                        Lk::Int32) where {BQ, BK, E, NT}
-    tid = @index(Local, Linear)
-    grp = @index(Group, NTuple)
+    tid = KI.get_local_id().x
+    grp = Tuple(KI.get_group_id())
     qb, h, b = grp[1], grp[2], grp[3]
 
 
@@ -175,15 +175,15 @@ end
     #
     # (E, ·) so the reduction over `e` walks contiguous shared memory, which is
     # also the order the operands already have in global memory.
-    qs = @localmem Float32 (E, BQ)
-    ks = @localmem Float32 (E, BK)
-    vs = @localmem Float32 (E, BK)
-    ss = @localmem Float32 (BQ, BK)
-    ms = @localmem Float32 (BQ,)
-    ls = @localmem Float32 (BQ,)
-    cs = @localmem Float32 (BQ,)  # this block's rescale factor, per row
+    qs = KI.localmemory(Float32, Val((E, BQ)), Val(1))
+    ks = KI.localmemory(Float32, Val((E, BK)), Val(2))
+    vs = KI.localmemory(Float32, Val((E, BK)), Val(3))
+    ss = KI.localmemory(Float32, Val((BQ, BK)), Val(4))
+    ms = KI.localmemory(Float32, Val((BQ,)), Val(5))
+    ls = KI.localmemory(Float32, Val((BQ,)), Val(6))
+    cs = KI.localmemory(Float32, Val((BQ,)), Val(7))  # this block's rescale factor, per row
 
-    acc = @private Float32 (div(BQ * E, NT),)
+    acc = StaticArrays.MArray{Tuple{div(BQ * E, NT)}, Float32}(undef)
     T = Float32                    # only for the arithmetic below
 
     @inbounds begin
@@ -201,7 +201,7 @@ end
             ms[tid] = T(-Inf)
             ls[tid] = zero(T)
         end
-        @synchronize
+        KI.barrier()
 
         nblocks = div(Lk, BK)
         for kb in 0:(nblocks - 1)
@@ -212,7 +212,7 @@ end
                 ks[e, lk] = T(k[e, k0 + lk, h, b])
                 vs[e, lk] = T(v[e, k0 + lk, h, b])
             end
-            @synchronize
+            KI.barrier()
 
             # scores for the tile
             for r in 0:(div(BQ * BK, NT) - 1)
@@ -224,7 +224,7 @@ end
                 end
                 ss[qi, ki] = s * T(scale)
             end
-            @synchronize
+            KI.barrier()
 
             # online softmax, one thread per query row
             if tid <= BQ
@@ -247,7 +247,7 @@ end
                 ls[tid] = ls[tid] * c + sum
                 cs[tid] = c
             end
-            @synchronize
+            KI.barrier()
 
             # rescale what is already accumulated, then add this block's share
             for r in 0:(div(BQ * E, NT) - 1)
@@ -259,7 +259,7 @@ end
                 end
                 acc[r + 1] = acc[r + 1] * cs[lq] + s
             end
-            @synchronize
+            KI.barrier()
         end
 
         # normalise and write out
@@ -270,6 +270,7 @@ end
             out[e, q0 + lq, h, b] = acc[r + 1] / (l == zero(T) ? one(T) : l)
         end
     end
+    return nothing
 end
 
 """
@@ -287,9 +288,9 @@ function sdpaflash!(out, q, k, v, scale; backend = KernelAbstractions.get_backen
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     (Lq % BQ == 0 && Lk % BK == 0 && flashfits(E, BQ, BK, NT, sharedbudget)) || return false
-    attn_flash!(backend, NT)(out, q, k, v, Float32(scale),
+    KI.Kernel(backend, attn_flash!)(out, q, k, v, Float32(scale),
                              Val(BQ), Val(BK), Val(E), Val(NT), Int32(Lk);
-                             ndrange = (NT * div(Lq, BQ), H, B))
+                             ndrange = (NT * div(Lq, BQ), H, B), workgroupsize = NT)
     return true
 end
 
@@ -563,8 +564,8 @@ kclampsubst(ex, v) = ex === :KC ? v :
                      ex isa Expr ? Expr(ex.head, Any[kclampsubst(a, v) for a in ex.args]...) :
                      ex
 
-@kernel cpu=false unsafe_indices=true function attn_flash_cm_spatial4!(
-        out, @Const(q), @Const(k), @Const(v), scale, @Const(mask),
+function attn_flash_cm_spatial4!(
+        out, q, k, v, scale, mask,
         qbase::Int32, qsE::Int32, qsL::Int32, qsH::Int32, qsB::Int32,
         kbase::Int32, ksE::Int32, ksL::Int32, ksH::Int32, ksB::Int32,
         vbase::Int32, vsE::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
@@ -598,8 +599,8 @@ kclampsubst(ex, v) = ex === :KC ? v :
     # are the same values, and are only ever used for index arithmetic. The pad
     # columns are written by nothing and read by nothing: staging covers the real
     # extent and no 16-wide tile starts inside the pad.
-    qs  = @localmem Float16 ((EP + EPAD) * BR,)   # (e, r) at r*EPS + e
-    kvs = @localmem Float16 ((EP + EPAD) * BC,)   # (e, c) at c*EPS + e — K, then V
+    qs  = KI.localmemory(Float16, Val(((EP + EPAD) * BR,)), Val(1))   # (e, r) at r*EPS + e
+    kvs = KI.localmemory(Float16, Val(((EP + EPAD) * BC,)), Val(2))   # (e, c) at c*EPS + e — K, then V
     EPS = EP + EPAD
     # The same argument for the r-major pair, which the tensor cores reach at a
     # column stride of `BR` fp32. Bank = `(BR·c + r) % 32`, so `BR % 32 == 0` puts
@@ -633,28 +634,28 @@ kclampsubst(ex, v) = ex === :KC ? v :
     # an output whose own rms is 5.2e-3, i.e. 0.026%. Off anyway, because it
     # changes the numbers every model gets for 1% of a denoising step.
     SACC = S16 ? Float16 : Float32
-    ss  = @localmem SACC ((BR + RPAD) * BC,)      # (r, c) at c*BRS + r
-    ps  = @localmem Float16 (BC * BR,)            # (r, c) at r*BC + c
+    ss  = KI.localmemory(SACC, Val(((BR + RPAD) * BC,)), Val(3))      # (r, c) at c*BRS + r
+    ps  = KI.localmemory(Float16, Val((BC * BR,)), Val(4))            # (r, c) at r*BC + c
     # `REGO == false`: this is `O`, and it persists across key blocks.
     # `REGO == true`:  this is one key block's `P·V`, and `O` lives in `acco`.
-    pvs = @localmem Float32 ((BR + RPAD) * EP,)   # (r, e) at e*BRS + r
-    ms  = @localmem Float32 (BR,)
-    ls  = @localmem Float32 (BR,)
-    cs  = @localmem Float32 (BR,)
+    pvs = KI.localmemory(Float32, Val(((BR + RPAD) * EP,)), Val(5))   # (r, e) at e*BRS + r
+    ms  = KI.localmemory(Float32, Val((BR,)), Val(6))
+    ls  = KI.localmemory(Float32, Val((BR,)), Val(7))
+    cs  = KI.localmemory(Float32, Val((BR,)), Val(8))
     # Shared-memory ballast — the other half of the `BALLAST` diagnostic, and the
     # one that works. Registers cannot be forced upward: the driver has its own
     # occupancy target and caps itself at 128 (two 256-thread workgroups per SM)
     # no matter how many live values it is handed. Shared memory it cannot
     # negotiate, so padding the footprint is the only way to hold everything else
     # fixed and vary residency alone.
-    shpad = @localmem Float32 (SHPAD < 1 ? 1 : SHPAD,)
+    shpad = KI.localmemory(Float32, Val((SHPAD < 1 ? 1 : SHPAD,)), Val(9))
     # Did any row's running max move this block? One word, and it decides
     # whether `O` has to be rescaled at all — see the loop below.
-    grew = @localmem Float32 (1,)
+    grew = KI.localmemory(Float32, Val((1,)), Val(10))
     # Did any row's one-pass attempt overflow fp16? Workgroup-wide, because
     # the retry has to be taken by every row or they end up on different
     # references — see the softmax below.
-    redo = @localmem Float32 (1,)
+    redo = KI.localmemory(Float32, Val((1,)), Val(11))
 
     # `O` in registers: `BR*EP/NT` floats per thread, 20 for the shipped tiling.
     # Written out as `Float32` rather than through a local `T`, because Lava
@@ -662,7 +663,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
     # does it silently — the kernel runs and writes nothing. `NW * SG` spelled
     # out rather than the local `NT` above for the same reason: the size has to
     # come from the type parameters, and both of these are.
-    acco = @private Float32 (div(BR * EP, NW * SG),)
+    acco = StaticArrays.MArray{Tuple{div(BR * EP, NW * SG)}, Float32}(undef)
     # Optional software pipeline: fetch the current value tile before Q*K and
     # keep each thread's small slice in registers until the score/softmax phase
     # has finished using `kvs`. This overlaps the otherwise-serial global V read
@@ -670,14 +671,14 @@ kclampsubst(ex, v) = ex === :KC ? v :
     # This is deliberately enabled only for plans whose slice is small enough
     # for Lava to scalarise it (see `flash_launches`). Larger dynamically
     # indexed private fp16 arrays still lower through packed integer words.
-    vstage = @private Float16 (cld(BC * EP, NW * SG),)
+    vstage = StaticArrays.MArray{Tuple{cld(BC * EP, NW * SG)}, Float16}(undef)
 
     RT = BR ÷ Mantle.GEMM_TILE
     CT = BC ÷ Mantle.GEMM_TILE
     ET = EP ÷ Mantle.GEMM_TILE
 
-    tid = @index(Local, Linear) - 1
-    grp = @index(Group, NTuple)
+    tid = KI.get_local_id().x - 1
+    grp = Tuple(KI.get_group_id())
     # The split index rides in the FIRST grid dimension rather than a fourth:
     # `grp[1]` runs over `Tr * NSPLIT`. Folding it keeps the launch 3-D, which is
     # what `ndrange` and every index helper below already assume.
@@ -787,7 +788,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
                 # Integers to 2048 are exact in fp16, and this tile holds 0..255.
                 ss[1 + idx] = SACC(r + c * Mantle.GEMM_TILE)
             end
-            @synchronize
+            KI.barrier()
             rowmat = Mantle.AcceleratedMatrix{SACC,Mantle.GEMM_TILE,Mantle.GEMM_TILE,Mantle.Accumulator}(
                         ss, 1, Mantle.GEMM_TILE, Val(false))
             Base.Cartesian.@nexprs 8 i -> begin
@@ -796,7 +797,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
                 ocol_i = ocoord_i ÷ Int32(Mantle.GEMM_TILE)
             end
         end
-        @synchronize
+        KI.barrier()
 
         # `cld`, not `div`: with `CLAMP` the last key block is partial, and at
         # `Lk = 23 < BC = 32` — the decoder's self-attention — `div` gives ZERO
@@ -823,7 +824,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
         # subgroup — no `ss`, no `ps`, a subgroup reduction for the row maximum
         # — would be worth building. That is what AOTriton's inner loop is, and
         # what `flash_cm2.jl` already is for workgroup-scope matrices.
-        @inline keybar() = BAROFF || @synchronize
+        @inline keybar() = BAROFF || KI.barrier()
 
         nkb = cld(Lk, Int32(BC))
         kbper = cld(nkb, Int32(NSPLIT))
@@ -1203,7 +1204,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
                     # inflating to software-pipeline the rescale against the
                     # muladd that follows. `grew` and `pre` are both
                     # workgroup-uniform, so this is legal where it sits.
-                    RSCBAR && @synchronize
+                    RSCBAR && KI.barrier()
                 else
                     for r in 0:(div(BR * EP, NT) - 1)
                         lq, e = Mantle.splitidx(tid + r * NT, Val(BR))
@@ -1270,7 +1271,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
                     copyto!(pvs, off, BRS, acc)
                 end
             end
-            @synchronize
+            KI.barrier()
 
             # The deferred correction, applied to old and new contributions
             # together now that both are in `O`. With `O` in shared this reads and
@@ -1321,13 +1322,13 @@ kclampsubst(ex, v) = ex === :KC ? v :
                     # inflating to software-pipeline the rescale against the
                     # muladd that follows. `grew` and `pre` are both
                     # workgroup-uniform, so this is legal where it sits.
-                    RSCBAR && @synchronize
+                    RSCBAR && KI.barrier()
                 else
                     for r in 0:(div(BR * EP, NT) - 1)
                         lq, e = Mantle.splitidx(tid + r * NT, Val(BR))
                         pvs[1 + lq + e * BRS] *= cs[1 + lq]
                     end
-                    @synchronize
+                    KI.barrier()
                 end
             end
 
@@ -1352,7 +1353,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
                                            Mantle.splitidx(idx, Val(BR))
                     acco[s] = acco[s] * cs[1 + lq] + pvs[1 + lq + e * BRS]
                 end
-                @synchronize
+                KI.barrier()
             end
         end
 
@@ -1466,6 +1467,7 @@ kclampsubst(ex, v) = ex === :KC ? v :
             end
         end
     end
+    return nothing
 end
 
 
@@ -2355,10 +2357,10 @@ uniform across a wave — every `e` of one row reads the same two floats.
 # directly: `i` runs over `(e, lq, h, b)`, `row = i ÷ E` is the `(lq, h, b)`
 # the split bookkeeping is indexed by, and a split is one whole `n` or `nrow`
 # further on.
-@kernel cpu=false unsafe_indices=true function attn_flash_cm_merge!(
-        out, @Const(partial), @Const(ml), ::Val{NSPLIT}, ::Val{E},
+function attn_flash_cm_merge!(
+        out, partial, ml, ::Val{NSPLIT}, ::Val{E},
         n::Int32, nrow::Int32) where {NSPLIT,E}
-    i = Int32(@index(Global, Linear)) - Int32(1)
+    i = Int32(KI.get_global_id().x) - Int32(1)
     if i < n
         @inbounds begin
             row = i ÷ Int32(E)
@@ -2378,6 +2380,7 @@ uniform across a wave — every `e` of one row reads the same two floats.
             out[Int32(1) + i] = o * (L == 0.0f0 ? 1.0f0 : 1.0f0 / L)
         end
     end
+    return nothing
 end
 
 """Threads a merge launch puts in a workgroup. 256 and 64 measure the same;
@@ -2600,10 +2603,11 @@ function sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale; kw...)
     Lq, H, B = size(q, 2), size(q, 3), size(q, 4)
     partial = ns == 1 ? out : scratch!(ctx, Float32, size(v, 1), Lq, H, B, ns)
     ml      = ns == 1 ? out : scratch!(ctx, Float32, Lq, H, B, ns, 2)
-    for l in flash_launches(ctx.dev, out, plan, q, k, v, scale, partial, ml; kw...)
-        k_ = l.group == 0 ? l.kern(ctx.backend) : l.kern(ctx.backend, l.group)
-        k_(l.args...; ndrange = l.ndrange)
-    end
+    # `Mantle.runlaunches!` is this loop, and it is the one place that knows how
+    # a kernel is launched. Written out here it was a second copy of the KA
+    # constructor protocol that the port would have had to find.
+    M.runlaunches!(ctx.backend,
+                   flash_launches(ctx.dev, out, plan, q, k, v, scale, partial, ml; kw...))
     return out
 end
 

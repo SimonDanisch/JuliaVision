@@ -89,194 +89,18 @@ end
 # parameter compiles without complaint and then silently writes nothing — the
 # kernel runs and every output stays untouched. Worth remembering: it fails
 # quietly, so it looks like an indexing bug.
-@kernel function conv2d_igemm!(out, @Const(x), @Const(w), @Const(bias),
-                               ::Val{ACC}, ::Val{SPLITK}, ::Val{ACT},
-                               ::Val{BS_K}, ::Val{BS_CRS}, ::Val{BS_NPQ},
-                               ::Val{TS_K}, ::Val{TS_NPQ},
-                               ::Val{KW}, ::Val{KH},
-                               ::Val{SX}, ::Val{SY}, ::Val{PX}, ::Val{PY},
-                               ::Val{DX}, ::Val{DY},
-                               Cin, Cout, Wid, Hei, OW, OH,
-                               NPQ, CRS, NBN) where {ACC,SPLITK,ACT,BS_K,BS_CRS,BS_NPQ,
-                                                     TS_K,TS_NPQ,KW,KH,SX,SY,PX,PY,DX,DY}
-    # `@uniform`, not plain locals: these are read after a `@synchronize`, and
-    # only `@uniform`/`@private` storage survives a barrier on the CPU backend.
-    @uniform T = eltype(out)
-    @uniform A = ACC
-
-    # Workgroup-uniform: derived only from the block-shape parameters, so it is
-    # the same for every item and the CPU backend can hoist it out of its
-    # per-workitem loop.
-    @uniform NT_K = BS_K ÷ TS_K
-    @uniform NT_NPQ = BS_NPQ ÷ TS_NPQ
-    @uniform WG = NT_K * NT_NPQ
-    @uniform ArpWg = WG ÷ BS_CRS
-    @uniform BrpWg = max(WG ÷ BS_NPQ, 1)
-    @uniform Ash_stride = BS_CRS + 4
-    @uniform Bsh_stride = BS_NPQ + 4
-    @uniform nblk = cld(CRS, BS_CRS)
-    # Split-K: the reduction is divided over SPLITK workgroups, which is the only
-    # way to get both a large thread tile (arithmetic intensity) and enough
-    # workgroups to fill the device. This model's dominant convolution is
-    # 256 output channels over 120 pixels with a 2304-deep reduction — output
-    # tiling alone yields 16 workgroups on 48 SMs, and shrinking the tile to get
-    # more drops the MAC:load ratio from 16:8 to 2:3.
-    @uniform blkper = cld(nblk, SPLITK)
-
-    # +4 on the minor extent staggers rows across banks; without it every thread
-    # in a pass hits the same bank on the A load. The 4 is written out literally
-    # in both calls rather than shared via a local: `@localmem` miscompiles
-    # silently — the kernel runs and writes nothing — if either its type or its
-    # size expression involves a local variable rather than static parameters.
-    Ash = @localmem ACC (BS_K * (BS_CRS + 4),)
-    Bsh = @localmem ACC (BS_CRS * (BS_NPQ + 4),)
-
-    # The accumulators live across `@synchronize`, so they must be `@private`;
-    # a plain local is not carried over a barrier on the CPU backend. Sized
-    # exactly TS_K x TS_NPQ so the unused lanes cost nothing.
-    acc = @private ACC (TS_K, TS_NPQ)
-    @inbounds Base.Cartesian.@nexprs 8 j -> Base.Cartesian.@nexprs 8 i -> begin
-        if i <= TS_K && j <= TS_NPQ
-            acc[i, j] = zero(A)
-        end
-    end
-
-    for bb in 0:(blkper - 1)
-        # Indices are recomputed in every barrier-separated region rather than
-        # once at the top. KA's own tiled-matmul example does the same ("get
-        # global values again"): a *derived* local does not survive a
-        # `@synchronize`, because the CPU backend runs each region as its own
-        # loop over workitems.
-        # `@index(Local, NTuple)`, not `Linear`: on KA's CPU backend the Linear
-        # form has no method inside a kernel containing `@synchronize` (only the
-        # Cartesian/NTuple forms are defined there), which is why KA's own tiled
-        # matmul example uses NTuple too. The workgroup is (WG, 1), so the first
-        # component is the linear id.
-        ltid, = @index(Local, NTuple)
-        tid = ltid - 1
-        bk, gn = @index(Group, NTuple)
-        # the second grid axis carries both the NPQ block and the split index
-        bnpq = (gn - 1) % NBN + 1
-        ksplit = (gn - 1) ÷ NBN
-        B_idx_K = (bk - 1) * BS_K
-        B_idx_NPQ = (bnpq - 1) * BS_NPQ
-        Ar = tid ÷ BS_CRS
-        Ac = tid % BS_CRS
-        Br = tid ÷ BS_NPQ
-        Bc = tid % BS_NPQ
-
-        # Blocks past the end make `crs_a`/`crs_b` exceed CRS, so the existing
-        # bounds guards already stage zeros — the trip count stays uniform, which
-        # `@synchronize` requires.
-        b_crs = ksplit * blkper + bb
-
-        # ── stage A (the kernel), BS_K x BS_CRS ───────────────────────────
-        @inbounds begin
-            crs_a = b_crs * BS_CRS + Ac
-            cin_a = crs_a ÷ (KW * KH)
-            rem_a = crs_a % (KW * KH)
-            kh_a = rem_a ÷ KW
-            kw_a = rem_a % KW
-            r = 0
-            while r < BS_K
-                ky = r + Ar
-                kidx = B_idx_K + ky
-                Ash[ky * Ash_stride + Ac + 1] = (kidx < Cout && crs_a < CRS) ?
-                    A(w[kw_a + 1, kh_a + 1, cin_a + 1, kidx + 1]) : zero(A)
-                r += ArpWg
-            end
-
-            # ── stage B (the input), BS_CRS x BS_NPQ, gathered by im2col ───
-            r = 0
-            while r < BS_CRS
-                by = r + Br
-                npq = B_idx_NPQ + Bc
-                n_idx = npq ÷ (OH * OW)
-                npqr = npq - n_idx * OH * OW
-                oh = npqr ÷ OW
-                ow = npqr - oh * OW
-
-                crs_b = b_crs * BS_CRS + by
-                cin_b = crs_b ÷ (KW * KH)
-                rem_b = crs_b % (KW * KH)
-                kh_b = rem_b ÷ KW
-                kw_b = rem_b % KW
-
-                ix = ow * SX - PX + kw_b * DX
-                iy = oh * SY - PY + kh_b * DY
-                inb = (0 <= ix < Wid) && (0 <= iy < Hei) && npq < NPQ && crs_b < CRS
-                Bsh[by * Bsh_stride + Bc + 1] =
-                    inb ? A(x[ix + 1, iy + 1, cin_b + 1, n_idx + 1]) : zero(A)
-                r += BrpWg
-            end
-        end
-
-        @synchronize
-
-        # ── the only hot loop: TS_K + TS_NPQ shared loads per TS_K*TS_NPQ MACs
-        #
-        # The register tile is *strided*, not blocked: thread T_x owns columns
-        # T_x, T_x+NT_NPQ, ... rather than a contiguous run of TS_NPQ. Blocked
-        # ownership makes neighbouring threads read TS_NPQ apart, which is a
-        # TS_NPQ-way shared-memory bank conflict — measurably fatal at TS_NPQ=8.
-        ctid, = @index(Local, NTuple)
-        T_y = (ctid - 1) ÷ NT_NPQ
-        T_x = (ctid - 1) % NT_NPQ
-        @inbounds for k in 0:(BS_CRS - 1)
-            Base.Cartesian.@nexprs 8 i -> a_i = i <= TS_K ?
-                Ash[(T_y + (i - 1) * NT_K) * Ash_stride + k + 1] : zero(A)
-            Base.Cartesian.@nexprs 8 j -> b_j = j <= TS_NPQ ?
-                Bsh[k * Bsh_stride + T_x + (j - 1) * NT_NPQ + 1] : zero(A)
-            # The guard belongs on the multiply-add, not just the operand loads.
-            # Zeroing a_i/b_j past the tile gives the right answer but still
-            # issues all 64 FMAs; TS_K/TS_NPQ are static, so this `if` folds.
-            Base.Cartesian.@nexprs 8 j -> Base.Cartesian.@nexprs 8 i -> begin
-                if i <= TS_K && j <= TS_NPQ
-                    acc[i, j] = muladd(a_i, b_j, acc[i, j])
-                end
-            end
-        end
-
-        @synchronize
-    end
-
-    # ── write back ────────────────────────────────────────────────────────
-    wtid, = @index(Local, NTuple)
-    wbk, wgn = @index(Group, NTuple)
-    W_y = (wtid - 1) ÷ NT_NPQ
-    W_x = (wtid - 1) % NT_NPQ
-    WB_K = (wbk - 1) * BS_K
-    WB_NPQ = ((wgn - 1) % NBN) * BS_NPQ
-    @inbounds Base.Cartesian.@nexprs 8 i -> begin
-        if i <= TS_K
-            kidx = WB_K + W_y + (i - 1) * NT_K
-            if kidx < Cout
-                bv = bias === nothing ? zero(A) : A(bias[kidx + 1])
-                Base.Cartesian.@nexprs 8 j -> begin
-                    if j <= TS_NPQ
-                        npq = WB_NPQ + W_x + (j - 1) * NT_NPQ
-                        if npq < NPQ
-                            n_idx = npq ÷ (OH * OW)
-                            npqr = npq - n_idx * OH * OW
-                            oh = npqr ÷ OW
-                            ow = npqr - oh * OW
-                            if SPLITK == 1
-                                v = acc[i, j] + bv
-                                ACT === :relu && (v = max(v, zero(v)))
-                                out[ow + 1, oh + 1, kidx + 1, n_idx + 1] = T(v)
-                            else
-                                # partial sums from each split accumulate; the
-                                # host pre-fills the bias so it is added once
-                                Atomix.@atomic out[ow + 1, oh + 1, kidx + 1,
-                                                   n_idx + 1] += T(acc[i, j])
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
+# ── The kernel that was here ──────────────────────────────────────────────────
+#
+# `conv2d_igemm!`, 188 lines of `@kernel`, DELETED. It was the same kernel as
+# `kernels/conv_igemm.jl`'s `conv2d_igemm_ki!` — same arithmetic, same tiling,
+# same split-K, same argument list down to the order of the `Val`s — written
+# once against KernelAbstractions and once against `KernelInterface`. The port
+# made the second, and keeping both meant two places to fix a tiling bug and two
+# kernels to tune.
+#
+# `convolution_igemm!` below launches the `KernelInterface` one. What stays here
+# is the part that was never duplicated: the shape table, `convtiles` and
+# `convsplit`.
 
 """
     convsplit(nbk, nbn, nblk; cores) -> SPLITK
@@ -349,14 +173,16 @@ function convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation; act
     # Only fold the activation into the write-back when there is a single split;
     # otherwise it is applied in the conversion pass below.
     kact = (splitk == 1 && act === :relu) ? :relu : :none
-    conv2d_igemm!(backend, (WG, 1))(
+    # `conv2d_igemm_ki!` from `kernels/conv_igemm.jl`, which is this kernel: the
+    # declared path in `emit.jl` dispatches the same function.
+    KI.Kernel(backend, conv2d_igemm_ki!)(
         acc, x, w, bias, Val(accum(eltype(x))), Val(splitk), Val(kact),
         Val(BS_K), Val(BS_CRS), Val(BS_NPQ), Val(TS_K), Val(TS_NPQ),
         Val(KWk), Val(KHk),
         Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
         Val(dilation[1]), Val(dilation[2]),
         Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn;
-        ndrange = (nbk * WG, nbn * splitk))
+        ndrange = (nbk * WG, nbn * splitk), workgroupsize = (WG, 1))
     if acc !== out
         act === :relu ? (out .= max.(acc, zero(eltype(acc)))) : (out .= acc)
     elseif splitk > 1 && act === :relu

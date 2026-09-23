@@ -138,9 +138,25 @@ const ATTN_BLOCKS = (2, 4, 8, 16, 32)
 # `@nexprs` needs a literal, so the literal is supplied here and each accumulator
 # is a plain local the compiler keeps in a register.
 for TK in ATTN_BLOCKS
-    @eval @kernel function $(Symbol("attn_scores_b", TK, "!"))(scores, @Const(q), @Const(k),
+    @eval function $(Symbol("attn_scores_b", TK, "!"))(scores, q, k,
                                                                bias, scale)
-        lq, kb, h, b = @index(Global, NTuple)
+        # `KernelInterface` gives three global axes, not the ndrange's four:
+        # `@index(Global, NTuple)` carried KernelAbstractions' own flattening of
+        # an N-dimensional ndrange, and there is none here. The head and batch
+        # axes are folded into the third one by the launch, and recovered here
+        # from `size(q, 3)`, which is `H` by construction.
+        lq, kb, hb = Tuple(KI.get_global_id())
+        # THE BOUNDS CHECK, which `@kernel` used to insert. A workgroup need not
+        # divide the ndrange — `launchgroup((96, 3, 8))` is `(96, 2, 1)`, so the
+        # device runs `(96, 4, 8)` — and the extra `kb` wrote `scores` columns
+        # 97..128 of a 96-column array. Written against the array rather than
+        # against the ndrange because the kernel has the array and not the
+        # launch.
+        (lq <= size(scores, 1) && (kb - 1) * $TK < size(scores, 2) &&
+         hb <= size(scores, 3) * size(scores, 4)) || return nothing
+        H = size(q, 3)
+        h = (hb - 1) % H + 1
+        b = (hb - 1) ÷ H + 1
         @inbounds begin
             T = accum(eltype(q))
             base = (kb - 1) * $TK
@@ -156,11 +172,19 @@ for TK in ATTN_BLOCKS
                 scores[lq, base + t, h, b] = s_t
             end
         end
+        return nothing
     end
 
-    @eval @kernel function $(Symbol("attn_apply_b", TK, "!"))(out, @Const(p), @Const(v),
-                                                              @Const(sums))
-        e, qb, h, b = @index(Global, NTuple)
+    @eval function $(Symbol("attn_apply_b", TK, "!"))(out, p, v,
+                                                              sums)
+        # Three global axes, not four — see `attn_scores_b*` above.
+        e, qb, hb = Tuple(KI.get_global_id())
+        # See `attn_scores_b*` above: the workgroup need not divide the ndrange.
+        (e <= size(out, 1) && (qb - 1) * $TK < size(out, 2) &&
+         hb <= size(out, 3) * size(out, 4)) || return nothing
+        H = size(v, 3)
+        h = (hb - 1) % H + 1
+        b = (hb - 1) ÷ H + 1
         @inbounds begin
             T = accum(eltype(v))
             base = (qb - 1) * $TK
@@ -171,6 +195,7 @@ for TK in ATTN_BLOCKS
             end
             Base.Cartesian.@nexprs $TK t -> out[e, base + t, h, b] = acc_t / T(sums[base + t, h, b])
         end
+        return nothing
     end
 end
 
@@ -262,10 +287,14 @@ for (name, kern, args) in (("scoresblocked!", "attn_scores_b", (:scores, :q, :k,
         $(guarded...)
         return $(fallback)
     end
+    # The kernels read three global axes, so a four-axis ndrange is folded to
+    # three here and unfolded there. `launchgroup` sees the folded shape too,
+    # which is the shape the device is actually launched at.
     @eval function $(Symbol(name))(backend, tk, $(args...), ndrange)
-        wg = launchgroup(ndrange)
-        $(Symbol(name, "kernel"))(tk)(backend)($(args...); ndrange,
-                                               workgroupsize = wg)
+        nd = (ndrange[1], ndrange[2], ndrange[3] * ndrange[4])
+        wg = launchgroup(nd)
+        KI.Kernel(backend, $(Symbol(name, "kernel"))(tk))($(args...); ndrange = nd,
+                                                          workgroupsize = wg)
     end
 end
 
@@ -367,14 +396,14 @@ end
 # nothing — when its type comes from a local binding, so the type has to be a
 # literal in the generated body.
 for T in (Float16, Float32)
-    @eval @kernel cpu=false function $(Symbol("toLE_tiled_", nameof(T), "!"))(
-            d, @Const(src), base::Int32, sE::Int32, sL::Int32, sH::Int32, sB::Int32,
+    @eval function $(Symbol("toLE_tiled_", nameof(T), "!"))(
+            d, src, base::Int32, sE::Int32, sL::Int32, sH::Int32, sB::Int32,
             E::Int32, L::Int32, nH::Int32)
         # 33, not 32: with 32 banks a 32-wide tile puts a whole column in one
         # bank and the transposed read serialises 32 ways.
-        tile = @localmem $(nameof(T)) (33, 32)
-        tx, ty = @index(Local, NTuple)
-        gx, gy, gz = @index(Group, NTuple)
+        tile = KI.localmemory($(nameof(T)), Val((33, 32)), Val(1))
+        tx, ty = Tuple(KI.get_local_id())
+        gx, gy, gz = Tuple(KI.get_group_id())
         e0 = Int32(gx - 1) * Int32(32)
         l0 = Int32(gy - 1) * Int32(32)
         hb = Int32(gz - 1)
@@ -388,7 +417,7 @@ for T in (Float16, Float32)
                     src[base + (e - Int32(1)) * sE + (l - Int32(1)) * sL +
                         (h - Int32(1)) * sH + (b - Int32(1)) * sB] : zero($(nameof(T)))
             end
-            @synchronize
+            KI.barrier()
             for j in Int32(0):Int32(7)
                 l = l0 + Int32(tx)
                 e = e0 + Int32(ty) + Int32(4) * j
@@ -428,9 +457,9 @@ function transposeLE(ctx, a)
     # the index arithmetic folds to constants — 3.34 -> 2.01 ms in SAM 2's
     # encoder. Safe because `(32, 4, 1)`'s only unit extent is trailing; see
     # `Mantle.interior_unit_workgroup`.
-    k(backend, (32, 4, 1))(d, flashflat(root), Int32(off + 1),
+    KI.Kernel(backend, k)(d, flashflat(root), Int32(off + 1),
                            st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H);
-                           ndrange = toLErange(E, L, H, B))
+                           ndrange = toLErange(E, L, H, B), workgroupsize = (32, 4, 1))
     d
 end
 
@@ -586,11 +615,11 @@ divides, exactly as [`attn_softmax16`](@ref) leaves it.
 Two passes over `s`, as before: the maximum has to be known before any `exp`.
 Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
 """
-@kernel cpu=false function attn_softmax_rows!(p, sums, @Const(s), scale::Float32,
+function attn_softmax_rows!(p, sums, s, scale::Float32,
                                               nlk::Int32)
-    red = @localmem Float32 (ATTN_SM_LQ * ATTN_SM_CH,)
-    t = @index(Local, Linear) - 1
-    blk = @index(Group, Linear) - 1
+    red = KI.localmemory(Float32, Val((ATTN_SM_LQ * ATTN_SM_CH,)), Val(1))
+    t = KI.get_local_id().x - 1
+    blk = KI.get_group_id().x - 1
     li = t % ATTN_SM_LQ                    # query row within the tile
     ci = t ÷ ATTN_SM_LQ                    # which chunk of the key axis
     ntile = size(s, 1) ÷ ATTN_SM_LQ
@@ -605,7 +634,7 @@ Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
         lk += ATTN_SM_CH
     end
     @inbounds red[t + 1] = m
-    @synchronize
+    KI.barrier()
     # Reduce along the chunk index only: for a fixed `li` the partial results sit
     # `ATTN_SM_LQ` apart. The barrier is outside the branch, as it must be.
     stride = ATTN_SM_CH ÷ 2
@@ -613,12 +642,12 @@ Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
         @inbounds if ci < stride
             red[t + 1] = max(red[t + 1], red[t + 1 + stride * ATTN_SM_LQ])
         end
-        @synchronize
+        KI.barrier()
         stride ÷= 2
     end
     @inbounds mx = red[li + 1]
     isfinite(mx) || (mx = 0.0f0)
-    @synchronize
+    KI.barrier()
 
     # ── pass 2: exp into `p`, and the row sum
     acc = 0.0f0
@@ -630,18 +659,19 @@ Both are chunked, so each pass reads `Lk / ATTN_SM_CH` elements per thread.
         lk += ATTN_SM_CH
     end
     @inbounds red[t + 1] = acc
-    @synchronize
+    KI.barrier()
     stride = ATTN_SM_CH ÷ 2
     while stride > 0
         @inbounds if ci < stride
             red[t + 1] += red[t + 1 + stride * ATTN_SM_LQ]
         end
-        @synchronize
+        KI.barrier()
         stride ÷= 2
     end
     @inbounds if ci == 0
         sums[lq + 1, hb + 1] = red[li + 1]
     end
+    return nothing
 end
 
 """
@@ -668,9 +698,9 @@ function attnsoftmax!(ctx, sums, p, s, scale)
     s3 = reshape(s, Lq, Lk, H * B)
     p3 = reshape(p, Lq, Lk, H * B)
     sm = reshape(sums, Lq, H * B)
-    attn_softmax_rows!(backend, ATTN_SM_LQ * ATTN_SM_CH)(
+    KI.Kernel(backend, attn_softmax_rows!)(
         p3, sm, s3, Float32(scale), Int32(Lk);
-        ndrange = (Lq ÷ ATTN_SM_LQ) * H * B * ATTN_SM_LQ * ATTN_SM_CH)
+        ndrange = (Lq ÷ ATTN_SM_LQ) * H * B * ATTN_SM_LQ * ATTN_SM_CH, workgroupsize = ATTN_SM_LQ * ATTN_SM_CH)
     sums
 end
 
