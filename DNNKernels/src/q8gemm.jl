@@ -11,13 +11,13 @@ for cfg in ((2, 1, 2, 2, 32, 8), (2, 2, 2, 2, 32, 8), (2, 2, 2, 2, 64, 8),
     AR, BR = BM*BK÷4÷WG, BK*BN÷2÷WG
     name = Symbol("q8gemm_", join(cfg, "_"), "!")
     @eval begin
-        @kernel cpu=false unsafe_indices=true function $name(
-                C, @Const(Q), @Const(S), @Const(B), bias, epi,
+        function $name(
+                C, Q, S, B, bias, epi,
                 ::Val{M}, ::Val{N}, ::Val{K}) where {M,N,K}
-            sA = @localmem Mantle.GemmV2 ($LDA2*$BK,)
-            sB = @localmem Mantle.GemmV2 ($LDB2*$BN,)
-            tid = Int32(@index(Local, Linear)) - Int32(1)
-            blk = Int32(@index(Group, Linear)) - Int32(1)
+            sA = KI.localmemory(Mantle.GemmV2, Val(($LDA2*$BK,)), Val(1))
+            sB = KI.localmemory(Mantle.GemmV2, Val(($LDB2*$BN,)), Val(2))
+            tid = Int32(KI.get_local_id().x) - Int32(1)
+            blk = Int32(KI.get_group_id().x) - Int32(1)
             tm = (blk % Int32(M÷$BM)) * Int32($BM)
             tn = (blk ÷ Int32(M÷$BM)) * Int32($BN)
             sg = tid ÷ Int32(32)
@@ -52,7 +52,7 @@ for cfg in ((2, 1, 2, 2, 32, 8), (2, 2, 2, 2, 32, 8), (2, 2, 2, 2, 64, 8),
                     g = Int32(1)+k0+2p+(tn+j)*Int32(K)
                     sB[Int32(1)+p+j*Int32($LDB2)] = (VecElement(B[g]),VecElement(B[g+1]))
                 end
-                @synchronize
+                KI.barrier()
                 Base.Cartesian.@nexprs $(BK÷16) u -> begin
                     kt = Int32((u-1)*16)
                     Base.Cartesian.@nexprs $STM mt -> begin
@@ -65,11 +65,12 @@ for cfg in ((2, 1, 2, 2, 32, 8), (2, 2, 2, 2, 32, 8), (2, 2, 2, 2, 64, 8),
                         end
                     end
                 end
-                @synchronize
+                KI.barrier()
             end
             Base.Cartesian.@nexprs $STN nt -> Base.Cartesian.@nexprs $STM mt ->
                 Mantle.accstore!(C,Int32(1)+tm+(sm+Int32(mt-1))*Int32(16)+
                     (tn+(sn+Int32(nt-1))*Int32(16))*Int32(M),Int32(M),c_mt_nt,epi)
+            return nothing
         end
         Q8_GEMM_KERNELS[$cfg] = $name
     end
@@ -82,8 +83,9 @@ function q8gemm!(C, A::QInt8Matrix, B; tiling=(2,1,2,2,32,8), bias=nothing, epil
     stm,stn,wm,wn,bk,pad = tiling
     bm,bn,wg = 16stm*wm,16stn*wn,32wm*wn
     m%bm == 0 && n%bn == 0 && k%bk == 0 || throw(ArgumentError("q8gemm tile does not divide operands"))
-    Q8_GEMM_KERNELS[tiling](KernelAbstractions.get_backend(C),wg)(
-        C,A.q,A.scale,B,bias,epilogue,Val(m),Val(n),Val(k); ndrange=(m÷bm)*(n÷bn)*wg)
+    KI.Kernel(KernelAbstractions.get_backend(C), Q8_GEMM_KERNELS[tiling])(
+        C,A.q,A.scale,B,bias,epilogue,Val(m),Val(n),Val(k);
+        ndrange=(m÷bm)*(n÷bn)*wg, workgroupsize=wg)
     C
 end
 

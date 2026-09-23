@@ -21,6 +21,7 @@ Three things are checked:
     control flow.
 """
 
+import KernelInterface as KI
 using Test, DNNKernels, Mantle, KernelAbstractions, Random
 
 const DKW = DNNKernels
@@ -71,9 +72,9 @@ const DKW = DNNKernels
                 xh = Float16.(randn(rng, Float32, K, N) .* 0.4f0)
                 qb, sb = DKW.w8a8quantize(backend, DNNKernels.toback(backend, xh), np)
                 C = KernelAbstractions.allocate(backend, Float16, M, np)
-                DKW.w8a8_gemm_kernel!(backend, DKW.W8A8_WG)(
+                KI.Kernel(backend, DKW.w8a8_gemm_kernel!)(
                     C, DKW.w8a8weight(A), A.scale, qb, sb, Val(M), Val(np), Val(K);
-                    ndrange = (M ÷ DKW.W8A8_BM) * (np ÷ DKW.W8A8_BN) * DKW.W8A8_WG)
+                    ndrange = (M ÷ DKW.W8A8_BM) * (np ÷ DKW.W8A8_BN) * DKW.W8A8_WG, workgroupsize = DKW.W8A8_WG)
                 KernelAbstractions.synchronize(backend)
                 qa = Float32.(Array(DKW.w8a8weight(A))[1:M, :])
                 qbh = Float32.(reshape(reinterpret(Int8, Array(qb)), K, np))

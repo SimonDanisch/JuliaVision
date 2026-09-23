@@ -137,13 +137,13 @@ kernel, same output bit for bit: **3.62 ms, 26.5 GB/s, 52x**.
 """
 const Q8PACK_WORDS = 32
 
-@kernel cpu=false function checkpoint_q8pack_kernel!(q32, @Const(q), K::Int32,
+function checkpoint_q8pack_kernel!(q32, q, K::Int32,
                                                      M::Int32, MG::Int32,
                                                      ::Val{GPT}) where {GPT}
     # A 2-D range, so recovering `k` and the word group costs no integer
     # division by a runtime extent — which is its own 3x elsewhere in this
     # package (see `attn_flash_cm_merge!`).
-    kk, gg = @index(Global, NTuple)
+    kk, gg = Tuple(KI.get_global_id())
     k = Int32(kk) - Int32(1)
     gb = (Int32(gg) - Int32(1)) * Int32(GPT)
     @inbounds for w in Int32(0):Int32(GPT - 1)
@@ -160,6 +160,7 @@ const Q8PACK_WORDS = 32
             q32[Int32(1) + g + k * MG] = word
         end
     end
+    return nothing
 end
 
 """Upload and repack a Comfy `int8_tensorwise` ConvRot checkpoint matrix."""
@@ -174,9 +175,9 @@ function convrotqint8(backend, q::AbstractMatrix{Int8}, scale;
     ds = toback(backend, Float32.(vec(scale)))
     MG = cld(M, Q8ROWS)
     packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    checkpoint_q8pack_kernel!(backend, (256, 1))(
+    KI.Kernel(backend, checkpoint_q8pack_kernel!)(
         packed, dq, Int32(K), Int32(M), Int32(MG), Val(Q8PACK_WORDS);
-        ndrange = (K, cld(MG, Q8PACK_WORDS)))
+        ndrange = (K, cld(MG, Q8PACK_WORDS)), workgroupsize = (256, 1))
     ConvRotQInt8Matrix(packed, ds, M, Int(group_size))
 end
 
@@ -196,11 +197,11 @@ end
 # `checkpoint_q8pack_kernel!` gives: the destination is contiguous in the row
 # group and the source in `k`, so a thread per word with the group fast uses
 # one byte of every line it fetches.
-@kernel cpu=false function w4a8_pack_kernel!(q32, @Const(q), @Const(srel),
-                                             @Const(codebook), K::Int32, M::Int32,
+function w4a8_pack_kernel!(q32, q, srel,
+                                             codebook, K::Int32, M::Int32,
                                              MG::Int32, GS::Int32, MGD::Int32,
                                              GOFF::Int32, ::Val{GPT}) where {GPT}
-    kk, gg = @index(Global, NTuple)
+    kk, gg = Tuple(KI.get_global_id())
     k = Int32(kk) - Int32(1)
     gb = (Int32(gg) - Int32(1)) * Int32(GPT)
     @inbounds for w in Int32(0):Int32(GPT - 1)
@@ -224,6 +225,7 @@ end
             q32[(rg + GOFF) + Int32(1) + k * MGD] = word
         end
     end
+    return nothing
 end
 
 """Upload Comfy `asym_w4a8_int8` storage and decode its INT4 grid to packed INT8."""
@@ -251,10 +253,10 @@ end
 function w4a8pack!(backend, packed, q, s_rel, codebook, K::Integer, M::Integer,
                    group_size::Integer, mgdest::Integer, goff::Integer)
     mg = cld(M, Q8ROWS)
-    w4a8_pack_kernel!(backend, (256, 1))(
+    KI.Kernel(backend, w4a8_pack_kernel!)(
         packed, q, s_rel, codebook, Int32(K), Int32(M),
         Int32(mg), Int32(group_size), Int32(mgdest), Int32(goff),
-        Val(Q8PACK_WORDS); ndrange = (K, cld(mg, Q8PACK_WORDS)))
+        Val(Q8PACK_WORDS); ndrange = (K, cld(mg, Q8PACK_WORDS)), workgroupsize = (256, 1))
     packed
 end
 
@@ -361,9 +363,9 @@ same error. Not the same BITS: against a host implementation of the staged form
 this agrees to one fp16 ulp, because the compiler is free to reassociate
 `a + b + c - d` and does.
 """
-@kernel cpu=false unsafe_indices=true function convrot_pass_kernel!(
-        out, @Const(input), ::Val{S}, ::Val{SETS}, ::Val{G}, n::Int64) where {S,SETS,G}
-    j = Int64(@index(Global, Linear)) - Int64(1)
+function convrot_pass_kernel!(
+        out, input, ::Val{S}, ::Val{SETS}, ::Val{G}, n::Int64) where {S,SETS,G}
+    j = Int64(KI.get_global_id().x) - Int64(1)
     g = j ÷ Int64(SETS)
     w = j - g * Int64(SETS)
     base = g * Int64(G) + (S == 1 ? w * Int64(16) : w) + Int64(1)
@@ -389,6 +391,7 @@ this agrees to one fp16 ulp, because the compiler is free to reassociate
             Base.Cartesian.@nexprs 16 i -> out[base + Int64((i - 1) * S)] = eltype(out)(v_i)
         end
     end
+    return nothing
 end
 
 """
@@ -419,8 +422,8 @@ function convrot(ctx::Ctx, input, group_size::Integer)
     n = Int64(length(input))
     src = input
     for S in strides
-        convrot_pass_kernel!(ctx.backend, 256)(out, src, Val(S), Val(sets),
-                                               Val(Int(group_size)), n; ndrange)
+        KI.Kernel(ctx.backend, convrot_pass_kernel!)(out, src, Val(S), Val(sets),
+                                               Val(Int(group_size)), n; ndrange, workgroupsize = 256)
         src = out
     end
     out
@@ -431,8 +434,8 @@ end
 
 # ── quantisation ─────────────────────────────────────────────────────────────
 
-@kernel cpu=false function q8scale_kernel!(s, @Const(W), M::Int32, K::Int32)
-    m = @index(Global, Linear)
+function q8scale_kernel!(s, W, M::Int32, K::Int32)
+    m = KI.get_global_id().x
     if m <= M
         @inbounds begin
             mx = 0f0
@@ -443,11 +446,12 @@ end
             s[m] = mx / 127f0
         end
     end
+    return nothing
 end
 
-@kernel cpu=false function q8pack_kernel!(q32, @Const(W), @Const(s),
+function q8pack_kernel!(q32, W, s,
                                           M::Int32, MG::Int32, n::Int64)
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             l = Int32(i) - Int32(1)
@@ -466,6 +470,7 @@ end
             q32[i] = w
         end
     end
+    return nothing
 end
 
 # Quantizing straight out of the checkpoint layout — no transpose, every read
@@ -493,9 +498,9 @@ function quantizeint8(backend, W::AbstractMatrix)
     MG = cld(M, Q8ROWS)
     s = KernelAbstractions.allocate(backend, Float32, M)
     q32 = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    q8scale_kernel!(backend, 256)(s, W, Int32(M), Int32(K); ndrange = M)
-    q8pack_kernel!(backend, 256)(q32, W, s, Int32(M), Int32(MG), Int64(MG) * K;
-                                 ndrange = MG * K)
+    KI.Kernel(backend, q8scale_kernel!)(s, W, Int32(M), Int32(K); ndrange = M, workgroupsize = 256)
+    KI.Kernel(backend, q8pack_kernel!)(q32, W, s, Int32(M), Int32(MG), Int64(MG) * K;
+                                 ndrange = MG * K, workgroupsize = 256)
     QInt8Matrix(q32, s, M)
 end
 
@@ -510,9 +515,9 @@ end
 # `P` is padded to `MG * 4` rows so the hot loop stores four values with no
 # bounds test; the reduction only ever reads the first M of them.
 
-@kernel cpu=false function q8gemv_kernel!(P, @Const(q32), @Const(x), MG::Int32,
+function q8gemv_kernel!(P, q32, x, MG::Int32,
                                           MP::Int32, K::Int32, KC::Int32, ntot::Int32)
-    lin = @index(Global, Linear)
+    lin = KI.get_global_id().x
     if lin <= ntot
         @inbounds begin
             l = Int32(lin) - Int32(1)
@@ -535,12 +540,13 @@ end
             Base.Cartesian.@nexprs 4 r -> (P[o + Int32(r - 1)] = acc_r)
         end
     end
+    return nothing
 end
 
-@kernel cpu=false function q8reduce_kernel!(C, @Const(P), @Const(s), @Const(bias),
+function q8reduce_kernel!(C, P, s, bias,
                                             M::Int32, MP::Int32, S::Int32,
                                             ::Val{HASBIAS}) where {HASBIAS}
-    m = @index(Global, Linear)
+    m = KI.get_global_id().x
     if m <= M
         @inbounds begin
             acc = P[m]
@@ -552,11 +558,12 @@ end
             C[m] = eltype(C)(acc)
         end
     end
+    return nothing
 end
 
-@kernel cpu=false function q8dequant_kernel!(W, @Const(q32), @Const(s),
+function q8dequant_kernel!(W, q32, s,
                                              M::Int32, MG::Int32, n::Int64)
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             l = Int32(i) - Int32(1)
@@ -571,6 +578,7 @@ end
             end
         end
     end
+    return nothing
 end
 
 # Threads to aim for. The row axis is `MG`, a quarter of M, because each thread
@@ -629,12 +637,12 @@ const Q8WG = 256
 for RG in (1, 2, 4, 8, 16, 32, 64, 128, 256)
     kname = Symbol("q8gemv1_kernel_", RG, "!")
     KS = Q8WG ÷ RG
-    @eval @kernel cpu=false function $kname(C, @Const(q32), @Const(x), @Const(sc),
-                                            @Const(bias), MG::Int32, M::Int32, K::Int32,
+    @eval function $kname(C, q32, x, sc,
+                                            bias, MG::Int32, M::Int32, K::Int32,
                                             ::Val{HASBIAS}) where {HASBIAS}
-        sh = @localmem Float32 (Q8WG * 4,)
-        t = @index(Local, Linear) - 1
-        wg = @index(Group, Linear) - 1
+        sh = KI.localmemory(Float32, Val((Q8WG * 4,)), Val(1))
+        t = KI.get_local_id().x - 1
+        wg = KI.get_group_id().x - 1
         r = Int32(t % $RG)                    # row-group within the workgroup
         sp = Int32(t ÷ $RG)                   # which k-split
         g = Int32(wg) * Int32($RG) + r        # global row-group
@@ -658,7 +666,7 @@ for RG in (1, 2, 4, 8, 16, 32, 64, 128, 256)
             base = (r * Int32(4)) * Int32($KS) + sp
             Base.Cartesian.@nexprs 4 i -> (sh[base + Int32(i - 1) * Int32($KS) + Int32(1)] = acc_i)
         end
-        @synchronize
+        KI.barrier()
         # `RG * 4` outputs per workgroup, `Q8WG` threads: one pass when there are
         # fewer outputs than threads, a strided loop when there are more.
         @inbounds begin
@@ -728,21 +736,21 @@ function q8gemv!(ctx, out, A::QInt8Matrix, x, bias)
     MG = size(A.q, 1)
     if Q8SINGLE[]
         RG = q8rowgroups(M, K)
-        Q8GEMV1_KERNELS[RG](ctx.backend, Q8WG)(
+        KI.Kernel(ctx.backend, Q8GEMV1_KERNELS[RG])(
             out, A.q, x, A.scale, bias === nothing ? A.scale : bias,
             Int32(MG), Int32(M), Int32(K), Val(bias !== nothing);
-            ndrange = cld(MG, RG) * Q8WG)
+            ndrange = cld(MG, RG) * Q8WG, workgroupsize = Q8WG)
         return out
     end
     MP = MG * Q8ROWS
     S = q8split(M, K)
     KC = cld(K, S)
     P = Mantle.splitscratch(out, MP, 1, S)
-    q8gemv_kernel!(ctx.backend, 256)(P, A.q, x, Int32(MG), Int32(MP), Int32(K),
-                                     Int32(KC), Int32(MG * S); ndrange = MG * S)
-    q8reduce_kernel!(ctx.backend, 256)(
+    KI.Kernel(ctx.backend, q8gemv_kernel!)(P, A.q, x, Int32(MG), Int32(MP), Int32(K),
+                                     Int32(KC), Int32(MG * S); ndrange = MG * S, workgroupsize = 256)
+    KI.Kernel(ctx.backend, q8reduce_kernel!)(
         out, P, A.scale, bias === nothing ? A.scale : bias,
-        Int32(M), Int32(MP), Int32(S), Val(bias !== nothing); ndrange = M)
+        Int32(M), Int32(MP), Int32(S), Val(bias !== nothing); ndrange = M, workgroupsize = 256)
     out
 end
 
@@ -758,7 +766,7 @@ function q8dequant(ctx, A::QInt8Matrix)
     M, K = size(A)
     MG = size(A.q, 1)
     W = scratch!(ctx.ws, ctx.backend, Float16, M, K)
-    q8dequant_kernel!(ctx.backend, 256)(W, A.q, A.scale, Int32(M), Int32(MG),
-                                        Int64(MG) * K; ndrange = MG * K)
+    KI.Kernel(ctx.backend, q8dequant_kernel!)(W, A.q, A.scale, Int32(M), Int32(MG),
+                                        Int64(MG) * K; ndrange = MG * K, workgroupsize = 256)
     W
 end

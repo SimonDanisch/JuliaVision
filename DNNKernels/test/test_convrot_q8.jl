@@ -12,6 +12,7 @@ What has to hold across both: the arithmetic the checkpoint was validated
 against, at a sequence length no tile divides.
 """
 
+import KernelInterface as KI
 using Test, DNNKernels, Mantle, KernelAbstractions, Random
 
 const DKA = DNNKernels
@@ -55,8 +56,8 @@ const DKA = DNNKernels
         o = KernelAbstractions.allocate(backend, Float16, 512, 6)
         n = Int64(length(xh))
         for (S, _) in ((1, nothing), (16, nothing))
-            DNNKernels.convrot_pass_kernel!(backend, 256)(
-                o, S == 1 ? x : o, Val(S), Val(16), Val(256), n; ndrange = length(xh) ÷ 16)
+            KI.Kernel(backend, DNNKernels.convrot_pass_kernel!)(
+                o, S == 1 ? x : o, Val(S), Val(16), Val(256), n; ndrange = length(xh) ÷ 16, workgroupsize = 256)
         end
         KernelAbstractions.synchronize(backend)
         want = staged(xh, 256)
@@ -64,10 +65,10 @@ const DKA = DNNKernels
         @test maximum(abs, Float32.(Array(o)) .- Float32.(want)) <= 0.001
         # Orthogonal, and its own inverse — what makes an embedding row
         # recoverable by applying it twice.
-        DNNKernels.convrot_pass_kernel!(backend, 256)(o, o, Val(1), Val(16), Val(256), n;
-                                                      ndrange = length(xh) ÷ 16)
-        DNNKernels.convrot_pass_kernel!(backend, 256)(o, o, Val(16), Val(16), Val(256), n;
-                                                      ndrange = length(xh) ÷ 16)
+        KI.Kernel(backend, DNNKernels.convrot_pass_kernel!)(o, o, Val(1), Val(16), Val(256), n;
+                                                      ndrange = length(xh) ÷ 16, workgroupsize = 256)
+        KI.Kernel(backend, DNNKernels.convrot_pass_kernel!)(o, o, Val(16), Val(16), Val(256), n;
+                                                      ndrange = length(xh) ÷ 16, workgroupsize = 256)
         KernelAbstractions.synchronize(backend)
         @test maximum(abs, Float32.(Array(o)) .- Float32.(xh)) <= 0.01
 

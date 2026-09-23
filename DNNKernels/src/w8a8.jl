@@ -75,11 +75,11 @@ A workgroup per column, because the scale is `max|x| / 127` over the whole
 column and every value needs it before it can be quantised. Columns past `N`
 are the GEMM's padding: they quantise to zero and contribute nothing.
 """
-@kernel cpu=false unsafe_indices=true function w8a8_quantize_kernel!(
-        q32, scale, @Const(x), ::Val{K}, N::Int32) where {K}
-    red = @localmem Float32 (W8A8_WG,)
-    tid = Int32(@index(Local, Linear)) - Int32(1)
-    col = Int32(@index(Group, Linear)) - Int32(1)
+function w8a8_quantize_kernel!(
+        q32, scale, x, ::Val{K}, N::Int32) where {K}
+    red = KI.localmemory(Float32, Val((W8A8_WG,)), Val(1))
+    tid = Int32(KI.get_local_id().x) - Int32(1)
+    col = Int32(KI.get_group_id().x) - Int32(1)
     m = 0f0
     if col < N
         @inbounds for k in tid:Int32(W8A8_WG):Int32(K - 1)
@@ -87,13 +87,13 @@ are the GEMM's padding: they quantise to zero and contribute nothing.
         end
     end
     @inbounds red[tid + Int32(1)] = m
-    @synchronize
+    KI.barrier()
     s = Int32(W8A8_WG ÷ 2)
     while s > Int32(0)
         @inbounds if tid < s
             red[tid + Int32(1)] = max(red[tid + Int32(1)], red[tid + s + Int32(1)])
         end
-        @synchronize
+        KI.barrier()
         s ÷= Int32(2)
     end
     @inbounds a = red[1]
@@ -111,6 +111,7 @@ are the GEMM's padding: they quantise to zero and contribute nothing.
         end
         q32[Int32(1) + w + col * Int32(K ÷ 4)] = word
     end
+    return nothing
 end
 
 """
@@ -122,15 +123,15 @@ end
 `QB` is the activation packed four values to a word along k. See the file's
 docstring for where each of the three staging decisions came from.
 """
-@kernel cpu=false unsafe_indices=true function w8a8_gemm_kernel!(
-        C, @Const(A8), @Const(SA), @Const(QB), @Const(SB),
+function w8a8_gemm_kernel!(
+        C, A8, SA, QB, SB,
         ::Val{M}, ::Val{N}, ::Val{K}) where {M,N,K}
-    sB = @localmem W8A8V4 (2 * W8A8_BK * W8A8_BN ÷ 4,)
-    lsa = @localmem Float32 (W8A8_BM,)
-    lsb = @localmem Float32 (W8A8_BN,)
-    scoord = @localmem Float32 (256,)
-    tid = Int32(@index(Local, Linear)) - Int32(1)
-    blk = Int32(@index(Group, Linear)) - Int32(1)
+    sB = KI.localmemory(W8A8V4, Val((2 * W8A8_BK * W8A8_BN ÷ 4,)), Val(1))
+    lsa = KI.localmemory(Float32, Val((W8A8_BM,)), Val(2))
+    lsb = KI.localmemory(Float32, Val((W8A8_BN,)), Val(3))
+    scoord = KI.localmemory(Float32, Val((256,)), Val(4))
+    tid = Int32(KI.get_local_id().x) - Int32(1)
+    blk = Int32(KI.get_group_id().x) - Int32(1)
     tm = (blk % Int32(M ÷ W8A8_BM)) * Int32(W8A8_BM)
     tn = (blk ÷ Int32(M ÷ W8A8_BM)) * Int32(W8A8_BN)
     sg = tid ÷ Int32(32)
@@ -153,7 +154,7 @@ docstring for where each of the three staging decisions came from.
         sB[Int32(1) + (idx % Int32(16)) + (idx ÷ Int32(16)) * Int32(16)] =
             w8a8word(QB[Int32(1) + (idx % Int32(16)) + (tn + idx ÷ Int32(16)) * Int32(K ÷ 4)])
     end
-    @synchronize
+    KI.barrier()
     nb = Int32(K ÷ W8A8_BK)
     for kb in Int32(0):(nb - Int32(1))
         cur = (kb % Int32(2)) * Int32(2048)
@@ -180,13 +181,13 @@ docstring for where each of the three staging decisions came from.
                 c_{2j}   = muladd(a2, bm_j, c_{2j})
             end
         end
-        @synchronize
+        KI.barrier()
         nxt = ((kb + Int32(1)) % Int32(2)) * Int32(2048)
         @inbounds Base.Cartesian.@nexprs 8 r -> begin
             idx = tid + Int32((r-1) * 256)
             sB[Int32(1) + nxt + (idx % Int32(16)) + (idx ÷ Int32(16)) * Int32(16)] = w8a8word(b_r)
         end
-        @synchronize
+        KI.barrier()
     end
     coordmat = Mantle.AcceleratedMatrix{Float32,16,16,Mantle.Accumulator}(
                 scoord, Int32(1), Int32(16), Val(false))
@@ -209,6 +210,7 @@ docstring for where each of the three staging decisions came from.
             Mantle.accstore!(C, Int32(1) + (tm + r0) + (tn + c0) * Int32(M), Int32(M), f, identity)
         end
     end
+    return nothing
 end
 
 """
@@ -238,8 +240,8 @@ function w8a8quantize(backend, x::AbstractMatrix, np::Integer)
     K % 4 == 0 || throw(DimensionMismatch("W8A8 needs a multiple of four along k, got $K"))
     packed = KernelAbstractions.allocate(backend, UInt32, K ÷ 4, np)
     scale = KernelAbstractions.allocate(backend, Float32, np)
-    w8a8_quantize_kernel!(backend, W8A8_WG)(packed, scale, x, Val(Int(K)), Int32(N);
-                                            ndrange = np * W8A8_WG)
+    KI.Kernel(backend, w8a8_quantize_kernel!)(packed, scale, x, Val(Int(K)), Int32(N);
+                                            ndrange = np * W8A8_WG, workgroupsize = W8A8_WG)
     (packed, scale)
 end
 

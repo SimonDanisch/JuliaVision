@@ -1,3 +1,4 @@
+import KernelInterface as KI
 using Test, DNNKernels, KernelAbstractions, Mantle, Random
 
 function write_tiny_gguf(path)
@@ -146,9 +147,9 @@ end
         wideXh = Float16.(randn(rng, Float32, KW, NW))
         wideX = DNNKernels.toback(backend, wideXh)
         wideout = KernelAbstractions.allocate(backend, Float32, MW, NW)
-        DNNKernels.ptq1_coopmat_kernel!(backend, DNNKernels.PTQ1_COOP_WG)(
+        KI.Kernel(backend, DNNKernels.ptq1_coopmat_kernel!)(
             wideout, wideA.data, wideX, Val(MW), Val(NW), Val(KW);
-            ndrange=DNNKernels.PTQ1_COOP_WG)
+            ndrange=DNNKernels.PTQ1_COOP_WG, workgroupsize = DNNKernels.PTQ1_COOP_WG)
         KernelAbstractions.synchronize(backend)
         @test Array(wideout) ≈ wideW * Float32.(wideXh) rtol=2f-4 atol=2f-3
     end

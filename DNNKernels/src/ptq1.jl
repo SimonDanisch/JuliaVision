@@ -69,7 +69,7 @@ end
 # consumes two trits from every 128-value block. This gives decode enough waves
 # even for the 48-element alpha/beta projections, while each packed byte and
 # activation is read only by the row that uses it.
-@kernel cpu=false function ptq1_mul_kernel!(out, @Const(data), @Const(x), @Const(bias),
+function ptq1_mul_kernel!(out, data, x, bias,
                                             M::Int32, K::Int32, N::Int32,
                                             rowgroups::Int32,
                                             ::Val{HASBIAS},
@@ -79,12 +79,12 @@ end
     # subgroups and a single workgroup barrier before the row leader combines
     # them. This replaces the old six-barrier shared-memory reduction tree on
     # the Radeon decode path while keeping the same kernel portable to NVIDIA.
-    partial = @localmem Float32 (PTQ1_ROWS_PER_WG * (64 ÷ SUBGROUP),)
-    t = Int32(@index(Local, Linear) - 1)
+    partial = KI.localmemory(Float32, Val((PTQ1_ROWS_PER_WG * (64 ÷ SUBGROUP),)), Val(1))
+    t = Int32(KI.get_local_id().x - 1)
     lane = t & Int32(63)
     sublane = t % Int32(SUBGROUP)
     rowin = t >> 6
-    wg = Int32(@index(Group, Linear) - 1)
+    wg = Int32(KI.get_group_id().x - 1)
     rg = wg % rowgroups
     col = wg ÷ rowgroups
     row = rg * Int32(PTQ1_ROWS_PER_WG) + rowin
@@ -114,7 +114,7 @@ end
         if sublane == Int32(0)
             partial[rowin * nsub + subinrow + Int32(1)] = reduced
         end
-        @synchronize
+        KI.barrier()
         if lane == Int32(0) && row < M && col < N
             v = partial[rowin * nsub + Int32(1)] +
                 partial[rowin * nsub + Int32(2)]
@@ -122,6 +122,7 @@ end
             @inbounds out[row + Int32(1) + col * M] = eltype(out)(v)
         end
     end
+    return nothing
 end
 
 const PTQ1_COLS_PER_WG = 4
@@ -138,18 +139,18 @@ const PTQ1_MM_BK = 32
 # Prefill tile: a packed ternary weight is decoded once and multiplied by four
 # activation columns. Decode keeps the one-column kernel above because four
 # accumulators would only add register pressure there.
-@kernel cpu=false function ptq1_mul4_kernel!(out, @Const(data), @Const(x), @Const(bias),
+function ptq1_mul4_kernel!(out, data, x, bias,
                                              M::Int32, K::Int32, N::Int32,
                                              rowgroups::Int32,
                                              ::Val{HASBIAS},
                                              ::Val{SUBGROUP}) where {HASBIAS,SUBGROUP}
-    partial = @localmem Float32 (PTQ1_COLS_PER_WG * PTQ1_ROWS_PER_WG *
-                                 (64 ÷ SUBGROUP),)
-    t = Int32(@index(Local, Linear) - 1)
+    partial = KI.localmemory(Float32, Val((PTQ1_COLS_PER_WG * PTQ1_ROWS_PER_WG *
+                                 (64 ÷ SUBGROUP),)), Val(1))
+    t = Int32(KI.get_local_id().x - 1)
     lane = t & Int32(63)
     sublane = t % Int32(SUBGROUP)
     rowin = t >> 6
-    wg = Int32(@index(Group, Linear) - 1)
+    wg = Int32(KI.get_group_id().x - 1)
     rg = wg % rowgroups
     col0 = (wg ÷ rowgroups) * Int32(PTQ1_COLS_PER_WG)
     row = rg * Int32(PTQ1_ROWS_PER_WG) + rowin
@@ -211,7 +212,7 @@ const PTQ1_MM_BK = 32
             partial[Int32(2 * PTQ1_ROWS_PER_WG) * nsub + base] = r2
             partial[Int32(3 * PTQ1_ROWS_PER_WG) * nsub + base] = r3
         end
-        @synchronize
+        KI.barrier()
         if lane == Int32(0) && row < M
             base = rowin * nsub + Int32(1)
             r0 = partial[base] + partial[base + Int32(1)]
@@ -231,16 +232,17 @@ const PTQ1_MM_BK = 32
             col0 + Int32(3) < N && (@inbounds out[row + Int32(1) + (col0 + Int32(3)) * M] = eltype(out)(r3))
         end
     end
+    return nothing
 end
 
-@kernel cpu=false function ptq1_mul_mm_kernel!(out, @Const(data), @Const(x),
+function ptq1_mul_mm_kernel!(out, data, x,
                                                 M::Int32, K::Int32, N::Int32,
                                                 mtiles::Int32)
-    atile = @localmem Float32 (PTQ1_MM_BM * PTQ1_MM_BK,)
-    btile = @localmem Float32 (PTQ1_MM_BN * PTQ1_MM_BK,)
+    atile = KI.localmemory(Float32, Val((PTQ1_MM_BM * PTQ1_MM_BK,)), Val(1))
+    btile = KI.localmemory(Float32, Val((PTQ1_MM_BN * PTQ1_MM_BK,)), Val(2))
 
-    t = Int32(@index(Local, Linear) - 1)
-    wg = Int32(@index(Group, Linear) - 1)
+    t = Int32(KI.get_local_id().x - 1)
+    wg = Int32(KI.get_group_id().x - 1)
     mt = wg % mtiles
     nt = wg ÷ mtiles
     m0 = mt * Int32(PTQ1_MM_BM)
@@ -285,7 +287,7 @@ end
             @inbounds btile[bi + Int32(1)] = bv
             bi += Int32(PTQ1_WG)
         end
-        @synchronize
+        KI.barrier()
 
         for lk in Int32(0):Int32(PTQ1_MM_BK - 1)
             a0 = atile[(lr0 + Int32(0)) * Int32(PTQ1_MM_BK) + lk + Int32(1)]
@@ -299,7 +301,7 @@ end
             ar2 = muladd(a2, b0, ar2); br2 = muladd(a2, b1, br2)
             ar3 = muladd(a3, b0, ar3); br3 = muladd(a3, b1, br3)
         end
-        @synchronize
+        KI.barrier()
         k0 += Int32(PTQ1_MM_BK)
     end
 
@@ -318,6 +320,7 @@ end
         row0 + Int32(2) < M && (@inbounds out[row0 + Int32(3) + col1 * M] = eltype(out)(br2))
         row0 + Int32(3) < M && (@inbounds out[row0 + Int32(4) + col1 * M] = eltype(out)(br3))
     end
+    return nothing
 end
 
 """
@@ -338,24 +341,24 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
     if N >= 8 && bias === nothing
         mtiles = cld(M, PTQ1_MM_BM)
         ntiles = cld(N, PTQ1_MM_BN)
-        ptq1_mul_mm_kernel!(ctx.backend, PTQ1_WG)(
+        KI.Kernel(ctx.backend, ptq1_mul_mm_kernel!)(
             out, A.data, x, Int32(M), Int32(K), Int32(N), Int32(mtiles);
-            ndrange = mtiles * ntiles * PTQ1_WG)
+            ndrange = mtiles * ntiles * PTQ1_WG, workgroupsize = PTQ1_WG)
     else
         kernel = N == 1 ? ptq1_mul_kernel! : ptq1_mul4_kernel!
         columns = N == 1 ? N : cld(N, PTQ1_COLS_PER_WG)
-        kernel(ctx.backend, PTQ1_WG)(
+        KI.Kernel(ctx.backend, kernel)(
             out, A.data, x, bias === nothing ? A.data : bias,
             Int32(M), Int32(K), Int32(N), Int32(rows), Val(bias !== nothing),
             Val(subgroup);
-            ndrange = rows * columns * PTQ1_WG)
+            ndrange = rows * columns * PTQ1_WG, workgroupsize = PTQ1_WG)
     end
     out
 end
 
-@kernel cpu=false function ptq1_getrows_kernel!(out, @Const(data), @Const(rows),
+function ptq1_getrows_kernel!(out, data, rows,
                                                 M::Int32, K::Int32, N::Int32)
-    i = Int32(@index(Global, Linear) - 1)
+    i = Int32(KI.get_global_id().x - 1)
     if i < K * N
         k = i % K
         n = i ÷ K
@@ -368,6 +371,7 @@ end
             @inbounds out[i + Int32(1)] = eltype(out)(ptq1_scale(data, base) * Float32(ptq1_value(data, base, e)))
         end
     end
+    return nothing
 end
 
 """
@@ -378,13 +382,13 @@ Decode zero-based vocabulary rows into consecutive `K`-element columns.
 function ptq1_getrows!(ctx, out, A::PTQ1Matrix, rows)
     N = length(rows)
     length(out) == A.k * N || throw(DimensionMismatch("embedding output must contain $(A.k*N) values"))
-    ptq1_getrows_kernel!(ctx.backend, 256)(out, A.data, rows, Int32(A.m), Int32(A.k), Int32(N);
-                                                ndrange=A.k * N)
+    KI.Kernel(ctx.backend, ptq1_getrows_kernel!)(out, A.data, rows, Int32(A.m), Int32(A.k), Int32(N);
+                                                ndrange=A.k * N, workgroupsize = 256)
     out
 end
 
-@kernel cpu=false function ptq1_dequant_kernel!(out, @Const(data), M::Int32, K::Int32)
-    i = Int32(@index(Global, Linear) - 1)
+function ptq1_dequant_kernel!(out, data, M::Int32, K::Int32)
+    i = Int32(KI.get_global_id().x - 1)
     if i < M * K
         row = i % M
         k = i ÷ M
@@ -394,12 +398,13 @@ end
         base = (row * blocks + block) * Int32(PTQ1_BLOCK_BYTES) + Int32(1)
         @inbounds out[i + Int32(1)] = eltype(out)(ptq1_scale(data, base) * Float32(ptq1_value(data, base, e)))
     end
+    return nothing
 end
 
 """Expand a PTQ1 matrix to a device Float32 matrix, for verification only."""
 function ptq1_dequant(ctx, A::PTQ1Matrix)
     out = KernelAbstractions.allocate(ctx.backend, Float32, size(A)...)
-    ptq1_dequant_kernel!(ctx.backend, 256)(out, A.data, Int32(A.m), Int32(A.k); ndrange=A.m*A.k)
+    KI.Kernel(ctx.backend, ptq1_dequant_kernel!)(out, A.data, Int32(A.m), Int32(A.k); ndrange=A.m*A.k, workgroupsize = 256)
     out
 end
 
@@ -414,15 +419,15 @@ const PTQ1_COOP_BK = 32
 const PTQ1_COOP_PAD = 8
 const PTQ1_COOP_WG = 256
 
-@kernel cpu=false unsafe_indices=true function ptq1_coopmat_kernel!(
-        C, @Const(data), @Const(B), ::Val{M}, ::Val{N}, ::Val{K}) where {M,N,K}
+function ptq1_coopmat_kernel!(
+        C, data, B, ::Val{M}, ::Val{N}, ::Val{K}) where {M,N,K}
     lda = Int32(PTQ1_COOP_BM + PTQ1_COOP_PAD)
     ldb = Int32(PTQ1_COOP_BK + PTQ1_COOP_PAD)
-    sA = @localmem Float16 ((PTQ1_COOP_BM + PTQ1_COOP_PAD) * PTQ1_COOP_BK,)
-    sB = @localmem Float16 ((PTQ1_COOP_BK + PTQ1_COOP_PAD) * PTQ1_COOP_BN,)
+    sA = KI.localmemory(Float16, Val(((PTQ1_COOP_BM + PTQ1_COOP_PAD) * PTQ1_COOP_BK,)), Val(1))
+    sB = KI.localmemory(Float16, Val(((PTQ1_COOP_BK + PTQ1_COOP_PAD) * PTQ1_COOP_BN,)), Val(2))
 
-    tid = Int32(@index(Local, Linear) - 1)
-    blk = Int32(@index(Group, Linear) - 1)
+    tid = Int32(KI.get_local_id().x - 1)
+    blk = Int32(KI.get_group_id().x - 1)
     nblocks_m = Int32(M ÷ PTQ1_COOP_BM)
     tm = (blk % nblocks_m) * Int32(PTQ1_COOP_BM)
     tn = (blk ÷ nblocks_m) * Int32(PTQ1_COOP_BN)
@@ -466,7 +471,7 @@ const PTQ1_COOP_WG = 256
             sB[kk + j * ldb + Int32(1)] =
                 B[k0 + kk + (tn + j) * Int32(K) + Int32(1)]
         end
-        @synchronize
+        KI.barrier()
 
         Base.Cartesian.@nexprs 2 u -> begin
             kt = Int32(u - 1) * Int32(16)
@@ -485,7 +490,7 @@ const PTQ1_COOP_WG = 256
             c21 = muladd(a2, b1, c21)
             c31 = muladd(a3, b1, c31)
         end
-        @synchronize
+        KI.barrier()
     end
 
     Mantle.accstore!(C, Int32(1) + tm + sm * Int32(16) +
@@ -504,19 +509,20 @@ const PTQ1_COOP_WG = 256
         (tn + (sn + Int32(1)) * Int32(16)) * Int32(M), Int32(M), c21)
     Mantle.accstore!(C, Int32(1) + tm + (sm + Int32(3)) * Int32(16) +
         (tn + (sn + Int32(1)) * Int32(16)) * Int32(M), Int32(M), c31)
+    return nothing
 end
 
 # Normalized 1024-wide FWHT. 256 threads process the 512 butterfly pairs in
 # two passes per stage. `signs` spans the full input width; the transform itself
 # is block diagonal. Forward folded matmuls apply S then H. Embedding lookup is
 # the inverse and applies H then S.
-@kernel cpu=false function hadamard1024_kernel!(x, @Const(signs), width::Int32,
+function hadamard1024_kernel!(x, signs, width::Int32,
                                                blocks::Int32,
                                                ::Val{HASSIGNS},
                                                ::Val{INVERSE}) where {HASSIGNS,INVERSE}
-    sh = @localmem Float32 (1024,)
-    t = Int32(@index(Local, Linear) - 1)
-    wg = Int32(@index(Group, Linear) - 1)
+    sh = KI.localmemory(Float32, Val((1024,)), Val(1))
+    t = Int32(KI.get_local_id().x - 1)
+    wg = Int32(KI.get_group_id().x - 1)
     block = wg % blocks
     col = wg ÷ blocks
     base = col * width + block * Int32(1024)
@@ -528,7 +534,7 @@ end
         end
         sh[i + Int32(1)] = v
     end
-    @synchronize
+    KI.barrier()
     # `stride` doubles from one, so it is a power of two at every stage and the
     # butterfly's index split is a shift and a mask. Written as `÷` and `%` on a
     # runtime value it was two integer divisions per pair per stage — forty per
@@ -549,7 +555,7 @@ end
             sh[aidx + Int32(1)] = a + b
             sh[bidx + Int32(1)] = a - b
         end
-        @synchronize
+        KI.barrier()
         stride <<= 1
         lg += Int32(1)
     end
@@ -561,6 +567,7 @@ end
         end
         x[base + i + Int32(1)] = eltype(x)(v)
     end
+    return nothing
 end
 
 """
@@ -575,8 +582,8 @@ function hadamard!(ctx, x, signs=nothing; inverse::Bool=false, width::Integer=si
     signs !== nothing && length(signs) != width && throw(DimensionMismatch("sign vector has length $(length(signs)), expected $width"))
     blocks = width ÷ 1024
     columns = length(x) ÷ width
-    hadamard1024_kernel!(ctx.backend, 256)(x, signs === nothing ? x : signs,
+    KI.Kernel(ctx.backend, hadamard1024_kernel!)(x, signs === nothing ? x : signs,
         Int32(width), Int32(blocks), Val(signs !== nothing), Val(inverse);
-        ndrange=blocks * columns * 256)
+        ndrange=blocks * columns * 256, workgroupsize = 256)
     x
 end
