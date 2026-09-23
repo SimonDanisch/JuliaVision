@@ -183,12 +183,12 @@ end
 # transposing through a padded tile. Literal local-memory types avoid the GPU
 # compiler bug described beside the attention transpose kernels.
 for T in (Float16, Float32)
-    @eval @kernel cpu=false function $(Symbol("maxpool2transpose_pitched_", nameof(T), "!"))(
-            out, @Const(src), off::Int32, batchstride::Int32,
+    @eval function $(Symbol("maxpool2transpose_pitched_", nameof(T), "!"))(
+            out, src, off::Int32, batchstride::Int32,
             xstride::Int32, ystride::Int32, OW::Int32, OH::Int32, C::Int32)
-        tile = @localmem $(nameof(T)) (33, 32)
-        tx, ty = @index(Local, NTuple)
-        gx, gy, gz = @index(Group, NTuple)
+        tile = KI.localmemory($(nameof(T)), Val((33, 32)), Val(1))
+        tx, ty = Tuple(KI.get_local_id())
+        gx, gy, gz = Tuple(KI.get_group_id())
         c0 = Int32(gx - 1) * Int32(32)
         m0 = Int32(gy - 1) * Int32(32)
         M = OW * OH
@@ -209,7 +209,7 @@ for T in (Float16, Float32)
                     tile[tx, ty + 4j] = typemin($(nameof(T)))
                 end
             end
-            @synchronize
+            KI.barrier()
             for j in Int32(0):Int32(7)
                 m = m0 + Int32(tx)
                 c = c0 + Int32(ty) + Int32(4) * j
@@ -238,11 +238,11 @@ Non-adaptive average pooling: fixed window and stride, unlike
 with no padding, where the two agree. A padded call would need the divisor to
 switch between the window area and the in-bounds count.
 """
-@kernel function avg_pool2d_kernel!(out, @Const(x), kw::Int32, kh::Int32,
+function avg_pool2d_kernel!(out, x, kw::Int32, kh::Int32,
                                     sx::Int32, sy::Int32, px::Int32, py::Int32,
                                     W4::Int32, H4::Int32, C4::Int32)
     # 1-D ndrange + `coords4` — see `coords4`; the tuple index costs 3.5x at rank 4.
-    i, j, c, n = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
+    i, j, c, n = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H = size(x, 1), size(x, 2)
         acc = zero(Float32)
@@ -256,13 +256,14 @@ switch between the window area and the in-bounds count.
         end
         out[i, j, c, n] = eltype(out)(acc / Float32(kw * kh))
     end
+    return nothing
 end
 
 function avg_pool2d!(out, x, kw::Integer, kh::Integer, sx::Integer, sy::Integer,
                      px::Integer = 0, py::Integer = 0)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(out)
-    avg_pool2d_kernel!(backend)(out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
+    KI.Kernel(backend, avg_pool2d_kernel!)(out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
                                 Int32(px), Int32(py), W4, H4, C4;
                                 ndrange = nd, workgroupsize = launchgroup(nd))
     return out
@@ -282,13 +283,13 @@ instead of the real width and shows up much later as a `cat` mismatch.
 Out-of-range samples contribute zero rather than clamping, which is what makes a
 warp reveal black at the frame edge instead of smearing the border pixel.
 """
-@kernel function grid_sample2d_kernel!(out, @Const(x), @Const(grid), ::Val{ALIGN},
+function grid_sample2d_kernel!(out, x, grid, ::Val{ALIGN},
                                        ::Val{PAD}, W4::Int32, H4::Int32,
                                        C4::Int32) where {ALIGN,PAD}
-    # 1-D ndrange + `coords4`, not `@index(Global, NTuple)`: the tuple index costs
+    # 1-D ndrange + `coords4`, not `Tuple(KI.get_global_id())`: the tuple index costs
     # 3.5x at rank 4 here, and a bare copy over this ndrange was 88% of this
     # kernel's runtime. See `coords4`.
-    i, j, c, n = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
+    i, j, c, n = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H = size(x, 1), size(x, 2)
         gx = Float32(grid[1, i, j, n]); gy = Float32(grid[2, i, j, n])
@@ -314,6 +315,7 @@ warp reveal black at the frame edge instead of smearing the border pixel.
         end
         out[i, j, c, n] = eltype(out)(acc)
     end
+    return nothing
 end
 
 """
@@ -350,7 +352,7 @@ card stays fed.
 function grid_sample2d!(out, x, grid; align_corners::Bool = true, padding::Symbol = :zeros)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(out)
-    grid_sample2d_kernel!(backend)(out, x, grid, Val(align_corners), Val(padding),
+    KI.Kernel(backend, grid_sample2d_kernel!)(out, x, grid, Val(align_corners), Val(padding),
                                    W4, H4, C4;
                                    ndrange = nd, workgroupsize = launchgroup(nd))
     return out
@@ -374,13 +376,13 @@ Layouts follow the exported graph (Julia order, torch reversed):
 taps `(kh, kw)` with y before x, which is the one detail that silently produces a
 plausible-but-wrong warp if mirrored.
 """
-@kernel function deform_conv2d_kernel!(out, @Const(x), @Const(offset), @Const(mask),
-                                       @Const(w), @Const(bias),
+function deform_conv2d_kernel!(out, x, offset, mask,
+                                       w, bias,
                                        sx::Int32, sy::Int32, px::Int32, py::Int32,
                                        dlx::Int32, dly::Int32, dg::Int32, groups::Int32,
                                        ::Val{HASMASK}, W4::Int32, H4::Int32,
                                        C4::Int32) where {HASMASK}
-    i, j, co, n = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
+    i, j, co, n = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         W, H, Cin = size(x, 1), size(x, 2), size(x, 3)
         KW, KH, Cpg = size(w, 1), size(w, 2), size(w, 3)
@@ -422,6 +424,7 @@ plausible-but-wrong warp if mirrored.
         end
         out[i, j, co, n] = eltype(out)(acc)
     end
+    return nothing
 end
 
 function deform_conv2d!(out, x, offset, mask, w, bias;
@@ -429,7 +432,7 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
                         groups::Integer = 1, deform_groups::Integer = 1)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(out)
-    deform_conv2d_kernel!(backend)(out, x, offset,
+    KI.Kernel(backend, deform_conv2d_kernel!)(out, x, offset,
                                    mask === nothing ? offset : mask, w, bias,
                                    Int32(stride[1]), Int32(stride[2]),
                                    Int32(padding[1]), Int32(padding[2]),
@@ -462,12 +465,12 @@ KW*KH*(cin-1)` -- the order `w`'s own `(KW, KH, Cin, Cout)` memory already has, 
 the weight reshapes into the GEMM's right operand for free and the result lands
 in `out`'s `(W, H, Cout, N)` as it stands.
 """
-@kernel function deform_im2col_kernel!(col, @Const(x), @Const(offset), @Const(mask),
+function deform_im2col_kernel!(col, x, offset, mask,
                                        sx::Int32, sy::Int32, px::Int32, py::Int32,
                                        dlx::Int32, dly::Int32, dg::Int32,
                                        ::Val{HASMASK}, KW::Int32, KH::Int32,
                                        W4::Int32, H4::Int32, NPIX::Int32) where {HASMASK}
-    t = Int32(@index(Global, Linear)) - Int32(1)
+    t = Int32(KI.get_global_id().x) - Int32(1)
     @inbounds begin
         pix = t % NPIX                       # (i, j, n) flattened, `col`'s row
         rest = t ÷ NPIX
@@ -500,6 +503,7 @@ in `out`'s `(W, H, Cout, N)` as it stands.
         end
         col[t + Int32(1)] = eltype(col)(m * sacc)
     end
+    return nothing
 end
 
 """
@@ -512,18 +516,19 @@ refuses ("scalar iteration is disallowed"), so the host fallback is not an
 option here. The reversed dimensions are a `Val` so the index arithmetic
 specialises and the kernel stays branch-free.
 """
-@kernel function flip_kernel!(out, @Const(x), ::Val{DIMS}, W4::Int32, H4::Int32, C4::Int32) where {DIMS}
-    I = coords4(Int32(@index(Global, Linear)) - Int32(1), W4, H4, C4)
+function flip_kernel!(out, x, ::Val{DIMS}, W4::Int32, H4::Int32, C4::Int32) where {DIMS}
+    I = coords4(Int32(KI.get_global_id().x) - Int32(1), W4, H4, C4)
     @inbounds begin
         J = ntuple(k -> (k in DIMS) ? size(x, k) - I[k] + 1 : I[k], length(I))
         out[I...] = x[J...]
     end
+    return nothing
 end
 
 function flip!(out, x, dims::Tuple)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(x)
-    flip_kernel!(backend)(out, x, Val(dims), W4, H4, C4;
+    KI.Kernel(backend, flip_kernel!)(out, x, Val(dims), W4, H4, C4;
                           ndrange = nd, workgroupsize = launchgroup(nd))
     return out
 end
@@ -546,12 +551,12 @@ mostly small in the depth axis, and an im2col matrix gains a whole extra
 dimension — this is the correctness-first path, to be revisited when the VAE is
 actually on a hot loop.
 """
-@kernel function conv3d_kernel!(out, @Const(x), @Const(w), @Const(bias),
+function conv3d_kernel!(out, x, w, bias,
                                 sx::Int32, sy::Int32, sz::Int32,
                                 px::Int32, py::Int32, pz::Int32,
                                 dx::Int32, dy::Int32, dz::Int32, groups::Int32,
                                 ::Val{ACT}) where {ACT}
-    i, j, k, co, n = @index(Global, NTuple)
+    i, j, k, co, n = Tuple(KI.get_global_id())
     @inbounds begin
         W, H, D, Cin = size(x, 1), size(x, 2), size(x, 3), size(x, 4)
         KW, KH, KD, Cpg = size(w, 1), size(w, 2), size(w, 3), size(w, 4)
@@ -581,12 +586,13 @@ actually on a hot loop.
         ACT === :relu && (acc = max(acc, 0.0f0))
         out[i, j, k, co, n] = eltype(out)(acc)
     end
+    return nothing
 end
 
 function convolution3d!(out, x, w, bias, stride, pad, dil, groups::Integer;
                         act::Symbol = :none)
     backend = KernelAbstractions.get_backend(out)
-    conv3d_kernel!(backend)(out, x, w, bias === nothing ? w : bias,
+    KI.Kernel(backend, conv3d_kernel!)(out, x, w, bias === nothing ? w : bias,
                             Int32(stride[1]), Int32(stride[2]), Int32(stride[3]),
                             Int32(pad[1]), Int32(pad[2]), Int32(pad[3]),
                             Int32(dil[1]), Int32(dil[2]), Int32(dil[3]),

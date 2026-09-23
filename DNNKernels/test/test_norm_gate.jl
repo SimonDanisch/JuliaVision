@@ -19,6 +19,7 @@
 # So what is pinned here is the predicate itself, against whatever array the
 # backend under test hands out, plus the kernel's answer on that backend.
 
+import KernelInterface as KI
 using Test, DNNKernels, Mantle, KernelAbstractions
 import GPUArrays
 
@@ -41,8 +42,8 @@ end
     ah = reshape(Float32.(1:N*M) ./ 13, N, M)
     a = DK.toback(backend, ah)
     d = DK.toback(backend, zeros(Float16, M, N))
-    DK.transposecast_f32_f16!(backend, (32, 4, 1))(
-        d, a, Int32(M), Int32(N); ndrange = (32, 8, 1))
+    KI.Kernel(backend, DK.transposecast_f32_f16!)(
+        d, a, Int32(M), Int32(N); ndrange = (32, 8, 1), workgroupsize = (32, 4, 1))
     KernelAbstractions.synchronize(backend)
     @test Array(d) == Float16.(permutedims(ah, (2, 1)))
 
@@ -51,8 +52,8 @@ end
     bh = reshape(Float16.(1:N*M) ./ 17, N, M)
     b = DK.toback(backend, bh)
     s = DK.toback(backend, zeros(Float32, M, N))
-    DK.transposeadd_f16_f32_f32!(backend, (32, 4, 1))(
-        s, b, a, Int32(M), Int32(N); ndrange = (32, 8, 1))
+    KI.Kernel(backend, DK.transposeadd_f16_f32_f32!)(
+        s, b, a, Int32(M), Int32(N); ndrange = (32, 8, 1), workgroupsize = (32, 4, 1))
     KernelAbstractions.synchronize(backend)
     @test Array(s) == permutedims(Float32.(bh) .+ ah, (2, 1))
 
@@ -61,8 +62,8 @@ end
     dh = reshape(Float16.(1:N*M) ./ 23, M, N)
     d = DK.toback(backend, dh)
     t = DK.toback(backend, zeros(Float16, M, N))
-    DK.transposeadd_f16_dense_f16!(backend, (32, 4, 1))(
-        t, b, d, Int32(M), Int32(N); ndrange = (32, 8, 1))
+    KI.Kernel(backend, DK.transposeadd_f16_dense_f16!)(
+        t, b, d, Int32(M), Int32(N); ndrange = (32, 8, 1), workgroupsize = (32, 4, 1))
     KernelAbstractions.synchronize(backend)
     @test Array(t) == permutedims(bh, (2, 1)) .+ dh
 
@@ -73,10 +74,10 @@ end
     sh = reshape(Float16.(1:pitch*IW*IH*B), pitch, IW, IH, B)
     src = DK.toback(backend, sh)
     out = DK.toback(backend, zeros(Float16, OW, OH, C, B))
-    DK.maxpool2transposekernel(Float16)(backend, (32, 4, 1))(
+    KI.Kernel(backend, DK.maxpool2transposekernel(Float16))(
         out, src, Int32(0), Int32(pitch * IW * IH), Int32(pitch),
         Int32(pitch * IW), Int32(OW), Int32(OH), Int32(C);
-        ndrange = (32, 4, B))
+        ndrange = (32, 4, B), workgroupsize = (32, 4, 1))
     KernelAbstractions.synchronize(backend)
     want = [maximum(sh[c, 2x-1:2x, 2y-1:2y, b])
             for x in 1:OW, y in 1:OH, c in 1:C, b in 1:B]
@@ -141,10 +142,10 @@ end
     μ = DK.toback(backend, zeros(Float32, groups))
     r = similar(μ)
     rowsg = DK.layernormwg(C)
-    DK.layernorm_shfl_kernel!(backend, sg)(
+    KI.Kernel(backend, DK.layernorm_shfl_kernel!)(
         out, μ, r, a, γ, β, Int32(C), Int32(groups), 1.0f-5,
         Val(sg), Val(rowsg), Val(true), Val(true);
-        ndrange = cld(groups, sg ÷ rowsg) * sg)
+        ndrange = cld(groups, sg ÷ rowsg) * sg, workgroupsize = sg)
     KernelAbstractions.synchronize(backend)
 
     m = vec(sum(h; dims = 1) ./ C)
@@ -162,10 +163,10 @@ end
     a1, a2 = map(x -> DK.toback(backend, x), (ah1, ah2))
     sumout = similar(a1); fusedout = similar(a1)
     fusedμ = similar(μ); fusedr = similar(r)
-    DK.add_layernorm_shfl_kernel!(backend, sg)(
+    KI.Kernel(backend, DK.add_layernorm_shfl_kernel!)(
         fusedout, sumout, fusedμ, fusedr, a1, a2, γ, β,
         Int32(C), Int32(groups), 1.0f-5, Val(sg), Val(rowsg), Val(true), Val(true);
-        ndrange = cld(groups, sg ÷ rowsg) * sg)
+        ndrange = cld(groups, sg ÷ rowsg) * sg, workgroupsize = sg)
     KernelAbstractions.synchronize(backend)
     @test Array(sumout) == ah1 .+ ah2
     @test Array(fusedout) == Array(out)
@@ -187,15 +188,15 @@ end
     μ = DK.toback(backend, zeros(Float32, groups)); r = similar(μ)
     refwide = similar(a); refμ = similar(μ); refr = similar(r)
     rowsg = DK.layernormwg(C)
-    DK.layernorm_shfl_kernel!(backend, sg)(
+    KI.Kernel(backend, DK.layernorm_shfl_kernel!)(
         refwide, refμ, refr, a, γ, β, Int32(C), Int32(groups), 1.0f-5,
         Val(sg), Val(rowsg), Val(true), Val(true);
-        ndrange = cld(groups, sg ÷ rowsg) * sg)
-    DK.layernorm_shfl_window4_add_kernel!(backend, sg)(
+        ndrange = cld(groups, sg ÷ rowsg) * sg, workgroupsize = sg)
+    KI.Kernel(backend, DK.layernorm_shfl_window4_add_kernel!)(
         out, wide, wide, μ, r, a, a, γ, β, Int32(C), Int32(groups), 1.0f-5,
         Val(sg), Val(rowsg), Val(IW), Val(IH), Val(NX), Val(NY),
         Val(false), Val(true), Val(true), Val(true);
-        ndrange = cld(groups, sg ÷ rowsg) * sg)
+        ndrange = cld(groups, sg ÷ rowsg) * sg, workgroupsize = sg)
     KernelAbstractions.synchronize(backend)
 
     want = Array(refwide)

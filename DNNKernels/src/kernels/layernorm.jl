@@ -49,13 +49,13 @@ entirely when the graph did not supply them, so the no-affine case pays nothing.
 elements and something downstream may read them; they are one scalar per group,
 so the cost is noise.
 """
-@kernel cpu=false function layernorm_kernel!(out, mean, rstd, @Const(a), @Const(γ),
-                                             @Const(β), C::Int32, eps::Float32,
+function layernorm_kernel!(out, mean, rstd, a, γ,
+                                             β, C::Int32, eps::Float32,
                                              ::Val{WG}, ::Val{HASG}, ::Val{HASB}) where
                                             {WG,HASG,HASB}
-    red = @localmem Float32 (WG,)
-    g = @index(Group, Linear) - 1
-    t = @index(Local, Linear) - 1
+    red = KI.localmemory(Float32, Val((WG,)), Val(1))
+    g = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
     base = g * Int(C)
     n = Float32(C)
 
@@ -67,7 +67,7 @@ so the cost is noise.
         i += WG
     end
     @inbounds red[t + 1] = s
-    @synchronize
+    KI.barrier()
     # Tree reduction. The barrier is outside the `if`, so every lane reaches it
     # — a barrier in divergent control flow is undefined, and on this compiler
     # that is not a theoretical concern.
@@ -76,11 +76,11 @@ so the cost is noise.
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
         end
-        @synchronize
+        KI.barrier()
         stride ÷= 2
     end
     @inbounds μ = red[1] / n
-    @synchronize                      # nothing may overwrite `red` until all have read it
+    KI.barrier()                      # nothing may overwrite `red` until all have read it
 
     # ── pass 2: the variance, about that mean
     s2 = 0.0f0
@@ -91,17 +91,17 @@ so the cost is noise.
         i += WG
     end
     @inbounds red[t + 1] = s2
-    @synchronize
+    KI.barrier()
     stride = WG ÷ 2
     while stride > 0
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
         end
-        @synchronize
+        KI.barrier()
         stride ÷= 2
     end
     @inbounds r = 1.0f0 / sqrt(red[1] / n + eps)
-    @synchronize
+    KI.barrier()
 
     # ── pass 3: normalise, scale, shift
     i = t
@@ -120,6 +120,7 @@ so the cost is noise.
         mean[g + 1] = μ
         rstd[g + 1] = r
     end
+    return nothing
 end
 
 """
@@ -129,15 +130,15 @@ The ordinary kernel's shared-memory tree is the portable fallback. Backends
 which report a subgroup width can reduce each partial sum with the portable
 KernelInterface intrinsic instead: no shared scratch and no reduction barriers.
 """
-@kernel cpu=false function layernorm_shfl_kernel!(out, mean, rstd,
-                                                       @Const(a), @Const(γ),
-                                                       @Const(β), C::Int32,
+function layernorm_shfl_kernel!(out, mean, rstd,
+                                                       a, γ,
+                                                       β, C::Int32,
                                                        NG::Int32, eps::Float32,
                                                        ::Val{SG}, ::Val{ROW},
                                                       ::Val{HASG}, ::Val{HASB}) where
                                                       {SG,ROW,HASG,HASB}
-    block = @index(Group, Linear) - 1
-    t = @index(Local, Linear) - 1
+    block = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
     lane = t % ROW
     chunk = t ÷ ROW
     g = block * div(SG, ROW) + chunk
@@ -190,15 +191,16 @@ KernelInterface intrinsic instead: no shared scratch and no reduction barriers.
         mean[g + 1] = μ
         rstd[g + 1] = r
     end
+    return nothing
 end
 
 """Subgroup layer norm fused with the residual add that produces its input."""
-@kernel cpu=false function add_layernorm_shfl_kernel!(out, sumout, mean, rstd,
-        @Const(a), @Const(b), @Const(γ), @Const(β), C::Int32, NG::Int32,
+function add_layernorm_shfl_kernel!(out, sumout, mean, rstd,
+        a, b, γ, β, C::Int32, NG::Int32,
         eps::Float32, ::Val{SG}, ::Val{ROW}, ::Val{HASG}, ::Val{HASB}) where
         {SG,ROW,HASG,HASB}
-    block = @index(Group, Linear) - 1
-    t = @index(Local, Linear) - 1
+    block = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
     lane = t % ROW
     chunk = t ÷ ROW
     g = block * div(SG, ROW) + chunk
@@ -255,6 +257,7 @@ end
         mean[g + 1] = μ
         rstd[g + 1] = r
     end
+    return nothing
 end
 
 
@@ -263,13 +266,13 @@ The subgroup layer norm with its result written directly in SAM-style window
 order.  `g` remains the dense spatial row used to read `a`; only the output row
 is permuted, so the reduction and fp16 store rounding are unchanged.
 """
-@kernel cpu=false function layernorm_shfl_window4_add_kernel!(out, wideout, sumout, mean, rstd,
-        @Const(a), @Const(b), @Const(γ), @Const(β), C::Int32, NG::Int32, eps::Float32,
+function layernorm_shfl_window4_add_kernel!(out, wideout, sumout, mean, rstd,
+        a, b, γ, β, C::Int32, NG::Int32, eps::Float32,
         ::Val{SG}, ::Val{ROW}, ::Val{IW}, ::Val{IH}, ::Val{NX}, ::Val{NY},
         ::Val{ADD}, ::Val{FULLWIDE}, ::Val{HASG}, ::Val{HASB}) where
         {SG,ROW,IW,IH,NX,NY,ADD,FULLWIDE,HASG,HASB}
-    block = @index(Group, Linear) - 1
-    t = @index(Local, Linear) - 1
+    block = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
     lane = t % ROW
     chunk = t ÷ ROW
     g = block * div(SG, ROW) + chunk
@@ -341,6 +344,7 @@ is permuted, so the reduction and fp16 store rounding are unchanged.
         mean[g + 1] = μ
         rstd[g + 1] = r
     end
+    return nothing
 end
 
 """
@@ -359,20 +363,20 @@ function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
     sg = hasproperty(ctx, :dev) ? ctx.dev.subgroup : 0
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
     if sg > 0 && rowsg <= sg && sg % rowsg == 0
-        layernorm_shfl_kernel!(backend, sg)(
+        KI.Kernel(backend, layernorm_shfl_kernel!)(
             out, mean, rstd, a,
             γ === nothing ? dummy : γ, β === nothing ? dummy : β,
             Int32(C), Int32(groups), Float32(eps), Val(sg), Val(rowsg),
             Val(γ !== nothing), Val(β !== nothing);
-            ndrange = cld(groups, sg ÷ rowsg) * sg)
+            ndrange = cld(groups, sg ÷ rowsg) * sg, workgroupsize = sg)
         return out
     end
     wg = rowsg
-    layernorm_kernel!(backend, wg)(
+    KI.Kernel(backend, layernorm_kernel!)(
         out, mean, rstd, a,
         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
         Int32(C), Float32(eps), Val(wg), Val(γ !== nothing), Val(β !== nothing);
-        ndrange = groups * wg)
+        ndrange = groups * wg, workgroupsize = wg)
     out
 end
 
@@ -393,12 +397,12 @@ attention heads in fp16, and squares of fp16 values above 256 already overflow
 back as zeros. That is the same failure the instance-norm path hit; here it is
 closed by construction rather than narrowed.
 """
-@kernel cpu=false function rmsnorm_kernel!(out, rstd, @Const(a), @Const(γ),
+function rmsnorm_kernel!(out, rstd, a, γ,
                                            C::Int32, eps::Float32,
                                            ::Val{HASG}) where {HASG}
-    red = @localmem Float32 (LN_WG,)
-    g = @index(Group, Linear) - 1
-    t = @index(Local, Linear) - 1
+    red = KI.localmemory(Float32, Val((LN_WG,)), Val(1))
+    g = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
     base = g * Int(C)
     n = Float32(C)
 
@@ -411,7 +415,7 @@ closed by construction rather than narrowed.
         i += LN_WG
     end
     @inbounds red[t + 1] = s
-    @synchronize
+    KI.barrier()
     # The barrier sits outside the `if`, so every lane reaches it — a barrier in
     # divergent control flow is undefined, and on this compiler that is not a
     # theoretical concern.
@@ -420,11 +424,11 @@ closed by construction rather than narrowed.
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
         end
-        @synchronize
+        KI.barrier()
         stride ÷= 2
     end
     @inbounds r = 1.0f0 / sqrt(red[1] / n + eps)
-    @synchronize                      # nothing may overwrite `red` until all have read it
+    KI.barrier()                      # nothing may overwrite `red` until all have read it
 
     # ── pass 2: scale
     i = t
@@ -439,6 +443,7 @@ closed by construction rather than narrowed.
     @inbounds if t == 0
         rstd[g + 1] = r
     end
+    return nothing
 end
 
 # GROUPED RMS norm, as one op.
@@ -482,7 +487,7 @@ was a NaN produced quickly.
 """
 rmsgroup(C::Integer) = clamp(nextpow(2, max(1, cld(Int(C), 8))), 32, 256)
 
-@kernel cpu=false function groupedrms_kernel!(out, @Const(a), @Const(γ), C::Int32,
+function groupedrms_kernel!(out, a, γ, C::Int32,
                                               NG::Int32, eps::Float32,
                                               ::Val{MIDROUND} = Val(false),
                                               ::Val{WG} = Val(LN_WG)) where {MIDROUND,WG}
@@ -491,9 +496,9 @@ rmsgroup(C::Integer) = clamp(nextpow(2, max(1, cld(Int(C), 8))), 32, 256)
     # were the constant, so launching this at any smaller group read `red` past
     # what the live lanes wrote -- NaN out, and fast, which is how a group-size
     # sweep can look like a 4.9x that is not there.
-    red = @localmem Float32 (WG,)
-    g = @index(Group, Linear) - 1
-    t = @index(Local, Linear) - 1
+    red = KI.localmemory(Float32, Val((WG,)), Val(1))
+    g = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
     base = g * Int(C)
     gof = (g % Int(NG)) * Int(C)      # where this group starts inside the row
     n = Float32(C)
@@ -506,18 +511,18 @@ rmsgroup(C::Integer) = clamp(nextpow(2, max(1, cld(Int(C), 8))), 32, 256)
         i += WG
     end
     @inbounds red[t + 1] = s
-    @synchronize
+    KI.barrier()
     # The barrier sits outside the `if`, as in `rmsnorm_kernel!` above.
     stride = WG ÷ 2
     while stride > 0
         @inbounds if t < stride
             red[t + 1] += red[t + 1 + stride]
         end
-        @synchronize
+        KI.barrier()
         stride ÷= 2
     end
     @inbounds r = 1.0f0 / sqrt(red[1] / n + eps)
-    @synchronize
+    KI.barrier()
 
     i = t
     @inbounds while i < C
@@ -533,6 +538,7 @@ rmsgroup(C::Integer) = clamp(nextpow(2, max(1, cld(Int(C), 8))), 32, 256)
         out[base + i + 1] = eltype(out)(y * Float32(γ[gof + i + 1]))
         i += WG
     end
+    return nothing
 end
 
 """
@@ -543,9 +549,9 @@ Launch [`rmsnorm_kernel!`](@ref) over `length(a) ÷ C` groups. Same contract as
 """
 function rmsnorm!(ctx, out, rstd, a, γ, C::Integer, eps::Real)
     groups = length(a) ÷ C
-    rmsnorm_kernel!(ctx.backend, LN_WG)(
+    KI.Kernel(ctx.backend, rmsnorm_kernel!)(
         out, rstd, a, γ === nothing ? a : γ,
         Int32(C), Float32(eps), Val(γ !== nothing);
-        ndrange = groups * LN_WG)
+        ndrange = groups * LN_WG, workgroupsize = LN_WG)
     out
 end

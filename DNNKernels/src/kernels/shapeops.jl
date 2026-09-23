@@ -24,13 +24,14 @@ mapreduce workspace as well. Neither is in any plan.
     return xor(x, x >> 16)
 end
 
-@kernel cpu=false function rngadvance_kernel!(state)
+function rngadvance_kernel!(state)
     @inbounds state[1] += UInt32(0x9e3779b9)
+    return nothing
 end
 
-@kernel cpu=false function randomfill_kernel!(out, @Const(state),
+function randomfill_kernel!(out, state,
                                                ::Val{NORMAL}) where {NORMAL}
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     @inbounds begin
         key = state[1]
         x = rngmix32(xor(key, UInt32(i) * UInt32(0x85ebca6b)))
@@ -45,6 +46,7 @@ end
             out[i] = convert(eltype(out), u)
         end
     end
+    return nothing
 end
 
 """
@@ -635,11 +637,11 @@ Float32 to Float16.  The padded shared tile makes both global-memory directions
 coalesced; the generic strided elementwise path necessarily leaves one side of
 this transpose strided.
 """
-@kernel cpu=false function transposecast_f32_f16!(out, @Const(src),
+function transposecast_f32_f16!(out, src,
                                                    M::Int32, N::Int32)
-    tile = @localmem Float32 (33, 32)
-    tx, ty = @index(Local, NTuple)
-    gx, gy, gz = @index(Group, NTuple)
+    tile = KI.localmemory(Float32, Val((33, 32)), Val(1))
+    tx, ty = Tuple(KI.get_local_id())
+    gx, gy, gz = Tuple(KI.get_group_id())
     n0 = Int32(gx - 1) * Int32(32)
     m0 = Int32(gy - 1) * Int32(32)
     base = Int32(gz - 1) * M * N
@@ -650,7 +652,7 @@ this transpose strided.
             tile[tx, ty + 4j] = n <= N && m <= M ?
                 src[base + (m - Int32(1)) * N + n] : 0.0f0
         end
-        @synchronize
+        KI.barrier()
         for j in Int32(0):Int32(7)
             m = m0 + Int32(tx)
             n = n0 + Int32(ty) + Int32(4) * j
@@ -659,17 +661,18 @@ this transpose strided.
                     Float16(tile[ty + 4j, tx]))
         end
     end
+    return nothing
 end
 
 # Literal shared-memory element types are required by the GPU compiler, so the
 # two same-type transpose kernels are generated rather than parameterised by a
 # run-time type value.
 for T in (Float16, Float32)
-    @eval @kernel cpu=false function $(Symbol("transposecopy_", nameof(T), "!"))(
-            out, @Const(src), M::Int32, N::Int32)
-        tile = @localmem $(nameof(T)) (33, 32)
-        tx, ty = @index(Local, NTuple)
-        gx, gy, gz = @index(Group, NTuple)
+    @eval function $(Symbol("transposecopy_", nameof(T), "!"))(
+            out, src, M::Int32, N::Int32)
+        tile = KI.localmemory($(nameof(T)), Val((33, 32)), Val(1))
+        tx, ty = Tuple(KI.get_local_id())
+        gx, gy, gz = Tuple(KI.get_group_id())
         n0 = Int32(gx - 1) * Int32(32)
         m0 = Int32(gy - 1) * Int32(32)
         base = Int32(gz - 1) * M * N
@@ -680,7 +683,7 @@ for T in (Float16, Float32)
                 tile[tx, ty + 4j] = n <= N && m <= M ?
                     src[base + (m - Int32(1)) * N + n] : zero($(nameof(T)))
             end
-            @synchronize
+            KI.barrier()
             for j in Int32(0):Int32(7)
                 m = m0 + Int32(tx)
                 n = n0 + Int32(ty) + Int32(4) * j
@@ -703,11 +706,11 @@ the generic elementwise kernel otherwise performs a full coordinate division
 chain and leaves both reads strided.  One fp32 shared tile holds the sum, so
 both reads and the destination write are coalesced.
 """
-@kernel cpu=false function transposeadd_f16_f32_f32!(out, @Const(a), @Const(b),
+function transposeadd_f16_f32_f32!(out, a, b,
                                                       M::Int32, N::Int32)
-    tile = @localmem Float32 (33, 32)
-    tx, ty = @index(Local, NTuple)
-    gx, gy, gz = @index(Group, NTuple)
+    tile = KI.localmemory(Float32, Val((33, 32)), Val(1))
+    tx, ty = Tuple(KI.get_local_id())
+    gx, gy, gz = Tuple(KI.get_group_id())
     n0 = Int32(gx - 1) * Int32(32)
     m0 = Int32(gy - 1) * Int32(32)
     base = Int32(gz - 1) * M * N
@@ -719,7 +722,7 @@ both reads and the destination write are coalesced.
                 Float32(a[base + (m - Int32(1)) * N + n]) +
                 Float32(b[base + (m - Int32(1)) * N + n]) : 0.0f0
         end
-        @synchronize
+        KI.barrier()
         for j in Int32(0):Int32(7)
             m = m0 + Int32(tx)
             n = n0 + Int32(ty) + Int32(4) * j
@@ -727,6 +730,7 @@ both reads and the destination write are coalesced.
                 (out[base + (n - Int32(1)) * M + m] = tile[ty + 4j, tx])
         end
     end
+    return nothing
 end
 
 """
@@ -735,11 +739,11 @@ The transposed source is staged; the dense operand and destination are touched
 coalesced after the tile turns. This is the residual-add layout between SAM 2's
 window stages.
 """
-@kernel cpu=false function transposeadd_f16_dense_f16!(out, @Const(a), @Const(b),
+function transposeadd_f16_dense_f16!(out, a, b,
                                                         M::Int32, N::Int32)
-    tile = @localmem Float16 (33, 32)
-    tx, ty = @index(Local, NTuple)
-    gx, gy, gz = @index(Group, NTuple)
+    tile = KI.localmemory(Float16, Val((33, 32)), Val(1))
+    tx, ty = Tuple(KI.get_local_id())
+    gx, gy, gz = Tuple(KI.get_group_id())
     n0 = Int32(gx - 1) * Int32(32)
     m0 = Int32(gy - 1) * Int32(32)
     base = Int32(gz - 1) * M * N
@@ -750,7 +754,7 @@ window stages.
             tile[tx, ty + 4j] = n <= N && m <= M ?
                 a[base + (m - Int32(1)) * N + n] : zero(Float16)
         end
-        @synchronize
+        KI.barrier()
         for j in Int32(0):Int32(7)
             m = m0 + Int32(tx)
             n = n0 + Int32(ty) + Int32(4) * j
@@ -760,4 +764,5 @@ window stages.
             end
         end
     end
+    return nothing
 end

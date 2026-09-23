@@ -28,6 +28,7 @@ gamma` and `fp16(x * r * gamma)` are different numbers, and a fusion that
 silently picks the second changes the model.
 """
 
+import KernelInterface as KI
 using Test, DNNKernels, Mantle
 import KernelAbstractions as KAR
 
@@ -208,8 +209,8 @@ end
             out = KAR.allocate(backend, Float16, C * R)
             # NaN, so a lane that never wrote is not read as an answer.
             fill!(out, Float16(NaN))
-            DKR.groupedrms_kernel!(backend, wg)(out, av, gv, Int32(C), Int32(1), 1f-6,
-                                                Val(true), Val(wg); ndrange = R * wg)
+            KI.Kernel(backend, DKR.groupedrms_kernel!)(out, av, gv, Int32(C), Int32(1), 1f-6,
+                                                Val(true), Val(wg); ndrange = R * wg, workgroupsize = wg)
             KAR.synchronize(backend)
             got = Float32.(Array(out))
             @test all(isfinite, got)
