@@ -19,7 +19,7 @@ function write_tiny_gguf(path)
 end
 
 @testset "Qwen35 recurrent decode state" begin
-    backend = Mantle.LavaBackend(); ctx = DNNKernels.Ctx(backend)
+    backend = Mantle.defaultbackend(); ctx = DNNKernels.Ctx(backend)
     rng = MersenneTwister(117)
     qh = randn(rng,Float32,128,16).*0.1f0
     kh = randn(rng,Float32,128,16).*0.1f0
@@ -119,7 +119,7 @@ function fwht_reference(x, signs; inverse=false)
 end
 
 @testset "PTQ1 packed kernels and signed Hadamard" begin
-    backend = Mantle.LavaBackend(); ctx = DNNKernels.Ctx(backend)
+    backend = Mantle.defaultbackend(); ctx = DNNKernels.Ctx(backend)
     # Five columns exercises one full four-column PTQ prefill tile and its tail.
     rng = MersenneTwister(91); M,K,N = 7,256,5
     bytes, W = pack_ptq1(randn(rng,Float32,M,K))
@@ -134,7 +134,10 @@ end
     ptq1_getrows!(ctx,emb,A,rows); KernelAbstractions.synchronize(backend)
     @test Array(emb) ≈ permutedims(W[[1,7,3],:]) atol=1f-6
 
-    if backend isa Mantle.LavaBackend &&
+    # Asked as a CAPABILITY. Naming the backend made this an UndefVarError on a
+    # build that compiled in a different one, which took the whole file down
+    # with it rather than skipping one arm.
+    if isdefined(Mantle, :vk_context) &&
        Mantle.coopmat_gemm_available(Mantle.vk_context())
         # The wide-prefill path decodes PTQ1 directly into cooperative-matrix
         # shared tiles.  Exercise one complete 128x128 output block, including

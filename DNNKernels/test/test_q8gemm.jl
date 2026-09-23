@@ -34,7 +34,7 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random
 end
 
 @testset "direct int8 cooperative GEMM" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     dev = DNNKernels.caps(backend)
     if dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16
         rng = MersenneTwister(73)
