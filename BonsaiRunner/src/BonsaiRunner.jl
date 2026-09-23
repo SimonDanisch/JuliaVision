@@ -312,9 +312,11 @@ kv_capacity(s::BonsaiSession) = first(values(s.kv)).capacity
 kv_bytes(capacity::Integer) = (NLAYERS ÷ 4) * capacity *
     (2 * 256 * 4 * sizeof(Int8) + 2 * 4 * sizeof(Float32))
 
-function _copy_prefix!(backend, dest, src)
-    KI.Kernel(backend, copy_kernel!)(dest, src, Int32(length(src));
-        ndrange=length(src), workgroupsize=256)
+"""Declare the copy of `src` into the head of `dest` as a pass of `g`."""
+function _declarecopy!(g, dest, src)
+    n = length(src)
+    Mantle.dispatch!(g, copy_kernel!, (dest, src, Int32(n)), n;
+                     group = 256, name = "kv_copy")
     dest
 end
 
@@ -324,17 +326,23 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
     oldcap = kv_capacity(s)
     target = min(s.model.maxcontext,
                  cld(max(Int(needed), 2oldcap), s.kvpage) * s.kvpage)
-    KernelAbstractions.synchronize(s.model.backend)
+    dev = Mantle.Device(s.model.backend)
+    # Wait before reallocating: the caches being replaced are named by the
+    # recording still in flight.
+    Mantle.waitidle(dev)
+    # ONE graph for every layer's four copies — 64 passes and one submission,
+    # which is the thing a graph is for. Four launches per layer was 64.
+    g = Mantle.Graph(dev)
     replacement = Dict{Int,Any}()
     for (il, old) in s.kv
         new = _q8cache(s.model, target)
-        _copy_prefix!(s.model.backend, new.k, old.k)
-        _copy_prefix!(s.model.backend, new.v, old.v)
-        _copy_prefix!(s.model.backend, new.kscale, old.kscale)
-        _copy_prefix!(s.model.backend, new.vscale, old.vscale)
+        _declarecopy!(g, new.k, old.k)
+        _declarecopy!(g, new.v, old.v)
+        _declarecopy!(g, new.kscale, old.kscale)
+        _declarecopy!(g, new.vscale, old.vscale)
         replacement[il] = new
     end
-    KernelAbstractions.synchronize(s.model.backend)
+    Mantle.runonce!(g)
     s.kv = replacement
     oldplan = s.plan
     s.plan, s.scratch = _recordstep(s, Mantle.Device(s.model.backend))

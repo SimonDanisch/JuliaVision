@@ -22,6 +22,10 @@ using Lava
 # declared into a `Mantle.Graph`.
 import Mantle
 const M = Mantle
+# `runonce!` is Mantle's verb for one-shot work — declare a graph, plan it, run
+# it once, free the plan. See its docstring there for why such work is a graph
+# and not a launch.
+using Mantle: runonce!
 # The intrinsics the kernels here are written against. Macro-free: a kernel is a
 # plain function using `KI.get_global_id()` rather than a `@kernel` with
 # `@index`, so `dispatch!` takes the function itself and Mantle compiles it for

@@ -875,8 +875,21 @@ function prepare_kv_kernel!(kcache, vcache, kscale, vscale,
         @inbounds vscale[pos * Int32(4) + h + Int32(1)] = vs
     end
     @inbounds begin
-        kcache[cachebase + d + Int32(1)] = Int8(clamp(round(Int32, kval / ks), -127, 127))
-        vcache[cachebase + d + Int32(1)] = Int8(clamp(round(Int32, vval / vs), -127, 127))
+        # `round` to a FLOAT and `safetrunc` to the int, not `round(Int32, …)`.
+        # The typed form carries an `InexactError` branch for NaN and for the
+        # out-of-range cases, and constructing that exception ALLOCATES inside
+        # the kernel — which is what put `gpu_gc_pool_alloc` in the module and
+        # made Lava's `replace_unreachable!` warn that it was lowering the throw
+        # path to a `ret undef` of pointer type. `safetrunc`'s docstring in
+        # DNNKernels names this exact warning.
+        #
+        # Same numbers: `round` still rounds to nearest, the clamp still holds
+        # the symmetric int8 range, and a NaN now lands on 0 the way torch puts
+        # it rather than throwing.
+        kcache[cachebase + d + Int32(1)] =
+            DNNKernels.safetrunc(Int8, clamp(round(kval / ks), -127f0, 127f0))
+        vcache[cachebase + d + Int32(1)] =
+            DNNKernels.safetrunc(Int8, clamp(round(vval / vs), -127f0, 127f0))
     end
     return nothing
 end
@@ -943,8 +956,21 @@ function prepare_kv_batch_kernel!(kcache, vcache, kscale, vscale,
     vs = max(sh[Int32(1)] / 127f0, floatmin(Float32))
     d == Int32(0) && (@inbounds vscale[pos * Int32(4) + h + Int32(1)] = vs)
     @inbounds begin
-        kcache[cachebase + d + Int32(1)] = Int8(clamp(round(Int32, kval / ks), -127, 127))
-        vcache[cachebase + d + Int32(1)] = Int8(clamp(round(Int32, vval / vs), -127, 127))
+        # `round` to a FLOAT and `safetrunc` to the int, not `round(Int32, …)`.
+        # The typed form carries an `InexactError` branch for NaN and for the
+        # out-of-range cases, and constructing that exception ALLOCATES inside
+        # the kernel — which is what put `gpu_gc_pool_alloc` in the module and
+        # made Lava's `replace_unreachable!` warn that it was lowering the throw
+        # path to a `ret undef` of pointer type. `safetrunc`'s docstring in
+        # DNNKernels names this exact warning.
+        #
+        # Same numbers: `round` still rounds to nearest, the clamp still holds
+        # the symmetric int8 range, and a NaN now lands on 0 the way torch puts
+        # it rather than throwing.
+        kcache[cachebase + d + Int32(1)] =
+            DNNKernels.safetrunc(Int8, clamp(round(kval / ks), -127f0, 127f0))
+        vcache[cachebase + d + Int32(1)] =
+            DNNKernels.safetrunc(Int8, clamp(round(vval / vs), -127f0, 127f0))
     end
     return nothing
 end

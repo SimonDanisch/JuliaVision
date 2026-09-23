@@ -962,60 +962,6 @@ function replay!(mp::RecordedPlan, name::AbstractString, args)
     return mp.outputs
 end
 
-"""
-    runonce!(g) -> nothing
-
-Plan, record and run one graph, then free the plan.
-
-For work that happens ONCE and whose result is afterwards only read: packing a
-checkpoint's weights and quantising them. That is a kernel like any other, so it
-belongs in a `Mantle.Graph` rather than in a bare `KI.Kernel` launch over
-`KernelAbstractions.allocate`d memory, and the difference is not only tidiness:
-
-  * **`Plan` puts the barrier in.** `quantizeint8` runs a scale pass and then a
-    pack pass that READS what the scale pass wrote. Launched back to back there
-    is nothing between them but the queue's own ordering; declared, the
-    dependency is inferred from what each kernel touches and `Barriers` emits
-    one.
-  * **The memory is asked for as what it is.** Not a different pool —
-    `KA.allocate` on a `LavaBackend` reaches Mantle's pool too, and the ledger
-    says so. What differs is what each asks it for: `Mantle.Buffer` takes
-    `Persistent()` with the usage bits `bufferusage(dev, T)` names, in one
-    ledger entry; the `KA.allocate` path takes the ordinary bits and two. The
-    usage bits are not cosmetic — `persistentarray`'s docstring records a
-    predicate read from a buffer that lacked its own bit, which RADV answered
-    correctly and NVIDIA hung on.
-  * **One verb owns it.** A `Buffer` is freed by `Mantle.free!`, the same verb
-    the emit's own owned buffers take, so `releaseweights!` has one rule and
-    not two.
-
-**No wait.** `free!` retires the plan's regions rather than freeing them:
-`retire!` stamps each with the last submission that named it and `reclaim!`
-runs the destroy only once `passed` says the device is through with it, which
-is precisely the in-flight case. The caller dropping the float it quantised
-from is safe for the same reason from the other side — the submission holds its
-own arguments, which is what `holdleaves!` is for. Waiting here changed nothing
-measurable either way; it is gone because it is unnecessary, not because it was
-expensive.
-
-**It is not free.** Declaring costs about 0.9 ms a weight more than the bare
-`KI.Kernel` launches it replaces — 64 weights of 2048x2048 in 0.085 s against
-0.030 s, both fully synchronised — and that is the `Plan` and `record!` per
-weight, not the submission. On a checkpoint of a few hundred quantised tensors
-it is a fraction of a second against a load measured in tens, which is the
-trade being made: a barrier the graph derives, one ownership verb, and the
-usage bits the element type asks for.
-
-The OUTPUT buffers are not freed — they are the weight. `free!` gives back only
-what the plan owns: its recording, argument memory and arenas.
-"""
-function runonce!(g)
-    plan = Mantle.Plan(g)
-    Mantle.record!(plan)
-    Mantle.run!(plan)
-    Mantle.free!(plan)
-    return nothing
-end
 
 mutable struct State
     bank::MemoryBank
