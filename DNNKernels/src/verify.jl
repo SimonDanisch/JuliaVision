@@ -379,15 +379,25 @@ end
 """
     coverage(graphpath) -> (implemented, missing)
 
-Which ATen ops in a graph have a `runop!` method, without executing it.
+Which ATen ops in a graph this library can DECLARE, without emitting anything.
+
+Declare, not run. This asked `runop!` — the eager library — while every caller
+had long since moved to the declared path, so it was answering about the half
+being deleted. A graph is runnable when `emitgraph` can place every one of its
+ops into a Mantle graph, and that is `emitop!` plus the [`NOISEOPS`](@ref
+NOISEOPS) `emitgraph` declares itself.
 """
 function coverage(g::Graph)
     impl, miss = String[], String[]
     for op in unique(o.aten for o in g.ops)
-        # the catch-all `::Val{T} where T` matches everything, so hasmethod is
+        if op in NOISEOPS
+            push!(impl, op)
+            continue
+        end
+        # the catch-all `::Val{A} where A` matches everything, so hasmethod is
         # useless here; the dispatched-on parameter is concrete only for a real
         # implementation
-        sig = Base.unwrap_unionall(which(runop!, Tuple{Ctx,Op,Val{Symbol(op)}}).sig)
+        sig = Base.unwrap_unionall(which(emitop!, Tuple{EmitCtx,Op,Val{Symbol(op)}}).sig)
         isconcretetype(sig.parameters[4]) ? push!(impl, op) : push!(miss, op)
     end
     (sort(impl), sort(miss))

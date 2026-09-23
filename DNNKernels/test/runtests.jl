@@ -44,6 +44,11 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 # read as "no fixtures" and went from 61 assertions to 1, still green.
 # `ensure_artifact_installed` succeeds on retry; the gate then runs and passes.
 
+# Neither a device nor a graph either: reads every exported graph in the depot
+# and asks whether `emitgraph` could place all of it. The precondition for
+# deleting the eager op library, and the reason `coverage` asks `emitop!`.
+include(joinpath(@__DIR__, "test_declared_coverage.jl"))
+
 # Neither a device nor a graph: reads this tree and Mantle's as text, and
 # asserts that no `@kernel` is defined in either and that the eager surface has
 # not grown. A `@kernel` compiles and runs, so nothing else here would notice.

@@ -124,8 +124,7 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
         for op in aten.ops
             op.out in skip && continue
             emitctx.outid[] = op.out
-            if op.aten in ("rand.default", "randn.default", "rand_like.default",
-                           "randn_like.default")
+            if op.aten in NOISEOPS
                 # ZeroNoise is a deterministic fill. RandomNoise gets a small
                 # persistent device state whose advance dispatch is part of the
                 # recorded plan, so replay draws again instead of freezing the
@@ -1268,6 +1267,18 @@ function convrot(emitctx::EmitCtx, input, group_size::Integer; name::AbstractStr
     end
     out
 end
+
+"""
+The draws `emitgraph` declares itself, instead of dispatching to [`emitop!`](@ref).
+
+They need the `NoiseSource` the caller passed, and `emitop!` takes an op and a
+tag and nothing else. Named once because [`coverage`](@ref) has to agree about
+them: an op handled here has no `emitop!` arm and is covered all the same, and a
+`coverage` that did not know that would report the declared path as incomplete
+for every graph with a stochastic node in it.
+"""
+const NOISEOPS = ("rand.default", "randn.default", "rand_like.default",
+                  "randn_like.default")
 
 """Declare a fresh uniform or normal draw that remains fresh under replay."""
 function emitnoise!(emitctx::EmitCtx, op::Op, noise::RandomNoise)
