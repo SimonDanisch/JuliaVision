@@ -141,12 +141,13 @@ function compact_text_encoder_weights(graph;
     out
 end
 
-"""A prepared Qwen3-VL text encoder: its recorded plan, tokenizer and lengths."""
-struct QwenTextEncoder{B,G,W,P,C}
+"""The encoder graph's name, which is also its key in the `Model`."""
+const ENCODERGRAPH = "qwenimage21_text_encoder"
+
+"""A prepared Qwen3-VL text encoder: its `Model`, tokenizer and lengths."""
+struct QwenTextEncoder{B,M,C}
     backend::B
-    graph::G
-    weights::W
-    plan::P
+    model::M
     tokenizer::QwenTokenizer
     tokens::Int
     drop::Int
@@ -175,14 +176,19 @@ function qwenimagetextencoder(; backend=Mantle.defaultbackend(),
                               maxpasses::Integer=64)
     graph = qwenimagegraph(:text_encoder; dir)
     weights = compact_text_encoder_weights(graph; compact, constants_dir=dir)
-    model = Model(Dict("qwenimage21_text_encoder" => graph), weights; backend)
-    prepared = model.graphs["qwenimage21_text_encoder"]
-    plan = planfor(model.device, prepared, model.weights, (;); maxpasses=Int(maxpasses))
+    model = Model(Dict(ENCODERGRAPH => graph), weights; backend,
+                  record_maxpasses = Dict(ENCODERGRAPH => Int(maxpasses)))
+    prepared = model.graphs[ENCODERGRAPH]
+    # `planahead!` and not a lazy first call: this is built once and the prompt
+    # is encoded once per image, so the compiling belongs here rather than
+    # inside the first encode. It builds the plan `call` would build, under the
+    # key `call` looks up. The graph is not symbolic — `dims = (;)` — so there
+    # is exactly one.
+    DNNKernels.planahead!(model, ENCODERGRAPH)
     tokenizer = QwenTokenizer(processor_dir)
     tokens = Int(prepared.buffers[only(prepared.inputs)].shape[2])
     drop = length(encode(tokenizer, qwen_system_prefix()))
-    QwenTextEncoder(model.backend, prepared, model.weights, plan, tokenizer, tokens,
-                    drop, compact)
+    QwenTextEncoder(model.backend, model, tokenizer, tokens, drop, compact)
 end
 
 """
@@ -204,7 +210,7 @@ function encode_prompt(encoder::QwenTextEncoder, prompt::AbstractString;
     embeddings = token_embeddings(padded; compact=encoder.compact)
     input = DNNKernels.toback(encoder.backend, reshape(embeddings, size(embeddings, 1),
                                                        size(embeddings, 2), 1))
-    hidden = first(replay!(encoder.plan, "qwenimage21_text_encoder", (input,)))
+    hidden = first(DNNKernels.call(encoder.model, ENCODERGRAPH, input; dims = (;)))
     # Causal attention: everything past `ids` is padding that no kept row read.
     kept = (encoder.drop + 1):length(ids)
     host = Array(hidden)

@@ -797,10 +797,10 @@ A method on Mantle's own `release!` rather than a second name for it: it means
 the same thing here as it does for a recording, and two exported `release!`s
 are an ambiguity at every call site that has both packages in scope.
 """
-# The encoder and the denoiser hold one hand-rolled plan each and their weights
-# directly; the decoder holds a `Model`, which holds its weights and one plan per
-# grid decoded. Two things to free either way, reached differently, so two
-# methods rather than a branch inside one.
+# The denoiser holds one hand-rolled plan and its weights directly; the encoder
+# and the decoder hold a `Model`, which holds its weights and the plans `call`
+# has built. Two things to free either way, reached differently, so two methods
+# rather than a branch inside one.
 # `free!(c.plan)` and NOT `free!(c.plan.plan)`. The second frees the Mantle
 # `Plan` and stops there; `DNNKernels.free!(::RecordedPlan)` frees that AND the
 # buffers the emit owns, which is where `residentweights` put the weights.
@@ -810,12 +810,13 @@ are an ambiguity at every call site that has both packages in scope.
 # GTT+VRAM: 7977 MiB with the encoder up, 7531 after releasing it — 446 MiB of
 # the 6.9 GB — and then 15119 once the denoiser loaded on top of what should
 # have been gone. The staging this file's docstring describes did not work.
-freeplans!(c::Union{QwenTextEncoder,QwenTransformer}) =
+freeplans!(c::QwenTransformer) =
     (c.plan === nothing || Mantle.free!(c.plan); nothing)
-freeplans!(c::QwenVAEDecoder) = (DNNKernels.releaseplans!(c.model); nothing)
+freeplans!(c::Union{QwenTextEncoder,QwenVAEDecoder}) =
+    (DNNKernels.releaseplans!(c.model); nothing)
 
-heldweights(c::Union{QwenTextEncoder,QwenTransformer}) = c.weights
-heldweights(c::QwenVAEDecoder) = c.model.weights
+heldweights(c::QwenTransformer) = c.weights
+heldweights(c::Union{QwenTextEncoder,QwenVAEDecoder}) = c.model.weights
 
 function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVAEDecoder})
     dev = Mantle.todevice(component.backend)
