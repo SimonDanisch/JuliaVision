@@ -15,8 +15,10 @@ kernel that a shape check and a smoke test both wave through.
 `MatAnyoneRunner/Artifacts.toml`, and bound-but-not-*installed* plus one
 transient download failure is indistinguishable from an unbound artifact at the
 call site, because `matanyoneprecisions()` returns empty for both: the testset
-goes from 61 assertions to 1 and stays green. If the refs go missing,
-regenerate and re-bind with:
+goes from 61 assertions to 1 and stays green. That is not hypothetical — it was
+skipping here until 2026-09-23, and `ensure_artifact_installed` failed once and
+succeeded on the retry, which is exactly the transient this warns about. If the
+refs go missing, regenerate and re-bind with:
 
     uv run tools/dump_refs.py --precision autocast --max-size 128
     uv run tools/dump_refs.py --precision fp32     --max-size 128
@@ -27,6 +29,20 @@ using Test
 using DNNKernels
 using DNNKernels: verifygraph
 using MatAnyoneRunner
+using Mantle
+
+# `verifygraph` defaults to the host, and the host cannot run these graphs: the
+# convolutions are macro-free `KernelInterface` kernels and `KA.CPU` implements
+# no `KI.kernel_function`, so `dispatch!` refuses `conv2d_igemm_ki!` before the
+# first op is declared. That is not new — the same refusal happens at every
+# commit that has `conv2d_igemm_ki!` in the launcher — and it was invisible
+# because the gate was skipping for want of its artifact.
+#
+# So the gate runs where the kernels run. `SAM2Runner/test/runtests.jl` already
+# passes `backend = LavaBackend()` to its own layer-by-layer gate; this one was
+# the outlier. What is checked is unchanged: the same graphs, the same weights,
+# the same PyTorch references, the same tolerances.
+const BACKEND = Mantle.LavaBackend()
 
 const NAMES = ["encode_image", "transform_key", "encode_mask_deep", "encode_mask_shallow",
                "pixel_fusion", "pred_uncertainty", "segment", "readout_query"]
@@ -52,7 +68,7 @@ weights = isempty(PRECISIONS) ? nothing : MatAnyoneRunner.matanyoneweights()
             impl, missing_ops = DNNKernels.coverage(g)
             @test isempty(missing_ops)
 
-            ok, diffs, ties = verifygraph(g, refs, weights; dims)
+            ok, diffs, ties = verifygraph(g, refs, weights; dims, backend = BACKEND)
             if !ok
                 f = first(diffs)
                 @info "first mismatch" precision graph=name index=f.index id=f.id aten=f.aten maxabs=f.maxabs rel=f.relative
