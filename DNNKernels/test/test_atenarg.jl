@@ -35,13 +35,13 @@ the *other* activation so that a regression cannot pass by returning a plausible
 number. The last case is the one that would have caught this: it asserts a graph
 carrying `approximate` computes something the exact form does not.
 
-Host-only — the CPU backend runs the same op source the GPU does.
-`tools/audit_attr_keys.py` is the sweep for the rest of the op surface.
+Through the DECLARED path, which is the only one there is: `planfor` emits the
+graph and `replay!` runs it. `tools/audit_attr_keys.py` is the sweep for the
+rest of the op surface.
 """
 
-using Test, DNNKernels, KernelAbstractions
+using Test, DNNKernels, Mantle
 const DKA = DNNKernels
-const KAB = KernelAbstractions
 
 aabuf(id, kind, shape, dtype; of = "", viewop = "") =
     DKA.Buffer(id, kind, Any[shape...], dtype, "", (0, 0), of, viewop,
@@ -95,16 +95,32 @@ end
         # The two forms have to disagree, or nothing below can fail.
         @test !all(DKA.gelutanh.(x) .≈ DKA.geluexact.(x))
 
-        run(attrs) = DKA.execute!(gelugraph(attrs), Dict{String,Any}("x" => x),
-                                  Dict{String,Any}(); dims = NamedTuple(),
-                                  backend = KAB.CPU())["out"]
+        function run(attrs)
+            dev = Mantle.todevice(Mantle.LavaBackend())
+            plan = DKA.planfor(dev, gelugraph(attrs), Dict{String,Any}(), NamedTuple())
+            out = Array(first(DKA.replay!(plan, "g", (DKA.toback(Mantle.LavaBackend(), x),))))
+            Mantle.free!(plan.plan)
+            out
+        end
 
-        @test run(Dict{String,Any}()) == DKA.geluexact.(x)
-        @test run(Dict{String,Any}("arg1" => "tanh")) == DKA.gelutanh.(x)
+        # `atol` and not `==`, and not `≈` either. The device's `tanh` differs
+        # from the host's in the last ulp or two — 2.4e-8 at x = -4 — so exact
+        # equality held only while this ran the same Julia source on the CPU.
+        # Plain `≈` is no good the other way: it compares vector norms, and the
+        # gap between the two gelu FORMS is 2.5e-4 against a norm of 3.7, which
+        # is inside the default tolerance, so it would accept either answer.
+        # 1e-6 sits between the two: 40x above the device's noise and 100x
+        # below the difference this test exists to see.
+        samevals(a, b) = all(isapprox.(a, b; atol = 1e-6))
+        @test samevals(run(Dict{String,Any}()), DKA.geluexact.(x))
+        @test samevals(run(Dict{String,Any}("arg1" => "tanh")), DKA.gelutanh.(x))
         # The spelling every tanh gelu in the tree actually uses, and the one a
         # missing case falls through to the exact form on.
-        @test run(Dict{String,Any}("approximate" => "tanh")) == DKA.gelutanh.(x)
-        @test run(Dict{String,Any}("approximate" => "none")) == DKA.geluexact.(x)
+        @test samevals(run(Dict{String,Any}("approximate" => "tanh")), DKA.gelutanh.(x))
+        @test samevals(run(Dict{String,Any}("approximate" => "none")), DKA.geluexact.(x))
+        # …and the tolerance has to REFUSE the other form, or none of the four
+        # above means anything.
+        @test !samevals(DKA.gelutanh.(x), DKA.geluexact.(x))
     end
 
     @testset "keepdim reads both spellings too" begin

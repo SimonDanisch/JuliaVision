@@ -20,8 +20,8 @@ produced a plausible image.
 
 ## The assertions
 
-Two one-op graphs, a declared one and an interpreted one, that slice a symbolic
-offset off a `(t + 4, 3)` input and must return the last 4 rows for any `t`. The
+One one-op graph that slices a symbolic offset off a `(t + 4, 3)` input and
+must return the last 4 rows for any `t`. The
 bug is a wrong OFFSET with a right SHAPE, so asserting the size is not enough
 and every assertion here compares values.
 
@@ -30,9 +30,8 @@ always resolved; the failing form is `arg2` absent, which is also covered so
 that a regression cannot reintroduce it as a silent default.
 """
 
-using Test, DNNKernels, KernelAbstractions, Mantle
+using Test, DNNKernels, Mantle
 const DKR = DNNKernels
-const KAR = KernelAbstractions
 
 """
 `out = x[start:, :]` as a four-buffer graph, where `start` is the host scalar `s`.
@@ -46,7 +45,7 @@ export also feeds its `sym_size_int` to an op — Qwen-Image 2.1's goes to a
 `full` and two `arange`s — so that pruning never fires in practice, and pinning
 it here would test the passes rather than the view.
 """
-function sliceparent(t::Int; start = "\$s", interpreted::Bool)
+function sliceparent(t::Int; start = "\$s")
     rows, cols = t + 4, 3
     x = Float32.(reshape(1:(rows * cols), cols, rows))   # Julia (cols, rows)
     attrs = Dict{String,Any}("arg1" => 0)
@@ -64,8 +63,6 @@ function sliceparent(t::Int; start = "\$s", interpreted::Bool)
                   [DKR.Op("c", "clone.default", ["v"], "out", Dict{String,Any}())],
                   Vector{Vector{String}}())
     dims = (; t)
-    interpreted && return DKR.execute!(g, Dict{String,Any}("x" => x),
-                                       Dict{String,Any}(); dims, backend = KAR.CPU())["out"]
     dev = Mantle.todevice(Mantle.LavaBackend())
     plan = DKR.planfor(dev, g, Dict{String,Any}(), dims)
     out = Array(first(DKR.replay!(plan, "s", (DKR.toback(Mantle.LavaBackend(), x),))))
@@ -80,8 +77,7 @@ end
         want = Float32.(reshape(1:((t + 4) * 3), 3, t + 4))[:, (t + 1):(t + 4)]
 
         @testset "t = $t" begin
-            @test sliceparent(t; interpreted = true) == want
-            @test sliceparent(t; interpreted = false) == want
+            @test sliceparent(t) == want
         end
     end
 
@@ -93,10 +89,8 @@ end
         want = Float32.(reshape(1:((t + 4) * 3), 3, t + 4))[:, (t + 1):(t + 4)]
         wrong = Float32.(reshape(1:((t + 4) * 3), 3, t + 4))[:, 1:4]
         @test want != wrong
-        for interpreted in (true, false)
-            got = sliceparent(t; start = nothing, interpreted)
-            @test size(got) == size(want)      # the shape never caught it
-            @test got == wrong                 # and this is what it returned
-        end
+        got = sliceparent(t; start = nothing)
+        @test size(got) == size(want)      # the shape never caught it
+        @test got == wrong                 # and this is what it returned
     end
 end

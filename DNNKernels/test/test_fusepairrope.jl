@@ -145,12 +145,4 @@ end
     # bit-identical: the elementwise fuser contracts the chain's two products
     # into a `muladd` and this does not.
     @test maximum(abs, gotf .- gotc) <= 2eps(Float16) * maximum(abs, Float32.(gotc))
-
-    # The INTERPRETED runner too, which is a second implementation of the same
-    # op and the one an unrecorded model reaches. A wrong head count there is
-    # invisible until something runs without a plan.
-    interp = Array(DKP.execute!(fused, Dict(zip(fused.inputs, args)),
-                                Dict{String,Any}(); dims = (;), backend)[
-                       DKP.viewroot(fused, only(fused.outputs))])
-    @test interp == want
 end

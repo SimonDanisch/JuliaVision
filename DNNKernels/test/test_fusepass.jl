@@ -20,9 +20,25 @@ The real graphs are covered by `SAM2Runner`'s parity suite, which has the weight
 this file has graphs only, so it builds what it needs.
 """
 
-using Test, DNNKernels, KernelAbstractions
+using Test, DNNKernels, Mantle
 const DK = DNNKernels
 using DNNKernels: FusedOp, In, Tmp, Konst, Cast, Buffer, Op, Graph
+
+"""
+`g` run through the declared path, as a host array.
+
+A fusion pass is checked by running the graph it rewrote against the graph it
+rewrote it FROM, so this is called twice per case and the comparison is between
+two graphs rather than between two runners.
+"""
+function declaredrun(g, inp)
+    backend = Mantle.LavaBackend()
+    args = Tuple(DK.toback(backend, inp[id]) for id in g.inputs)
+    plan = DK.planfor(Mantle.todevice(backend), g, Dict{String,Any}(), NamedTuple())
+    out = Array(first(DK.replay!(plan, g.name, args)))
+    Mantle.free!(plan.plan)
+    out
+end
 
 @testset "FusedOp" begin
     fo = FusedOp((+, *), ((In(1), In(2)), (Tmp(1), In(3))))       # (a+b)*c, a DAG
@@ -101,13 +117,8 @@ end
     @test fo(x) != -(sqrt(x + 1.0f-6)) * 3.0f0
 
     # Against the unfused graph, on real arrays.
-    be = CPU()
     inp = Dict{String,Any}("x" => Float32[1 2 3 4; 5 6 7 8; 9 10 11 12; 13 14 15 16])
-    ref = DK.execute!(g,  inp, Dict{String,Any}(); dims = NamedTuple(), backend = be,
-                      lazy = Set{String}())
-    got = DK.execute!(gf, inp, Dict{String,Any}(); dims = NamedTuple(), backend = be,
-                      lazy = Set{String}())
-    @test Array(got["y"]) == Array(ref["y"])
+    @test declaredrun(gf, inp) == declaredrun(g, inp)
 end
 
 @testset "fuseops refuses what it cannot model" begin
@@ -163,14 +174,13 @@ end
     @test gf.ops[1].aten == "fused.elementwise" && gf.ops[1].out == "t2"
     @test gf.ops[2].aten == "div.Tensor"
 
-    be = CPU()
+    # `m` is declared `Any[4, 1]` in torch order, which is `(1, 4)` in Julia, so
+    # the literal is a ROW. It was written as a 4x1 column and ran anyway: the
+    # interpreted runner sized the buffer from the declaration and copied by
+    # length, so a transposed input of the right element count was invisible.
     inp = Dict{String,Any}("x" => Float32[1 2 3 4; 5 6 7 8; 9 10 11 12; 13 14 15 16],
-                           "m" => Float32[1; 2; 3; 4;;])
-    ref = DK.execute!(g,  inp, Dict{String,Any}(); dims = NamedTuple(), backend = be,
-                      lazy = Set{String}())
-    got = DK.execute!(gf, inp, Dict{String,Any}(); dims = NamedTuple(), backend = be,
-                      lazy = Set{String}())
-    @test Array(got["y"]) == Array(ref["y"])
+                           "m" => Float32[1 2 3 4])
+    @test declaredrun(gf, inp) == declaredrun(g, inp)
 end
 
 @testset "unaryfused is unary in TENSORS, not in operands" begin
@@ -195,9 +205,15 @@ end
 """`prod(1 - x)` over one input — the shape `foldpremap` actually finds in
 MatAnyone's `readout_query` and `segment`."""
 function premapgraph(; extrareader::Bool = false)
-    b(id, kind) = Buffer(id, kind, Any[4, 4], Float32, "", (0, 0), "", "", Dict{String,Any}())
+    b(id, kind, shape = Any[4, 4]) =
+        Buffer(id, kind, shape, Float32, "", (0, 0), "", "", Dict{String,Any}())
+    # `y` is the REDUCED shape: `prod` over torch dim 0 takes (4, 4) to (4,).
+    # It was declared (4, 4) like everything else, so the buffer held 16
+    # elements for a 4-element result. The interpreted runner sized the output
+    # from the op and never read the declaration, so nothing said so.
     buffers = Dict{String,Buffer}("x" => b("x", :external), "s" => b("s", :transient),
-                                  "y" => b("y", :transient), "z" => b("z", :transient))
+                                  "y" => b("y", :transient, Any[4]),
+                                  "z" => b("z", :transient))
     ops = Op[
         Op("o1", "sub.Tensor", ["x"], "s", Dict{String,Any}("arg0" => 1.0f0)),
         Op("o2", "prod.dim_int", ["s"], "y", Dict{String,Any}("arg1" => 0)),
@@ -220,15 +236,12 @@ end
     @test red.attrs["premap"](0.25f0) ≈ 0.75f0
 
     # Same numbers as the unfused graph, on real arrays.
-    be = CPU()
     inp = Dict{String,Any}("x" => Float32[0.1 0.2 0.3 0.4; 0.5 0.6 0.7 0.8;
                                           0.9 0.15 0.25 0.35; 0.45 0.55 0.65 0.75])
-    ref = DK.execute!(g,  inp, Dict{String,Any}(); dims = NamedTuple(), backend = be,
-                      lazy = Set{String}())
-    got = DK.execute!(gp, inp, Dict{String,Any}(); dims = NamedTuple(), backend = be,
-                      lazy = Set{String}())
-    @test Array(got["y"]) ≈ Array(ref["y"])
-    @test maximum(abs.(Array(got["y"]) .- Array(ref["y"]))) == 0
+    ref = declaredrun(g,  inp)
+    got = declaredrun(gp, inp)
+    @test got ≈ ref
+    @test maximum(abs.(got .- ref)) == 0
 
     # A value with a second reader has to be materialised regardless, so folding
     # it would compute it twice rather than save a pass.

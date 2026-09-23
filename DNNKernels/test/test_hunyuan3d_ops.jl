@@ -36,9 +36,8 @@ attention heads in fp16 and its activations do reach that range. The last case
 here is a direct probe of it: values at 300, whose squares are 90000.
 """
 
-using Test, DNNKernels, KernelAbstractions
+using Test, DNNKernels, Mantle
 const DK = DNNKernels
-const KA = KernelAbstractions
 
 # `shape` is in TORCH order, as `loadgraph` produces it.
 tbuf(id, kind, shape, dtype; key = "", of = "", viewop = "", attrs = Dict{String,Any}()) =
@@ -50,24 +49,46 @@ titem(id, parent, i, shape, dtype) =
          attrs = Dict{String,Any}("arg1" => i))
 
 """
-Run a one-op graph on the CPU backend and return its outputs, resolved.
+The output buffer of a TUPLE-valued op, carrying the per-element `shapes` and
+`dtypes` an export files on one.
 
-Resolved through `value`, not read out of `execute!`'s table: both ops with a
-tuple result are reached through `getitem` views, and a view has no entry of its
-own there. Same reason `DepthAnythingRunner.depthmap!` resolves its output that
-way.
+The `getitem` views name which elements are read; this is what says how many
+there are. An element nothing reads is given `nothing` for its dtype and gets no
+storage at all, which is how sdpa's philox seed and offset are declared.
 
-No `plan`/`slab`: `dest` falls back to a fresh allocation for buffers the
-planner skipped, which is every buffer here. What is under test is `runop!`, and
-the planned-destination path is `test_clamp_planned.jl`'s subject.
+A declaration needs this and an interpreted run did not: `execute!` put the
+whole tuple in a table under the op id, so a parent with no element metadata
+worked there and has no destination here.
+"""
+ttuple(id, kind, shapes, dtypes) =
+    DK.Buffer(id, kind, Any[], Float32, "", (0, 0), "", "",
+              Dict{String,Any}("shapes" => Any[Any[s...] for s in shapes],
+                               "dtypes" => Any[dtypes...]))
+
+"""
+Declare a one-op graph, run it, and return its outputs as host arrays.
+
+`planfor` resolves each output itself, which matters here because both ops with
+a tuple result are reached through a `getitem` view, and a view is not a buffer
+with storage of its own — the emit is what knows which parent it reads.
+
+The reference every case below compares against is the op's DEFINITION written
+out, so this runs the implementation under test exactly once. That is the point
+of the file: a second implementation written from the same misreading of an
+argument position agrees with the first.
 """
 function run1(bufs, ops, inputs, outputs, weights = Dict{String,Any}())
     ins = Dict{String,Any}(inputs)
-    g = DK.Graph("t", String[], collect(keys(ins)), outputs,
+    inids = collect(keys(ins))
+    g = DK.Graph("t", String[], inids, outputs,
                  bufs, collect(keys(bufs)), ops, Vector{Vector{String}}())
-    vals = DK.execute!(g, ins, weights; dims = NamedTuple(), backend = KA.CPU())
-    ctx = DK.Ctx(vals, g, NamedTuple(), KA.CPU())
-    Dict{String,Any}(o => Array(DK.value(ctx, o)) for o in outputs)
+    backend = Mantle.LavaBackend()
+    args = Tuple(DK.toback(backend, ins[id]) for id in inids)
+    plan = DK.planfor(Mantle.todevice(backend), g, weights, NamedTuple())
+    res = Dict{String,Any}(o => Array(v)
+                           for (o, v) in zip(outputs, DK.replay!(plan, "t", args)))
+    Mantle.free!(plan.plan)
+    res
 end
 
 # ─────────────────────────────────────────────────────────────────── topk
@@ -94,7 +115,7 @@ end
 
     bufs = Dict{String,DK.Buffer}(
         "x"  => tbuf("x", :external, (T, E), Float32),
-        "tk" => tbuf("tk", :transient, (T, k), Float32),
+        "tk" => ttuple("tk", :transient, ((T, k), (T, k)), (Float32, Float32)),
         "v"  => titem("v", "tk", 0, (T, k), Float32),
         "i"  => titem("i", "tk", 1, (T, k), Float32))
     ops = [DK.Op("tk", "topk.default", ["x"], "tk",
@@ -186,7 +207,7 @@ end
         bufs = Dict{String,DK.Buffer}(
             "x"  => tbuf("x", :external, (N, C), Float32),
             "g"  => tbuf("g", :weight, (C,), Float32; key = "g"),
-            "rn" => tbuf("rn", :transient, (N, C), Float32),
+            "rn" => ttuple("rn", :transient, ((N, C), (N, 1)), (Float32, nothing)),
             "o"  => titem("o", "rn", 0, (N, C), Float32))
         ops = [DK.Op("rn", "_fused_rms_norm.default", ["x", "g"], "rn",
                      Dict{String,Any}("arg1" => Any[C], "arg3" => ε))]
@@ -199,7 +220,7 @@ end
         x_t = Float32[cos(i + c) for i in 1:N, c in 1:C]
         bufs = Dict{String,DK.Buffer}(
             "x"  => tbuf("x", :external, (N, C), Float32),
-            "rn" => tbuf("rn", :transient, (N, C), Float32),
+            "rn" => ttuple("rn", :transient, ((N, C), (N, 1)), (Float32, nothing)),
             "o"  => titem("o", "rn", 0, (N, C), Float32))
         ops = [DK.Op("rn", "_fused_rms_norm.default", ["x"], "rn",
                      Dict{String,Any}("arg1" => Any[C], "arg3" => ε))]
@@ -217,7 +238,7 @@ end
         @test !isfinite(sum(abs2, Float16.(x_t[1, :])))     # the trap, confirmed live
         bufs = Dict{String,DK.Buffer}(
             "x"  => tbuf("x", :external, (N, C), Float16),
-            "rn" => tbuf("rn", :transient, (N, C), Float16),
+            "rn" => ttuple("rn", :transient, ((N, C), (N, 1)), (Float16, nothing)),
             "o"  => titem("o", "rn", 0, (N, C), Float16))
         ops = [DK.Op("rn", "_fused_rms_norm.default", ["x"], "rn",
                      Dict{String,Any}("arg1" => Any[C], "arg3" => ε))]

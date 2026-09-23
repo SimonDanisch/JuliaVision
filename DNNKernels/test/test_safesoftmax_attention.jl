@@ -150,7 +150,7 @@ end
 
 # The two runners on one graph. `scale` is an attribute here rather than a `mul`
 # left in the graph, and both paths have to read it.
-@testset "folded attention scale, interpreted and declared" begin
+@testset "the folded attention scale, on the declared path" begin
     backend = Mantle.LavaBackend()
     caps = DNNKernels.caps(backend)
     if caps.coopmat && caps.coopmatsubgroup == 32
@@ -183,18 +183,12 @@ end
         end
 
         q, k, v = map(a -> DNNKernels.toback(backend, a), (qh, kh, vh))
-        vals = DNNKernels.execute!(g, Dict("q" => q, "k" => k, "v" => v),
-                                   Dict{String,Any}(); dims = (;), backend)
-        got = Float32.(Array(vals["out"]))
-        @test maximum(abs, reshape(got, D, Lq, H) .- want) < 0.01maximum(abs, want)
-
         plan = DNNKernels.planfor(Mantle.todevice(backend), g, Dict{String,Any}(), (;))
         rec = Float32.(Array(first(DNNKernels.replay!(plan, "sdpascale", (q, k, v)))))
+        # The fault was a wrong SCALE, which stays finite and looks plausible, so
+        # `want` above is computed from the definition rather than from another
+        # run of the same graph. It is what distinguishes the two.
         @test maximum(abs, reshape(rec, D, Lq, H) .- want) < 0.01maximum(abs, want)
-        # The failure this pins is the two paths disagreeing, not either of them
-        # being slightly off: they ran at different scales and stayed finite.
-        @test maximum(abs, reshape(rec, D, Lq, H) .- reshape(got, D, Lq, H)) <
-              0.01maximum(abs, want)
         Mantle.free!(plan.plan)
     else
         @test_skip false

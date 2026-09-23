@@ -27,9 +27,8 @@ declared buffer shape, so a miscount shows up as a wrong-length result here
 exactly as it would on a device.
 """
 
-using Test, DNNKernels, KernelAbstractions
+using Test, DNNKernels, Mantle
 const DKR = DNNKernels
-const KAR = KernelAbstractions
 
 """A one-op graph `out = arange(start, stop, step)`, run on the CPU."""
 function runarange(; start = nothing, stop, step = nothing, n, T = Float32)
@@ -42,8 +41,11 @@ function runarange(; start = nothing, stop, step = nothing, n, T = Float32)
     g = DKR.Graph("t", String[], String[], ["out"], bufs, ["out"],
                   [DKR.Op("a", "arange.start_step", String[], "out", attrs)],
                   Vector{Vector{String}}())
-    DKR.execute!(g, Dict{String,Any}(), Dict{String,Any}();
-                 dims = NamedTuple(), backend = KAR.CPU())["out"]
+    dev = Mantle.todevice(Mantle.LavaBackend())
+    plan = DKR.planfor(dev, g, Dict{String,Any}(), NamedTuple())
+    out = Array(first(DKR.replay!(plan, "t", ())))
+    Mantle.free!(plan.plan)
+    out
 end
 
 @testset "arange.start_step" begin
