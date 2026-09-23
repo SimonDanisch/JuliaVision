@@ -381,6 +381,61 @@ function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
 end
 
 """
+RMS norm with exactly one hardware subgroup per normalisation group.
+
+[`rmsnorm_kernel!`](@ref)'s shared-memory tree is the portable fallback, and it is
+the wrong shape when `C` is small: it launches `LN_WG` threads for a group of `C`
+elements, so most of them do nothing but take part in `log2(LN_WG)` barriers. RMS
+norm normalises the HEAD WIDTH in an attention block -- 128 in Hunyuan3D's DiT --
+which is exactly that case.
+
+Same reduction as [`layernorm_shfl_kernel!`](@ref) and half the work: one pass for
+the mean square instead of a pass for the mean and another for the variance.
+"""
+function rmsnorm_shfl_kernel!(out, rstd, a, γ,
+                                                C::Int32, NG::Int32, eps::Float32,
+                                                ::Val{SG}, ::Val{ROW},
+                                                ::Val{HASG}) where {SG,ROW,HASG}
+    block = KI.get_group_id().x - 1
+    t = KI.get_local_id().x - 1
+    lane = t % ROW
+    chunk = t ÷ ROW
+    g = block * div(SG, ROW) + chunk
+    valid = g < NG
+    base = g * Int(C)
+    n = Float32(C)
+
+    s = 0.0f0
+    i = lane
+    @inbounds while valid && i < C
+        x = Float32(a[base + i + 1])
+        s += x * x
+        i += ROW
+    end
+    if ROW == 64
+        v = KI.shfl_down(s, 32); lane < 32 && (s += v)
+    end
+    v = KI.shfl_down(s, 16); lane < 16 && (s += v)
+    v = KI.shfl_down(s, 8);  lane < 8  && (s += v)
+    v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
+    v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
+    v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
+    r = 1.0f0 / sqrt(KI.shfl(s, chunk * ROW) / n + eps)
+
+    i = lane
+    @inbounds while valid && i < C
+        x = Float32(a[base + i + 1]) * r
+        HASG && (x *= Float32(γ[i + 1]))
+        out[base + i + 1] = x
+        i += ROW
+    end
+    @inbounds if valid && lane == 0
+        rstd[g + 1] = r
+    end
+    return nothing
+end
+
+"""
     rmsnorm_kernel!(out, rstd, a, γ, C, eps)
 
 Root-mean-square norm — `x * rsqrt(mean(x^2) + eps) * γ` — one workgroup per

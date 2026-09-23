@@ -3323,10 +3323,24 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("_fused_rms_norm.default
     groups = length(a) ÷ C
     ε = Float32(something(get(op.attrs, "arg3", nothing), eps(float(eltype(a)))))
     rstd = destor(emitctx, 1, Float32, (groups,))
-    M.dispatch!(emitctx.g, rmsnorm_kernel!,
-                (out, rstd, a, γ === nothing ? a : γ, Int32(C), ε,
-                 Val(γ !== nothing)),
-                groups * LN_WG; group = LN_WG, name = op.id)
+    # One subgroup per group where the width allows it, exactly as
+    # `native_layer_norm` above decides it. RMS norm normalises the HEAD WIDTH,
+    # which is small — 128 in Hunyuan3D's DiT — so the portable kernel was
+    # launching `LN_WG` threads to reduce `C` elements and paying `log2(LN_WG)`
+    # barriers for the privilege.
+    rowsg = layernormwg(C)
+    sg = M.caps(emitctx.dev).subgroup
+    if sg > 0 && rowsg <= sg && sg % rowsg == 0
+        M.dispatch!(emitctx.g, rmsnorm_shfl_kernel!,
+                    (out, rstd, a, γ === nothing ? a : γ, Int32(C), Int32(groups), ε,
+                     Val(sg), Val(rowsg), Val(γ !== nothing)),
+                    cld(groups, sg ÷ rowsg) * sg; group = sg, name = op.id)
+    else
+        M.dispatch!(emitctx.g, rmsnorm_kernel!,
+                    (out, rstd, a, γ === nothing ? a : γ, Int32(C), ε,
+                     Val(γ !== nothing)),
+                    groups * LN_WG; group = LN_WG, name = op.id)
+    end
     return (out, rstd)
 end
 
