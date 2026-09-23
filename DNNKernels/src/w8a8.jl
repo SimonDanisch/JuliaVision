@@ -247,4 +247,8 @@ end
 
 """The weight's own bytes as int8 `(M, K)` — see this file's docstring."""
 w8a8weight(A::Union{QInt8Matrix,ConvRotQInt8Matrix}) =
-    reshape(reinterpret(Int8, A.q), size(A.q, 1) * Q8ROWS, size(A.q, 2))
+    # `Mantle.storage`: `A.q` is a `Mantle.Buffer` — the pool region that owns
+    # the bytes — and `reinterpret` wants the array over them.
+    let q = Mantle.storage(A.q)
+        reshape(reinterpret(Int8, q), size(q, 1) * Q8ROWS, size(q, 2))
+    end

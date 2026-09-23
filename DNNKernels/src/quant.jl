@@ -504,14 +504,24 @@ Pack a device-resident `(M, K)` float weight. `W` is not modified and the caller
 drops it.
 """
 function quantizeint8(backend, W::AbstractMatrix)
-    M, K = size(W)
-    MG = cld(M, Q8ROWS)
-    s = KernelAbstractions.allocate(backend, Float32, M)
-    q32 = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    KI.Kernel(backend, q8scale_kernel!)(s, W, Int32(M), Int32(K); ndrange = M, workgroupsize = 256)
-    KI.Kernel(backend, q8pack_kernel!)(q32, W, s, Int32(M), Int32(MG), Int64(MG) * K;
-                                 ndrange = MG * K, workgroupsize = 256)
-    QInt8Matrix(q32, s, M)
+    # `rows` and not `M`: `M` is this module's alias for `Mantle`, and the
+    # obvious spelling of the row count shadows it for the rest of the body.
+    rows, K = size(W)
+    MG = cld(rows, Q8ROWS)
+    dev = Mantle.todevice(backend)
+    g = Mantle.Graph(dev)
+    s = Mantle.Buffer(dev, Float32, (rows,))
+    q32 = Mantle.Buffer(dev, UInt32, (MG, K))
+    # The pack pass READS `s`. Declared, that dependency is inferred from what
+    # the two kernels touch and `Barriers` puts one between them; launched back
+    # to back it rested on the queue's own ordering.
+    Mantle.dispatch!(g, q8scale_kernel!, (s, W, Int32(rows), Int32(K)), rows;
+                     group = 256, name = "q8scale")
+    Mantle.dispatch!(g, q8pack_kernel!,
+                     (q32, W, s, Int32(rows), Int32(MG), Int64(MG) * K), MG * K;
+                     group = 256, name = "q8pack")
+    runonce!(g)
+    QInt8Matrix(q32, s, rows)
 end
 
 
@@ -744,10 +754,15 @@ end
 function q8gemv!(ctx, out, A::QInt8Matrix, x, bias)
     M, K = size(A)
     MG = size(A.q, 1)
+    # `Mantle.storage`: a packed weight's fields are `Mantle.Buffer`s, the pool
+    # regions that own the bytes, and a BARE launch has no graph to resolve them
+    # against — `dispatch!` does that itself, `KI.Kernel` packs what it is given
+    # and a `Buffer` is not a bitstype. Identity on anything already an array.
+    q, sc = Mantle.storage(A.q), Mantle.storage(A.scale)
     if Q8SINGLE[]
         RG = q8rowgroups(M, K)
         KI.Kernel(ctx.backend, Q8GEMV1_KERNELS[RG])(
-            out, A.q, x, A.scale, bias === nothing ? A.scale : bias,
+            out, q, x, sc, bias === nothing ? sc : bias,
             Int32(MG), Int32(M), Int32(K), Val(bias !== nothing);
             ndrange = cld(MG, RG) * Q8WG, workgroupsize = Q8WG)
         return out
@@ -756,10 +771,10 @@ function q8gemv!(ctx, out, A::QInt8Matrix, x, bias)
     S = q8split(M, K)
     KC = cld(K, S)
     P = Mantle.splitscratch(out, MP, 1, S)
-    KI.Kernel(ctx.backend, q8gemv_kernel!)(P, A.q, x, Int32(MG), Int32(MP), Int32(K),
+    KI.Kernel(ctx.backend, q8gemv_kernel!)(P, q, x, Int32(MG), Int32(MP), Int32(K),
                                      Int32(KC), Int32(MG * S); ndrange = MG * S, workgroupsize = 256)
     KI.Kernel(ctx.backend, q8reduce_kernel!)(
-        out, P, A.scale, bias === nothing ? A.scale : bias,
+        out, P, sc, bias === nothing ? sc : bias,
         Int32(M), Int32(MP), Int32(S), Val(bias !== nothing); ndrange = M, workgroupsize = 256)
     out
 end
@@ -776,7 +791,8 @@ function q8dequant(ctx, A::QInt8Matrix)
     M, K = size(A)
     MG = size(A.q, 1)
     W = scratch!(ctx.ws, ctx.backend, Float16, M, K)
-    KI.Kernel(ctx.backend, q8dequant_kernel!)(W, A.q, A.scale, Int32(M), Int32(MG),
+    KI.Kernel(ctx.backend, q8dequant_kernel!)(W, Mantle.storage(A.q),
+                                        Mantle.storage(A.scale), Int32(M), Int32(MG),
                                         Int64(MG) * K; ndrange = MG * K, workgroupsize = 256)
     W
 end

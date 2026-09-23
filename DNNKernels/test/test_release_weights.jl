@@ -81,6 +81,39 @@ end
     @test ledger() <= before
 end
 
+@testset "a quantised weight is freed by the verb its regions take" begin
+    # `quantizeint8` allocates through `Mantle.Buffer`, so what lands in the
+    # weight dict is a pair of POOL REGIONS and not device arrays. Two things
+    # have to be right for that to be freeable, and neither is the array branch
+    # above:
+    #
+    #   * `Mantle.free!` is the verb. `KernelAbstractions.unsafe_free!` is
+    #     Lava's, for memory allocated the other way, and a `Buffer` does not
+    #     answer `isdevicearray` at all — so without a method of its own this
+    #     weight would simply never be freed.
+    #   * the generic FIELD WALK must not reach it. A `Buffer` carries its
+    #     `dev` so it can free itself, and walking that reaches the
+    #     `Vulkan.Instance`, whose destructor closure captures the `Instance`
+    #     back. That cycle is a `StackOverflowError`, not a leak.
+    W = DNNKernels.toback(BACKEND, randn(Float32, 256, 256))
+    GC.gc(true)
+    before = ledger()               # `W` is already on it; only `A` is new below
+
+    A = DNNKernels.quantizeint8(BACKEND, W)
+    @test A.q isa Mantle.Buffer
+    @test A.scale isa Mantle.Buffer
+    # One ledger entry per `Buffer`, which is one fewer than the `KA.allocate`
+    # path takes for the same bytes.
+    @test ledger() >= before + 2
+
+    releaseweights!(Dict{String,Any}("w" => A))
+    Mantle.waitidle(DEV)
+    Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
+    Mantle.trim!(Mantle.pool(DEV), DEV)
+    GC.gc(true)
+    @test ledger() <= before
+end
+
 @testset "releasedevice! leaves host data alone" begin
     # It walks fields, so it must not wander into things that are not device
     # memory and must not throw on them. A host array of scalars is skipped

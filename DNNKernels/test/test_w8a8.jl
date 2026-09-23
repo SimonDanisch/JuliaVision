@@ -72,13 +72,17 @@ const DKW = DNNKernels
                 xh = Float16.(randn(rng, Float32, K, N) .* 0.4f0)
                 qb, sb = DKW.w8a8quantize(backend, DNNKernels.toback(backend, xh), np)
                 C = KernelAbstractions.allocate(backend, Float16, M, np)
+                # `Mantle.storage(A.scale)`: a packed weight's fields are
+                # `Mantle.Buffer`s, and a bare launch has no graph to resolve
+                # them against — only `dispatch!` does that.
                 KI.Kernel(backend, DKW.w8a8_gemm_kernel!)(
-                    C, DKW.w8a8weight(A), A.scale, qb, sb, Val(M), Val(np), Val(K);
+                    C, DKW.w8a8weight(A), Mantle.storage(A.scale), qb, sb,
+                    Val(M), Val(np), Val(K);
                     ndrange = (M ÷ DKW.W8A8_BM) * (np ÷ DKW.W8A8_BN) * DKW.W8A8_WG, workgroupsize = DKW.W8A8_WG)
                 KernelAbstractions.synchronize(backend)
                 qa = Float32.(Array(DKW.w8a8weight(A))[1:M, :])
                 qbh = Float32.(reshape(reinterpret(Int8, Array(qb)), K, np))
-                want = (qa .* Array(A.scale)) * (qbh .* reshape(Array(sb), 1, :))
+                want = (qa .* Array(Mantle.storage(A.scale))) * (qbh .* reshape(Array(sb), 1, :))
                 got = Float32.(Array(C))
                 # The integer product is exact; what is left is the fp16 store.
                 @test maximum(abs, got .- want) <= 0.002maximum(abs, want)
