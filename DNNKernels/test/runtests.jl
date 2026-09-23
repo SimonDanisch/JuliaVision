@@ -44,6 +44,11 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 # read as "no fixtures" and went from 61 assertions to 1, still green.
 # `ensure_artifact_installed` succeeds on retry; the gate then runs and passes.
 
+# What a teardown actually returns. A dropped device array frees nothing —
+# Mantle frees on a verb, never from a finalizer — so `empty!(weights)` left
+# 7 GB resident and the Qwen pipeline peaked at the SUM of its components.
+include(joinpath(@__DIR__, "test_release_weights.jl"))
+
 # Neither a device nor a graph either: reads every exported graph in the depot
 # and asks whether `emitgraph` could place all of it. The precondition for
 # deleting the eager op library, and the reason `coverage` asks `emitop!`.

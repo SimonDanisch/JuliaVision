@@ -576,8 +576,19 @@ vaedims(latents) = (; h = size(latents, 2), w = size(latents, 1))
     decode!(model, latents)
 
 Decode normalized latents in Julia order `(width, height, 1, channels, batch)`
-to an image `(width*16, height*16, 1, 4, batch)` — the decoder's fourth channel
-is alpha — on the same backend.
+to an image `(width*16, height*16, 4, batch)` — the decoder's fourth channel is
+alpha — on the same backend.
+
+The output is rank 4 and the input rank 5, which is not a typo: the graph's
+declared output is `select`, torch `[1, 4, "16*h", "16*w"]`, and `select` is what
+drops the depth axis the latents carry.
+
+This said rank 5 until 2026-09-23, because the old unplanned path returned
+`values[viewroot(graph, output)]` — `clamp_36`, the buffer the `select` is a VIEW
+of — rather than the output the graph declares. A view has no storage of its own
+on that path, so it handed back the root and an axis with it. The planned path
+always returned rank 4. `examples/generate.jl` was written against the leak and
+indexed `[:, :, 1, 1:3, 1]`.
 """
 # One method. `call` plans for this grid on the first decode of it, keeps the
 # plan on the `Model`, and replays after — so the grid does not have to be known
@@ -790,8 +801,17 @@ are an ambiguity at every call site that has both packages in scope.
 # directly; the decoder holds a `Model`, which holds its weights and one plan per
 # grid decoded. Two things to free either way, reached differently, so two
 # methods rather than a branch inside one.
+# `free!(c.plan)` and NOT `free!(c.plan.plan)`. The second frees the Mantle
+# `Plan` and stops there; `DNNKernels.free!(::RecordedPlan)` frees that AND the
+# buffers the emit owns, which is where `residentweights` put the weights.
+#
+# It was the inner one until 2026-09-23, so `release!` returned the transients
+# and left ~6.9 GB of INT8 encoder resident. Measured over a 256x256 generation,
+# GTT+VRAM: 7977 MiB with the encoder up, 7531 after releasing it — 446 MiB of
+# the 6.9 GB — and then 15119 once the denoiser loaded on top of what should
+# have been gone. The staging this file's docstring describes did not work.
 freeplans!(c::Union{QwenTextEncoder,QwenTransformer}) =
-    (c.plan === nothing || Mantle.free!(c.plan.plan); nothing)
+    (c.plan === nothing || Mantle.free!(c.plan); nothing)
 freeplans!(c::QwenVAEDecoder) = (DNNKernels.releaseplans!(c.model); nothing)
 
 heldweights(c::Union{QwenTextEncoder,QwenTransformer}) = c.weights
@@ -801,8 +821,11 @@ function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVA
     dev = Mantle.todevice(component.backend)
     freeplans!(component)
     # The weight dict is the only reference the component holds to the device
-    # arrays; the `Model` that built them is long gone.
-    empty!(heldweights(component))
+    # arrays; the `Model` that built them is long gone. `releaseweights!` and not
+    # `empty!`: dropping the last reference to a device array returns nothing,
+    # because Mantle frees on a verb and never from a finalizer. This emptied the
+    # dict and left the memory for months.
+    DNNKernels.releaseweights!(heldweights(component))
     # …but dropping the last Julia reference frees nothing while the DEVICE still
     # names them: a command buffer retains every resource it references until it
     # completes, so the upload that wrote these weights holds them until it does.

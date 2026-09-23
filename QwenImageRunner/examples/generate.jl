@@ -55,10 +55,21 @@ prompt_embeds = encode_prompt(encoder, PROMPT)
 release!(encoder)
 println("prompt: $(size(prompt_embeds, 2)) embeddings in $(round(time() - t0, digits=1)) s")
 
+# The latent grid this generation runs at. Needed BEFORE the denoiser is built:
+# a recorded plan binds the image axis, and the rotary tables need the height and
+# width separately — `i` alone cannot give them back, since 4096 tokens is 64x64
+# or 128x32 with nothing to tell them apart.
+#
+# Leaving it out bound the denoiser to the grid the export was TRACED at, which
+# is 1024², so every other `QWENIMAGE21_SIZE` died in `denoise!` with a
+# DimensionMismatch naming 4096 image tokens against however many this one has.
+const SIDE = SIZE ÷ QWEN_IMAGE_21.vae_scale_factor
+
 t0 = time()
-# The graph is generic in prompt length; the recorded plan is bound to this
-# prompt's length here, which is the only place it has to be known.
-transformer = qwenimagetransformer(; backend, context_tokens = size(prompt_embeds, 2))
+# The graph is generic in prompt length AND in the image axis; the recorded plan
+# binds both here, which is the only place either has to be known.
+transformer = qwenimagetransformer(; backend, context_tokens = size(prompt_embeds, 2),
+                                   latent = (SIDE, SIDE))
 println("denoiser ready in $(round(time() - t0, digits=1)) s")
 
 Random.seed!(SEED)
@@ -84,14 +95,13 @@ release!(transformer)
 
 t0 = time()
 vae = qwenimagevae(; backend)
-side = SIZE ÷ QWEN_IMAGE_21.vae_scale_factor
-grid = unpacklatents(denoised, side, side)
+grid = unpacklatents(denoised, SIDE, SIDE)
 image = Array(decode!(vae, DNNKernels.toback(backend,
-    reshape(Float16.(grid), side, side, 1, channels, 1))))
+    reshape(Float16.(grid), SIDE, SIDE, 1, channels, 1))))
 println("decode: $(round(time() - t0, digits=1)) s")
 
 # The decoder returns RGBA in [-1, 1]; the alpha channel is opaque for a
 # text-to-image generation and the PPM has nowhere to put it.
-rgb = Float32.(image[:, :, 1, 1:3, 1]) ./ 2f0 .+ 0.5f0
+rgb = Float32.(image[:, :, 1:3, 1]) ./ 2f0 .+ 0.5f0
 writeppm(OUTPUT, rgb)
 println("wrote $OUTPUT in $(round(time() - total, digits=1)) s total")

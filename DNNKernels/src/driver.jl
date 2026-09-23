@@ -634,7 +634,87 @@ struct RecordedPlan{P,I,O}
 end
 
 """
-Release a recorded plan: its Mantle regions and the buffers the emit owns.
+    releasedevice!(x)
+
+Free every device array reachable from `x`.
+
+**A dropped device array does not return its memory.** Mantle frees on an
+explicit verb and never from a finalizer — `Mantle.trim!` says why: a pool freed
+from the GC finalizer thread gave Lava a `ConcurrencyViolationError` and then a
+SIGSEGV. So `empty!(weights)` drops the last Julia reference and the pool's
+ledger still records every region as on loan, `trim!` finds no empty block, and
+nothing goes back to the driver.
+
+Structural rather than a list of types, because a weight is not always an array:
+Qwen-Image's conditioner is 144 `ConvRotQInt8Matrix`, each a `q` and a `scale`,
+and that is where its 6.9 GB lives. Walking fields means a new quantised layout
+needs no entry here.
+
+Only for teardown, and only after whatever recorded it is freed: a plan packs
+device ADDRESSES, so freeing a weight a live plan still replays is a
+use-after-free.
+"""
+function releasedevice!(a::AbstractArray)
+    # `Mantle.isdevicearray`, and NOT `KernelAbstractions.get_backend`: the walk
+    # reaches a `Dict`'s internal `Memory{UInt8}` and `get_backend` THROWS on it
+    # rather than answering, so asking is not safe. `isdevicearray` is the
+    # backend's own declaration, defaults to `false`, and cannot throw.
+    #
+    # `!(a isa Array)` because the host backend declares a plain `Array` to be
+    # device memory, which is true there and would stop the walk here.
+    if M.isdevicearray(a) && !(a isa Array)
+        KernelAbstractions.unsafe_free!(a)
+    elseif !isbitstype(eltype(a))
+        # A host array of WRAPPERS still holds device arrays; one of scalars
+        # does not, and walking it would be a walk per element.
+        #
+        # `isassigned`, because the walk reaches a `Dict`'s key slots — a
+        # `Memory{Symbol}` whose unused entries are undefined — and iterating it
+        # is an `UndefRefError`.
+        for i in eachindex(a)
+            isassigned(a, i) && releasedevice!(a[i])
+        end
+    end
+    return nothing
+end
+
+function releasedevice!(x)
+    T = typeof(x)
+    isconcretetype(T) || return nothing
+    for i in 1:fieldcount(T)
+        isdefined(x, i) && releasedevice!(getfield(x, i))
+    end
+    return nothing
+end
+
+"""
+    releaseweights!(weights) -> weights
+
+Free the device memory a weight dict holds, then empty it.
+
+What `empty!` alone was meant to do and never did. See [`releasedevice!`](@ref).
+"""
+function releaseweights!(d::AbstractDict)
+    for (_, v) in d
+        releasedevice!(v)
+    end
+    empty!(d)
+    return d
+end
+
+"""
+Return one plan-owned allocation, whichever kind it is.
+
+`emitctx.owned` holds Mantle `Buffer`s and `planfor` adds the weight uploads,
+which are backend arrays. Two verbs, because they are two things: a `Buffer` is
+a pool region with a `retire!`, and a device array is GPUArrays' to free.
+"""
+releaseowned!(b) = M.free!(b)
+releaseowned!(a::AbstractArray) = KernelAbstractions.unsafe_free!(a)
+
+"""
+Release a recorded plan: its Mantle regions, the buffers the emit owns and the
+weight uploads `planfor` handed it.
 
 A `Model` caches one of these per `(name, dims)` and keeps it for the process,
 which is the point of recording. A caller that builds plans it does not keep --
@@ -646,7 +726,7 @@ memory, and the escaping buffers belong to nobody else. Idempotent through
 function M.free!(mp::RecordedPlan)
     M.free!(mp.plan)
     for b in mp.owned
-        M.free!(b)
+        releaseowned!(b)
     end
     empty!(mp.owned)
     return nothing
@@ -733,8 +813,8 @@ planfor(m::Model, g::Graph, name::AbstractString, dims,
 function planfor(dev, g::Graph, weights::AbstractDict, dims;
                  maxpasses::Int = 0, noise::NoiseSource = RandomNoise(),
                  profile::Bool = false)
-    mantlegraph, emitctx = emitgraph(dev, g, residentweights(dev, g, weights), dims;
-                                    noise)
+    resident = residentweights(dev, g, weights)
+    mantlegraph, emitctx = emitgraph(dev, g, resident, dims; noise)
     plan = Mantle.Plan(mantlegraph; profile)
     Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
@@ -743,6 +823,21 @@ function planfor(dev, g::Graph, weights::AbstractDict, dims;
     # emptied so a later `freeowned!(emitctx)` cannot retire them a second time.
     owned = copy(emitctx.owned)
     empty!(emitctx.owned)
+    # …and the WEIGHT uploads, which nothing else was returning. `emitctx.owned`
+    # holds what the emit allocated; `residentweights` allocated separately and
+    # handed the arrays to the graph, so they were reachable from the plan and
+    # owned by nobody. Measured on Qwen-Image's text encoder: `release!` gave
+    # back 440 MiB of 7.5 GB and the ledger did not move, so the denoiser loaded
+    # on top of a conditioner that was supposed to be gone.
+    #
+    # Only what WE uploaded. `toback` returns its argument unchanged when it is
+    # already on this backend, so an entry that is the SAME OBJECT as the host
+    # weight belongs to the caller's dict and freeing it would pull a model's
+    # weights out from under it. Identity is the whole test, and it is `toback`'s
+    # own documented contract.
+    for (k, v) in resident
+        v === get(weights, k, nothing) || push!(owned, v)
+    end
     return RecordedPlan(plan, ins, outs, owned)
 end
 
@@ -762,8 +857,12 @@ The model stays usable. `call` rebuilds on the next call to it, at the cost of
 another build.
 """
 function releaseplans!(m::Model)
-    for (k, v) in m.scratch
-        v isa RecordedPlan && Mantle.free!(v.plan)
+    for (_, v) in m.scratch
+        # `free!(v)`, NOT `free!(v.plan)`: the second frees the Mantle `Plan` and
+        # leaves `v.owned` — the resident WEIGHTS, which `residentweights`
+        # uploaded and `planfor` handed to the plan to own. That is most of the
+        # memory. See the method above.
+        v isa RecordedPlan && Mantle.free!(v)
     end
     empty!(m.scratch)
     return m
