@@ -92,11 +92,26 @@ end
     # RIFE's frame pack and unpack, Kokoro's alignment gather, Hunyuan3D's grid
     # queries. Nothing else scanned them.
     #
-    # Two are not done. They are named, with counts that may only fall, rather
-    # than excluded by a pattern that would also hide a regression:
+    # Two are not zero. They are named, with counts that may only fall, rather
+    # than excluded by a pattern that would also hide a regression.
     #
-    #   * `GPUFiltering` — an image-filtering package, not part of the DNN path.
-    #   * `BonsaiRunner` — not in the root project and unported.
+    #   * `GPUFiltering` (25) — and this one is a DECISION, not a leftover. Its
+    #     own docstring is "backend-agnostic … works on any KA backend —
+    #     `Matrix` (CPU), `LavaArray` (Vulkan), `CuArray`", its tests run on
+    #     `KA.CPU()`, and `KA.CPU` implements no `KI.kernel_function`. Porting it
+    #     would delete the CPU backend it exists to support. The `@kernel`s ARE
+    #     the portability. It is not on the DNN path: nothing here dispatches
+    #     through it, and the runners that use it take `tofloat`/`topixel` and
+    #     `resizeplanar!`, which are host-callable.
+    #
+    #   * `BonsaiRunner` (30) — unported, and not in the root project, so it is
+    #     not loadable here to check against anything but its source.
+    #
+    # The same reasoning keeps ~130 `@kernel` tests in Mantle and
+    # `test_index_recovery.jl` here: the KernelAbstractions path is live for
+    # Raycore, Hikari, GPUFiltering and GPUArrays, all of which go through the
+    # same Lava. "No `@kernel`" is a rule about the DNN library, and the DNN
+    # library is at zero.
     remaining = Dict("GPUFiltering" => 25, "BonsaiRunner" => 30)
     root = dirname(dirname(@__DIR__))          # …/JuliaVision
     defn = r"@kernel(\s+\w+\s*=\s*\w+)*\s+function"
