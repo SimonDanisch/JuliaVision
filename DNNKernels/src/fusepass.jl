@@ -536,18 +536,3 @@ function fuseops(graphs::AbstractDict)
     (out, n)
 end
 
-"""
-One fused elementwise op.
-
-The `FusedOp` is built by the pass and carried in the attributes, so it is
-constructed once at load rather than per call. Fetching it out of an
-`Dict{String,Any}` is a dynamic lookup, which is why the broadcast is behind a
-function barrier: `fusedemit!` specialises on the concrete `FusedOp` type, so the
-kernel it launches is as concrete as any other, and the one dynamic dispatch is
-per op per run — the same cost `runop!`'s own `Val` dispatch already pays.
-"""
-runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.elementwise")}) =
-    fusedemit!(ctx, op.attrs["fused"], ntuple(i -> value(ctx, op.ins[i]), length(op.ins)))
-
-@inline fusedemit!(ctx::Ctx, fo::FusedOp, args::Tuple) =
-    emit(ctx, Base.broadcasted(fo, args...))

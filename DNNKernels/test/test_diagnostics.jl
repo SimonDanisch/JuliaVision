@@ -15,7 +15,7 @@ Run standalone:
 
 using Test
 using DNNKernels
-using DNNKernels: Diagnostics, Ctx, loadgraph, execute!, launch!, planmisses
+using DNNKernels: Diagnostics, Ctx, loadgraph, launch!, planmisses
 using KernelAbstractions
 include("fixtures.jl")
 const DK = DNNKernels
@@ -23,9 +23,9 @@ const KA = KernelAbstractions
 
 # The graph comes from this package's own `matanyone` binding, not from a runner
 # and not from `matanyone-refs`. Asking for `transform_key` at **fp32** reaches
-# only into the refs artifact, unbound on every machine, so the
-# `execute!` half of this file silently skipped: 25 tests became 13. Nothing here
-# depends on the precision; it counts launches.
+# only into the refs artifact, unbound on every machine, so half of this file
+# silently skipped: 25 tests became 13. Nothing here depends on the precision;
+# it counts launches.
 
 @testset "diagnostics on the context" begin
     @testset "a fresh one is off, and off costs nothing to ask" begin

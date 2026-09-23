@@ -152,7 +152,6 @@ include("kernels/extern/lstm.jl")       # aten::lstm kept whole, loop in-kernel
 include("kernels/extern/spectral.jl")   # STFT + mel, on Lava's FFT
 include("kernels/layernorm.jl")
 include("kernels/resample.jl")
-include("execute.jl")
 include("ops.jl")
 include("memory.jl")
 include("plan.jl")

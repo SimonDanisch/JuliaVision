@@ -14,18 +14,15 @@ same Lava, so a test that covers it is coverage and not a leftover.
 
 ## Why this is a ratchet and not just an assertion
 
-`@kernel` is at zero and stays at zero. The other two counts are NOT zero, and
-saying so is the point of writing them down:
+`@kernel` is at zero and stays at zero, and so is the eager op library —
+`runop!` and `execute!` are gone, and the assertion is now that the names do not
+come back.
 
-  * `KernelAbstractions.allocate` — 43 calls. Some are genuinely outside any
-    frame (MatAnyone's memory bank, the load-time quantisers) and want Mantle
-    persistent buffers; the rest belong to the eager op library.
-  * the eager op library itself — the `runop!` arms that launch immediately
-    instead of declaring into a graph.
-
-Both are slated to go, and until they do the useful property is that they only
-ever go DOWN. A number that drifts up is a new eager path, which is the thing
-the migration exists to remove.
+What is NOT zero is `KernelAbstractions.allocate`, 30 calls. They are outside
+any frame (the load-time quantisers, mostly) and want Mantle persistent buffers.
+Until they move, the useful property is that the count only ever goes DOWN. A
+number that drifts up is a new allocation path that Mantle does not see, which
+is the thing the migration exists to remove.
 
 Update the numbers when you delete something. Raising one is a decision, and
 this test is where it has to be made on purpose.
@@ -178,10 +175,8 @@ end
 """
 Named `Val{:op}` arms of `f`, from the method table rather than the source.
 
-`ops.jl` generates a block of `runop!`s with `@eval` over a table, so counting
-`function runop!` in the text undercounts by however long that table is. The
-catch-all `::Val{A} where A` is not a named arm and drops out here, because its
-parameter is a `TypeVar` and not a `Symbol`.
+The catch-all `::Val{A} where A` is not a named arm and drops out here, because
+its parameter is a `TypeVar` and not a `Symbol`.
 """
 function namedarms(f)
     out = Set{Symbol}()
@@ -191,17 +186,21 @@ function namedarms(f)
     return out
 end
 
-@testset "the eager op library only shrinks" begin
-    # The duplication the migration exists to remove: `runop!` and `emitop!` are
-    # two implementations of the same ops, one launching immediately and one
-    # declaring into a Mantle graph. `<=`, so deleting an eager arm is free.
+@testset "there is no second implementation of an op" begin
+    # This was a ratchet on a number — `runop!` arms `<= 103`, falling — because
+    # the eager op library could not go in one step. It went: `execute!`, the 86
+    # `runop!` arms in `ops.jl`, the one in `fusepass.jl` and the machinery under
+    # them are deleted, so the assertion is now that the NAMES are gone rather
+    # than that a count has not grown.
     #
-    # It cannot go to zero in one step and the number is not the goal — what
-    # matters is that it never goes UP, because a new eager arm is a new second
-    # implementation. `test_declared_coverage.jl` holds the other side: every op
-    # any exported graph actually contains is already declarable, so the eager
-    # arms are deletable rather than load-bearing.
-    @test length(namedarms(DNNKernels.runop!)) <= 103
+    # Every op had two implementations, one launching immediately and one
+    # declaring into a Mantle graph, and a bug fixed in one was not fixed in the
+    # other. `test_atenarg.jl` is the case that cost the most: `runop!`'s gelu
+    # read `arg1` where every graph in the tree writes `approximate`, so two
+    # models silently ran the exact gelu where the reference ran the
+    # approximation.
+    @test !isdefined(DNNKernels, :runop!)
+    @test !isdefined(DNNKernels, :execute!)
 
     # And the declared side does not shrink. Deleting an `emitop!` arm is how
     # this would be made to pass the wrong way.

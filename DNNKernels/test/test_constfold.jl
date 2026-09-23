@@ -22,9 +22,10 @@ This half was on the CPU backend and cannot be. `hoistconstants` folds through
 `emitgraph` now, and the elementwise emit declares `ew!`, a macro-free kernel —
 `KernelAbstractions.CPU` implements no `KI.kernel_function`, so Mantle refuses it
 by name (see `test_declared_kernel.jl`, which states that limitation as an
-assertion). The interpreted `execute!` calls the kernel as a plain function and
-so has no such limitation, which is why this half asserts the declared path's
-refusal rather than a folded result.
+assertion). `execute!` called the kernel as a plain function and so had no such
+limitation — that is why this half used to fold on the CPU, and why, now that
+the interpreted runner is gone, it asserts the declared path's refusal rather
+than a folded result.
 
 The guard gets its own case in both directions. A pass that trades slab space for
 resident weights is only worth having when the trade is a win, and "it happened

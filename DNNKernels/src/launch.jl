@@ -16,25 +16,16 @@ fuses a chain.
 
 """
     materialize(v)
-    materialize(rec, backend, v)
 
 Detach a view into a dense array on its own backend.
 
-The second form takes the destination from a `Recycler`, so the copy lands at the
-same address on every step. Views are materialised on the hot path — every `cat`
-operand that is a slice, the alpha and the mask `step!` carries into the next
-frame — and a fresh `similar` each time is exactly the drift that stops a
-recorded command sequence from being replayable.
+Views are materialised on the hot path — every `cat` operand that is a slice,
+the alpha and the mask `step!` carries into the next frame — and a fresh
+`similar` each time is exactly the drift that stops a recorded command sequence
+from being replayable.
 """
 function materialize(v::AbstractArray)
     d = similar(v)
-    d .= v
-    d
-end
-
-function materialize(rec, backend, v::AbstractArray)
-    rec === nothing && return materialize(v)
-    d = recycle!(rec, backend, eltype(v), size(v))
     d .= v
     d
 end

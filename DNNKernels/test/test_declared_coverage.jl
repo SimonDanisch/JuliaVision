@@ -98,24 +98,24 @@ probegraph(aten) = DNNKernels.Graph(
 end
 
 @testset "coverage asks the declared path" begin
-    # The thing the rewrite fixed: it used to ask `runop!`. An op with an eager
-    # arm and no declared one must read as MISSING, and the reverse must not.
+    # An op with no `emitop!` arm must read as MISSING rather than as covered.
+    # This used to be phrased against `runop!` as well — `coverage` asked the
+    # EAGER table, so an op with an eager arm and no declared one read as
+    # covered and the report was wrong in the one direction that mattered.
+    # There is no eager table now, so what is left to pin is that an
+    # undeclarable op is still reported.
     #
-    # `_assert_tensor_metadata.default` is exactly that op today — a `runop!`
-    # arm, no `emitop!` arm, and no exporter emits it. If it ever gains a
-    # declared arm this assertion is the thing to update, not to delete.
-    eageronly = "_assert_tensor_metadata.default"
-    hasrun = isconcretetype(Base.unwrap_unionall(
-        which(DNNKernels.runop!, Tuple{DNNKernels.Ctx, DNNKernels.Op,
-                                       Val{Symbol(eageronly)}}).sig).parameters[4])
+    # `_assert_tensor_metadata.default` is that op today: no `emitop!` arm, and
+    # no exporter emits it. If it ever gains a declared arm this assertion is
+    # the thing to update, not to delete.
+    undeclared = "_assert_tensor_metadata.default"
     hasemit = isconcretetype(Base.unwrap_unionall(
         which(DNNKernels.emitop!, Tuple{DNNKernels.EmitCtx, DNNKernels.Op,
-                                        Val{Symbol(eageronly)}}).sig).parameters[4])
-    @test hasrun          # it is in the eager library
-    @test !hasemit        # and not in the declared one
+                                        Val{Symbol(undeclared)}}).sig).parameters[4])
+    @test !hasemit
 
-    _, miss = coverage(probegraph(eageronly))
-    @test miss == [eageronly]
+    _, miss = coverage(probegraph(undeclared))
+    @test miss == [undeclared]
 end
 
 @testset "the noise ops count as declared" begin
