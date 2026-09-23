@@ -91,7 +91,11 @@ end
 """A loaded Bonsai checkpoint and the device selected for it."""
 struct Bonsai2{B,C}
     backend::B
-    ctx::C
+    # `Mantle.caps(device)`, which is the only thing this ever wanted. It held a
+    # whole `DNNKernels.Ctx` — the eager execution context — to reach
+    # `ctx.dev.subgroup`, and `Ctx.dev` IS a `DeviceCaps`. One indirection and
+    # one API less.
+    caps::C
     file::GGUFFile
     weights::Dict{String,Any}
     signs::Dict{Int,Any}
@@ -141,9 +145,9 @@ function Bonsai2(path::AbstractString; device=Mantle.device(), context=nothing,
     context <= nativecontext || throw(ArgumentError("context exceeds checkpoint limit"))
 
     backend = Mantle.backend(device)
-    ctx = DNNKernels.Ctx(backend)
+    caps = Mantle.caps(Mantle.todevice(backend))
     weights = Dict{String,Any}()
-    model = Bonsai2(backend, ctx, file, weights, Dict{Int,Any}(),
+    model = Bonsai2(backend, caps, file, weights, Dict{Int,Any}(),
         Set(String.(md["prism.hadamard.weight_names"])),
         Set(String.(get(md, "prism.hadamard.inverse_weight_names", String[]))),
         BonsaiTokenizer(file), Int(context), Float32(md["qwen35.rope.freq_base"]),
@@ -305,7 +309,8 @@ kv_bytes(capacity::Integer) = (NLAYERS ÷ 4) * capacity *
     (2 * 256 * 4 * sizeof(Int8) + 2 * 4 * sizeof(Float32))
 
 function _copy_prefix!(backend, dest, src)
-    copy_kernel!(backend, 256)(dest, src, Int32(length(src)); ndrange=length(src))
+    KI.Kernel(backend, copy_kernel!)(dest, src, Int32(length(src));
+        ndrange=length(src), workgroupsize=256)
     dest
 end
 
@@ -397,7 +402,7 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
         columns = N == 1 ? N : cld(N, DNNKernels.PTQ1_COLS_PER_WG)
         _dispatch!(g, kernel,
             (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
-             Int32(rows), Val(false), Val(s.model.ctx.dev.subgroup)),
+             Int32(rows), Val(false), Val(s.model.caps.subgroup)),
             rows * columns * DNNKernels.PTQ1_WG;
             group=DNNKernels.PTQ1_WG, name=name)
     end
@@ -411,12 +416,12 @@ function _recurrent!(s::BonsaiSession, g, q, il::Int, xnorm)
     _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120])
     _dispatch!(g, dense_gemv_kernel!,
         (q[:alpha], _w(s, prefix * "ssm_alpha.weight"), xnorm,
-         Int32(length(xnorm)), Int32(48), Val(s.model.ctx.dev.subgroup)),
+         Int32(length(xnorm)), Int32(48), Val(s.model.caps.subgroup)),
         cld(48, DENSE_ROWS_PER_WG) * 256;
         group=256, name=prefix * "ssm_alpha")
     _dispatch!(g, dense_gemv_kernel!,
         (q[:beta], _w(s, prefix * "ssm_beta.weight"), xnorm,
-         Int32(length(xnorm)), Int32(48), Val(s.model.ctx.dev.subgroup)),
+         Int32(length(xnorm)), Int32(48), Val(s.model.caps.subgroup)),
         cld(48, DENSE_ROWS_PER_WG) * 256;
         group=256, name=prefix * "ssm_beta")
     convstate, state = s.recurrent[il]
@@ -579,7 +584,7 @@ function _dense_batch!(s::BonsaiSession, g, out, weight, x, K::Int, M::Int,
         rows = cld(M, DENSE_ROWS_PER_WG)
         _dispatch!(g, dense_gemv_batch_kernel!,
             (out, weight, x, Int32(K), Int32(M), Int32(rows),
-             Val(s.model.ctx.dev.subgroup)),
+             Val(s.model.caps.subgroup)),
             rows * ntokens * 256; group=256, name)
     end
     out
@@ -625,7 +630,7 @@ function _recurrent_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
     _dispatch!(g, l2normalize_qk_batch_kernel!,
         (q[:rq], q[:rk], s.model.eps), ntokens * 16 * 128;
         group=128, name=prefix * "gdn_normalize_qk")
-    subgroup = s.model.ctx.dev.subgroup
+    subgroup = s.model.caps.subgroup
     nsubgroups = 256 ÷ subgroup
     groupsperhead = cld(128, nsubgroups)
     _dispatch!(g, gated_delta_state_batch_kernel!,
@@ -661,7 +666,7 @@ function _attention_batch!(s::BonsaiSession, g, q, il::Int, xnorm,
         group=256, name=prefix * "prepare_kv_batch")
     _dispatch!(g, decode_attention_batch_fast_kernel!,
         (q[:attn], q[:aq], q[:qgate], cache.k, cache.v,
-         cache.kscale, cache.vscale, position, Val(s.model.ctx.dev.subgroup)),
+         cache.kscale, cache.vscale, position, Val(s.model.caps.subgroup)),
         ntokens * 24 * 256;
         group=256, name=prefix * "decode_attention_batch")
     _transform_batch!(s, g, q[:had6144], q[:attn], 6144, ntokens)
@@ -706,14 +711,14 @@ function _declareprefill_stage!(s::BonsaiSession, g, q, tokens, position,
         _dispatch!(g, add_rmsnorm_batch_kernel!,
             (q[:norm], q[:x], branch,
              _w(s, prefix * "post_attention_norm.weight"),
-             Int32(WIDTH), s.model.eps, Val(s.model.ctx.dev.subgroup)), ntokens * 256;
+             Int32(WIDTH), s.model.eps, Val(s.model.caps.subgroup)), ntokens * 256;
             group=256, name=prefix * "attn_residual_norm_batch")
         branch = _ffn_batch!(s, g, q, il, q[:norm], ntokens)
         nextnorm = il == NLAYERS - 1 ? "output_norm.weight" :
                    "blk.$(il + 1).attn_norm.weight"
         _dispatch!(g, add_rmsnorm_batch_kernel!,
             (q[:norm], q[:x], branch, _w(s, nextnorm),
-             Int32(WIDTH), s.model.eps, Val(s.model.ctx.dev.subgroup)), ntokens * 256;
+             Int32(WIDTH), s.model.eps, Val(s.model.caps.subgroup)), ntokens * 256;
             group=256, name=prefix * "ffn_residual_norm_batch")
     end
     if finalize
