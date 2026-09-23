@@ -6,7 +6,6 @@ where it is not, and recordable through the declared `sdpa` path.
 import KernelInterface
 using Test, DNNKernels, Lava, KernelAbstractions, Random
 import Mantle
-using Mantle: LavaBackend
 const KA = KernelAbstractions
 
 @testset "subgroup flash uses Mantle's portable cooperative-matrix surface" begin
@@ -50,7 +49,7 @@ function attnref(qh, kh, vh, scale)
 end
 
 @testset "fused attention" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     # The kernel entry points take a context. `Ctx(backend)` builds one with no
     # graph behind it, which is exactly the direct-call case this file is.
     ctx = DNNKernels.Ctx(back)
@@ -464,7 +463,7 @@ end
     # size instead.
     # Capabilities belong to the concrete execution device.  A KA backend is
     # only a launch descriptor and deliberately carries no device identity.
-    dev = DNNKernels.Ctx(LavaBackend()).dev
+    dev = DNNKernels.Ctx(Mantle.defaultbackend()).dev
     tiling(args...) = DNNKernels.flashcm_tiling(dev, args...; clamp = true)
 
     # Without a batch count it must behave exactly as it always did.
@@ -501,7 +500,7 @@ end
 end
 
 @testset "plans: one decision, and a refusal that says why" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
     E, L, H, B = 72, 256, 2, 1
@@ -631,7 +630,7 @@ end
 # Against the closed form rather than against the fused kernel, so it says what
 # the merge owes regardless of what wrote the partials.
 @testset "the split merge survives the counts the chooser asks for" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     dev = DNNKernels.Ctx(back).dev
 
     # The count that hung is one the chooser asks for, not one a test invented.
@@ -689,7 +688,7 @@ end
 # third. That form still exists behind `loopsplit = false`, which is the A side
 # of the measurement above, and the two must agree numerically.
 @testset "a ragged key axis is clamped per block, in one launch" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
     if dev.coopmat && dev.coopmatsubgroup == 32
@@ -815,7 +814,7 @@ end
 # numbers out. It also changes which TILING is fastest, which is why the plan
 # carries the decision rather than the launcher re-deriving it.
 @testset "K and V as tiles: same numbers, and the window that keeps them in bounds" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
 
@@ -959,7 +958,7 @@ end
 # 36.6 ms against 38.6 interleaved, and the whole 20B denoising step 5.85 s
 # against 6.02, with bit-identical output.
 @testset "the softmax form is compiled in, not passed in" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
     if dev.coopmat
@@ -1060,7 +1059,7 @@ end
 # now picks `BR = 16, NW = 2` for several shapes, where one pass costs 19% to
 # 50%.
 @testset "the score pass count follows width and rows per warp" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     dev = DNNKernels.Ctx(back).dev
     if dev.coopmat
         mk(E) = DNNKernels.toback(back, zeros(Float16, E, 256, 4, 1))
@@ -1089,7 +1088,7 @@ end
 end
 
 @testset "an admitted plan fits the shared memory the kernel will declare" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
 
@@ -1154,7 +1153,7 @@ end
 end
 
 @testset "a padded head reads its operands as tiles by sliding the last e tile" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
     rng = MersenneTwister(0x5e11de)
@@ -1280,7 +1279,7 @@ end
 end
 
 @testset "the padding budget is set against the fallback, not against an unpadded flash" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
 

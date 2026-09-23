@@ -151,7 +151,7 @@ end
 # The two runners on one graph. `scale` is an attribute here rather than a `mul`
 # left in the graph, and both paths have to read it.
 @testset "the folded attention scale, on the declared path" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     caps = DNNKernels.caps(backend)
     if caps.coopmat && caps.coopmatsubgroup == 32
         H, Lq, Lk, D = 2, 64, 128, 128

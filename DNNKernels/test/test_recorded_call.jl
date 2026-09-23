@@ -16,7 +16,7 @@ using Test, DNNKernels, Mantle, KernelAbstractions
 
 @testset "a model retains its execution device" begin
     DK = DNNKernels
-    dev = Mantle.Device(Mantle.LavaBackend())
+    dev = Mantle.Device(Mantle.defaultbackend())
     g = DK.Graph("empty", String[], String[], String[], Dict{String,DK.Buffer}(),
                  String[], DK.Op[])
     m = DK.Model(Dict("empty" => g), Dict{String,Any}(), dev, 1, 1, 1)
@@ -32,7 +32,7 @@ end
 
 @testset "a replayed plan carries its dtype conversions" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     # `clone` returns the input dtype and the declared output is narrower, so
     # the conversion is a pass of its own. This is the stale Whisper encoder
     # failure in miniature: a conversion that happened outside the capture scope
@@ -80,7 +80,7 @@ end
 # it. The order here is that scenario: bad, then good.
 @testset "call checks inputs against the declared shape" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     for (declared, dims, goodsize, badsize) in ((Any[1, 8], (;), (8, 1), (8, 2)),
                                                 (Any[1, "n"], (; n = 8), (8, 1), (9, 1)))
         buffers = Dict(id => DK.Buffer(id, kind, declared, Float32, "", (0, 2), "", "",
@@ -116,7 +116,7 @@ end
 # emit applies it.
 @testset "an activation folded into an add is applied" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     n = 64
     buffers = Dict(id => DK.Buffer(id, kind, Any[n], Float32, "", (0, 2), "", "",
                                    Dict{String,Any}())
@@ -145,7 +145,7 @@ end
 # the definition, not with the immediate implementation that shares the kernel.
 @testset "grouped RMS norm is declared backend-independently" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     C, NG, rows = 4, 3, 2
     shape = Any[rows, NG, C]
     buffers = Dict(
@@ -179,7 +179,7 @@ end
 
 @testset "recorded randomness advances on every replay" begin
     DK = DNNKernels
-    back = Mantle.LavaBackend()
+    back = Mantle.defaultbackend()
     b = DK.Buffer("y", :transient, Any[128], Float32, "", (0, 1), "", "", Dict{String,Any}())
     op = DK.Op("noise", "rand.default", String[], "y", Dict{String,Any}())
     g = DK.Graph("noise", String[], String[], ["y"], Dict("y"=>b), ["y"], [op])

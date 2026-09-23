@@ -27,7 +27,7 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random
 const DKW = DNNKernels
 
 @testset "int8 x int8 product" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     caps = DNNKernels.caps(backend)
     if caps.coopmat && caps.coopmatsubgroup == 32 && caps.tile == 16
         rng = MersenneTwister(19)

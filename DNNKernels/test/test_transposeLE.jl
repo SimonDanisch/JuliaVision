@@ -17,20 +17,19 @@ without accounting for its offset would read the wrong elements just as silently
 """
 
 using Test, Lava, DNNKernels, KernelAbstractions, Random
-using Mantle: LavaBackend
 using DNNKernels: transposeLE, stridedroot, Ctx
 const KA = KernelAbstractions
 
 "`transposeLE(a)` against `permutedims(host, (2,1,3,4))`."
 function checkLE(a, host)
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     d = transposeLE(Ctx(back; ws = nothing), a)
     KA.synchronize(back)
     Array(d) == permutedims(host, (2, 1, 3, 4))
 end
 
 @testset "transposeLE" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     E, L, H, B = 72, 64, 4, 3          # E = 72 is not a multiple of the 32 tile
 
     @testset "a bare device array" begin
@@ -86,7 +85,7 @@ end
 # is the whole requirement: the model this feeds is compared token-for-token
 # against a reference, so "close" is a silently different model.
 @testset "toback transposes a weight on the device, exactly" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     for T in (Float16, Float32),
         (m, n) in ((64, 96), (70, 100), (33, 65), (1, 1), (5, 4096), (4096, 5))
         h = rand(MersenneTwister(m + n), T, m, n)
