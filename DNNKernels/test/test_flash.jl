@@ -8,6 +8,20 @@ using Test, DNNKernels, Lava, KernelAbstractions, Random
 import Mantle
 const KA = KernelAbstractions
 
+# Whether the cooperative-matrix KERNELS are reachable here, which is not
+# `dev.coopmat`. `coopmatkernels` is `dev.coopmat && dev.tile == COOPMAT_TILE &&
+# isdefined(Mantle, :GEMM_TILINGS)`: the staged kernels are emitted against a literal
+# `_lava_coopmat_load_f16_16x16_a`, so the tile is in the instruction NAME, and the
+# `isdefined` term is there because on a build without that tree the symbols are not
+# an empty table -- they are not bindings at all.
+#
+# Every testset below that asks `flashcm_plan` for a PLAN rather than for a refusal
+# needs this. They are not asking about hypothetical hardware and must not be handed a
+# synthetic 16-wide `DeviceCaps` to make them run: `coopmatkernels`' own docstring
+# warns that doing so "admits a plan that reaches an undefined name two frames later".
+const CMKERNELS = DNNKernels.coopmatkernels(DNNKernels.Ctx(Mantle.defaultbackend()).dev)
+CMKERNELS || @info "cooperative-matrix kernels are not reachable here; plan-shape testsets skipped"
+
 @testset "subgroup flash uses Mantle's portable cooperative-matrix surface" begin
     src = read(joinpath(pkgdir(DNNKernels), "src", "kernels", "extern", "flash.jl"),
                String)
@@ -49,6 +63,9 @@ function attnref(qh, kh, vh, scale)
 end
 
 @testset "fused attention" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     # The kernel entry points take a context. `Ctx(backend)` builds one with no
     # graph behind it, which is exactly the direct-call case this file is.
@@ -466,9 +483,13 @@ end
             q = k = v = o = nothing; GC.gc()
         end
     end
+    end
 end
 
 @testset "the tiling chooser prefers occupancy when the grid cannot fill the device" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     # `FLASHCM_TILINGS` is ordered fastest-first *for a launch that fills the
     # card*. SAM 2's decoder is where none does: `Lq = 23` (the mask prompt's
     # token count) against `Lk = 4096` is one query block, so the grid is
@@ -523,9 +544,13 @@ end
         @test onetiling(16, 23, 4096, 8) == onetiling(16, 23, 4096)
     end
     end
+    end
 end
 
 @testset "plans: one decision, and a refusal that says why" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -649,6 +674,7 @@ end
     @test DNNKernels.flashcm_plan(dctx.dev, q2, k2, v2, nothing;
                                   clamp = dctx.clampattn) isa DNNKernels.FlashCMPlan
     end
+    end
 end
 
 # The merge is the whole cost of a wide split, and how it is written decides
@@ -725,6 +751,9 @@ end
 # third. That form still exists behind `loopsplit = false`, which is the A side
 # of the measurement above, and the two must agree numerically.
 @testset "a ragged key axis is clamped per block, in one launch" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -840,6 +869,7 @@ end
     else
         @test_skip false
     end
+    end
 end
 
 # K and V read as cooperative matrices, rather than staged through shared.
@@ -851,6 +881,9 @@ end
 # numbers out. It also changes which TILING is fastest, which is why the plan
 # carries the decision rather than the launcher re-deriving it.
 @testset "K and V as tiles: same numbers, and the window that keeps them in bounds" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -982,6 +1015,7 @@ end
     else
         @test_skip false
     end
+    end
 end
 
 # Which softmax a plan takes reaches the kernel as a `Val`, not as a uniform
@@ -995,6 +1029,9 @@ end
 # 36.6 ms against 38.6 interleaved, and the whole 20B denoising step 5.85 s
 # against 6.02, with bit-identical output.
 @testset "the softmax form is compiled in, not passed in" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -1074,6 +1111,7 @@ end
     else
         @test_skip false
     end
+    end
 end
 
 # One pass over the scores or two: head width AND rows per warp.
@@ -1096,6 +1134,9 @@ end
 # now picks `BR = 16, NW = 2` for several shapes, where one pass costs 19% to
 # 50%.
 @testset "the score pass count follows width and rows per warp" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     dev = DNNKernels.Ctx(back).dev
     if dev.coopmat
@@ -1122,9 +1163,13 @@ end
     else
         @test_skip false
     end
+    end
 end
 
 @testset "an admitted plan fits the shared memory the kernel will declare" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -1187,9 +1232,13 @@ end
     else
         @test_skip false
     end
+    end
 end
 
 @testset "a padded head reads its operands as tiles by sliding the last e tile" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -1313,9 +1362,13 @@ end
     else
         @test_skip false
     end
+    end
 end
 
 @testset "the padding budget is set against the fallback, not against an unpadded flash" begin
+    if !CMKERNELS
+        @test_skip CMKERNELS
+    else
     back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
@@ -1357,5 +1410,6 @@ end
         GC.gc()
     else
         @test_skip false
+    end
     end
 end

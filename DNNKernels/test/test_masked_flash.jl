@@ -35,6 +35,12 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
 end
 
 @testset "masked cooperative attention" begin
+    # The cooperative-matrix KERNELS, not `dev.coopmat`: the staged kernels are
+    # emitted against a literal `_lava_coopmat_load_f16_16x16_a`, so the tile must
+    # be 16 AND the tree defining them must be present. See `DNNKernels.coopmatkernels`.
+    if !DNNKernels.coopmatkernels(DNNKernels.Ctx(Mantle.defaultbackend()).dev)
+        @test_skip DNNKernels.coopmatkernels(DNNKernels.Ctx(Mantle.defaultbackend()).dev)
+    else
     backend = Mantle.defaultbackend()
     caps = DNNKernels.caps(backend)
     if caps.coopmat && caps.coopmatsubgroup == 32
@@ -71,6 +77,7 @@ end
         end
     else
         @test_skip false
+    end
     end
 end
 

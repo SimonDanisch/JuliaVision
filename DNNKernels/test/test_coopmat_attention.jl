@@ -77,9 +77,15 @@ end
 bothpaths(E, L, H, B) = coopmatpath(E, L, H, B)[1]
 
 @testset "cooperative-matrix attention" begin
-    # The context, not a global — see `test_flash.jl`.
-    if !Mantle.coopmat_gemm_available(Mantle.vk_context())
-        @info "no cooperative-matrix support on this device; skipping"
+    # `coopmatkernels`, not `coopmat_gemm_available(vk_context())`: both of those
+    # are Vulkan-only names, so on a build that compiled in a different backend this
+    # branch was an UndefVarError rather than the skip it is written to be. And not
+    # `dev.coopmat` either -- that is a fact about the HARDWARE, while the staged
+    # kernels here are emitted against a literal `_lava_coopmat_load_f16_16x16_a`, so
+    # the question is whether the tile is 16 AND the tree defining them is present.
+    # See `DNNKernels.coopmatkernels` and `test_flash.jl`'s `CMKERNELS`.
+    if !DNNKernels.coopmatkernels(DNNKernels.Ctx(Mantle.defaultbackend()).dev)
+        @info "cooperative-matrix kernels are not reachable here; skipping"
     else
         @testset "agrees with the three-pass reference" begin
             # E = 72 is SAM 2's head dimension and is NOT a multiple of the
