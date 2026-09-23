@@ -106,10 +106,17 @@ dimension, or on a device with more shared memory per SM.
 
 
 """
-The shared memory every Vulkan implementation guarantees a workgroup, in bytes.
+The shared memory every **Vulkan** implementation guarantees a workgroup, in bytes.
 
-Only for the callers that have no [`M.DeviceCaps`](@ref) in hand — the scalar flash
-kernel is reachable with a bare backend. Anything holding a context asks
+Not a portable floor, despite the name, and it is a floor only where Vulkan is: an
+Apple GPU reports **32 KB**, well under this. So a caller that assumes it on Metal
+admits a tiling the device refuses — `BQ = 64, BK = 32` at `E = 64` wants 41728 bytes
+and the driver rejects the pipeline with "Threadgroup memory size (41728) exceeds the
+maximum threadgroup memory allowed (32768)". On a driver that does not refuse, the
+launch writes nothing, which reads as an attention that returns zeros.
+
+A last resort, for a caller with neither a [`M.DeviceCaps`](@ref) nor a backend to ask.
+Anything with either asks `sharedbudget` for real — `caps(backend).sharedbudget` or
 `ctx.dev.sharedbudget`, which is what the device actually reports.
 """
 const PORTABLE_SHARED_FLOOR = 48 * 1024
@@ -284,7 +291,7 @@ caller to use the three-pass path in that case, which is always correct.
 """
 function sdpaflash!(out, q, k, v, scale; backend = KernelAbstractions.get_backend(q),
                     BQ::Int = 64, BK::Int = 32, NT::Int = 256,
-                    sharedbudget::Int = PORTABLE_SHARED_FLOOR)
+                    sharedbudget::Int = caps(backend).sharedbudget)
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     (Lq % BQ == 0 && Lk % BK == 0 && flashfits(E, BQ, BK, NT, sharedbudget)) || return false
