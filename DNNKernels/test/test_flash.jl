@@ -57,8 +57,16 @@ end
     # reading one, so they can be asked about hardware this machine is not.
     dev = ctx.dev
 
+    # `BQ = 64, BK = 32` at `E = 72` asks for `flashshared(72, 64, 32) = 46848` bytes
+    # of threadgroup memory: under Vulkan's 48 KB guarantee, over the 32 KB an Apple
+    # GPU reports. There `sdpaflash!` correctly declines and there is no launch to
+    # check. A capability asked of the device, never a backend name -- the kernel is
+    # portable and it is the budget that is not.
+    fits = DNNKernels.flashshared(72, 64, 32) <= dev.sharedbudget
+    fits || @info "threadgroup memory is $(dev.sharedbudget) B; the validated tiling needs $(DNNKernels.flashshared(72, 64, 32)) B -- direct-launch testsets skipped"
+
     @testset "exact on the validated tiling" begin
-        for (E, L, H, B) in ((72, 64, 1, 1), (72, 128, 2, 1), (72, 256, 2, 1))
+        for (E, L, H, B) in (fits ? ((72, 64, 1, 1), (72, 128, 2, 1), (72, 256, 2, 1)) : ())
             qh = randn(Float32,E,L,H,B) .* 0.2f0
             kh = randn(Float32,E,L,H,B) .* 0.2f0
             vh = randn(Float32,E,L,H,B) .* 0.2f0
@@ -90,6 +98,7 @@ end
         scale = Float32(1/sqrt(E))
         ref = attnref(qh, kh, vh, scale)
         for (BQ, NT) in ((64, 256), (32, 256), (32, 128), (64, 128))
+            DNNKernels.flashshared(E, BQ, 32) <= dev.sharedbudget || continue
             @test DNNKernels.flashfits(E, BQ, 32, NT)
             o = KA.allocate(back, Float32, E,L,H,B); fill!(o, 0f0)
             KernelInterface.Kernel(back, DNNKernels.attn_flash!)(
@@ -170,9 +179,14 @@ end
     end
 
     # ── the cooperative-matrix form, which IS on the `sdpa` path ─────────────
-    # The context, not a global: `coopmat_gemm_available` asks a DEVICE, and
-    # there is no no-argument form reaching for the default one.
-    if !Mantle.coopmat_gemm_available(Mantle.vk_context())
+    # Ask the PLANNER. `coopmat_gemm_available` takes a `vk_context` and neither
+    # exists on a build that compiled in a different backend, so naming them made this
+    # branch an UndefVarError rather than a skip. `dev.coopmat` is not the
+    # replacement either: it is `true` on Metal while `flashcm_plan` still declines,
+    # because it reports that the hardware HAS cooperative matrices, not that this
+    # kernel has a tiling built for them here.
+    _cmq = DNNKernels.toback(back, zeros(Float16, 72, 128, 2, 2))
+    if DNNKernels.flashcm_plan(dev, _cmq, _cmq, _cmq, nothing) isa DNNKernels.Decline
         @info "no cooperative-matrix support on this device; skipping the fused path"
     else
         @testset "cooperative-matrix flash: exact at every shipped tiling" begin
@@ -466,6 +480,17 @@ end
     dev = DNNKernels.Ctx(Mantle.defaultbackend()).dev
     tiling(args...) = DNNKernels.flashcm_tiling(dev, args...; clamp = true)
 
+    # `nothing` is a real answer on a device with no shipped tiling for this kernel,
+    # and then there is no preference to express. This asks about THIS machine, though
+    # the predicate takes a `DeviceCaps` precisely so it can be asked about hardware
+    # the machine is not -- so skip rather than assert.
+    #
+    # `if`, not an early `return`: `@testset` is not a function body, so a `return`
+    # here escapes the whole file and takes every later testset with it.
+    if tiling(16, 23, 4096, 8) === nothing
+        @test_skip tiling(16, 23, 4096, 8) !== nothing
+    else
+
     # Without a batch count it must behave exactly as it always did.
     @test tiling(16, 23, 4096) == tiling(16, 23, 4096, 0)
 
@@ -497,6 +522,7 @@ end
         onetiling(args...) = DNNKernels.flashcm_tiling(one, args...; clamp = true)
         @test onetiling(16, 23, 4096, 8) == onetiling(16, 23, 4096)
     end
+    end
 end
 
 @testset "plans: one decision, and a refusal that says why" begin
@@ -514,6 +540,16 @@ end
     # could still decline — after `out` was allocated. The plan is the single
     # answer, and it carries the tiling that decision was made with.
     p = DNNKernels.flashcm_plan(dev, q, k, v, nothing)
+    # A device with no cooperative-matrix tiling for this kernel answers
+    # `Decline(:nocoopmat)`, and then there is no plan whose shape to check. Note
+    # that `dev.coopmat` is TRUE here and the planner still declines: the capability
+    # says the hardware has cooperative matrices, the planner says whether this
+    # kernel has a shipped tiling using them. Everything below is about the plan's
+    # SHAPE, so it is the planner that decides whether any of it applies.
+    if p isa DNNKernels.Decline
+        @info "flashcm_plan declined ($(p.reason)); plan-shape assertions skipped"
+        @test p.reason === :nocoopmat
+    else
     @test p isa DNNKernels.FlashCMPlan
     # `globalkv`/`fragments`, because `E = 72` is a PADDED head and those are the
     # terms the plan asked the chooser on: `EP != E` no longer refuses the tiled
@@ -612,6 +648,7 @@ end
                                   clamp = ctx.clampattn) isa DNNKernels.Decline
     @test DNNKernels.flashcm_plan(dctx.dev, q2, k2, v2, nothing;
                                   clamp = dctx.clampattn) isa DNNKernels.FlashCMPlan
+    end
 end
 
 # The merge is the whole cost of a wide split, and how it is written decides
