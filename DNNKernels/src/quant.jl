@@ -176,13 +176,20 @@ function convrotqint8(backend, q::AbstractMatrix{Int8}, scale;
         "ConvRot group size $group_size does not divide K=$K"))
     length(scale) in (1, M) || throw(DimensionMismatch(
         "INT8 scale has $(length(scale)) entries for M=$M"))
-    dq = toback(backend, q)
-    ds = toback(backend, Float32.(vec(scale)))
+    dev = Mantle.todevice(backend)
+    g = Mantle.Graph(dev)
+    dq = Mantle.Buffer(dev, q)
+    ds = Mantle.Buffer(dev, Float32.(vec(scale)))
     MG = cld(M, Q8ROWS)
-    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    KI.Kernel(backend, checkpoint_q8pack_kernel!)(
-        packed, dq, Int32(K), Int32(M), Int32(MG), Val(Q8PACK_WORDS);
-        ndrange = (K, cld(MG, Q8PACK_WORDS)), workgroupsize = (256, 1))
+    packed = Mantle.Buffer(dev, UInt32, (MG, K))
+    Mantle.dispatch!(g, checkpoint_q8pack_kernel!,
+                     (packed, dq, Int32(K), Int32(M), Int32(MG), Val(Q8PACK_WORDS)),
+                     (K, cld(MG, Q8PACK_WORDS)); group = (256, 1),
+                     name = "checkpoint_q8pack")
+    runonce!(g)
+    # The int8 source is consumed by the pack and nothing reads it again.
+    # `free!` retires rather than destroys, so this does not have to wait.
+    Mantle.free!(dq)
     ConvRotQInt8Matrix(packed, ds, M, Int(group_size))
 end
 
@@ -250,23 +257,38 @@ function w4a8convrot(backend, q::AbstractMatrix{Int8}, s_rel::AbstractMatrix{UIn
     length(codebook) == 16 || throw(DimensionMismatch("W4A8 codebook must have 16 entries"))
     K % convrot_group_size == 0 || throw(DimensionMismatch(
         "ConvRot group size $convrot_group_size does not divide K=$K"))
-    dq, dr = toback(backend, q), toback(backend, s_rel)
-    ds = toback(backend, Float32.(vec(s_channel)))
-    dc = toback(backend, Float32.(vec(codebook)))
+    dev = Mantle.todevice(backend)
+    g = Mantle.Graph(dev)
+    dq, dr = Mantle.Buffer(dev, q), Mantle.Buffer(dev, s_rel)
+    ds = Mantle.Buffer(dev, Float32.(vec(s_channel)))
+    dc = Mantle.Buffer(dev, Float32.(vec(codebook)))
     MG = cld(M, Q8ROWS)
-    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    w4a8pack!(backend, packed, dq, dr, dc, K, M, group_size, MG, 0)
+    packed = Mantle.Buffer(dev, UInt32, (MG, K))
+    w4a8pack!(g, packed, dq, dr, dc, K, M, group_size, MG, 0)
+    runonce!(g)
+    # The INT4 storage and its codebook are consumed by the decode; the
+    # per-channel scale is the weight and stays.
+    foreach(Mantle.free!, (dq, dr, dc))
     ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
 end
 
-"""Decode one W4A8 part into row groups `goff...` of an already-allocated pack."""
-function w4a8pack!(backend, packed, q, s_rel, codebook, K::Integer, M::Integer,
+"""
+Declare the decode of one W4A8 part into row groups `goff...` of `packed`.
+
+Takes the GRAPH rather than the backend: the stacked form below decodes several
+parts into one pack, and those are passes of one graph writing disjoint row
+ranges of one buffer — which is a thing Mantle can see and schedule, and a
+sequence of bare launches is not.
+"""
+function w4a8pack!(g, packed, q, s_rel, codebook, K::Integer, M::Integer,
                    group_size::Integer, mgdest::Integer, goff::Integer)
     mg = cld(M, Q8ROWS)
-    KI.Kernel(backend, w4a8_pack_kernel!)(
-        packed, q, s_rel, codebook, Int32(K), Int32(M),
-        Int32(mg), Int32(group_size), Int32(mgdest), Int32(goff),
-        Val(Q8PACK_WORDS); ndrange = (K, cld(mg, Q8PACK_WORDS)), workgroupsize = (256, 1))
+    Mantle.dispatch!(g, w4a8_pack_kernel!,
+                     (packed, q, s_rel, codebook, Int32(K), Int32(M),
+                      Int32(mg), Int32(group_size), Int32(mgdest), Int32(goff),
+                      Val(Q8PACK_WORDS)),
+                     (K, cld(mg, Q8PACK_WORDS)); group = (256, 1),
+                     name = "w4a8_pack")
     packed
 end
 
@@ -292,15 +314,23 @@ function w4a8convrot(backend, parts::AbstractVector{<:W4A8ConvRotHostMatrix})
         "a stacked W4A8 part must have a multiple of $Q8ROWS output rows"))
     M = sum(p -> size(p, 1), parts)
     MG = cld(M, Q8ROWS)
-    packed = KernelAbstractions.allocate(backend, UInt32, MG, K)
-    ds = toback(backend, Float32.(reduce(vcat, (vec(p.s_channel) for p in parts))))
+    dev = Mantle.todevice(backend)
+    g = Mantle.Graph(dev)
+    packed = Mantle.Buffer(dev, UInt32, (MG, K))
+    ds = Mantle.Buffer(dev, Float32.(reduce(vcat, (vec(p.s_channel) for p in parts))))
+    # ONE graph for every part: they write disjoint row ranges of one pack, so
+    # this is the submission Mantle can build rather than N of them.
+    sources = Any[]
     goff = 0
     for p in parts
-        w4a8pack!(backend, packed, toback(backend, p.q), toback(backend, p.s_rel),
-                  toback(backend, Float32.(vec(p.codebook))), K, size(p, 1),
-                  group_size, MG, goff)
+        dq, dr = Mantle.Buffer(dev, p.q), Mantle.Buffer(dev, p.s_rel)
+        dc = Mantle.Buffer(dev, Float32.(vec(p.codebook)))
+        append!(sources, (dq, dr, dc))
+        w4a8pack!(g, packed, dq, dr, dc, K, size(p, 1), group_size, MG, goff)
         goff += size(p, 1) ÷ Q8ROWS
     end
+    runonce!(g)
+    foreach(Mantle.free!, sources)
     ConvRotQInt8Matrix(packed, ds, M, Int(convrot_group_size))
 end
 

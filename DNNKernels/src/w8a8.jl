@@ -238,10 +238,14 @@ out to `np` columns of zeros. Immediate form; the declared one is in `emit.jl`.
 function w8a8quantize(backend, x::AbstractMatrix, np::Integer)
     K, N = size(x)
     K % 4 == 0 || throw(DimensionMismatch("W8A8 needs a multiple of four along k, got $K"))
-    packed = KernelAbstractions.allocate(backend, UInt32, K ÷ 4, np)
-    scale = KernelAbstractions.allocate(backend, Float32, np)
-    KI.Kernel(backend, w8a8_quantize_kernel!)(packed, scale, x, Val(Int(K)), Int32(N);
-                                            ndrange = np * W8A8_WG, workgroupsize = W8A8_WG)
+    dev = Mantle.todevice(backend)
+    g = Mantle.Graph(dev)
+    packed = Mantle.Buffer(dev, UInt32, (K ÷ 4, np))
+    scale = Mantle.Buffer(dev, Float32, (np,))
+    Mantle.dispatch!(g, w8a8_quantize_kernel!,
+                     (packed, scale, x, Val(Int(K)), Int32(N)), np * W8A8_WG;
+                     group = W8A8_WG, name = "w8a8_quantize")
+    runonce!(g)
     (packed, scale)
 end
 

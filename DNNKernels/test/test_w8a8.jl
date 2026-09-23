@@ -70,11 +70,14 @@ const DKW = DNNKernels
                 wh = Float16.(randn(rng, Float32, M, K) .* 0.2f0)
                 A = DNNKernels.quantizeint8(backend, DNNKernels.toback(backend, wh))
                 xh = Float16.(randn(rng, Float32, K, N) .* 0.4f0)
-                qb, sb = DKW.w8a8quantize(backend, DNNKernels.toback(backend, xh), np)
+                # `w8a8quantize` declares into a graph, so its results are
+                # `Mantle.Buffer`s — pool regions — as a packed weight's fields
+                # are. A BARE launch has no graph to resolve one against, so
+                # every operand goes through `Mantle.storage` here; `dispatch!`
+                # does that itself and needs none of this.
+                qbuf, sbuf = DKW.w8a8quantize(backend, DNNKernels.toback(backend, xh), np)
+                qb, sb = Mantle.storage(qbuf), Mantle.storage(sbuf)
                 C = KernelAbstractions.allocate(backend, Float16, M, np)
-                # `Mantle.storage(A.scale)`: a packed weight's fields are
-                # `Mantle.Buffer`s, and a bare launch has no graph to resolve
-                # them against — only `dispatch!` does that.
                 KI.Kernel(backend, DKW.w8a8_gemm_kernel!)(
                     C, DKW.w8a8weight(A), Mantle.storage(A.scale), qb, sb,
                     Val(M), Val(np), Val(K);

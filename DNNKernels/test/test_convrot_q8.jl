@@ -173,13 +173,17 @@ end
             sr = rand(rng, UInt8, K ÷ GS, M)
             sr[(sr .& 0x7f) .== 0x7f] .= 0x00
             cb = Float32.(randn(rng, 16))
-            packed = KernelAbstractions.allocate(backend, UInt32, mgd, K)
-            fill!(packed, UInt32(0))
-            DKA.w4a8pack!(backend, packed, DKA.toback(backend, reinterpret(Int8, q)),
-                          DKA.toback(backend, sr), DKA.toback(backend, cb),
+            # `w4a8pack!` declares into a graph now: the stacked form decodes
+            # several parts into one pack, and those are passes of one graph.
+            dev = Mantle.todevice(backend)
+            g = Mantle.Graph(dev)
+            packed = Mantle.Buffer(dev, zeros(UInt32, mgd, K))
+            DKA.w4a8pack!(g, packed, Mantle.Buffer(dev, reinterpret(Int8, q)),
+                          Mantle.Buffer(dev, sr), Mantle.Buffer(dev, cb),
                           K, M, GS, mgd, goff)
+            DKA.runonce!(g)
             KernelAbstractions.synchronize(backend)
-            got = Array(packed)
+            got = Array(Mantle.storage(packed))
 
             mg = cld(M, 4)
             ref = zeros(UInt32, mgd, K)
