@@ -63,9 +63,14 @@ function sliceparent(t::Int; start = "\$s")
                   [DKR.Op("c", "clone.default", ["v"], "out", Dict{String,Any}())],
                   Vector{Vector{String}}())
     dims = (; t)
-    dev = Mantle.todevice(Mantle.LavaBackend())
+    # Whatever backend this build HAS. Naming one means the test is a
+    # `UndefVarError: LavaBackend not defined in Mantle` on a machine that
+    # compiled in a different one, which is not a slice failing - it is the test
+    # not running at all, and reading as five errors while it does.
+    backend = Mantle.defaultbackend()
+    dev = Mantle.todevice(backend)
     plan = DKR.planfor(dev, g, Dict{String,Any}(), dims)
-    out = Array(first(DKR.replay!(plan, "s", (DKR.toback(Mantle.LavaBackend(), x),))))
+    out = Array(first(DKR.replay!(plan, "s", (DKR.toback(backend, x),))))
     Mantle.free!(plan.plan)
     out
 end
