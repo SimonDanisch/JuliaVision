@@ -209,8 +209,30 @@ says what it means — but the `model` form is not a budget decision.
 grade!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB},
        lut::AbstractArray{Float32,4}) = lut3d!(out, img, lut)
 
-grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
-       img::AbstractMatrix{<:AbstractRGB}) = lut3d!(out, img, predictlut(model, img))
+function grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
+                img::AbstractMatrix{<:AbstractRGB})
+    lut = predictlut(model, img)
+    KA.get_backend(img) === KA.get_backend(lut) && return lut3d!(out, img, lut)
+    # `lut3d!` launches on the backend of its IMAGE. Handed a host frame it runs
+    # the whole apply on the CPU, one pixel at a time, while every one of the
+    # eight LUT corner reads reaches into device memory. Nothing errors and the
+    # pixels are right, which is why this sat unnoticed: measured on a 290x290
+    # frame, 994 ms that way against 0.353 ms with the frame staged to the
+    # device first — 2814x, same pixels to within N0f8's own step.
+    #
+    # Staged here rather than refused, because a host frame is exactly what a
+    # caller holding an image has; the `(out, img, lut)` form is the one that
+    # asks the caller to have placed its own operands.
+    dimg = KA.allocate(model.backend, RGB{Float32}, size(img)...)
+    copyto!(dimg, RGB{Float32}.(img))
+    dout = similar(dimg)
+    lut3d!(dout, dimg, lut)
+    host = Array(dout)
+    @inbounds for i in eachindex(out, host)
+        out[i] = eltype(out)(host[i])
+    end
+    return out
+end
 
 # ---------------------------------------------------------------- the workload
 #
