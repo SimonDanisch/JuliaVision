@@ -175,6 +175,34 @@ end
     # upload in the tree.
     @test counts["Mantle"] <= 7
     @test counts["DNNKernels"] <= 9
+
+    # And every RUNNER, on the same argument as the `@kernel` walk: a count that
+    # is only written down for the two library packages is a count the runners
+    # can quietly undo. `BonsaiRunner` is the one that has been through it — its
+    # weight uploads, recurrent state and Q8 KV cache are `Mantle.Buffer`s, so
+    # it is absent from this table rather than listed at zero, and a `KA.allocate`
+    # appearing there fails the `else` branch below.
+    #
+    # `KA.zeros` and `KA.ones` count too. They are the same allocation with a
+    # fill attached, and swapping one for the other would walk the number back
+    # without changing anything.
+    runneralloc = r"(KernelAbstractions|KA)\.(allocate|zeros|ones)\b"
+    remainingalloc = Dict("GPUFiltering" => 17, "DNNKernels" => 9,
+                          "Hunyuan3DRunner" => 5, "RIFERunner" => 5,
+                          "WhisperRunner" => 5, "MatAnyoneRunner" => 3,
+                          "SAM2Runner" => 3, "DepthAnythingRunner" => 2,
+                          "KokoroRunner" => 2, "BasicVSRRunner" => 1,
+                          "HorizonRunner" => 1, "NeuralLUTRunner" => 1)
+    for pkg in sort(readdir(RUNNERS))
+        dir = joinpath(RUNNERS, pkg, "src")
+        isdir(dir) || continue
+        n = count(((f, i, L),) -> iscode(L) && occursin(runneralloc, L), sourcelines(dir))
+        if haskey(remainingalloc, pkg)
+            @test (pkg => n) == (pkg => min(n, remainingalloc[pkg]))
+        else
+            @test (pkg => n) == (pkg => 0)
+        end
+    end
 end
 
 """
