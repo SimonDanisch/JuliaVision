@@ -22,7 +22,7 @@ column still says whether we are behind.
 """
 
 using Printf
-using Lava, DNNKernels, SAM2Runner, KernelAbstractions
+using Lava, DNNKernels, SAM2Runner, KernelAbstractions, Mantle
 # Through DNNKernels rather than as a direct dependency, the way its own
 # test suite does: this reads one JSON file and does not warrant a dep.
 const JSON3 = DNNKernels.JSON3
@@ -72,38 +72,58 @@ function graphflops(g, dims)
     out
 end
 
-"""`{aten => (calls, ms)}` for one encode, device time, serialised per op.
+"""`{aten => (passes, ms)}` for one encode, device time, per op.
 
-**`execute!`, not `call` and not `encode`.** Only the interpreted path reaches
-`timeop!`. `encode` replays a baked Mantle plan, and `call` now builds and
-replays one too — one plan per `(graph, dims, kernels)`, on the first call — so
-neither can attribute device time to a source-level op. Instrumenting either
-yields an EMPTY table, which is why the check below is an error and not a page
-of zeros. `sam2_attn_share.jl` has the same note.
+**From Mantle's profiler, not from a serialised interpreted run.** This used to
+call `execute!`, because only the interpreted path reached `timeop!` and a baked
+plan could not attribute device time to a source-level op. That is no longer the
+trade it was: `Plan(g; profile = true)` puts a timestamp pair around every pass,
+and `emitgraph` names each dispatch after the op that produced it, so the pass
+timings join back to `aten` through `op.id`.
 
-The interpreted path is slower than the plan, and its per-op synchronisation
-makes it slower again, so the TOTAL here exceeds a free-running encode. The
-shares are what this is for.
+It is a better measurement than the one it replaces. `timeop!` synchronised
+around every op, so its total exceeded a free-running encode and only the shares
+were meaningful; these are GPU timestamps taken inside the same submission the
+model actually runs, and `timings` reports the median over the frames replayed
+below rather than a mean over five.
+
+A pass is not a call: one op can declare several dispatches (a reduction in two
+stages, a convolution that pads first), so `passes` counts dispatches attributed
+to that aten and not invocations of it.
+
+**The totals do not add up to the frame, and are not meant to.** Each pass is
+bracketed `TOP_OF_PIPE` to `BOTTOM_OF_PIPE`, and the GPU is free to overlap two
+adjacent passes, so summing them double-counts whatever ran concurrently. The
+old interpreted run had the opposite bias — it synchronised around every op, so
+its total exceeded a free-running encode. Either way the SHARES are what this
+table is for, and a share is read against the column total here rather than
+against a wall-clock encode.
 """
 function ourtimes(model, img; iters = 5)
     m = model.model
     g = m.graphs["sam2_encoder"]
-    inputs = Dict{String,Any}(only(g.inputs) => img)
-    run() = DNNKernels.execute!(g, inputs, m.weights;
-                                dims = model.dims, device = m.device, diag = m.diag)
-    m.diag.optimes = nothing
-    run()                                        # warm
-    KA.synchronize(m.backend)
-    t = Dict{String,Tuple{Int,Float64}}()
-    m.diag.optimes = t
+    plan = DNNKernels.planfor(m.device, g, m.weights, model.dims; profile = true)
+    args = (img,)
+    DNNKernels.replay!(plan, "sam2_encoder", args)        # warm: first replay compiles
     for _ in 1:iters
-        run()
+        DNNKernels.replay!(plan, "sam2_encoder", args)
     end
-    KA.synchronize(m.backend)
-    m.diag.optimes = nothing
-    isempty(t) && error("optimes recorded nothing — the run never went through " *
-                        "`timeop!`; see this function's docstring.")
-    Dict(k => (v[1] ÷ iters, v[2] / iters) for (k, v) in t)
+    Mantle.waitidle(m.device)
+
+    # `name = op.id` at every `dispatch!`, and `"$(op.id)/advance"` is the one
+    # compound form, so the id is everything up to the first slash.
+    aten = Dict(op.id => op.aten for op in g.ops)
+    t = Dict{String,Tuple{Int,Float64}}()
+    for pt in Mantle.timings(plan.plan)
+        a = get(aten, String(first(split(pt.name, '/'))), nothing)
+        a === nothing && continue
+        n, ms = get(t, a, (0, 0.0))
+        t[a] = (n + 1, ms + pt.gpu_ms)
+    end
+    isempty(t) && error("the profiler recorded nothing — no pass name matched an " *
+                        "op id; see this function's docstring.")
+    Mantle.free!(plan.plan)
+    t
 end
 
 function main()

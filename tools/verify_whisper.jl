@@ -3,7 +3,8 @@
 # the declared path. The slab is not droppable here -- see the note below on why
 # the graph needs it -- so the replacement is not a smaller edit but the DECLARED
 # path, where `Mantle.Place` does the placement `planslab` did:
-# `tools/two_route_parity.jl` and `DNNKernels.verifygraph` for the verification,
+# `DNNKernels.verifygraph` for the verification (`tools/two_route_parity.jl` was
+# the other answer here and went with the interpreted runner it compared against),
 # `tools/bench_all.jl` for the timing. It also reads a local `gen/` export tree
 # rather than the artifact, so it cannot run on a machine that has not run the
 # exporter. Kept for the measurements in its header.

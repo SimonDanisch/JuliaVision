@@ -28,17 +28,23 @@ the same bytes. A torch `(3, 33, 33, 33)` is a Julia `(33, 33, 33, 3)` already,
 and permuting it here would move the data twice and compare the wrong axes.
 """
 
-using DNNKernels, KernelAbstractions, Printf, Statistics, Lava
+using DNNKernels, KernelAbstractions, Printf, Statistics, Lava, Mantle
 using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
-using DNNKernels: loadgraph, execute!, readsafetensors, toback
+using DNNKernels: loadgraph, planfor, replay!, readsafetensors, toback
 const KA = KernelAbstractions
 
 # `tools/` is symlinked from the workspace root, and `@__DIR__` does not resolve
 # the symlink, so one level up is the root. Same convention as `bench_sam2.jl`.
 const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "neurallut"))
 
+# `cpu` is lavapipe, not `KA.CPU()`. The interpreted runner is gone and the
+# declared path is the only one, so a CPU run is a Vulkan device that happens to
+# be software — one API rather than a second implementation. The variable is
+# read once, lazily, on the first device, so it has to be set before the
+# backend is built.
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
-backend = mode == "gpu" ? LavaBackend() : KA.CPU()
+mode == "cpu" && (ENV["MANTLE_DEVICE"] = "llvmpipe")
+backend = LavaBackend()
 
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_neurallut.py`")
 
@@ -52,9 +58,9 @@ img = toback(backend, ref["input"])
 w = Dict{String,Any}(k => toback(backend, v) for (k, v) in weights)
 
 # Empty NamedTuple: every dim in this graph is static, so there is nothing to
-# bind. `Ctx` takes a NamedTuple, not a Dict.
-out = execute!(graph, Dict{String,Any}("img" => img), w; dims = (;), backend)
-lut = Array(out["sum_1"])                # Julia (33, 33, 33, 3)
+# bind.
+plan = planfor(Mantle.todevice(backend), graph, w, (;))
+lut = Array(only(replay!(plan, "neurallut", (img,))))   # Julia (33, 33, 33, 3)
 
 want = ref["lut"]
 size(lut) == size(want) || error("shape $(size(lut)) vs reference $(size(want))")
