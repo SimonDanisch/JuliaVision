@@ -400,6 +400,61 @@ function blockcopy!(out, od::NTuple{N,Int}, part, pd::NTuple{N,Int},
 end
 
 """
+    blockcopy32!(out, exts, ost, a, off, n)
+
+[`blockcopy!`](@ref) with the coordinate chain in 32 bits.
+
+The 64-bit form recovers the part coordinate with `N` pairs of `%` and `÷` by a
+runtime `Int`, and an Apple GPU has no 64-bit integer divide at all — it emulates
+each one. `cart32` is `N` `FastDiv32` multiply-shifts instead, the same chain every
+other copy here already uses.
+
+This is what `blockcopy!`'s own docstring meant by "the coordinate arithmetic is 9x
+the cost of the bytes it moves", and the reason it stayed that way is that the only
+faster route offered was `slabcopy!` — which needs the box to be one contiguous run,
+so every box that is not fell back the whole way to 64 bits.
+"""
+function blockcopy32!(out, exts, ost::NTuple{N,Int32}, a, off::NTuple{N,Int32},
+                      n::Int32) where {N}
+    i = KI.get_global_id().x
+    i <= n || return
+    c = M.cart32(UInt32(Int32(i) - Int32(1)), exts)
+    o = Int32(0)
+    @inbounds for k in 1:N
+        o += (Int32(c[k] - 1) + off[k]) * ost[k]
+    end
+    @inbounds out[o + Int32(1)] = a[i]
+    return
+end
+
+"""
+    blockcopy32run!(out, exts, ost, a, off, nvec, Val(V))
+
+[`blockcopy32!`](@ref) with `V` elements per thread.
+
+The part is dense and `colstrides(od)[1]` is 1, so a run along axis one is a run in
+BOTH operands: advancing the part index by one advances the box offset by one. That
+is the same property [`stridedcopyrun32!`](@ref) relies on, and it means one
+coordinate chain serves `V` elements. `V` must divide `pd[1]`;
+[`blockcopydispatch!`](@ref) checks it.
+"""
+function blockcopy32run!(out, exts, ost::NTuple{N,Int32}, a, off::NTuple{N,Int32},
+                         nvec::Int32, ::Val{V}) where {N,V}
+    i = KI.get_global_id().x
+    i <= nvec || return
+    i0 = (Int32(i) - Int32(1)) * Int32(V)
+    c = M.cart32(UInt32(i0), exts)
+    o = Int32(0)
+    @inbounds for k in 1:N
+        o += (Int32(c[k] - 1) + off[k]) * ost[k]
+    end
+    @inbounds for v in Int32(0):Int32(V - 1)
+        out[o + v + Int32(1)] = a[i0 + v + Int32(1)]
+    end
+    return
+end
+
+"""
     slabcopy!(out, a, off, n)
 
 `blockcopy!` for the case where the part lands on ONE contiguous run of the

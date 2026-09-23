@@ -933,6 +933,26 @@ function blockcopydispatch!(emitctx::EmitCtx, out, od::Dims{N}, part, pd::Dims{N
     o = contiguousslab(od, pd, off)
     if o !== nothing && n <= typemax(Int32) && o + n <= typemax(Int32)
         M.dispatch!(emitctx.g, slabcopy!, (out, part, Int32(o), Int32(n)), n; name)
+        return out
+    end
+    # Not one run, so `slabcopy!` cannot have it -- but that is no reason to pay 64-bit
+    # coordinate arithmetic, which is what the only other route used to mean. Same
+    # `cart32` chain and same run-vectorisation as the strided copies beside it.
+    ost = colstrides(od)
+    hi = sum((pd[k] - 1 + off[k]) * ost[k] for k in eachindex(od); init = 0)
+    if n <= typemax(Int32) && hi + 1 <= typemax(Int32)
+        gsz = min(256, M.caps(emitctx.dev).workgrouplimit)
+        V = runvecwidth(pd[1])
+        if V === nothing
+            M.dispatch!(emitctx.g, blockcopy32!,
+                        (out, M.broadcastextents(pd), map(Int32, ost), part,
+                         map(Int32, off), Int32(n)), n; group = gsz, name)
+        else
+            M.dispatch!(emitctx.g, blockcopy32run!,
+                        (out, M.broadcastextents(pd), map(Int32, ost), part,
+                         map(Int32, off), Int32(n ÷ V), Val(V)), n ÷ V;
+                        group = gsz, name)
+        end
     else
         M.dispatch!(emitctx.g, blockcopy!, (out, od, part, pd, off), n; name)
     end
