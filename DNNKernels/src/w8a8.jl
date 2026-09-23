@@ -234,8 +234,12 @@ w8a8columns(n::Integer) = cld(n, W8A8_BN) * W8A8_BN
 
 Quantise `x`, an `(K, N)` activation, to int8 with a scale per column, padded
 out to `np` columns of zeros. Immediate form; the declared one is in `emit.jl`.
+
+A `Mantle.Buffer` as well as an array, because that is what `toback` hands back
+and this is what reads it.
 """
-function w8a8quantize(backend, x::AbstractMatrix, np::Integer)
+function w8a8quantize(backend, x::Union{AbstractMatrix,Mantle.Buffer{<:Any,2}},
+                      np::Integer)
     K, N = size(x)
     K % 4 == 0 || throw(DimensionMismatch("W8A8 needs a multiple of four along k, got $K"))
     dev = Mantle.todevice(backend)

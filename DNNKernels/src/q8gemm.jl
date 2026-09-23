@@ -179,6 +179,8 @@ function q8gemm_tiling(dev, A, B, C)
     # `islavaarray` and not `isa Mantle.LavaArray`: the type exists only where that
     # backend is loaded, so naming it here made this refuse every operand on any
     # other one. The shape and element type are asked separately for the same reason.
+    # `islavaarray` resolves a `Mantle.Buffer` itself; `eltype`, `ndims` and
+    # `size` answer on one directly.
     islavaarray(B) && eltype(B) === Float16 && ndims(B) == 2 && islavaarray(C) ||
         return nothing
     q8gemm_tiling(dev, eltype(C), size(A)..., size(B, 2))

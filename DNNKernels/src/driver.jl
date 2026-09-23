@@ -69,16 +69,25 @@ function Model(graphs, weights, target, memevery, memframes, topk, scratch;
 end
 
 """
-    toback(backend, a) -> array
+    toback(backend, a) -> Mantle.Buffer
 
 Move a host array onto the execution backend. A no-op on the CPU backend, and a
-no-op for an array that already lives on `backend` — the sampler hands its latent
-straight back to the transformer, so without that check every step would download
-and re-upload it.
+no-op for something that already lives on `backend` — the sampler hands its
+latent straight back to the transformer, so without that check every step would
+download and re-upload it.
 
 Residency is judged by the *kind* of backend rather than by equality: KA's
 `get_backend` rebuilds the descriptor, so `get_backend(a) == backend` is false
 even for an array allocated on exactly that device.
+
+**A `Mantle.Buffer` and not a bare array.** It is the region, asked for as
+`Persistent()` with the usage bits `bufferusage(dev, T)` names, and freed by
+`Mantle.free!` — the verb the emit's own owned buffers already take, so
+`releaseweights!` has one rule rather than two. `dispatch!` resolves one when it
+packs a pass and so does a bare `KI.Kernel` launch, so a weight is an operand
+either way; `Mantle.storage` is how to ask for the ARRAY over it, which is what
+`view`, `reshape` and `copyto!` want. It is the identity on anything that is
+already an array.
 """
 toback(::KernelAbstractions.CPU, a::AbstractArray) = a isa Array ? a : collect(a)
 
@@ -90,7 +99,12 @@ toback(backend, r::Union{M.Buffer,M.GPURef}) = r
 function toback(backend, a::AbstractArray)
     isempty(a) && return a
     KernelAbstractions.get_backend(a) isa typeof(backend) && return a
-    d = KernelAbstractions.allocate(backend, eltype(a), size(a)...)
+    # A `Mantle.Buffer`: the pool region, asked for as `Persistent()` and with
+    # the usage bits its element type wants, and freed by `Mantle.free!` — the
+    # same verb the emit's own owned buffers take, so `releaseweights!` has one
+    # rule. `storage` is the array over it, which is what `copyto!` needs.
+    b = M.Buffer(M.todevice(backend), eltype(a), size(a))
+    d = M.storage(b)
     # `copyto!(d, a)`, NOT `copyto!(d, collect(a))`. `collect` on an `Array`
     # returns a COPY, so that form allocates a full anonymous duplicate of every
     # tensor on its way to the device. Invisible at SAM 2's 943 MB;
@@ -105,7 +119,7 @@ function toback(backend, a::AbstractArray)
     # points INTO `a` without referencing it, and `a` is dead to the compiler
     # the moment that call returns.
     GC.@preserve a copyto!(d, uploadsource(a))
-    d
+    b
 end
 
 """
@@ -165,14 +179,15 @@ Base.size(A::RowCat) = (A.m, A.k)
 # the host. Each part is uploaded (or materialised, if it is one of
 # `hoistpermutes`' lazy transposes) into its own row range and then dropped.
 function toback(backend, A::RowCat)
-    d = KernelAbstractions.allocate(backend, eltype(A), size(A)...)
+    b = M.Buffer(M.todevice(backend), eltype(A), size(A))
+    d = M.storage(b)          # the array over the region: a `Buffer` has no `view`
     off = 0
     for p in A.parts
         rows = size(p, 1)
-        copyto!(view(d, (off + 1):(off + rows), :), toback(backend, p))
+        copyto!(view(d, (off + 1):(off + rows), :), M.storage(toback(backend, p)))
         off += rows
     end
-    d
+    b
 end
 
 # A stack of packed quantised parts has no dense rows to copy into: four output
@@ -213,15 +228,17 @@ function toback(backend, a::PermutedDimsArray{T,2,(2,1)}) where {T}
     p = parent(a)
     T in (Float16, Float32) && length(p) <= typemax(Int32) ||
         return toback(backend, permutedims(p, (2, 1)))
-    src = toback(backend, p)
+    srcbuf = toback(backend, p)
+    src = M.storage(srcbuf)
     E, L = size(p)
-    d = KernelAbstractions.allocate(backend, T, L, E)
+    b = M.Buffer(M.todevice(backend), T, (L, E))
+    d = M.storage(b)
     st = map(Int32, strides(src))
     k = T === Float16 ? toLE_tiled_Float16! : toLE_tiled_Float32!
     KI.Kernel(backend, k)(reshape(d, L, E, 1, 1), reshape(src, length(src)),
         Int32(1), st[1], st[2], Int32(0), Int32(0), Int32(E), Int32(L), Int32(1);
         ndrange = (32 * cld(E, 32), 4 * cld(L, 32), 1), workgroupsize = (32, 4, 1))
-    d
+    b
 end
 
 """
@@ -927,13 +944,18 @@ replay a plan and this is it.
 SHAPE has to match and the DTYPE does not: see the note in `call`.
 """
 function replay!(mp::RecordedPlan, name::AbstractString, args)
-    for (dst, src) in zip(mp.inputs, args)
+    # `storage` on every argument, because a resident weight or input is a
+    # `Mantle.Buffer` — the pool region — and `copyto!` wants the array over it.
+    # Identity on anything that is already one, so a caller holding either
+    # spelling is right.
+    srcs = map(Mantle.storage, Tuple(args))
+    for (dst, src) in zip(mp.inputs, srcs)
         size(dst) == size(src) || throw(ArgumentError(
             "$name input is declared $(size(dst)) and this call passed " *
             "$(size(src)). A plan is built per `dims`, so a shape that does not " *
             "follow from them cannot be replayed."))
     end
-    for (dst, src) in zip(mp.inputs, args)
+    for (dst, src) in zip(mp.inputs, srcs)
         dst === src || copyto!(dst, src)
     end
     Mantle.run!(mp.plan)

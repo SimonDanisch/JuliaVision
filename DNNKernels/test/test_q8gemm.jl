@@ -63,8 +63,13 @@ end
         @test maximum(abs,Float32.(Array(c16)).-Float32.(reference[:,1:16])) <=
               0.002maximum(abs,Float32.(reference[:,1:16]))
         @test DNNKernels.q8gemm_tiling(DNNKernels.caps(KernelAbstractions.CPU()),a,b,c) === nothing
-        @test_throws DimensionMismatch DNNKernels.q8gemm!(c,a,view(b,:,1:17))
-        @test_throws ArgumentError DNNKernels.q8gemm!(similar(c,256,17),a,view(b,:,1:17))
+        # `Mantle.storage(b)`: `toback` hands back the pool region, and these two
+        # want a badly-shaped ARRAY operand to check the refusals with. `view`
+        # is deliberately not defined on a `Buffer` — Mantle already means
+        # something else by a view of a resource.
+        bv = view(Mantle.storage(b), :, 1:17)
+        @test_throws DimensionMismatch DNNKernels.q8gemm!(c, a, bv)
+        @test_throws ArgumentError DNNKernels.q8gemm!(similar(c, 256, 17), a, bv)
     else
         @test_skip false
     end

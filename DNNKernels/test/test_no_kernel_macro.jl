@@ -18,8 +18,10 @@ same Lava, so a test that covers it is coverage and not a leftover.
 `runop!` and `execute!` are gone, and the assertion is now that the names do not
 come back.
 
-What is NOT zero is `KernelAbstractions.allocate`, 30 calls. They are outside
-any frame (the load-time quantisers, mostly) and want Mantle persistent buffers.
+What is NOT zero is `KernelAbstractions.allocate`, 16 calls. The load-time
+quantisers and `toback` have gone to `Mantle.Buffer`; what is left is per-frame
+scratch, a few output fallbacks, and Mantle's own — seven, of which three ARE
+the `KA.allocate` implementation and the KI allocation hook.
 Until they move, the useful property is that the count only ever goes DOWN. A
 number that drifts up is a new allocation path that Mantle does not see, which
 is the thing the migration exists to remove.
@@ -167,9 +169,12 @@ end
                   for (pkg, dir) in SRC)
     # Tightened whenever they drop, which is the only way a ratchet stays one:
     # Mantle 11 -> 7 over the `@kernel` migration, DNNKernels 32 -> 23 when
-    # MatAnyone's memory bank and tracking state moved onto Mantle buffers.
+    # MatAnyone's memory bank and tracking state moved onto Mantle buffers, and
+    # 23 -> 12 when load-time quantisation became declared plans over
+    # `Mantle.Buffer`, and 12 -> 9 when `toback` did — that is every weight
+    # upload in the tree.
     @test counts["Mantle"] <= 7
-    @test counts["DNNKernels"] <= 23
+    @test counts["DNNKernels"] <= 9
 end
 
 """

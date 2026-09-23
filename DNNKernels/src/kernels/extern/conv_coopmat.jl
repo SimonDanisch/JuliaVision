@@ -451,7 +451,7 @@ function im2colbudget(x)
     # the same reason `coopmat_gemm!` uses `get_backend(C)`: an unpinned backend
     # resolves through the global context, so on a second device the budget read
     # would describe the wrong GPU.
-    ctx = islavaarray(x) ? Mantle.vk_context(x) : nothing
+    ctx = islavaarray(x) ? Mantle.vk_context(Mantle.storage(x)) : nothing
     ctx === nothing && return IM2COL_CAP[]
     free = 0
     for h in Mantle.probe_device_memory_budget(ctx)

@@ -127,7 +127,15 @@ itself rather than what it can do; prefer [`caps`](@ref) for the latter.
 vkcontext(::Any) = nothing
 @static if !Sys.isapple()
     vkcontext(b::Mantle.LavaBackend) = Mantle.vk_context(b)
-    islavaarray(x) = x isa Mantle.LavaArray
+    # Through `storage`, because an operand is now often a `Mantle.Buffer` —
+    # the pool region that owns the bytes — and every caller of this is asking
+    # about the BYTES: whether they are this backend's, dense, and therefore
+    # addressable by a cooperative-matrix kernel. A `Buffer` wrapping exactly
+    # such a region would answer `false` to the bare type test and decline a
+    # shape the kernel handles, which is what happened to the masked prefill
+    # and to `q8gemm_tiling`. `storage` is the identity on anything that is
+    # already an array.
+    islavaarray(x) = Mantle.storage(x) isa Mantle.LavaArray
 else
     islavaarray(x) = false
 end

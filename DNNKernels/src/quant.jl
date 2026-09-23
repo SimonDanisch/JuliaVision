@@ -532,8 +532,11 @@ end
 
 Pack a device-resident `(M, K)` float weight. `W` is not modified and the caller
 drops it.
+
+A `Mantle.Buffer` as well as an array, because a resident weight is a pool
+region now — that is what `toback` hands back, and this is what reads it.
 """
-function quantizeint8(backend, W::AbstractMatrix)
+function quantizeint8(backend, W::Union{AbstractMatrix,Mantle.Buffer{<:Any,2}})
     # `rows` and not `M`: `M` is this module's alias for `Mantle`, and the
     # obvious spelling of the row count shadows it for the rest of the body.
     rows, K = size(W)

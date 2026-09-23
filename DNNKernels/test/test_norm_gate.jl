@@ -87,7 +87,10 @@ end
 @testset "the norm gate admits this backend's arrays and no wrapper" begin
     DK = DNNKernels
     backend = Mantle.LavaBackend()
-    x = DK.toback(backend, reshape(collect(Float32, 1:32), 8, 4))
+    # `Mantle.storage`: `toback` hands back the pool REGION that owns the
+    # weight, and this testset is about the array over it — every line below
+    # takes a view of it, permutes it, or broadcasts over it.
+    x = Mantle.storage(DK.toback(backend, reshape(collect(Float32, 1:32), 8, 4)))
     # What the gate must accept: this backend's dense array.
     @test x isa GPUArrays.AbstractGPUArray
     # …and what it must still refuse, because their linear order is not the
