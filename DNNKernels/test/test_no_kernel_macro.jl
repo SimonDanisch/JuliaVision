@@ -37,6 +37,10 @@ using Test, Mantle, DNNKernels
 # about. Under a project that pins Mantle to a git rev this is the depot copy
 # and not `dev/Mantle`, so every assertion below reports the directory it read:
 # a pass against a stale checkout has to be visible as one.
+# …/JuliaVision: every package in this tree, walked by the two testsets that
+# scan the whole repository rather than just the DNN library.
+const RUNNERS = dirname(dirname(@__DIR__))
+
 const SRC = [
     "Mantle" => joinpath(dirname(dirname(pathof(Mantle))), "src"),
     "DNNKernels" => joinpath(dirname(dirname(pathof(DNNKernels))), "src"),
@@ -104,19 +108,19 @@ end
     #     through it, and the runners that use it take `tofloat`/`topixel` and
     #     `resizeplanar!`, which are host-callable.
     #
-    #   * `BonsaiRunner` (30) — unported, and not in the root project, so it is
-    #     not loadable here to check against anything but its source.
+    # `BonsaiRunner` was the second entry here, at 30, and is now at zero along
+    # with everything else. It is `develop`ed into the root project, so this
+    # counts a tree that also loads and runs.
     #
     # The same reasoning keeps ~130 `@kernel` tests in Mantle and
     # `test_index_recovery.jl` here: the KernelAbstractions path is live for
     # Raycore, Hikari, GPUFiltering and GPUArrays, all of which go through the
     # same Lava. "No `@kernel`" is a rule about the DNN library, and the DNN
     # library is at zero.
-    remaining = Dict("GPUFiltering" => 25, "BonsaiRunner" => 30)
-    root = dirname(dirname(@__DIR__))          # …/JuliaVision
+    remaining = Dict("GPUFiltering" => 25)
     defn = r"@kernel(\s+\w+\s*=\s*\w+)*\s+function"
-    for pkg in sort(readdir(root))
-        dir = joinpath(root, pkg, "src")
+    for pkg in sort(readdir(RUNNERS))
+        dir = joinpath(RUNNERS, pkg, "src")
         isdir(dir) || continue
         hits = [(f, i) for (f, i, L) in sourcelines(dir) if iscode(L) && occursin(defn, L)]
         if haskey(remaining, pkg)
@@ -139,6 +143,23 @@ end
         bad = [(f, i) for (f, i, L) in sourcelines(dir)
                if iscode(L) && occursin(ctor, L)]
         @test (dir => bad) == (dir => Tuple{String,Int}[])
+    end
+
+    # And every runner too, on the same argument as the `@kernel` walk above:
+    # the two go together. A `@kernel` is only reachable through the
+    # constructor protocol, so a package at zero for one and not the other is
+    # a launch whose definition has already moved. GPUFiltering keeps both for
+    # the reason given above; it is the only package that does.
+    ctors = Dict("GPUFiltering" => 16)
+    for pkg in sort(readdir(RUNNERS))
+        dir = joinpath(RUNNERS, pkg, "src")
+        isdir(dir) || continue
+        hits = [(f, i) for (f, i, L) in sourcelines(dir) if iscode(L) && occursin(ctor, L)]
+        if haskey(ctors, pkg)
+            @test (pkg => length(hits)) == (pkg => min(length(hits), ctors[pkg]))
+        else
+            @test (pkg => hits) == (pkg => Tuple{String,Int}[])
+        end
     end
 
     # These are the ones still to go. The assertion is `<=`, so deleting is free
