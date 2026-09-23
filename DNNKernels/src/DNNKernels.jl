@@ -42,7 +42,7 @@ import AcceleratedKernels as AK
 import Atomix
 import GPUArrays
 
-export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
+export loadgraph, launch!, readsafetensors, verifygraph, Model, matte, step!
 export ConvRotQInt8Matrix, ConvRotQInt8HostMatrix, convrotqint8
 export W4A8ConvRotHostMatrix, w4a8convrot
 export readgguf, GGUFFile, GGUFTensor, gguftensor, ggufbytes

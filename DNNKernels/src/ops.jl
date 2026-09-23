@@ -897,10 +897,6 @@ function scatteradd_kernel!(dst, src, idx, n::Int32)
     return nothing
 end
 
-"""The barrier for a `FusedOp` epilogue: one dynamic dispatch per op, none per
-element."""
-@inline addmm_epi!(ctx::Ctx, out, b, a, bias, epi) = matmul!(ctx, out, b, a, bias; epi)
-
 """
     indexseparable(dims, arrs) -> Bool
 

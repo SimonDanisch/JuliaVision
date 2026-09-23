@@ -28,7 +28,7 @@ using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors
+using DNNKernels: loadgraph, readsafetensors
 
 export propaintergraph, propainterweights
 

@@ -39,7 +39,7 @@ import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using JSON3
-using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
+using DNNKernels: loadgraph, readsafetensors, toback, Model, call
 
 export Kokoro, speak, phonemize, pronounce!, voices, SAMPLERATE
 

@@ -86,7 +86,7 @@ function melfilters(nmels::Int, nfreq::Int, sr::Real;
 end
 
 """
-    logmelspectrogram(ctx, audio, filters; nfft, hop, window, droplast = true) -> AbstractArray
+    logmelspectrogram(backend, audio, filters; nfft, hop, window, droplast = true) -> AbstractArray
 
 Whisper's front end: STFT, magnitude squared, mel projection, log10, then the
 two clamps that make it a bounded input.
@@ -106,10 +106,12 @@ here rather than at the call site: handing a `Matrix` to a device `mul!` reaches
 "passing non-bitstype argument … `Memory{Float32}` is not isbits" — an error that
 names the broadcast machinery and not the array that should not have been there.
 """
-function logmelspectrogram(ctx::Ctx, audio, filters;
+function logmelspectrogram(backend, audio, filters;
                            nfft::Int = 400, hop::Int = 160, window = nothing,
                            droplast::Bool = true)
-    backend = ctx.backend
+    # The BACKEND, not a `Ctx`. Nothing here launches a kernel of its own: the
+    # STFT, the magnitude, the mel projection and the two clamps are Mantle's
+    # array layer, and a `Ctx` was only ever carried to be asked for `.backend`.
     w = window === nothing ? Mantle.hannwindow(backend, nfft) : window
     S = Mantle.stft(audio, nfft, hop, w; center = true)
     nb, nt = size(S)

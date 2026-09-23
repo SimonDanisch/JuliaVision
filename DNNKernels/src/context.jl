@@ -147,18 +147,18 @@ Per-run instrumentation. Every field is off by default and free when off: the
 cost of an inactive diagnostic is one `=== nothing` on a field of a struct the
 caller already holds.
 
-Fields and not module-level `Ref`s: `Ctx` reaches all 62 `runop!` methods and
-every kernel entry point, so nothing has to be threaded through by hand. What
-that buys is **two differently instrumented runs in one process**, and tests
-that never save and restore module state a failure could leave flipped.
-
-    d = Diagnostics(optimes = Dict{String,Tuple{Int,Float64}}())
-    execute!(g, inputs, weights; dims, backend, diag = d)
-    sort(collect(d.optimes); by = x -> -x[2][2])
+Fields and not module-level `Ref`s: a `Ctx` reaches every kernel entry point it
+is handed to, so nothing has to be threaded through by hand. What that buys is
+**two differently instrumented runs in one process**, and tests that never save
+and restore module state a failure could leave flipped.
 
 A `Model` carries one from construction (`m.diag`), so instrumenting a whole
 `step!` is `m.diag.optimes = Dict{String,Tuple{Int,Float64}}()` and no signature
 changes.
+
+`optimes` and `opdouble` instrumented the INTERPRETED run and have nothing left
+to measure: `execute!` is gone and a recorded plan cannot attribute device time
+to a source-level op. `launches` and `planmisses` still answer.
 """
 Base.@kwdef mutable struct Diagnostics
     # ── `aten name => (count, milliseconds)`, by synchronising around every op.

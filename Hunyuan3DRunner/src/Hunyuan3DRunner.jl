@@ -154,7 +154,7 @@ module Hunyuan3DRunner
 using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
+using DNNKernels: loadgraph, readsafetensors, toback, Model, call
 using LazyArtifacts
 using Artifacts: artifact_hash, artifact_exists
 

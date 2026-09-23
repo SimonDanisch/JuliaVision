@@ -30,7 +30,7 @@ module FluxKleinRunner
 using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors
+using DNNKernels: loadgraph, readsafetensors
 
 export fluxkleingraph, fluxkleinweights, assetdir
 

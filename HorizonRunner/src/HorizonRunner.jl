@@ -23,7 +23,7 @@ module HorizonRunner
 using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors, Model, call, toback
+using DNNKernels: loadgraph, readsafetensors, Model, call, toback
 
 export horizon32bgraphs, horizon32bweights, horizon32b, generate, Horizon32B, newcache, causalmask
 

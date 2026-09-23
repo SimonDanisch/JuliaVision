@@ -30,7 +30,7 @@ module QwenImageEditRunner
 using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors
+using DNNKernels: loadgraph, readsafetensors
 
 export qwenimageeditgraph, qwenimageeditweights, assetdir
 

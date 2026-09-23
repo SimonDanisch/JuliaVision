@@ -72,8 +72,8 @@ using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts, JSON3, Random, FFMPEG_jll
-using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call,
-                  Ctx, logmelspectrogram, melfilters
+using DNNKernels: loadgraph, readsafetensors, toback, Model, call,
+                  logmelspectrogram, melfilters
 
 export whispergraph, whisperweights
 export whispermodel, encode, WhisperEncoder

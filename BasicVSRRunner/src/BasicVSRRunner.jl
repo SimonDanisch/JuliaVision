@@ -29,7 +29,7 @@ using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
+using DNNKernels: loadgraph, readsafetensors, toback, Model, call
 
 export basicvsrppgraph, basicvsrppweights
 export basicvsrppmodel, upscale, BasicVSRPP
