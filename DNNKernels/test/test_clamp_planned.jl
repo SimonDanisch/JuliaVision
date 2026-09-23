@@ -1,5 +1,5 @@
 using Test, DNNKernels, Lava, KernelAbstractions
-using Mantle: LavaBackend
+using Mantle
 const KA = KernelAbstractions
 
 # `clamp.default` shipped as a bare dotted broadcast:
@@ -31,7 +31,7 @@ const KA = KernelAbstractions
 #     d .= clamp.(a, f32, f32)    68.9 us   111 GB/s
 #     d .= a * 0.125f0            60.1 us   128 GB/s  <- the reference
 @testset "a planned clamp costs about what a planned mul costs" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     a = KA.allocate(back, Float16, 1280, 1500, 1)
     d = KA.allocate(back, Float16, 1280, 1500, 1)
     fill!(a, Float16(0.5))

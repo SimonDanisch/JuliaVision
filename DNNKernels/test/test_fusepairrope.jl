@@ -114,7 +114,7 @@ end
 end
 
 @testset "the fused rotation computes the rotation" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     L, H, P = 4, 2, 2
     C = 2P
     chain = pairropegraph(; L, H, P)

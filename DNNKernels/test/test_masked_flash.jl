@@ -35,7 +35,7 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
 end
 
 @testset "masked cooperative attention" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     caps = DNNKernels.caps(backend)
     if caps.coopmat && caps.coopmatsubgroup == 32
         rng = MersenneTwister(24)

@@ -35,7 +35,7 @@ end
 
 @testset "tiled transpose kernels preserve layout and pooling" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
 
     # Float32 channel-major -> Float16 spatial-major transpose/cast.
     N, M = 7, 35
@@ -86,7 +86,7 @@ end
 
 @testset "the norm gate admits this backend's arrays and no wrapper" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     # `Mantle.storage`: `toback` hands back the pool REGION that owns the
     # weight, and this testset is about the array over it — every line below
     # takes a view of it, permutes it, or broadcasts over it.
@@ -108,7 +108,7 @@ end
 
 @testset "the one-kernel layer norm computes what the expression does" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     ctx = (; backend)                      # `layernorm!` asks for nothing else
     C, groups = 12, 5
     h = reshape(Float32.(1:(C * groups)) .* 0.25f0 .- 3.0f0, C, groups)
@@ -137,8 +137,11 @@ end
 
 @testset "subgroup layer norm replaces the shared reduction tree" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
-    sg = Mantle.caps(Mantle.vk_context(backend)).subgroup
+    backend = Mantle.defaultbackend()
+    # `vk_context` is one backend's. The subgroup width is a capability every
+    # backend answers, so ask the capability record rather than that backend's
+    # context -- naming it errored the testset instead of running it.
+    sg = DNNKernels.caps(backend).subgroup
     C, groups = 144, 17
     h = reshape(Float32.(1:(C * groups)) .* 0.001f0 .- 1.0f0, C, groups)
     γh = Float32.(1:C) ./ C
@@ -182,8 +185,11 @@ end
 
 @testset "subgroup layer norm writes window order directly" begin
     DK = DNNKernels
-    backend = Mantle.LavaBackend()
-    sg = Mantle.caps(Mantle.vk_context(backend)).subgroup
+    backend = Mantle.defaultbackend()
+    # `vk_context` is one backend's. The subgroup width is a capability every
+    # backend answers, so ask the capability record rather than that backend's
+    # context -- naming it errored the testset instead of running it.
+    sg = DNNKernels.caps(backend).subgroup
     C, IW, IH, NX, NY, B = 144, 4, 4, 2, 2, 1
     W, H, groups = IW * NX, IH * NY, IW * NX * IH * NY * B
     h = reshape(Float32.(1:(C * groups)) .* 0.0001f0 .- 2.0f0, C, W, H, B)

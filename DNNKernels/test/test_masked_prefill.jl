@@ -2,7 +2,7 @@ import KernelInterface
 using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
 
 @testset "staged masked prefill with strided caches" begin
-    be=Mantle.LavaBackend(); caps=DNNKernels.caps(be)
+    be=Mantle.defaultbackend(); caps=DNNKernels.caps(be)
     if caps.coopmat && caps.coopmatsubgroup==32 && caps.tile==16
         rng=MersenneTwister(711)
         qh=randn(rng,Float16,128,128,2,1).*Float16(.2)
@@ -42,7 +42,7 @@ end
 # is worth pinning: a grouped-query 128-token prompt folds to `nq = 1024`, where
 # the staged route is no faster and drifts further from the unfused graph.
 @testset "staged masked prefill query floor" begin
-    be=Mantle.LavaBackend(); caps=DNNKernels.caps(be)
+    be=Mantle.defaultbackend(); caps=DNNKernels.caps(be)
     if caps.coopmat && caps.coopmatsubgroup==32 && caps.tile==16
         nk=512
         k=DNNKernels.toback(be,zeros(Float16,128,nk,8,1))
@@ -61,7 +61,7 @@ end
 end
 
 @testset "strided SwiGLU retains rounded arithmetic" begin
-    be=Mantle.LavaBackend()
+    be=Mantle.defaultbackend()
     x=DNNKernels.toback(be,randn(MersenneTwister(21),Float16,1024,32,1))
     g=view(x,1:512,:,:); u=view(x,513:1024,:,:)
     out=similar(x,Float16,512,32,1); ref=similar(out)

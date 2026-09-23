@@ -1,5 +1,5 @@
 using Test, DNNKernels, Lava, KernelAbstractions
-using Mantle: LavaBackend
+using Mantle
 using Adapt: adapt
 using KernelAbstractions: @kernel, @index
 const KA = KernelAbstractions
@@ -65,14 +65,20 @@ stampkernel(::Val{3}) = idxstamp3!
 stampkernel(::Val{4}) = idxstamp4!
 stampkernel(::Val{5}) = idxstamp5!
 
-stampvalue(t::NTuple{1,Int}) = float(t[1])
+stampvalue(t::NTuple{1,Int}) = t[1]
 stampvalue(t::NTuple{2,Int}) = t[1] + 1000t[2]
 stampvalue(t::NTuple{3,Int}) = t[1] + 1000t[2] + 1000_000t[3]
 stampvalue(t::NTuple{4,Int}) = t[1] + 1000t[2] + 1000_000t[3] + 1000_000_000t[4]
 stampvalue(t::NTuple{5,Int}) = t[1] + 1000t[2] + 1000_000t[3] + 1000_000_000t[4] + 7t[5]
 
 function stamped(backend, dims; wg = DNNKernels.launchgroup(dims))
-    d = adapt(backend, zeros(Float64, dims))
+    # Int64, not Float64. The stamp packs the coordinates into one number and
+    # reaches 1.6e10 at `(72, 256, 8, 16)`, so Float32 cannot hold it exactly
+    # (24 bits of mantissa stops at 1.7e7) and Float64 does not exist on every
+    # GPU -- a Metal device refuses the allocation outright and the whole file
+    # errors instead of testing index recovery. The values are integers; storing
+    # them as integers is both exact and portable.
+    d = adapt(backend, zeros(Int64, dims))
     stampkernel(Val(length(dims)))(backend)(d; ndrange = dims, workgroupsize = wg)
     KA.synchronize(backend)
     Array(d)
@@ -81,7 +87,7 @@ end
 reference(dims) = [stampvalue(Tuple(I)) for I in CartesianIndices(dims)]
 
 @testset "global index recovery" begin
-    backend = LavaBackend()
+    backend = Mantle.defaultbackend()
 
     @testset "NTuple, launchgroup workgroup" begin
         for dims in [(1024,), (100003,), (65537,),
@@ -117,7 +123,7 @@ reference(dims) = [stampvalue(Tuple(I)) for I in CartesianIndices(dims)]
         # the dispatch is no longer 1:1 with the blocks — the guard must decline.
         for dims in [(1024,), (1920, 1152), (1920, 1152, 4), (1920, 1152, 4, 1),
                      (16, 8, 4, 2), (20_000_000,), (2, 3, 5, 7, 11)]
-            d = adapt(backend, zeros(Float64, dims))
+            d = adapt(backend, zeros(Int64, dims))   # see `stamped`
             idxlinear!(backend)(d; ndrange = dims,
                                 workgroupsize = DNNKernels.launchgroup(dims))
             KA.synchronize(backend)
