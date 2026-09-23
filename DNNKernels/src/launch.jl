@@ -74,9 +74,21 @@ so trailing becomes leading and this only has to handle the size-1 axes.
     CartesianIndex(ntuple(d -> @inbounds(sz[d] == 1 ? 1 : I[d]), Val(length(sz))))
 end
 
-@kernel function ndmap!(f::F, out, args::Vararg{Any,N}) where {F,N}
-    I = @index(Global, NTuple)
+# Flat, like `ndmap_flat!` below, and for a reason the note above did not have to
+# consider: `KernelInterface` gives three global axes and an ndrange of rank four
+# or five cannot be launched over them. `Tuple(KI.get_global_id())` is always
+# three long, so `out[I...]` on a rank-4 destination indexed the wrong element.
+#
+# The decomposition is `Mantle.cart32` over `FastDiv32` extents, the same one
+# `ndmap_flat!` uses and for the same reason: a magic-number multiply is ~5
+# cycles where a real divide is ~25. What the note above rules out is flattening
+# the LINEARLY-INDEXABLE path on performance grounds; this is the other one.
+function ndmap!(f::F, out, sz, n, args::Vararg{Any,N}) where {F,N}
+    lin = KI.get_global_id().x
+    lin <= n || return nothing
+    I = Mantle.cart32(UInt32(lin) - UInt32(1), sz)
     @inbounds out[I...] = f(I, args...)
+    return nothing
 end
 
 """
@@ -103,11 +115,12 @@ flattening buys nothing and costs a `CartesianIndices` lookup.
 # `CartesianIndices`, which is what makes the flat launch worth taking at all: a
 # Cartesian rebuild costs N-1 real integer divisions, and a magic-number multiply
 # is ~5 cycles where a divide is ~25.
-@kernel function ndmap_flat!(f::F, out, sz, n, args::Vararg{Any,N}) where {F,N}
-    lin = @index(Global, Linear)
+function ndmap_flat!(f::F, out, sz, n, args::Vararg{Any,N}) where {F,N}
+    lin = KI.get_global_id().x
     if lin <= n
         @inbounds out[lin] = f(Mantle.cart32(UInt32(lin) - UInt32(1), sz), args...)
     end
+    return nothing
 end
 
 # ── Why the flat launch, and what would overturn it ──────────────────────────
@@ -167,7 +180,7 @@ kernel divides by cannot drift apart — passing `size(a)` to one and a stale
 
 A 1-based rank-4 coordinate recovered from a **linear** thread index, in Int32.
 
-`@index(Global, NTuple)` is the obvious way to write a rank-4 kernel and costs
+`Tuple(KI.get_global_id())` is the obvious way to write a rank-4 kernel and costs
 **3.5x** on this backend. `KA.expand` recovers the block coordinate by indexing a
 `CartesianIndices` with a flattened index — `2(N-1)` integer divisions by
 *runtime* extents, in Int64. `Lava.directdispatch` removes that for rank <= 3 by
@@ -177,8 +190,8 @@ axis past the third is flattened by `pad_to_3d` and cannot use it.
 Doing the same recovery ourselves, in Int32, over a 1-D ndrange gets it back.
 A 4-D copy of 1920x1152x4, measured interleaved:
 
-    rank-4 @index(Global, NTuple)   1.036 ms    68 GB/s
-    rank-1 @index(Global, Linear)   0.293      241   3.53x
+    rank-4 Tuple(KI.get_global_id())   1.036 ms    68 GB/s
+    rank-1 KI.get_global_id().x   0.293      241   3.53x
     1-D ndrange + coords4           0.310      228   3.34x
 
 within 6% of a bare linear copy. This is why `grid_sample2d_kernel!` looked like
@@ -215,16 +228,24 @@ function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)
         c, _ = get(p, (sz, wg), (0, grp))
         p[(sz, wg)] = (c + 1, grp)
     end
+    # The host, directly. `KernelInterface` has no CPU backend — `KI.Kernel{CPU}`
+    # exists and is not callable — and the CPU path here is the verification one,
+    # where a loop is the whole of what the kernel does anyway. `@kernel` hid
+    # this because KernelAbstractions ships a CPU backend of its own.
+    if backend isa KernelAbstractions.CPU
+        @inbounds for I in CartesianIndices(out)
+            out[I] = f(Tuple(I), args...)
+        end
+        return out
+    end
     if ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
-        ndmap_flat!(backend)(f, out, map(Mantle.FastDiv32, size(out)), n, args...; ndrange=n)
+        KI.Kernel(backend, ndmap_flat!)(f, out, map(Mantle.FastDiv32, size(out)), n, args...; ndrange=n)
     else
         sz = size(out)
-        # Workgroup in the kernel's TYPE, via `staticgroup` so it never trips
-        # `Mantle.WORKGROUP_FALLBACK`. That keeps the index arithmetic
-        # compile-time constant, which is worth ~2x on these kernels. The cost is
-        # a separate SPIR-V module per (body, workgroup shape); measured below.
-        ndmap!(backend, Mantle.staticgroup(sz))(f, out, args...; ndrange=sz)
+        n = length(out)
+        KI.Kernel(backend, ndmap!)(f, out, map(Mantle.FastDiv32, sz), n, args...;
+                                   ndrange = n)
     end
     out
 end

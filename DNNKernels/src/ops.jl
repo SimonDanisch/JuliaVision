@@ -669,9 +669,9 @@ end
 # elementwise function of one tensor. The concatenated half is never needed as a
 # tensor — it is `-x[j + H/2]` for the low half and `x[j - H/2]` for the high one,
 # which is an index, not a buffer.
-@kernel cpu=false function rope_kernel!(out, @Const(x), @Const(cs), @Const(sn),
+function rope_kernel!(out, x, cs, sn,
                                         H::Int32, half::Int32, HT::Int32, n::Int64)
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             l = Int32(i) - Int32(1)
@@ -689,6 +689,7 @@ end
                                         r * Float32(sn[c + Int32(1)])))
         end
     end
+    return nothing
 end
 
 # The INTERLEAVED rotary, as one op — see `fusepairrope`.
@@ -697,9 +698,9 @@ end
 # same thread and the store is a contiguous 2-element write. `P` and `H` are
 # `Val`s because the only arithmetic here besides the rotation is two integer
 # divisions, and by a runtime divisor those cost more than the rotation does.
-@kernel cpu=false function pairrope_kernel!(out, @Const(x), @Const(cs), @Const(sn),
+function pairrope_kernel!(out, x, cs, sn,
                                             ::Val{P}, ::Val{H}, n::Int32) where {P,H}
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             i0 = Int32(i) - Int32(1)
@@ -718,6 +719,7 @@ end
             out[o + Int32(2)] = eltype(out)(a * sv + b * cv)
         end
     end
+    return nothing
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.pairrope")})
@@ -730,8 +732,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.pairrope")})
     xd = x isa GPUArrays.AbstractGPUArray ? x : materialize(ctx.rec, ctx.backend, x)
     npair = length(xd) ÷ 2
     H = size(xd, 2)
-    pairrope_kernel!(ctx.backend, 256)(out, xd, vec(cv), vec(sv), Val(P), Val(H),
-                                       Int32(npair); ndrange = npair)
+    KI.Kernel(ctx.backend, pairrope_kernel!)(out, xd, vec(cv), vec(sv), Val(P), Val(H),
+                                       Int32(npair); ndrange = npair, workgroupsize = 256)
     out
 end
 
@@ -742,18 +744,22 @@ end
 # 26624-wide tensor, per layer, and two of them exist only to move it between
 # fp16 and fp32. `sigmoid` is evaluated in fp32 here exactly as the traced graph
 # does, so this changes the dispatch count and not the arithmetic.
-@kernel cpu=false function swiglu_kernel!(out, @Const(gate), @Const(up), n::Int64)
-    i = @index(Global, Linear)
+function swiglu_kernel!(out, gate, up, n::Int64)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             x = Float32(gate[i])
             out[i] = eltype(out)(Float32(eltype(out)(x / (1f0 + exp(-x)))) * Float32(up[i]))
         end
     end
+    return nothing
 end
 
-@kernel cpu=false function swiglu_strided_kernel!(out, @Const(gate), @Const(up), gb, ub, gs, us)
-    i = @index(Global, Cartesian)
+function swiglu_strided_kernel!(out, gate, up, gb, ub, gs, us)
+    # Flat launch, decomposed here — see `scatter_kernel!`.
+    lin = KI.get_global_id().x
+    lin <= length(out) || return nothing
+    i = CartesianIndices(size(out))[lin]
     @inbounds begin
         gi = gb; ui = ub
         for d in 1:length(gs)
@@ -763,6 +769,7 @@ end
         x = Float32(gate[gi])
         out[i] = eltype(out)(Float32(eltype(out)(x / (1f0 + exp(-x)))) * Float32(up[ui]))
     end
+    return nothing
 end
 
 # The same SwiGLU where the innermost axis is a RUN on all three operands, `V`
@@ -776,10 +783,14 @@ end
 # the best of six against 14.8 at the default). At `V = 8` the same op runs at
 # 104.7 GB/s: 12.06 ms to 2.90. `V = 16` gives it back (3.64), which is why
 # `swiglurun` stops at eight.
-@kernel cpu=false function swiglu_run_kernel!(out, @Const(gate), @Const(up),
+function swiglu_run_kernel!(out, gate, up,
                                               gb, ub, ob, gs, us, os,
-                                              ::Val{V}) where {V}
-    i = @index(Global, Cartesian)
+                                              ::Val{V}, nd) where {V}
+    # Flat launch, decomposed here — see `scatter_kernel!`. `nd` is the run
+    # shape: axis one is `size(out, 1) ÷ V`, so it is not `size(out)`.
+    lin = KI.get_global_id().x
+    lin <= prod(nd) || return nothing
+    i = CartesianIndices(nd)[lin]
     @inbounds begin
         # Axis one is the run, so it advances `V` at a time; every other axis is
         # walked exactly as the scalar kernel walks it.
@@ -797,6 +808,7 @@ end
                                       Float32(up[ui + v]))
         end
     end
+    return nothing
 end
 
 """
@@ -844,16 +856,16 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.swiglu")})
         V = swiglurun(size(out), gst, ust, ost)
         if V !== nothing
             nd = ntuple(d -> d == 1 ? size(out, 1) ÷ V : size(out, d), ndims(out))
-            swiglu_run_kernel!(ctx.backend, 256)(reshape(out, length(out)),
+            KI.Kernel(ctx.backend, swiglu_run_kernel!)(reshape(out, length(out)),
                 reshape(gr[1],length(gr[1])), reshape(ur[1],length(ur[1])),
-                Int32(gr[2]+1), Int32(ur[2]+1), Int32(1), gst, ust, ost, Val(V);
-                ndrange = nd)
+                Int32(gr[2]+1), Int32(ur[2]+1), Int32(1), gst, ust, ost, Val(V), nd;
+                ndrange = prod(nd), workgroupsize = 256)
             return out
         end
-        swiglu_strided_kernel!(ctx.backend, 256)(out,
+        KI.Kernel(ctx.backend, swiglu_strided_kernel!)(out,
             reshape(gr[1],length(gr[1])),reshape(ur[1],length(ur[1])),
             Int32(gr[2]+1),Int32(ur[2]+1),gst,ust;
-            ndrange=size(out))
+            ndrange=length(out), workgroupsize=256)
         return out
     end
     # `AbstractGPUArray`, the question being asked: is this already a dense device
@@ -863,7 +875,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.swiglu")})
     # same line for the same reason.
     gd = g isa GPUArrays.AbstractGPUArray ? g : materialize(ctx.rec, ctx.backend, g)
     ud = u isa GPUArrays.AbstractGPUArray ? u : materialize(ctx.rec, ctx.backend, u)
-    swiglu_kernel!(ctx.backend, 256)(out, gd, ud, Int64(length(gd)); ndrange = length(gd))
+    KI.Kernel(ctx.backend, swiglu_kernel!)(out, gd, ud, Int64(length(gd)); ndrange = length(gd), workgroupsize = 256)
     out
 end
 
@@ -875,11 +887,11 @@ end
 # Cartesian for the same reason `indexput_kernel!` is — the destination is a
 # strided view into the cache, and indexing one linearly costs more than the
 # launch shape saves.
-@kernel cpu=false function rope_store_kernel!(dst, @Const(x), @Const(cs), @Const(sn),
-                                              @Const(iv), H::Int32, half::Int32,
+function rope_store_kernel!(dst, x, cs, sn,
+                                              iv, H::Int32, half::Int32,
                                               HT::Int32, ::Val{N}, ::Val{SZ},
                                               n::Int64) where {N,SZ}
-    lin = @index(Global, Linear)
+    lin = KI.get_global_id().x
     if lin <= n
     @inbounds begin
         I = CartesianIndices(SZ)[lin]
@@ -897,6 +909,7 @@ end
         dst[CartesianIndex(ntuple(k -> k == 2 ? t : I[k], Val(N)))] = eltype(dst)(v)
     end
     end
+    return nothing
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.ropecache")})
@@ -907,10 +920,10 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.ropecache")})
     cv = cs isa GPUArrays.AbstractGPUArray ? cs : materialize(ctx.rec, ctx.backend, cs)
     sv = sn isa GPUArrays.AbstractGPUArray ? sn : materialize(ctx.rec, ctx.backend, sn)
     H = size(xd, 1)
-    rope_store_kernel!(ctx.backend, 256)(dst, xd, vec(cv), vec(sv), vec(iv),
+    KI.Kernel(ctx.backend, rope_store_kernel!)(dst, xd, vec(cv), vec(sv), vec(iv),
                                          Int32(H), Int32(H ÷ 2), Int32(H * size(xd, 2)),
                                          Val(ndims(xd)), Val(size(xd)), Int64(length(xd));
-                                         ndrange = length(xd))
+                                         ndrange = length(xd), workgroupsize = 256)
     dst
 end
 
@@ -928,9 +941,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.rope")})
     ob = ctx.graph.buffers[ctx.outid[]]
     out = dest(ctx, ob.dtype, evalshape(ob.shape, ctx.dims)...)
     HT = H * size(xd, 2)
-    rope_kernel!(ctx.backend, 256)(out, xd, vec(cv), vec(sv),
+    KI.Kernel(ctx.backend, rope_kernel!)(out, xd, vec(cv), vec(sv),
                                    Int32(H), Int32(H ÷ 2), Int32(HT), Int64(length(xd));
-                                   ndrange = length(xd))
+                                   ndrange = length(xd), workgroupsize = 256)
     out
 end
 
@@ -945,9 +958,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("fused.groupedrms")})
     n = length(xd) ÷ C
     # The same width the declared path picks — see `rmsgroup`.
     wg = rmsgroup(C)
-    groupedrms_kernel!(ctx.backend, wg)(
+    KI.Kernel(ctx.backend, groupedrms_kernel!)(
         out, xd, γ, Int32(C), Int32(NG), ε,
-        Val(Bool(get(op.attrs, "midround", false))), Val(wg); ndrange = n * wg)
+        Val(Bool(get(op.attrs, "midround", false))), Val(wg); ndrange = n * wg, workgroupsize = wg)
     out
 end
 
@@ -1239,9 +1252,9 @@ non-deterministic — so there is nothing to accumulate and nothing to order.
 # Distinct from `scatter_kernel!` only in how `iv` is addressed: `scatter` carries
 # an index the same shape as `src`, `index_put` carries one vector over the
 # indexed axis. The point of it is what it does NOT do — see `index_put.default`.
-@kernel cpu=false function indexput_kernel!(dst, @Const(src), @Const(iv), ::Val{D},
+function indexput_kernel!(dst, src, iv, ::Val{D},
                                             ::Val{N}, ::Val{SZ}, n::Int64) where {D,N,SZ}
-    i = @index(Global, Linear)
+    i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             I = CartesianIndices(SZ)[i]
@@ -1249,14 +1262,21 @@ non-deterministic — so there is nothing to accumulate and nothing to order.
             dst[CartesianIndex(ntuple(k -> k == D ? j : I[k], Val(N)))] = src[I]
         end
     end
+    return nothing
 end
 
-@kernel function scatter_kernel!(dst, @Const(idx), @Const(src), ::Val{D}, ::Val{N}) where {D,N}
-    I = @index(Global, Cartesian)
+function scatter_kernel!(dst, idx, src, ::Val{D}, ::Val{N}) where {D,N}
+    # `@index(Global, Cartesian)` was KernelAbstractions decomposing an
+    # N-dimensional ndrange; `KernelInterface` gives three linear axes. Launched
+    # flat and decomposed here, which is what `bmm_nsplit_reduce!` already does.
+    lin = KI.get_global_id().x
+    lin <= length(idx) || return nothing
+    I = CartesianIndices(size(idx))[lin]
     @inbounds begin
         j = Int(idx[I]) + 1                        # torch indices are 0-based
         dst[CartesianIndex(ntuple(k -> k == D ? j : I[k], Val(N)))] = src[I]
     end
+    return nothing
 end
 
 """
@@ -1280,8 +1300,19 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("scatter.src")})
         "scatter: index is $(ndims(idx))-d and self is $(ndims(a))-d (op $(op.id))")
     dst = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
     dst .= a
-    scatter_kernel!(ctx.backend)(dst, idx, src, Val(d), Val(ndims(a));
-                                 ndrange = size(idx))
+    # The host directly on a CPU context, for the reason `launch!` gives:
+    # `KernelInterface` has no CPU backend, and `@kernel` hid that because
+    # KernelAbstractions ships one. This is the verification path.
+    if ctx.backend isa KernelAbstractions.CPU
+        n = ndims(a)
+        @inbounds for I in CartesianIndices(idx)
+            j = Int(idx[I]) + 1
+            dst[CartesianIndex(ntuple(k -> k == d ? j : I[k], n))] = src[I]
+        end
+        return dst
+    end
+    KI.Kernel(ctx.backend, scatter_kernel!)(dst, idx, src, Val(d), Val(ndims(a));
+                                            ndrange = length(idx))
     dst
 end
 
@@ -1298,11 +1329,11 @@ attention here softmaxes 16 or 32 elements at a time. Three of these cost
 """
 const SOFTMAX_WG = 64
 
-@kernel function softmax_kernel!(out, @Const(a), ::Val{WG}, pre, n) where {WG}
-    lt, = @index(Local, NTuple)
-    grp, = @index(Group, NTuple)
-    @uniform T = eltype(out)
-    sh = @localmem Float32 (WG,)
+function softmax_kernel!(out, a, ::Val{WG}, pre, n) where {WG}
+    lt, = Tuple(KI.get_local_id())
+    grp, = Tuple(KI.get_group_id())
+    T = eltype(out)
+    sh = KI.localmemory(Float32, Val((WG,)), Val(1))
     # Values that have to survive a `@synchronize` need `@private` storage —
     # a plain local is not guaranteed to on the CPU backend.
     keep = StaticArrays.MArray{Tuple{2}, Float32}(undef)
@@ -1324,7 +1355,7 @@ const SOFTMAX_WG = 64
         end
         sh[lt] = acc
     end
-    @synchronize
+    KI.barrier()
     @inbounds if lt == 1
         m = sh[1]
         for k in 2:WG
@@ -1332,9 +1363,9 @@ const SOFTMAX_WG = 64
         end
         sh[1] = m
     end
-    @synchronize
+    KI.barrier()
     @inbounds keep[1] = sh[1]
-    @synchronize                       # every thread has read `m` before sh[1] is reused
+    KI.barrier()                       # every thread has read `m` before sh[1] is reused
 
     @inbounds begin
         base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
@@ -1346,7 +1377,7 @@ const SOFTMAX_WG = 64
         end
         sh[lt] = s
     end
-    @synchronize
+    KI.barrier()
     @inbounds if lt == 1
         s = sh[1]
         for k in 2:WG
@@ -1354,7 +1385,7 @@ const SOFTMAX_WG = 64
         end
         sh[1] = s
     end
-    @synchronize
+    KI.barrier()
 
     @inbounds begin
         base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
@@ -1366,6 +1397,7 @@ const SOFTMAX_WG = 64
             i += WG
         end
     end
+    return nothing
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_softmax.default")})
@@ -1379,8 +1411,8 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("_softmax.default")})
     n = size(a, d)
     post = length(a) ÷ (pre * n)
     out = dest(ctx, ctx.graph.buffers[ctx.outid[]].dtype, size(a)...)
-    softmax_kernel!(ctx.backend, SOFTMAX_WG)(out, a, Val(SOFTMAX_WG), pre, n;
-                                             ndrange = SOFTMAX_WG * pre * post)
+    KI.Kernel(ctx.backend, softmax_kernel!)(out, a, Val(SOFTMAX_WG), pre, n;
+                                             ndrange = SOFTMAX_WG * pre * post, workgroupsize = SOFTMAX_WG)
     out
 end
 
@@ -1854,11 +1886,12 @@ relative. PyTorch's `index_put_(accumulate=True)` on CUDA behaves identically �
 it is one of the ops `torch.use_deterministic_algorithms` refuses — and
 `KokoroRunner`'s suite asserts a tolerance here rather than equality.
 """
-@kernel function scatteradd_kernel!(dst, @Const(src), @Const(idx), n::Int32)
-    j = @index(Global, Linear)
+function scatteradd_kernel!(dst, src, idx, n::Int32)
+    j = KI.get_global_id().x
     @inbounds if j <= n
         Atomix.@atomic dst[Int(idx[j]) + 1] += src[j]
     end
+    return nothing
 end
 
 """
@@ -1951,7 +1984,7 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
             # lowers Atomix's fp32 add to its native atomic is the backend's job.
             iv = vec(raw[d])
             m = length(src)
-            scatteradd_kernel!(ctx.backend)(vec(dst), vec(src), iv, Int32(m);
+            KI.Kernel(ctx.backend, scatteradd_kernel!)(vec(dst), vec(src), iv, Int32(m);
                                             ndrange = m)
             return dst
         end
@@ -1982,9 +2015,9 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("index_put.default")})
     # already happened.
     if length(nz) == 1 && ndims(src) == n
         d = nz[1]
-        indexput_kernel!(ctx.backend, 256)(dst, src, vec(raw[d]), Val(d), Val(n),
+        KI.Kernel(ctx.backend, indexput_kernel!)(dst, src, vec(raw[d]), Val(d), Val(n),
                                            Val(size(src)), Int64(length(src));
-                                           ndrange = length(src))
+                                           ndrange = length(src), workgroupsize = 256)
         return dst
     end
     # More than one index tensor is advanced indexing; still host-side, and rare
@@ -2688,14 +2721,15 @@ Reversed layout puts the embedding dimension first — `weight` is
 `(dim, vocab)` and the result is `(dim, indices...)` — so this is a column
 gather, and the indices are torch's 0-based ones.
 """
-@kernel function embedding_kernel!(out, @Const(w), @Const(idx), n::Int32)
-    k = @index(Global, Linear)
+function embedding_kernel!(out, w, idx, n::Int32)
+    k = KI.get_global_id().x
     @inbounds if k <= n
         d = size(out, 1)
         col = (Int32(k) - Int32(1)) ÷ Int32(d)          # which token
         row = (Int32(k) - Int32(1)) % Int32(d) + Int32(1)
         out[k] = w[row, Int32(idx[col + Int32(1)]) + Int32(1)]
     end
+    return nothing
 end
 
 function runop!(ctx::Ctx, op::Op, ::Val{Symbol("embedding.default")})
@@ -2705,6 +2739,6 @@ function runop!(ctx::Ctx, op::Op, ::Val{Symbol("embedding.default")})
     out = alloc(ctx, eltype(w), d, size(idx)...)
     backend = KernelAbstractions.get_backend(out)
     n = length(out)
-    embedding_kernel!(backend)(out, w, reshape(idx, length(idx)), Int32(n); ndrange = n)
+    KI.Kernel(backend, embedding_kernel!)(out, w, reshape(idx, length(idx)), Int32(n); ndrange = n)
     out
 end

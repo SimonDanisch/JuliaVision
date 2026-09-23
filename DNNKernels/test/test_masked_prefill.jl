@@ -1,3 +1,4 @@
+import KernelInterface
 using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
 
 @testset "staged masked prefill with strided caches" begin
@@ -65,9 +66,11 @@ end
     g=view(x,1:512,:,:); u=view(x,513:1024,:,:)
     out=similar(x,Float16,512,32,1); ref=similar(out)
     gr,ur=DNNKernels.stridedroot(g),DNNKernels.stridedroot(u)
-    DNNKernels.swiglu_strided_kernel!(be,256)(out,
+    KernelInterface.Kernel(be, DNNKernels.swiglu_strided_kernel!)(out,
         reshape(gr[1],length(gr[1])),reshape(ur[1],length(ur[1])),
-        Int32(gr[2]+1),Int32(ur[2]+1),Int32.(strides(g)),Int32.(strides(u));ndrange=size(out))
-    DNNKernels.swiglu_kernel!(be,256)(ref,copy(g),copy(u),Int64(length(out));ndrange=length(out))
+        Int32(gr[2]+1),Int32(ur[2]+1),Int32.(strides(g)),Int32.(strides(u));
+        ndrange=length(out), workgroupsize=256)
+    KernelInterface.Kernel(be, DNNKernels.swiglu_kernel!)(
+        ref,copy(g),copy(u),Int64(length(out)); ndrange=length(out), workgroupsize=256)
     @test Array(out)==Array(ref)
 end

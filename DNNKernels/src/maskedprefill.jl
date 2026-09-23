@@ -25,10 +25,10 @@ function maskedprefill_applicable(ctx,q,k,v,mask)
     all(a->stridedroot(a)!==nothing && strides(a)[1:2]==(1,e),(q,k,v))
 end
 
-@kernel cpu=false function masked_prefill_softmax!(p, @Const(s), @Const(mask),
+function masked_prefill_softmax!(p, s, mask,
                                                   scale, ::Val{NK}, ::Val{NQ}) where {NK,NQ}
-    lane = Int32(@index(Local, Linear))-Int32(1)
-    row = Int32(@index(Group, Linear))-Int32(1)
+    lane = Int32(KI.get_local_id().x)-Int32(1)
+    row = Int32(KI.get_group_id().x)-Int32(1)
     vals = StaticArrays.MArray{Tuple{cld(NK,32)}, Float32}(undef)
     mx = -Inf32
     @inbounds for j in 0:cld(NK,32)-1
@@ -58,14 +58,15 @@ end
             p[1+key+row*Int32(NK)] = Float16(vals[j+1]/total)
         end
     end
+    return nothing
 end
 
-@kernel cpu=false unsafe_indices=true function masked_batch_gemm!(C,@Const(A),@Const(B),
+function masked_batch_gemm!(C,A,B,
         ::Val{M},::Val{N},::Val{K},as,bs) where {M,N,K}
-    sa = @localmem Mantle.GemmV2 (72*32,)
-    sb = @localmem Mantle.GemmV2 (24*128,)
-    tid=Int32(@index(Local,Linear))-Int32(1)
-    block=Int32(@index(Group,Linear))-Int32(1)
+    sa = KI.localmemory(Mantle.GemmV2, Val((72*32,)), Val(1))
+    sb = KI.localmemory(Mantle.GemmV2, Val((24*128,)), Val(2))
+    tid=Int32(KI.get_local_id().x)-Int32(1)
+    block=Int32(KI.get_group_id().x)-Int32(1)
     batch=block÷Int32((M÷128)*(N÷128))
     tile=block%Int32((M÷128)*(N÷128))
     tm=(tile%Int32(M÷128))*Int32(128)
@@ -84,7 +85,7 @@ end
             bi=Int32(1)+k0+2p+(tn+j)*Int32(K)+batch*bs
             sb[Int32(1)+p+j*Int32(24)]=(VecElement(B[bi]),VecElement(B[bi+1]))
         end
-        @synchronize
+        KI.barrier()
         Base.Cartesian.@nexprs 2 u -> begin
             kt=Int32((u-1)*16)
             Base.Cartesian.@nexprs 4 i -> begin
@@ -97,12 +98,13 @@ end
                 end
             end
         end
-        @synchronize
+        KI.barrier()
     end
     Base.Cartesian.@nexprs 2 j -> Base.Cartesian.@nexprs 4 i ->
         Mantle.accstore!(C,Int32(1)+tm+(sm+Int32(i-1))*Int32(16)+
             (tn+(sn+Int32(j-1))*Int32(16))*Int32(M)+batch*Int32(M*N),
             Int32(M),c_i_j,identity)
+    return nothing
 end
 
 function maskedprefill!(ctx,out,q,k,v,mask,scale)
@@ -111,13 +113,13 @@ function maskedprefill!(ctx,out,q,k,v,mask,scale)
     s=scratch!(ctx,Float16,nk,nq,h,b)
     p=scratch!(ctx,Float16,nk,nq,h,b)
     kt .= PermutedDimsArray(k,(2,1,3,4))
-    masked_batch_gemm!(ctx.backend,256)(s,kt,q,Val(nk),Val(nq),Val(e),
-        Int32(nk*e),Int32(e*nq);ndrange=(nk÷128)*(nq÷128)*h*b*256)
-    masked_prefill_softmax!(ctx.backend,32)(p,s,mask,Float32(scale),Val(nk),Val(nq);
-        ndrange=nq*h*b*32)
+    KI.Kernel(ctx.backend, masked_batch_gemm!)(s,kt,q,Val(nk),Val(nq),Val(e),
+        Int32(nk*e),Int32(e*nq);ndrange=(nk÷128)*(nq÷128)*h*b*256, workgroupsize = 256)
+    KI.Kernel(ctx.backend, masked_prefill_softmax!)(p,s,mask,Float32(scale),Val(nk),Val(nq);
+        ndrange=nq*h*b*32, workgroupsize = 32)
     vr=stridedroot(v)
     vf=view(reshape(vr[1],length(vr[1])),vr[2]+1:length(vr[1]))
-    masked_batch_gemm!(ctx.backend,256)(out,vf,p,Val(e),Val(nq),Val(nk),
-        Int32(strides(v)[3]),Int32(nk*nq);ndrange=(e÷128)*(nq÷128)*h*b*256)
+    KI.Kernel(ctx.backend, masked_batch_gemm!)(out,vf,p,Val(e),Val(nq),Val(nk),
+        Int32(strides(v)[3]),Int32(nk*nq);ndrange=(e÷128)*(nq÷128)*h*b*256, workgroupsize = 256)
     out
 end

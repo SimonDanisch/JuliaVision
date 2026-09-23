@@ -3121,8 +3121,8 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
                          swiglustridedflat(sg.parent), swiglustridedflat(su.parent),
                          Int32(sg.offset + 1), Int32(su.offset + 1), Int32(1),
                          map(Int32, sg.strides), map(Int32, su.strides),
-                         map(Int32, os), Val(V)),
-                        nd; name = op.id)
+                         map(Int32, os), Val(V), nd),
+                        prod(nd); group = 256, name = op.id)
             return out
         end
         M.dispatch!(emitctx.g, swiglu_strided_kernel!,
@@ -3130,7 +3130,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
                      swiglustridedflat(su.parent),
                      Int32(sg.offset + 1), Int32(su.offset + 1),
                      map(Int32, sg.strides), map(Int32, su.strides)),
-                    sg.dims; name = op.id)
+                    prod(sg.dims); group = 256, name = op.id)
         return out
     end
     gate = operand(emitctx, op.ins[1])
@@ -3347,8 +3347,9 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("scatter.src")})
     ewdispatch!(emitctx, out, od, (a,), (bcstrides(od, size(a)),), identity;
                 name = "$(op.id).self")
     length(idx) == 0 && return out
+    # Flat: the kernel decomposes the index itself now — see `scatter_kernel!`.
     M.dispatch!(emitctx.g, scatter_kernel!, (out, idx, src, Val(d), Val(n)),
-                size(idx); name = op.id)
+                length(idx); name = op.id)
     return out
 end
 

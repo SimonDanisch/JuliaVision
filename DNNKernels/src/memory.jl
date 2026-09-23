@@ -145,15 +145,15 @@ Numerics are unchanged, including upstream's exponentiation *without* subtractin
 the row max (memory_utils.py:59) — the values are negated distances and so are
 bounded above.
 """
-@kernel function topk_softmax_kernel!(sums, sim, ::Val{K}, ::Val{ACC}, ::Val{WG},
+function topk_softmax_kernel!(sums, sim, ::Val{K}, ::Val{ACC}, ::Val{WG},
                                       N) where {K,ACC,WG}
-    @uniform T = eltype(sim)
-    gq, gb = @index(Group, NTuple)
-    tid, = @index(Local, NTuple)
+    T = eltype(sim)
+    gq, gb = Tuple(KI.get_group_id())
+    tid, = Tuple(KI.get_local_id())
 
-    vals = @localmem ACC (K,)
-    idxs = @localmem Int32 (K,)
-    tot = @localmem ACC (1,)
+    vals = KI.localmemory(ACC, Val((K,)), Val(1))
+    idxs = KI.localmemory(Int32, Val((K,)), Val(2))
+    tot = KI.localmemory(ACC, Val((1,)), Val(3))
 
     @inbounds if tid == 1
         for j in 1:K
@@ -181,7 +181,7 @@ bounded above.
         sums[gq, gb] = T(s)
     end
 
-    @synchronize
+    KI.barrier()
 
     # the row is zeroed cooperatively, then only the K survivors are written
     @inbounds begin
@@ -192,7 +192,7 @@ bounded above.
         end
     end
 
-    @synchronize
+    KI.barrier()
 
     @inbounds if tid == 1
         s = tot[1]
@@ -200,6 +200,7 @@ bounded above.
             idxs[j] > 0 && (sim[gq, idxs[j], gb] = T(exp(vals[j]) / s))
         end
     end
+    return nothing
 end
 
 """
@@ -293,8 +294,8 @@ function readmemory(ctx, m::MemoryBank, qk, qe, w, h; topk::Int=30)
 
     sums = KernelAbstractions.allocate(backend, T, hw, bs)
     let WG = 64
-        topk_softmax_kernel!(backend, (WG, 1))(sums, sim, Val(topk), Val(T), Val(WG),
-                                               size(sim, 2); ndrange = (WG * hw, bs))
+        KI.Kernel(backend, topk_softmax_kernel!)(sums, sim, Val(topk), Val(T), Val(WG),
+                                               size(sim, 2); ndrange = (WG * hw, bs), workgroupsize = (WG, 1))
     end
 
     cv, nobj = size(m.value, 2), size(m.value, 3)

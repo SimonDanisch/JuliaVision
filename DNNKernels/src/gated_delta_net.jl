@@ -10,9 +10,9 @@ is a mutable `3×channels` history and `weight` is `4×channels`, both with
 the tap dimension contiguous. The returned sample has SiLU applied, matching
 the Gated DeltaNet graph.
 """
-@kernel cpu=false function depthwise_conv4_kernel!(out, state, @Const(x), @Const(weight),
+function depthwise_conv4_kernel!(out, state, x, weight,
                                                    channels::Int32)
-    c = Int32(@index(Global, Linear) - 1)
+    c = Int32(KI.get_global_id().x - 1)
     if c < channels
         si = c * Int32(3) + Int32(1)
         wi = c * Int32(4) + Int32(1)
@@ -31,6 +31,7 @@ the Gated DeltaNet graph.
             out[c + Int32(1)] = eltype(out)(_silu_f32(y))
         end
     end
+    return nothing
 end
 
 function depthwise_conv4!(ctx, out, state, x, weight)
@@ -38,7 +39,7 @@ function depthwise_conv4!(ctx, out, state, x, weight)
     length(out) == channels || throw(DimensionMismatch("convolution output has the wrong length"))
     length(state) == 3channels || throw(DimensionMismatch("convolution state must be 3×channels"))
     length(weight) == 4channels || throw(DimensionMismatch("convolution weight must be 4×channels"))
-    depthwise_conv4_kernel!(ctx.backend, 256)(out, state, x, weight, Int32(channels); ndrange=channels)
+    KI.Kernel(ctx.backend, depthwise_conv4_kernel!)(out, state, x, weight, Int32(channels); ndrange=channels, workgroupsize = 256)
     out
 end
 
@@ -46,13 +47,13 @@ end
 # lane walks the 128 rows of that column, so state never needs an atomic update.
 # q/k and the final RMS reduction use shared memory. Raw alpha/beta gates are
 # accepted directly, avoiding four tiny launch-and-materialize steps per layer.
-@kernel cpu=false function gated_delta_net_kernel!(out, state,
-        @Const(q), @Const(k), @Const(v), @Const(alpha), @Const(beta),
-        @Const(dt_bias), @Const(a), @Const(z), @Const(norm_weight),
+function gated_delta_net_kernel!(out, state,
+        q, k, v, alpha, beta,
+        dt_bias, a, z, norm_weight,
         eps::Float32, nheads::Int32, nkeyheads::Int32)
-    sh = @localmem Float32 (512,)
-    col = Int32(@index(Local, Linear) - 1)
-    head = Int32(@index(Group, Linear) - 1)
+    sh = KI.localmemory(Float32, Val((512,)), Val(1))
+    col = Int32(KI.get_local_id().x - 1)
+    head = Int32(KI.get_group_id().x - 1)
     keyhead = head % nkeyheads
     qoff = keyhead * Int32(128)
     voff = head * Int32(128)
@@ -63,7 +64,7 @@ end
         sh[col + Int32(1)] = qv * qv
         sh[Int32(128) + col + Int32(1)] = kv * kv
     end
-    @synchronize
+    KI.barrier()
     step = Int32(64)
     while step > Int32(0)
         if col < step
@@ -72,7 +73,7 @@ end
                 sh[Int32(128) + col + Int32(1)] += sh[Int32(128) + col + step + Int32(1)]
             end
         end
-        @synchronize
+        KI.barrier()
         step >>= 1
     end
     qscale = inv(sqrt(sh[Int32(1)] + eps))
@@ -81,7 +82,7 @@ end
         sh[col + Int32(1)] = Float32(q[qoff + col + Int32(1)]) * qscale
         sh[Int32(128) + col + Int32(1)] = Float32(k[qoff + col + Int32(1)]) * kscale
     end
-    @synchronize
+    KI.barrier()
 
     raw_alpha = Float32(alpha[head + Int32(1)]) + Float32(dt_bias[head + Int32(1)])
     decay = exp(_softplus_f32(raw_alpha) * Float32(a[head + Int32(1)]))
@@ -103,14 +104,14 @@ end
     y *= 0.08838834764831845f0 # inv(sqrt(128))
     sh[Int32(256) + col + Int32(1)] = y
     sh[Int32(384) + col + Int32(1)] = y * y
-    @synchronize
+    KI.barrier()
 
     step = Int32(64)
     while step > Int32(0)
         if col < step
             @inbounds sh[Int32(384) + col + Int32(1)] += sh[Int32(384) + col + step + Int32(1)]
         end
-        @synchronize
+        KI.barrier()
         step >>= 1
     end
     invrms = inv(sqrt(sh[Int32(385)] / 128f0 + eps))
@@ -119,6 +120,7 @@ end
         gated *= _silu_f32(Float32(z[voff + col + Int32(1)]))
         out[voff + col + Int32(1)] = eltype(out)(gated)
     end
+    return nothing
 end
 
 """
@@ -141,8 +143,8 @@ function gated_delta_net!(ctx, out, state, q, k, v, alpha, beta,
     all(length(x) == 48 for x in (alpha, beta, dt_bias, a)) ||
         throw(DimensionMismatch("alpha, beta, dt_bias and a must have 48 values"))
     length(norm_weight) == 128 || throw(DimensionMismatch("norm weight must have 128 values"))
-    gated_delta_net_kernel!(ctx.backend, 128)(out, state, q, k, v, alpha, beta,
+    KI.Kernel(ctx.backend, gated_delta_net_kernel!)(out, state, q, k, v, alpha, beta,
         dt_bias, a, z, norm_weight, Float32(eps), Int32(48), Int32(16);
-        ndrange=48*128)
+        ndrange=48*128, workgroupsize = 128)
     out
 end
