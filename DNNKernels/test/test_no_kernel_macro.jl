@@ -101,3 +101,36 @@ end
     @test counts["Mantle"] <= 11
     @test counts["DNNKernels"] <= 32
 end
+
+"""
+Named `Val{:op}` arms of `f`, from the method table rather than the source.
+
+`ops.jl` generates a block of `runop!`s with `@eval` over a table, so counting
+`function runop!` in the text undercounts by however long that table is. The
+catch-all `::Val{A} where A` is not a named arm and drops out here, because its
+parameter is a `TypeVar` and not a `Symbol`.
+"""
+function namedarms(f)
+    out = Set{Symbol}()
+    for m in methods(f), p in Base.unwrap_unionall(m.sig).parameters
+        p isa DataType && p <: Val && p.parameters[1] isa Symbol && push!(out, p.parameters[1])
+    end
+    return out
+end
+
+@testset "the eager op library only shrinks" begin
+    # The duplication the migration exists to remove: `runop!` and `emitop!` are
+    # two implementations of the same ops, one launching immediately and one
+    # declaring into a Mantle graph. `<=`, so deleting an eager arm is free.
+    #
+    # It cannot go to zero in one step and the number is not the goal — what
+    # matters is that it never goes UP, because a new eager arm is a new second
+    # implementation. `test_declared_coverage.jl` holds the other side: every op
+    # any exported graph actually contains is already declarable, so the eager
+    # arms are deletable rather than load-bearing.
+    @test length(namedarms(DNNKernels.runop!)) <= 103
+
+    # And the declared side does not shrink. Deleting an `emitop!` arm is how
+    # this would be made to pass the wrong way.
+    @test length(namedarms(DNNKernels.emitop!)) >= 97
+end
