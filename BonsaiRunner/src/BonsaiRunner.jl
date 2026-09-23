@@ -217,7 +217,7 @@ end
 struct PrefillExec
     tokens::Any
     position::Any
-    scratch::Dict{Symbol,Any}
+    scratch::Any
     plans::Vector{Any}
 end
 
@@ -459,7 +459,56 @@ function _ffn!(s::BonsaiSession, g, il::Int, xnorm)
     q[:branch]
 end
 
-function _batchscratch(model::Bonsai2, ntokens::Int)
+"""
+The prefill's working set, declared into the graph ON DEMAND.
+
+Every entry used to be a `_zeros` — a permanent allocation, live for the whole
+prefill, 305 MiB at 512 tokens across 29 buffers. That is Mantle's `Liveness`
+and `Place` written by hand: the plans reported `naive = peak = 0` because there
+was nothing declared in them to place.
+
+Lazy rather than a table built up front, because which entries a prefill
+actually touches depends on `ntokens` — a five-token prompt reaches a different
+set from a 512-token chunk — and `Liveness` refuses a transient no pass uses.
+That refusal is right: an interval derived from use has nothing to say about a
+buffer with no uses.
+
+It is also the thing the eager table was hiding. `_zeros` asks nothing and
+allocates everything, so an entry this path never reads costs its full size on
+every prefill and never complains; `:ff` is 34 MiB of exactly that, used by the
+decode `_ffn!` and not by `_ffn_batch!`. Declared lazily it simply never
+appears, which is better than deleting it from the table and risking a
+`KeyError` on a path that was not exercised.
+
+`:logits` stays a real buffer: `prefill!` hands it to the host after `run!`, so
+it has to outlive the plan's arena.
+"""
+struct BatchScratch{G,M}
+    g::G
+    model::M
+    ntokens::Int
+    widths::Dict{Symbol,Int}
+    buf::Dict{Symbol,Any}
+end
+
+"""`:logits` escapes — `prefill!` hands it to the host after `run!` — so it is a
+real buffer and not a transient in the plan's arena."""
+function Base.getindex(q::BatchScratch, k::Symbol)
+    get!(q.buf, k) do
+        k === :logits && return _zeros(q.model, Float32, 248320)
+        k === :lastnorm && return Mantle.Transient.Buffer(q.g, Float32, (WIDTH,))
+        k === :lasthad && return Mantle.Transient.Buffer(q.g, Float32, (WIDTH,))
+        n = get(q.widths, k, nothing)
+        n === nothing && throw(KeyError(k))
+        # The Hadamard-transformed activations feed fp16 cooperative matrices.
+        # Storing them in that precision here removes a separate cast before
+        # every projection and has the same rounding point as the old cast.
+        T = k in (:had5120, :had6144, :had17408, :densehalf) ? Float16 : Float32
+        Mantle.Transient.Buffer(q.g, T, (n * q.ntokens,))
+    end
+end
+
+function _batchscratch(g, model::Bonsai2, ntokens::Int)
     widths = Dict(
         :x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
         :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
@@ -468,18 +517,7 @@ function _batchscratch(model::Bonsai2, ntokens::Int)
         :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
         :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48, :alphabeta=>96,
         :densehalf=>WIDTH)
-    q = Dict{Symbol,Any}()
-    for (k, n) in widths
-        # The Hadamard-transformed activations feed fp16 cooperative matrices.
-        # Storing them in that precision here removes a separate cast before
-        # every projection and has the same rounding point as the old cast.
-        T = k in (:had5120, :had6144, :had17408, :densehalf) ? Float16 : Float32
-        q[k] = _zeros(model, T, n * ntokens)
-    end
-    q[:lastnorm] = _zeros(model, Float32, WIDTH)
-    q[:lasthad] = _zeros(model, Float32, WIDTH)
-    q[:logits] = _zeros(model, Float32, 248320)
-    q
+    BatchScratch(g, model, Int(ntokens), widths, Dict{Symbol,Any}())
 end
 
 function _hadamard_batch!(s::BonsaiSession, g, x, width::Int, ntokens::Int;
@@ -674,24 +712,36 @@ function _declareprefill_stage!(s::BonsaiSession, g, q, tokens, position,
     q[:logits]
 end
 
-const PREFILL_LAYERS_PER_PLAN = 4
 const PREFILL_CHUNK = 512
+
+"""
+How many submissions one prefill is split into.
+
+A recording this long has to be broken up — a single submission of all 64
+layers outruns what the driver allows and is cancelled, which presents as a
+device loss with nothing naming the cause. That is a property of the
+SUBMISSION, and `record!` takes it as `maxpasses`.
+
+It used to be a property of the GRAPH: sixteen graphs of four layers each. That
+works for the submission length and costs everything else, because Mantle
+derives liveness, placement, aliasing and barriers per graph — so nothing
+crossing a cut could be a transient and the whole working set had to be
+permanent. Sixteen is kept here so the submissions stay the size they were.
+"""
+const PREFILL_SUBMISSIONS = 16
 
 function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     dev = Mantle.Device(s.model.backend)
     tokens = Mantle.Buffer(dev, zeros(Int32, ntokens))
     position = Mantle.GPURef(dev, Int32(0))
-    q = _batchscratch(s.model, ntokens)
-    plans = Any[]
-    for firstlayer in 0:PREFILL_LAYERS_PER_PLAN:NLAYERS-1
-        lastlayer = min(firstlayer + PREFILL_LAYERS_PER_PLAN - 1, NLAYERS - 1)
-        g = Mantle.Graph(dev)
-        _declareprefill_stage!(s, g, q, tokens, position, ntokens,
-            firstlayer:lastlayer;
-            initialize=firstlayer == 0, finalize=lastlayer == NLAYERS - 1)
-        push!(plans, Mantle.record!(Mantle.Plan(g; profile)))
-    end
-    PrefillExec(tokens, position, q, plans)
+    # ONE graph, all 64 layers, so the placer sees the whole working set.
+    g = Mantle.Graph(dev)
+    q = _batchscratch(g, s.model, ntokens)
+    _declareprefill_stage!(s, g, q, tokens, position, ntokens, 0:NLAYERS-1;
+                           initialize=true, finalize=true)
+    plan = Mantle.Plan(g; profile)
+    Mantle.record!(plan; maxpasses = cld(length(plan.passes), PREFILL_SUBMISSIONS))
+    PrefillExec(tokens, position, q, Any[plan])
 end
 
 function _declarestep!(s::BonsaiSession, g)
