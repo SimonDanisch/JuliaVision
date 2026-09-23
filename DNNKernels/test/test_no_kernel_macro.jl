@@ -98,8 +98,11 @@ end
     counts = Dict(pkg => count(((f, i, L),) -> iscode(L) && occursin(alloc, L),
                                sourcelines(dir))
                   for (pkg, dir) in SRC)
-    @test counts["Mantle"] <= 11
-    @test counts["DNNKernels"] <= 32
+    # Tightened whenever they drop, which is the only way a ratchet stays one:
+    # Mantle 11 -> 7 over the `@kernel` migration, DNNKernels 32 -> 23 when
+    # MatAnyone's memory bank and tracking state moved onto Mantle buffers.
+    @test counts["Mantle"] <= 7
+    @test counts["DNNKernels"] <= 23
 end
 
 """

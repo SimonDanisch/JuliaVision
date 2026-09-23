@@ -19,11 +19,24 @@ permutation-invariant over memory tokens, and nothing indexes the bank by
 position - so eviction is a pointer bump, not a shift.
 """
 
-mutable struct MemoryBank{K,V,B}
+mutable struct MemoryBank{K,V,B,R}
     key::K              # (CAP, CK, B)
     shrinkage::K        # (CAP, 1, B)
     value::V            # (CAP, CV, NOBJ, B)
     objmem::B           # (E+1, Q, NOBJ, B) streaming sum; last row of dim 1 is the count
+    # The Mantle buffers the four arrays above are the storage of.
+    #
+    # Held rather than discarded because a dropped device array frees NOTHING:
+    # Mantle returns a pool region on an explicit verb and never from a
+    # finalizer (`Mantle.trim!` says why), so a bank allocated with
+    # `KernelAbstractions.allocate` and then forgotten stayed resident for the
+    # process. At 512x288 with `mem_frames` slots that is the clip's whole
+    # memory, per clip. `release!` below is what returns it.
+    #
+    # `Mantle.Buffer` and not a raw allocation for the second reason too: it is
+    # PERSISTENT memory, which is what a bank that outlives every frame's
+    # transients has to be.
+    buffers::R
     hw::Int             # tokens per frame
     frames::Int         # capacity in frames
     nvalid::Int         # live frames, 1..frames
@@ -33,11 +46,31 @@ end
 
 function MemoryBank(backend, T, hw, frames, ck, cv, nobj, bs, q, embed)
     cap = hw * frames
-    MemoryBank(KernelAbstractions.allocate(backend, T, cap, ck, bs),
-               KernelAbstractions.allocate(backend, T, cap, 1, bs),
-               KernelAbstractions.allocate(backend, T, cap, cv, nobj, bs),
-               KernelAbstractions.allocate(backend, T, embed + 1, q, nobj, bs),
-               hw, frames, 0, 2, false)
+    dev = M.todevice(backend)
+    bufs = (M.Buffer(dev, T, (cap, ck, bs)),
+            M.Buffer(dev, T, (cap, 1, bs)),
+            M.Buffer(dev, T, (cap, cv, nobj, bs)),
+            M.Buffer(dev, T, (embed + 1, q, nobj, bs)))
+    MemoryBank(M.storage(bufs[1]), M.storage(bufs[2]), M.storage(bufs[3]),
+               M.storage(bufs[4]), bufs, hw, frames, 0, 2, false)
+end
+
+"""
+    release!(bank)
+
+Return the bank's device memory. It does not come back on its own — see the
+note on `buffers`.
+
+Not `reset!`, which is a per-clip clear of the CONTENTS and leaves the bank
+usable. After this the arrays are gone and the bank is not.
+
+A method on Mantle's `release!` rather than a second name for it: it means the
+same thing here as it does for a recording, and two exported `release!`s are an
+ambiguity at every call site with both packages in scope.
+"""
+function M.release!(m::MemoryBank)
+    foreach(M.free!, m.buffers)
+    return m
 end
 
 slotrange(m::MemoryBank, s::Int) = ((s - 1) * m.hw + 1):(s * m.hw)

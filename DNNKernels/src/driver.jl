@@ -904,6 +904,9 @@ mutable struct State
     ti::Int                 # curr_ti
     lastmemti::Int
     dims::NamedTuple
+    # The Mantle buffers `sensory` and `lastmask` are the storage of, for
+    # `release!` to return. See the bank's own `buffers` field.
+    owned::Tuple
 end
 
 """
@@ -914,10 +917,37 @@ end
 function initstate(m::Model, W::Int, H::Int; ck=64, cv=256, sensory=256,
                    nobj=1, bs=1, q=16, embed=256, T=Float32)
     w, h = W ÷ 16, H ÷ 16
+    # `M.Buffer`, for the same two reasons as the bank's own storage: these
+    # outlive every frame's transients, and a dropped device array frees
+    # nothing. `release!` below returns all of it.
+    dev = M.todevice(m.backend)
+    sens = M.Buffer(dev, T, (w, h, sensory, nobj, bs))
+    last = M.Buffer(dev, T, (W, H, nobj, bs))
     State(MemoryBank(m.backend, T, w * h, m.memframes, ck, cv, nobj, bs, q, embed),
-          fill!(KernelAbstractions.allocate(m.backend, T, w, h, sensory, nobj, bs), 0),
-          fill!(KernelAbstractions.allocate(m.backend, T, W, H, nobj, bs), 0),
-          nothing, nothing, -1, 0, (h=h, w=w))
+          fill!(M.storage(sens), 0), fill!(M.storage(last), 0),
+          nothing, nothing, -1, 0, (h=h, w=w), (sens, last))
+end
+
+"""
+    release!(state)
+
+Return everything a tracking state holds: its memory bank, its sensory and
+last-mask buffers, and whatever the last step left in it.
+
+There was no way to do this. A `State` is per clip and holds the bank, which at
+512x288 is the clip's whole memory, and none of it came back when the state went
+out of scope — Mantle frees on a verb and never from a finalizer.
+
+`lastpixfeat` and `lastmskvalue` are outputs of a recorded plan, so they belong
+to that plan and are NOT freed here; dropping the references is all this can
+correctly do with them.
+"""
+function M.release!(s::State)
+    M.release!(s.bank)
+    foreach(M.free!, s.owned)
+    s.lastpixfeat = nothing
+    s.lastmskvalue = nothing
+    return s
 end
 
 """

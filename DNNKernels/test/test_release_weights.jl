@@ -96,3 +96,42 @@ end
     @test releasedevice!([host, host]) === nothing
     @test host == zeros(Float32, 4)
 end
+
+@testset "a tracking state returns its bank" begin
+    # MatAnyone's memory bank is per clip and scales with resolution and
+    # `mem_frames`. It was `KernelAbstractions.allocate`d and held in a struct
+    # with no teardown, so every clip's bank stayed resident for the process —
+    # the same fault as the weights above, one layer up.
+    model = DNNKernels.Model(Dict{String,DNNKernels.Graph}(), Dict{String,Any}();
+                             backend = BACKEND)
+    GC.gc(true)
+    # AFTER the model, so the only thing between this and the count below is
+    # `initstate`. Taking it before made the assertion depend on what building
+    # a `Model` happens to allocate.
+    before = ledger()
+
+    st = DNNKernels.initstate(model, 512, 288)
+
+    # Four buffers for the bank, two for the state's own sensory and last-mask.
+    @test length(st.bank.buffers) == 4
+    @test length(st.owned) == 2
+    # It took MORE ledger entries than buffers — a persistent allocation is not
+    # one entry — so the count is not asserted. What matters is that it took
+    # some and that `release!` gives all of them back.
+    @test ledger() > before
+
+    # The arrays ALIAS those buffers rather than being separate allocations.
+    # Not `===`: `Mantle.storage` is `deviceview`, which builds a fresh wrapper
+    # per call, so identity never holds and sameness has to be asked of the
+    # memory. Writing through one and reading through the other is that question.
+    fill!(st.bank.key, 7.0f0)
+    @test all(==(7.0f0), Array(Mantle.storage(st.bank.buffers[1])))
+    fill!(st.sensory, 3.0f0)
+    @test all(==(3.0f0), Array(Mantle.storage(st.owned[1])))
+
+    Mantle.release!(st)
+    Mantle.waitidle(DEV)
+    Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
+    Mantle.trim!(Mantle.pool(DEV), DEV)
+    @test ledger() <= before
+end
