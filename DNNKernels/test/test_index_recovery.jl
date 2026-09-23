@@ -20,6 +20,19 @@ const KA = KernelAbstractions
 # Every shape below has failed at some point during development. The rank-4
 # entries are why `directdispatch` declines rank 4 outright: there the *device*
 # evaluates the guard differently from the host and admits launches it must not.
+#
+# WHY THERE IS A `@kernel` HERE, when `test_no_kernel_macro.jl` says there are
+# none. That ratchet scans `src/`, and this is a test. Its subject is
+# `@index(Global, NTuple)` recovery, which exists only on the KernelAbstractions
+# path — so it cannot be written any other way, and `KernelInterface` gives
+# three axes with no flattening and nothing to recover.
+#
+# DNNKernels itself no longer takes that path: every kernel here is macro-free.
+# What still does is Raycore, Hikari, GPUFiltering and GPUArrays, all of which
+# dispatch through the same Lava, so the coverage is live even though its
+# subject is not this library's. It sits in THIS test directory because it
+# borrows `DNNKernels.launchgroup` and checks the shapes this library launches
+# — `(W, H, C, 1)` is RIFE's and MatAnyone's.
 
 @kernel function idxstamp1!(o)
     i, = @index(Global, NTuple)

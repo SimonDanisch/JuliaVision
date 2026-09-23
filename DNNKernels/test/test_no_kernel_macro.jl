@@ -6,6 +6,12 @@ A kernel here is a plain function over `KernelInterface`'s intrinsics, handed to
 whole of the rule, and it is a source-level one: a `@kernel` compiles and runs,
 so nothing else in the suite would notice one coming back.
 
+**`src/` and not the tests**, deliberately. `@index(Global, NTuple)` recovery
+can only be tested through a `@kernel`, because that is the only interface that
+has it — see `test_index_recovery.jl`. The KernelAbstractions path is still live
+for Raycore, Hikari, GPUFiltering and GPUArrays, which all dispatch through the
+same Lava, so a test that covers it is coverage and not a leftover.
+
 ## Why this is a ratchet and not just an assertion
 
 `@kernel` is at zero and stays at zero. The other two counts are NOT zero, and
@@ -76,6 +82,34 @@ iscode(L) = !occursin(r"^\s*#", L)
         bad = [(f, i) for (f, i, L) in sourcelines(dir)
                if iscode(L) && occursin(r"@kernel(\s+\w+\s*=\s*\w+)*\s+function", L)]
         @test (dir => bad) == (dir => Tuple{String,Int}[])
+    end
+end
+
+@testset "every package in this tree is macro-free, or is named here" begin
+    # The two trees above are the DNN library and its GPU library. This walks
+    # the WHOLE repository, because a runner is part of the code base too and
+    # four of them had a `@kernel` after the migration said there were none:
+    # RIFE's frame pack and unpack, Kokoro's alignment gather, Hunyuan3D's grid
+    # queries. Nothing else scanned them.
+    #
+    # Two are not done. They are named, with counts that may only fall, rather
+    # than excluded by a pattern that would also hide a regression:
+    #
+    #   * `GPUFiltering` — an image-filtering package, not part of the DNN path.
+    #   * `BonsaiRunner` — not in the root project and unported.
+    remaining = Dict("GPUFiltering" => 25, "BonsaiRunner" => 30)
+    root = dirname(dirname(@__DIR__))          # …/JuliaVision
+    defn = r"@kernel(\s+\w+\s*=\s*\w+)*\s+function"
+    for pkg in sort(readdir(root))
+        dir = joinpath(root, pkg, "src")
+        isdir(dir) || continue
+        hits = [(f, i) for (f, i, L) in sourcelines(dir) if iscode(L) && occursin(defn, L)]
+        if haskey(remaining, pkg)
+            # `<=`, so porting one is free and adding one is a conversation.
+            @test (pkg => length(hits)) == (pkg => min(length(hits), remaining[pkg]))
+        else
+            @test (pkg => hits) == (pkg => Tuple{String,Int}[])
+        end
     end
 end
 

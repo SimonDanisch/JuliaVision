@@ -52,7 +52,7 @@ using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, readsafetensors, toback, Model, planfor, replay!
+using DNNKernels: loadgraph, readsafetensors, toback, Model
 using GPUFiltering: resizeplanar!
 using ColorTypes: AbstractRGB, RGB
 
@@ -165,11 +165,12 @@ graph.
 # at load, replayed per frame. It replaced four fields — a `planslab` slab, a
 # `Workspace` arena, the lazy-broadcast set and the values table — each of which
 # was recovering something the graph had already stated.
-struct DepthAnything{B,G,W,P,I}
+struct DepthAnything{B,M,I}
     backend::B
-    graph::G
-    weights::W
-    plan::P
+    model::M
+    # The staging frame `resizeplanar!` writes into. Separate from the plan's
+    # own input buffer, which `call` copies into — the same copy `replay!` did
+    # before, since these were never the same array.
     input::I
 end
 
@@ -190,9 +191,13 @@ function depthanything(; backend = Mantle.defaultbackend())
     # of Mantle's phases over the whole graph, so placement, aliasing and
     # barriers are decided before a byte is touched. `planfor` is the same one
     # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
-    plan = planfor(model.device, graph, model.weights, (;))
+    # `planahead!` and not a lazy first call: the latency test asserts that the
+    # first frame in a fresh process refuses zero pipeline compiles, so the
+    # compiling has to happen here. It builds the plan `call` would build, under
+    # the key `call` looks up, so the first frame finds it and replays.
+    DNNKernels.planahead!(model, "depthanything")
     input = KA.allocate(model.backend, Float32, INPUT_RES, INPUT_RES, 3, 1)
-    return DepthAnything(model.backend, graph, model.weights, plan, input)
+    return DepthAnything(model.backend, model, input)
 end
 
 """
@@ -221,14 +226,16 @@ short of `≥ PyTorch`, and what is left is convolution rather than matrix multi
 """
 function depthmap!(model::DepthAnything, img::AbstractMatrix{<:AbstractRGB})
     resizeplanar!(model.input, img; mean = IMAGENET_MEAN, std = IMAGENET_STD)
-    # A replay: the plan was recorded at load, so this writes the input into the
-    # buffer it was declared against and submits one recording.
+    # `call`: the plan was recorded at load by `planahead!`, so this finds it in
+    # the model's cache, writes the input into the buffer it was declared
+    # against and submits one recording. It used to hand-roll `planfor` and
+    # `replay!`, which is what `call` does and is the only way to drift from it.
     #
     # The output is an `unsqueeze`, a view rather than an op result — which used
     # to mean it had no entry of its own and `value` had to resolve it against
     # its parent. Declared, `emitgraph` resolves every output before it returns,
     # so the plan's own output IS that view and there is nothing to chase.
-    return first(replay!(model.plan, "depthanything", (model.input,)))
+    return first(DNNKernels.call(model.model, "depthanything", model.input; dims = (;)))
 end
 
 # ---------------------------------------------------------------- the workload

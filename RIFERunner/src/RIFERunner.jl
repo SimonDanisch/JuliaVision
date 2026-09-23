@@ -36,7 +36,7 @@ using Lava, DNNKernels, KernelAbstractions, GPUFiltering
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: loadgraph, readsafetensors, toback, Model, planfor, replay!
+using DNNKernels: loadgraph, readsafetensors, toback, Model
 using GPUFiltering: tofloat, topixel
 using ColorTypes: AbstractRGB, RGB
 
@@ -44,6 +44,9 @@ export rifegraph, rifeweights
 export rife, interpolate!, framesize, RIFE
 
 const KA = KernelAbstractions
+# Through DNNKernels rather than a direct dependency: this package already has
+# it, and `KernelInterface` is not in RIFERunner's Project.
+const KI = DNNKernels.KI
 
 """
     KERNELS_VERSION
@@ -135,9 +138,18 @@ todevice(backend, img::AbstractMatrix) =
     KA.get_backend(img) == backend ? img :
     (d = KA.allocate(backend, eltype(img), size(img)...); copyto!(d, img); d)
 
-@kernel function frames_kernel!(dst, @Const(a), @Const(b), w::Int32, h::Int32)
-    I = @index(Global, Cartesian)
-    x, y = I[1], I[2]
+# Macro-free, over `KernelInterface`'s intrinsics. `@index(Global, Cartesian)`
+# becomes `KI.get_global_id()`, whose axes are 1-based; `@Const` was an identity
+# adaptor on this backend and drops.
+#
+# THE BOUNDS CHECK the macro used to insert. The `x <= w` below is a CONTENT
+# test — inside the real frame or in the pad — and every thread writes on both
+# sides of it, so it is not an ndrange guard. `launchgroup` need not divide
+# `(pw, ph)`, and the surplus threads wrote past `dst`.
+function frames_kernel!(dst, a, b, w::Int32, h::Int32)
+    g = KI.get_global_id()
+    x, y = g.x, g.y
+    (x <= size(dst, 1) && y <= size(dst, 2)) || return nothing
     if x <= w && y <= h
         @inbounds begin
             ca = tofloat(a[x, y])
@@ -154,15 +166,19 @@ todevice(backend, img::AbstractMatrix) =
             dst[x, y, c, 1] = 0.0f0
         end
     end
+    return nothing
 end
 
 # The interpolated frame back out of the graph's (W, H, 3, 1), cropped to the
 # real frame — the padded rows are network output over zeros and are not part of
 # the picture.
-@kernel function unpack_kernel!(out, @Const(src))
-    I = @index(Global, Cartesian)
-    @inbounds out[I] = topixel(eltype(out), src[I[1], I[2], 1, 1],
-                               src[I[1], I[2], 2, 1], src[I[1], I[2], 3, 1])
+function unpack_kernel!(out, src)
+    g = KI.get_global_id()
+    x, y = g.x, g.y
+    (x <= size(out, 1) && y <= size(out, 2)) || return nothing
+    @inbounds out[x, y] = topixel(eltype(out), src[x, y, 1, 1],
+                                  src[x, y, 2, 1], src[x, y, 3, 1])
+    return nothing
 end
 
 """
@@ -178,14 +194,15 @@ the editor's own path gets.
 # at load, replayed per frame. It replaced four fields — a `planslab` slab, a
 # `Workspace` arena, the lazy-broadcast set and the graph's own values table —
 # each of which was recovering something the graph had already stated.
-struct RIFE{B,G,W,P,I,T}
+struct RIFE{B,M,I,T,A}
     backend::B
-    graph::G
-    weights::W
-    plan::P
+    model::M
     input::I
     timestep::T
     padded::Tuple{Int,Int}
+    # The arguments `call` takes, in the graph's own input order, resolved once
+    # at load. The order is a property of the export and not of a frame.
+    args::A
 end
 
 """
@@ -217,10 +234,15 @@ function rife(; backend = Mantle.defaultbackend())
     # of Mantle's phases over the whole graph, so placement, aliasing and
     # barriers are decided before a byte is touched. `planfor` is the same one
     # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
-    plan = planfor(model.device, graph, model.weights, (;))
+    # `planahead!` and not a lazy first call: the latency test asserts that the
+    # first frame in a fresh process refuses zero pipeline compiles, so the
+    # compiling has to happen here. It builds the plan `call` would build, under
+    # the key `call` looks up.
+    DNNKernels.planahead!(model, "rife")
     input = KA.allocate(model.backend, Float32, w, h, 6, 1)
     timestep = KA.allocate(model.backend, Float32, 1, 1, 1, 1)
-    return RIFE(model.backend, graph, model.weights, plan, input, timestep, (w, h))
+    args = Tuple(id == "timestep" ? timestep : input for id in graph.inputs)
+    return RIFE(model.backend, model, input, timestep, (w, h), args)
 end
 
 """
@@ -265,23 +287,24 @@ function interpolate!(out::AbstractMatrix{<:AbstractRGB}, model::RIFE,
     # test that runs a forward pass to notice. `RGB{N0f8}` is isbits, so this is
     # one upload of the frame rather than a conversion.
     ga, gb = todevice(model.backend, a), todevice(model.backend, b)
-    frames_kernel!(model.backend)(model.input, ga, gb, Int32(w), Int32(h);
-                                  ndrange = (pw, ph))
-    # A replay: the plan was recorded at load, so this writes the two inputs
-    # into the buffers it was declared against and submits one recording.
-    # `g.inputs` order, which is what `replay!` zips against.
-    outs = replay!(model.plan, "rife",
-                   (id == "timestep" ? model.timestep : model.input
-                    for id in model.graph.inputs))
-    result = first(outs)
+    KI.Kernel(model.backend, frames_kernel!)(
+        model.input, ga, gb, Int32(w), Int32(h);
+        ndrange = (pw, ph), workgroupsize = DNNKernels.launchgroup((pw, ph)))
+    # `call`: the plan was recorded at load by `planahead!`, so this finds it in
+    # the model's cache, writes the inputs into the buffers they were declared
+    # against and submits one recording. `model.args` is already in `g.inputs`
+    # order, which is what `call` zips against.
+    result = first(DNNKernels.call(model.model, "rife", model.args...; dims = (;)))
     # Same story on the way OUT: `unpack_kernel!` writes `out` on the device, and
     # `out` is declared `AbstractMatrix{<:AbstractRGB}`. Unpack into a device
     # buffer and copy back, unless the caller already gave us a device one.
     if KA.get_backend(out) == model.backend
-        unpack_kernel!(model.backend)(out, result; ndrange = (w, h))
+        KI.Kernel(model.backend, unpack_kernel!)(
+            out, result; ndrange = (w, h), workgroupsize = DNNKernels.launchgroup((w, h)))
     else
         gout = KA.allocate(model.backend, eltype(out), w, h)
-        unpack_kernel!(model.backend)(gout, result; ndrange = (w, h))
+        KI.Kernel(model.backend, unpack_kernel!)(
+            gout, result; ndrange = (w, h), workgroupsize = DNNKernels.launchgroup((w, h)))
         KA.synchronize(model.backend)
         copyto!(out, gout)
     end

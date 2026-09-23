@@ -44,6 +44,9 @@ using DNNKernels: loadgraph, execute!, readsafetensors, toback, Model, call
 export Kokoro, speak, phonemize, pronounce!, voices, SAMPLERATE
 
 const KA = KernelAbstractions
+# Through DNNKernels rather than a direct dependency: this package already has
+# it, and `KernelInterface` is not in its Project.
+const KI = DNNKernels.KI
 
 """
     SAMPLERATE
@@ -246,16 +249,21 @@ diagnosis was right and the barrier worked; keeping both would have left two
 implementations of one gather to drift apart, which is the thing that must not
 happen.
 """
-@kernel function gather_align_kernel!(en, asr, @Const(d), @Const(t_en),
-                                      @Const(idx), F::Int32, C2::Int32)
-    g = @index(Global, Linear) - 1
+# Macro-free, over `KernelInterface`'s intrinsics. `@Const` was an identity
+# adaptor on this backend and drops; `n` is new, and carries the ndrange the
+# guard needs — the workgroup is 256 and `F * C1` need not be a multiple of it.
+function gather_align_kernel!(en, asr, d, t_en, idx, F::Int32, C2::Int32, n::Int32)
+    i = KI.get_global_id().x
+    i <= n || return nothing
+    g = i - 1
     j = g % Int(F) + 1
     c = g ÷ Int(F) + 1
-    @inbounds i = Int(idx[j])
-    @inbounds en[j, c, 1] = d[c, i, 1]
+    @inbounds i2 = Int(idx[j])
+    @inbounds en[j, c, 1] = d[c, i2, 1]
     @inbounds if c <= Int(C2)
-        asr[j, c, 1] = t_en[i, c, 1]
+        asr[j, c, 1] = t_en[i2, c, 1]
     end
+    return nothing
 end
 
 """
@@ -265,9 +273,9 @@ Launch [`gather_align_kernel!`](@ref) over `size(en, 1) * size(en, 2)` elements.
 """
 function gather_align!(backend, en, asr, d, t_en, idx)
     f, c1 = size(en, 1), size(en, 2)
-    gather_align_kernel!(backend, 256)(en, asr, d, t_en, idx,
-                                       Int32(f), Int32(size(asr, 2));
-                                       ndrange = f * c1)
+    KI.Kernel(backend, gather_align_kernel!)(
+        en, asr, d, t_en, idx, Int32(f), Int32(size(asr, 2)), Int32(f * c1);
+        ndrange = f * c1, workgroupsize = 256)
     nothing
 end
 

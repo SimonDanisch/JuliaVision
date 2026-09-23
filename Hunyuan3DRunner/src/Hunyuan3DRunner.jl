@@ -169,6 +169,9 @@ export latents2mesh, marchingcubes
 export removefloaters, removedegenerate, decimate, weld, writeobj
 
 const KA = KernelAbstractions
+# Through DNNKernels rather than a direct dependency: this package already has
+# it, and `KernelInterface` is not in its Project.
+const KI = DNNKernels.KI
 
 """
     KERNELS_VERSION

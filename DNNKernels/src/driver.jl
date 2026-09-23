@@ -732,6 +732,39 @@ function M.free!(mp::RecordedPlan)
     return nothing
 end
 
+"""
+What `call` caches a plan under, in `Model.scratch`.
+
+`clampattn` is in the key because it changes which kernels the graph dispatches
+and `noise` because `ZeroNoise` and `RandomNoise` are different computations.
+
+Its own function so [`planahead!`](@ref) cannot key differently from `call` and
+silently build a second plan that the first call then ignores.
+"""
+plankey(name::AbstractString, dims, clampattn::Bool, noise::NoiseSource) =
+    (:plan, name, dims, clampattn, typeof(noise))
+
+"""
+    planahead!(model, name; dims = (;), clampattn = false, noise = RandomNoise())
+
+Build the plan `call` would build, now, and cache it.
+
+`call` plans on first use, which is right for a driver and wrong for a runner
+that must not compile a pipeline inside its own latency measurement: RIFE and
+Depth Anything each assert, in a fresh process, that the first frame refuses
+zero pipeline compiles. Their load is where the compiling belongs.
+
+Returns the model, so it composes with a constructor.
+"""
+function planahead!(m::Model, name::AbstractString; dims = (;),
+                    clampattn::Bool = false, noise::NoiseSource = RandomNoise())
+    g = m.graphs[name]
+    get!(m.scratch, plankey(name, dims, clampattn, noise)) do
+        planfor(m, g, name, dims, clampattn, noise)
+    end
+    return m
+end
+
 """Run one graph and return its outputs in declaration order."""
 function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = false,
               noise::NoiseSource = RandomNoise())
@@ -766,8 +799,7 @@ function call(m::Model, name::AbstractString, args...; dims, clampattn::Bool = f
     # No run precedes the plan: `emitgraph` declares instead of running, so
     # `Plan` sees the whole graph before a byte is touched and places every
     # intermediate itself.
-    key = (:plan, name, dims, clampattn, typeof(noise))
-    mp = get!(m.scratch, key) do
+    mp = get!(m.scratch, plankey(name, dims, clampattn, noise)) do
         planfor(m, g, name, dims, clampattn, noise)
     end
     # The plan reads the buffers it was declared against, so the call's arguments

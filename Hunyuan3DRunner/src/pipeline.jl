@@ -333,8 +333,12 @@ is a static shape, so the final chunk has to be run full and its tail discarded;
 clamping evaluates a duplicate point, which is cheaper than a second export and
 cannot read out of bounds.
 """
-@kernel function gridqueries_kernel!(q, first, G, lo, step, N)
-    c = @index(Global)
+# Macro-free, over `KernelInterface`'s intrinsics. The guard is the one the
+# macro used to insert: `ndrange` is `m.chunk` and the workgroup need not divide
+# it, so the surplus threads wrote past `q`.
+function gridqueries_kernel!(q, first, G, lo, step, N)
+    c = KI.get_global_id().x
+    c <= size(q, 2) || return nothing
     n = min(first + c - 1, N - 1)            # 0-based, clamped for the tail
     k = n % G
     j = (n ÷ G) % G
@@ -343,6 +347,7 @@ cannot read out of bounds.
     @inbounds q[1, c] = T(lo + step * i)
     @inbounds q[2, c] = T(lo + step * j)
     @inbounds q[3, c] = T(lo + step * k)
+    return nothing
 end
 
 """
@@ -373,10 +378,10 @@ function occupancy(m::Hunyuan3D, latents; box_v::Real = 1.01, octree::Integer = 
 
     field = KA.allocate(m.backend, Float32, N)
     q = KA.allocate(m.backend, Float16, 3, m.chunk)
-    kern = gridqueries_kernel!(m.backend)
+    kern = KI.Kernel(m.backend, gridqueries_kernel!)
     for c in 1:nchunks
         first = (c - 1) * m.chunk                     # 0-based
-        kern(q, first, G, lo, step, N; ndrange = m.chunk)
+        kern(q, first, G, lo, step, N; ndrange = m.chunk, workgroupsize = 256)
         logits = only(call(m.geo, "hunyuan3d_geo", reshape(q, 3, m.chunk, 1), latents;
                            dims = (;)))
         len = min(m.chunk, N - first)
