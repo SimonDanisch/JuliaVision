@@ -225,6 +225,110 @@ function ptq1_mul_block_kernel!(out, data, x, bias,
     return nothing
 end
 
+"""
+The same block-per-lane decode, reading the packed bytes four at a time.
+
+A block is 28 bytes: 26 of trits and a Float16 scale. Read as `UInt8` that is 28
+loads; the block is 4-byte aligned (28 is a multiple of 4), so as `UInt32` it is
+SEVEN — words 0-3 carry the sixteen 5-trit bytes, words 4-5 the eight, and word 6
+holds the last two trit bytes in its low half and the scale in its high half.
+
+`ptq1_mul_block_kernel!` already cut 128 loads per block to 26 by using all five
+trits in a byte; this cuts those 26 to 7. The arithmetic is identical — the same
+recurrence on the same bytes, extracted with a shift instead of fetched.
+"""
+function ptq1_mul_w32_kernel!(out, data, x, bias,
+                                                M::Int32, K::Int32, N::Int32,
+                                                rowgroups::Int32,
+                                                ::Val{HASBIAS},
+                                                ::Val{SUBGROUP}) where {HASBIAS,SUBGROUP}
+    # The packed bytes as words, here rather than at the call site: every PTQ1
+    # kernel is handed the same byte buffer, and a 28-byte block is 4-byte
+    # aligned, so the view is exact.
+    data32 = reinterpret(UInt32, data)
+    partial = KI.localmemory(Float32, Val((PTQ1_ROWS_PER_WG * (64 ÷ SUBGROUP),)), Val(1))
+    t = Int32(KI.get_local_id().x - 1)
+    lane = t & Int32(63)
+    sublane = t % Int32(SUBGROUP)
+    rowin = t >> 6
+    wg = Int32(KI.get_group_id().x - 1)
+    rg = wg % rowgroups
+    col = wg ÷ rowgroups
+    row = rg * Int32(PTQ1_ROWS_PER_WG) + rowin
+    blocks = K ÷ Int32(PTQ1_QK)
+    acc = 0f0
+    if row < M && col < N
+        blk = lane
+        @inbounds while blk < blocks
+            w0 = (row * blocks + blk) * Int32(7) + Int32(1)     # 28 bytes = 7 words
+            xbase = col * K + blk * Int32(PTQ1_QK)
+            last = data32[w0 + Int32(6)]
+            scale = Float32(reinterpret(Float16, UInt16((last >> 16) & UInt32(0xffff))))
+            # bytes 0..15 -> e = j + 16n
+            for q in Int32(0):Int32(3)
+                word = data32[w0 + q]
+                for k in Int32(0):Int32(3)
+                    bp = (word >> (8 * k)) & UInt32(0xff)
+                    e = q * Int32(4) + k
+                    for _ in Int32(0):Int32(4)
+                        tr = Int32((bp * UInt32(3)) >> 8) - Int32(1)
+                        acc = muladd(scale * Float32(tr), Float32(x[xbase + e + Int32(1)]), acc)
+                        bp = (bp * UInt32(3)) & UInt32(0xff)
+                        e += Int32(16)
+                    end
+                end
+            end
+            # bytes 16..23 -> e = 80 + j + 8n
+            for q in Int32(0):Int32(1)
+                word = data32[w0 + Int32(4) + q]
+                for k in Int32(0):Int32(3)
+                    bp = (word >> (8 * k)) & UInt32(0xff)
+                    e = Int32(80) + q * Int32(4) + k
+                    for _ in Int32(0):Int32(4)
+                        tr = Int32((bp * UInt32(3)) >> 8) - Int32(1)
+                        acc = muladd(scale * Float32(tr), Float32(x[xbase + e + Int32(1)]), acc)
+                        bp = (bp * UInt32(3)) & UInt32(0xff)
+                        e += Int32(8)
+                    end
+                end
+            end
+            # bytes 24..25 -> e = 120 + j + 2n
+            for k in Int32(0):Int32(1)
+                bp = (last >> (8 * k)) & UInt32(0xff)
+                e = Int32(120) + k
+                for _ in Int32(0):Int32(3)
+                    tr = Int32((bp * UInt32(3)) >> 8) - Int32(1)
+                    acc = muladd(scale * Float32(tr), Float32(x[xbase + e + Int32(1)]), acc)
+                    bp = (bp * UInt32(3)) & UInt32(0xff)
+                    e += Int32(2)
+                end
+            end
+            blk += Int32(64)
+        end
+    end
+    reduced = KI.sub_group_reduce_add(acc)
+    if SUBGROUP == 64
+        if lane == Int32(0) && row < M && col < N
+            v = reduced
+            HASBIAS && (v += Float32(bias[row + Int32(1)]))
+            @inbounds out[row + Int32(1) + col * M] = eltype(out)(v)
+        end
+    else
+        nsub = Int32(64 ÷ SUBGROUP)
+        subinrow = lane ÷ Int32(SUBGROUP)
+        if sublane == Int32(0)
+            partial[rowin * nsub + subinrow + Int32(1)] = reduced
+        end
+        KI.barrier()
+        if lane == Int32(0) && row < M && col < N
+            v = partial[rowin * nsub + Int32(1)] + partial[rowin * nsub + Int32(2)]
+            HASBIAS && (v += Float32(bias[row + Int32(1)]))
+            @inbounds out[row + Int32(1) + col * M] = eltype(out)(v)
+        end
+    end
+    return nothing
+end
+
 const PTQ1_COLS_PER_WG = 4
 
 # Wide-prefill tile.  The small-N kernels above assign a subgroup to one output
@@ -448,7 +552,10 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
         # `ptq1_mul_block_kernel!` for the decode column: same arithmetic, one
         # byte load per FIVE trits instead of one per trit. Measured 2.6-4.5x
         # on an M5 across Bonsai's projection shapes, bit-comparable to 2.5e-7.
-        kernel = N == 1 ? ptq1_mul_block_kernel! : ptq1_mul4_kernel!
+        # The decode column reads the packed block as WORDS: 7 loads instead of
+        # 28, bit-identical output. 2.34x on Bonsai's 5120-wide projections and
+        # never slower on the wide ones, which are bandwidth bound already.
+        kernel = N == 1 ? ptq1_mul_w32_kernel! : ptq1_mul4_kernel!
         columns = N == 1 ? N : cld(N, PTQ1_COLS_PER_WG)
         harnesslaunch!(ctx.backend, kernel,
             out, Mantle.storage(A.data), x,

@@ -458,7 +458,7 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
             group=DNNKernels.PTQ1_WG, name=name)
     else
         rows = cld(M, DNNKernels.PTQ1_ROWS_PER_WG)
-        kernel = N == 1 ? DNNKernels.ptq1_mul_block_kernel! : DNNKernels.ptq1_mul4_kernel!
+        kernel = N == 1 ? DNNKernels.ptq1_mul_w32_kernel! : DNNKernels.ptq1_mul4_kernel!
         columns = N == 1 ? N : cld(N, DNNKernels.PTQ1_COLS_PER_WG)
         _dispatch!(g, kernel,
             (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
