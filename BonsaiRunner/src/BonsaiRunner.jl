@@ -206,7 +206,8 @@ mutable struct BonsaiSession{M}
     position::Int
     recurrent::Dict{Int,Tuple{Any,Any}}
     kv::Dict{Int,Any}
-    scratch::Dict{Symbol,Any}
+    logits::Any                # session-owned; survives a plan rebuild
+    scratch::Any               # GraphScratch over the current step graph
     tokenref::Any
     positionref::Any
     plan::Any
@@ -261,23 +262,40 @@ function session(model::Bonsai2; kv_page::Integer=4096)
                               _zeros(model, Float32, 128, 128, 48))
         end
     end
-    sizes = Dict(
-        :x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
-        :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
-        :qkv=>10240, :z=>6144, :conv=>10240, :rq=>2048, :rk=>2048,
-        :rv=>6144, :gdn=>6144, :had6144=>6144,
-        :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
-        :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48,
-        :logits=>248320)
-    scratch = Dict{Symbol,Any}(k => _zeros(model, Float32, n) for (k,n) in sizes)
     dev = Mantle.Device(model.backend)
-    s = BonsaiSession(model, 0, recurrent, kv, scratch,
+    # Owned by the SESSION and not by the step graph: `_ensure_kv!` rebuilds the
+    # plan when the cache grows, and a `:logits` declared into the graph would be
+    # replaced on every rebuild with nothing freeing the old one.
+    logits = _zeros(model, Float32, 248320)
+    s = BonsaiSession(model, 0, recurrent, kv, logits, nothing,
                       Mantle.GPURef(dev, Int32(0)),
                       Mantle.GPURef(dev, Int32(0)), nothing, Int(kv_page),
                       Dict{Int,Any}())
-    s.plan = _recordstep(s, dev)
+    s.plan, s.scratch = _recordstep(s, dev)
     s
 end
+
+"""
+    _stepscratch(g, logits) -> GraphScratch
+
+One token's working set, declared into the step graph. Same story as
+[`_batchscratch`](@ref): these were 25 permanent `_zeros` and the step plan
+reported `naive = peak = 0` because nothing in it was declared.
+
+`ntokens = 1`, so the widths are absolute. The Hadamard activations are Float32
+here and Float16 in the batch path, which is why the precision set is per
+scratch and not global.
+"""
+_stepscratch(g, logits) = GraphScratch(
+    g, 1,
+    Dict(:x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
+         :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
+         :qkv=>10240, :z=>6144, :conv=>10240, :rq=>2048, :rk=>2048,
+         :rv=>6144, :gdn=>6144, :had6144=>6144,
+         :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
+         :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48),
+    Dict{Symbol,Int}(), Set{Symbol}(),
+    Dict{Symbol,Any}(:logits => logits), Dict{Symbol,Any}())
 
 """Current token capacity of a session's lazily allocated KV cache."""
 kv_capacity(s::BonsaiSession) = first(values(s.kv)).capacity
@@ -310,7 +328,7 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
     KernelAbstractions.synchronize(s.model.backend)
     s.kv = replacement
     oldplan = s.plan
-    s.plan = _recordstep(s, Mantle.Device(s.model.backend))
+    s.plan, s.scratch = _recordstep(s, Mantle.Device(s.model.backend))
     Mantle.free!(oldplan)
     for p in values(s.prefills)
         foreach(Mantle.free!, p.plans)
@@ -386,8 +404,7 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
     out
 end
 
-function _recurrent!(s::BonsaiSession, g, il::Int, xnorm)
-    q = s.scratch
+function _recurrent!(s::BonsaiSession, g, q, il::Int, xnorm)
     prefix = "blk.$il."
     _transform!(s, g, q[:had5120], xnorm)
     _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120])
@@ -420,8 +437,7 @@ function _recurrent!(s::BonsaiSession, g, il::Int, xnorm)
     q[:branch]
 end
 
-function _attention!(s::BonsaiSession, g, il::Int, xnorm)
-    q = s.scratch
+function _attention!(s::BonsaiSession, g, q, il::Int, xnorm)
     prefix = "blk.$il."
     _transform!(s, g, q[:had5120], xnorm)
     _ptq!(s, g, q[:qfull], prefix * "attn_q.weight", q[:had5120])
@@ -446,8 +462,8 @@ function _attention!(s::BonsaiSession, g, il::Int, xnorm)
     q[:branch]
 end
 
-function _ffn!(s::BonsaiSession, g, il::Int, xnorm)
-    q = s.scratch; prefix = "blk.$il."
+function _ffn!(s::BonsaiSession, g, q, il::Int, xnorm)
+    prefix = "blk.$il."
     _transform!(s, g, q[:had5120], xnorm)
     _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
     _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120])
@@ -483,32 +499,29 @@ appears, which is better than deleting it from the table and risking a
 `:logits` stays a real buffer: `prefill!` hands it to the host after `run!`, so
 it has to outlive the plan's arena.
 """
-struct BatchScratch{G,M}
+struct GraphScratch{G}
     g::G
-    model::M
-    ntokens::Int
+    ntokens::Int                   # `widths` scale with this
     widths::Dict{Symbol,Int}
+    fixed::Dict{Symbol,Int}        # …and these do not
+    half::Set{Symbol}              # declared Float16 rather than Float32
+    escapes::Dict{Symbol,Any}      # real buffers the host reads after `run!`
     buf::Dict{Symbol,Any}
 end
 
-"""`:logits` escapes — `prefill!` hands it to the host after `run!` — so it is a
-real buffer and not a transient in the plan's arena."""
-function Base.getindex(q::BatchScratch, k::Symbol)
+function Base.getindex(q::GraphScratch, k::Symbol)
     get!(q.buf, k) do
-        k === :logits && return _zeros(q.model, Float32, 248320)
-        k === :lastnorm && return Mantle.Transient.Buffer(q.g, Float32, (WIDTH,))
-        k === :lasthad && return Mantle.Transient.Buffer(q.g, Float32, (WIDTH,))
-        n = get(q.widths, k, nothing)
-        n === nothing && throw(KeyError(k))
+        haskey(q.escapes, k) && return q.escapes[k]
+        n = haskey(q.widths, k) ? q.widths[k] * q.ntokens :
+            haskey(q.fixed, k) ? q.fixed[k] : throw(KeyError(k))
         # The Hadamard-transformed activations feed fp16 cooperative matrices.
-        # Storing them in that precision here removes a separate cast before
-        # every projection and has the same rounding point as the old cast.
-        T = k in (:had5120, :had6144, :had17408, :densehalf) ? Float16 : Float32
-        Mantle.Transient.Buffer(q.g, T, (n * q.ntokens,))
+        # Storing them in that precision removes a separate cast before every
+        # projection and has the same rounding point as the old cast.
+        Mantle.Transient.Buffer(q.g, k in q.half ? Float16 : Float32, (n,))
     end
 end
 
-function _batchscratch(g, model::Bonsai2, ntokens::Int)
+function _batchscratch(g, logits, ntokens::Int)
     widths = Dict(
         :x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
         :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
@@ -517,7 +530,11 @@ function _batchscratch(g, model::Bonsai2, ntokens::Int)
         :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
         :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48, :alphabeta=>96,
         :densehalf=>WIDTH)
-    BatchScratch(g, model, Int(ntokens), widths, Dict{Symbol,Any}())
+    GraphScratch(g, Int(ntokens), widths,
+                 Dict(:lastnorm => WIDTH, :lasthad => WIDTH),
+                 Set([:had5120, :had6144, :had17408, :densehalf]),
+                 Dict{Symbol,Any}(:logits => logits),
+                 Dict{Symbol,Any}())
 end
 
 function _hadamard_batch!(s::BonsaiSession, g, x, width::Int, ntokens::Int;
@@ -736,7 +753,7 @@ function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     position = Mantle.GPURef(dev, Int32(0))
     # ONE graph, all 64 layers, so the placer sees the whole working set.
     g = Mantle.Graph(dev)
-    q = _batchscratch(g, s.model, ntokens)
+    q = _batchscratch(g, s.logits, ntokens)
     _declareprefill_stage!(s, g, q, tokens, position, ntokens, 0:NLAYERS-1;
                            initialize=true, finalize=true)
     plan = Mantle.Plan(g; profile)
@@ -744,8 +761,7 @@ function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     PrefillExec(tokens, position, q, Any[plan])
 end
 
-function _declarestep!(s::BonsaiSession, g)
-    q = s.scratch
+function _declarestep!(s::BonsaiSession, g, q)
     embedding = _w(s, "token_embd.weight")
     _dispatch!(g, DNNKernels.ptq1_getrows_kernel!,
         (q[:x], embedding.data, s.tokenref, Int32(embedding.m), Int32(embedding.k), Int32(1)),
@@ -756,15 +772,15 @@ function _declarestep!(s::BonsaiSession, g)
         _dispatch!(g, rmsnorm_kernel!,
             (q[:norm], q[:x], _w(s, prefix * "attn_norm.weight"), Int32(WIDTH), s.model.eps),
             256; group=256, name=prefix * "attn_norm")
-        branch = (il + 1) % 4 == 0 ? _attention!(s, g, il, q[:norm]) :
-                                     _recurrent!(s, g, il, q[:norm])
+        branch = (il + 1) % 4 == 0 ? _attention!(s, g, q, il, q[:norm]) :
+                                     _recurrent!(s, g, q, il, q[:norm])
         _dispatch!(g, add_kernel!, (q[:x], q[:x], branch, Int32(WIDTH)), WIDTH;
                    group=256, name=prefix * "attn_residual")
         _dispatch!(g, rmsnorm_kernel!,
             (q[:norm], q[:x], _w(s, prefix * "post_attention_norm.weight"),
              Int32(WIDTH), s.model.eps),
             256; group=256, name=prefix * "post_attention_norm")
-        branch = _ffn!(s, g, il, q[:norm])
+        branch = _ffn!(s, g, q, il, q[:norm])
         _dispatch!(g, add_kernel!, (q[:x], q[:x], branch, Int32(WIDTH)), WIDTH;
                    group=256, name=prefix * "ffn_residual")
     end
@@ -778,8 +794,9 @@ end
 
 function _recordstep(s::BonsaiSession, dev)
     g = Mantle.Graph(dev)
-    _declarestep!(s, g)
-    Mantle.record!(Mantle.Plan(g))
+    q = _stepscratch(g, s.logits)
+    _declarestep!(s, g, q)
+    (Mantle.record!(Mantle.Plan(g)), q)
 end
 
 """
@@ -796,7 +813,7 @@ function step!(s::BonsaiSession, token::Integer)
     s.positionref[] = Int32(s.position)
     Mantle.run!(s.plan)
     s.position += 1
-    s.scratch[:logits]
+    s.logits
 end
 
 """
