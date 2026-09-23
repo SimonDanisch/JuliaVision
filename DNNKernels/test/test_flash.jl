@@ -63,9 +63,6 @@ function attnref(qh, kh, vh, scale)
 end
 
 @testset "fused attention" begin
-    if !CMKERNELS
-        @test_skip CMKERNELS
-    else
     back = Mantle.defaultbackend()
     # The kernel entry points take a context. `Ctx(backend)` builds one with no
     # graph behind it, which is exactly the direct-call case this file is.
@@ -482,7 +479,6 @@ end
             @test maximum(abs, fused .- twogemm) / maximum(abs, twogemm) < 5e-3
             q = k = v = o = nothing; GC.gc()
         end
-    end
     end
 end
 
