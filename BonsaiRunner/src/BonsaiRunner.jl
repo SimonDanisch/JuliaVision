@@ -107,17 +107,14 @@ struct Bonsai2{B,C}
     eps::Float32
 end
 
-function _upload(backend, host::AbstractArray)
-    out = KernelAbstractions.allocate(backend, Float32, size(host)...)
-    copyto!(out, Float32.(host))
-    out
-end
+# `Mantle.Buffer(dev, data)` IS the upload: it takes the region and fills it.
+# One allocator for everything this runner owns, and one verb — `Mantle.free!` —
+# that gives it back.
+_upload(backend, host::AbstractArray) =
+    Mantle.Buffer(Mantle.todevice(backend), Float32.(host))
 
-function _upload16(backend, host::AbstractArray)
-    out = KernelAbstractions.allocate(backend, Float16, size(host)...)
-    copyto!(out, Float16.(host))
-    out
-end
+_upload16(backend, host::AbstractArray) =
+    Mantle.Buffer(Mantle.todevice(backend), Float16.(host))
 
 """
     Bonsai2(path; device=Mantle.device(), context=nothing, loadweights=true)
@@ -235,13 +232,20 @@ mutable struct Q8KVCache{A,S}
     capacity::Int
 end
 
-_zeros(m::Bonsai2, ::Type{T}, dims...) where {T} = KernelAbstractions.zeros(m.backend, T, dims...)
+# Allocated and then filled, rather than `zeros` on the host and uploaded: the
+# recurrent state is per layer and the host copy would be pure waste.
+function _zeros(m::Bonsai2, ::Type{T}, dims...) where {T}
+    b = Mantle.Buffer(Mantle.todevice(m.backend), T, Dims(dims))
+    fill!(b, zero(T))
+    b
+end
 
 function _q8cache(model::Bonsai2, capacity::Integer)
-    k = KernelAbstractions.allocate(model.backend, Int8, 256, 4, capacity)
-    v = KernelAbstractions.allocate(model.backend, Int8, 256, 4, capacity)
-    ks = KernelAbstractions.allocate(model.backend, Float32, 4, capacity)
-    vs = KernelAbstractions.allocate(model.backend, Float32, 4, capacity)
+    dev = Mantle.todevice(model.backend)
+    k = Mantle.Buffer(dev, Int8, (256, 4, capacity))
+    v = Mantle.Buffer(dev, Int8, (256, 4, capacity))
+    ks = Mantle.Buffer(dev, Float32, (4, capacity))
+    vs = Mantle.Buffer(dev, Float32, (4, capacity))
     Q8KVCache(k, v, ks, vs, Int(capacity))
 end
 
