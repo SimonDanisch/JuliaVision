@@ -44,6 +44,11 @@ const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 # read as "no fixtures" and went from 61 assertions to 1, still green.
 # `ensure_artifact_installed` succeeds on retry; the gate then runs and passes.
 
+# Neither a device nor a graph: reads this tree and Mantle's as text, and
+# asserts that no `@kernel` is defined in either and that the eager surface has
+# not grown. A `@kernel` compiles and runs, so nothing else here would notice.
+include(joinpath(@__DIR__, "test_no_kernel_macro.jl"))
+
 # Which buffers a declared plan may place at all, over every exported graph.
 # Needs a device, because `Mantle.Place` does the placement. Two silent faults
 # from running SAM 2 end to
