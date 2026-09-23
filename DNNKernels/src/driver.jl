@@ -969,6 +969,20 @@ mutable struct State
     lastmask::Any           # (W, H, NOBJ, B) full resolution
     lastpixfeat::Any
     lastmskvalue::Any       # (w, h, CV, NOBJ, B)
+    # `recordmemread`'s output. Its shape is `(hw, CV, NOBJ, B)` and every one of
+    # those is fixed for the clip, so it is allocated once here rather than per
+    # frame, and freed with the rest of `owned`. Named for what it holds: `step!`
+    # has a local `readout` that is the pixel fusion's, which is a different
+    # thing.
+    visualreadout::Any
+    # The memory read, recorded ONCE for the clip and replayed every frame.
+    # Everything it names is stable — `qk`/`qe` are a recorded plan's outputs and
+    # the bank's arrays are persistent — and the one thing that is not, how much
+    # of the bank is live, lives in `memreadn` instead of in the recording. A
+    # `GPURef` is the storage a per-run value lives in; passing the count by
+    # value would bake it in and force a rebuild per frame.
+    memreadplan::Any
+    memreadn::Any
     ti::Int                 # curr_ti
     lastmemti::Int
     dims::NamedTuple
@@ -991,9 +1005,11 @@ function initstate(m::Model, W::Int, H::Int; ck=64, cv=256, sensory=256,
     dev = M.todevice(m.backend)
     sens = M.Buffer(dev, T, (w, h, sensory, nobj, bs))
     last = M.Buffer(dev, T, (W, H, nobj, bs))
+    visualreadout = M.Buffer(dev, T, (w * h, cv, nobj, bs))
     State(MemoryBank(m.backend, T, w * h, m.memframes, ck, cv, nobj, bs, q, embed),
           fill!(M.storage(sens), 0), fill!(M.storage(last), 0),
-          nothing, nothing, -1, 0, (h=h, w=w), (sens, last))
+          nothing, nothing, visualreadout, nothing, M.GPURef(dev, Int32(0)),
+          -1, 0, (h=h, w=w), (sens, last, visualreadout))
 end
 
 """
@@ -1012,6 +1028,8 @@ correctly do with them.
 """
 function M.release!(s::State)
     M.release!(s.bank)
+    s.memreadplan === nothing || (M.free!(s.memreadplan); s.memreadplan = nothing)
+    M.free!(s.memreadn)
     foreach(M.free!, s.owned)
     s.lastpixfeat = nothing
     s.lastmskvalue = nothing
@@ -1063,8 +1081,19 @@ function step!(m::Model, s::State, image; mask=nothing, firstframe::Bool=false)
             # previous mask value is reused directly
             first(call(m, "pixel_fusion", pixfeat, s.lastmskvalue, s.sensory, s.lastmask; dims))
         else
-            visual = readmemory(Ctx(m.device; diag=m.diag), s.bank, key, selection,
-                                dims.w, dims.h; topk=m.topk)
+            # Recorded on the first frame that reads memory and replayed on
+            # every one after. How much of the bank is live goes in the ref, so
+            # the recording never has to change.
+            s.memreadn[] = Int32(s.bank.nvalid * s.bank.hw)
+            if s.memreadplan === nothing
+                s.memreadplan = recordmemread(m.device, s.bank, key, selection,
+                                              dims.w, dims.h, s.visualreadout,
+                                              s.memreadn; topk = m.topk)
+            end
+            M.run!(s.memreadplan)
+            visual = reshape(M.storage(s.visualreadout), dims.w, dims.h,
+                             size(s.bank.value, 2), size(s.bank.value, 3),
+                             size(s.bank.key, 3))
             # temporal-sparsity blend (memory_manager.py:249). Slices go through
             # `view` + broadcast rather than `getindex`; see `materialize`.
             diff = view(visual, :, :, :, 1, :) .- view(s.lastmskvalue, :, :, :, 1, :)

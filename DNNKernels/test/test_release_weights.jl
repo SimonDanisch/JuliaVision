@@ -145,9 +145,12 @@ end
 
     st = DNNKernels.initstate(model, 512, 288)
 
-    # Four buffers for the bank, two for the state's own sensory and last-mask.
+    # Four buffers for the bank, three for the state's own sensory, last-mask
+    # and visual readout. The readout joined them when `readmemory` became a
+    # declared graph: its shape is fixed for the clip, so allocating it per
+    # frame was allocating a per-clip thing per frame.
     @test length(st.bank.buffers) == 4
-    @test length(st.owned) == 2
+    @test length(st.owned) == 3
     # It took MORE ledger entries than buffers — a persistent allocation is not
     # one entry — so the count is not asserted. What matters is that it took
     # some and that `release!` gives all of them back.

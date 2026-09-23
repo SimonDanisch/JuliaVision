@@ -179,10 +179,16 @@ the row max (memory_utils.py:59) — the values are negated distances and so are
 bounded above.
 """
 function topk_softmax_kernel!(sums, sim, ::Val{K}, ::Val{ACC}, ::Val{WG},
-                                      N) where {K,ACC,WG}
+                                      nref) where {K,ACC,WG}
     T = eltype(sim)
     gq, gb = Tuple(KI.get_group_id())
     tid, = Tuple(KI.get_local_id())
+    # The live slot count, READ FROM THE DEVICE. `sim` is declared at the bank's
+    # capacity so the plan can be recorded once, which means its second extent is
+    # the capacity and says nothing about how much of the bank is filled. Passing
+    # the count by value instead would bake it into the recording — see
+    # `Mantle.GPURef`, which is the storage a per-run value lives in.
+    N = Int32(@inbounds nref[1])
 
     vals = KI.localmemory(ACC, Val((K,)), Val(1))
     idxs = KI.localmemory(Int32, Val((K,)), Val(2))
@@ -282,12 +288,16 @@ register array, so nothing is allocated and `k` is a type parameter.
 end
 
 """`_readout` (memory_manager.py:77): `out[q, c, o] = Σ_n aff[q, n] v[n, c, o]`."""
-@inline function memreadout_body(I, aff, v)
+@inline function memreadout_body(I, aff, v, nref)
     q, c, o, b = I
     @inbounds begin
         T = accum(eltype(v))
         acc = zero(T)
-        for n in axes(aff, 2)
+        # `1:N` and not `axes(aff, 2)`: `aff` is the capacity-shaped affinity, so
+        # its second extent is the bank's capacity rather than how much of it is
+        # live. Reading the count from the device is what lets the plan be
+        # recorded once for the clip.
+        for n in 1:Int(nref[1])
             acc = muladd(T(aff[q, n, b]), T(v[n, c, o, b]), acc)
         end
         acc
@@ -295,44 +305,64 @@ end
 end
 
 """
-    readmemory(ctx, bank, query_key, selection, w, h; topk)
+    recordmemread(dev, bank, qk, qe, w, h, out, nref; topk) -> Mantle.Plan
 
-Returns the visual readout as `(w, h, CV, NOBJ, B)`.
+The memory read as ONE plan, recorded once for the clip and replayed every
+frame.
 
-Takes a `Ctx` like every other kernel entry point, although this one is not
-called from a graph: it runs *between* two of them, in `step!`. `Ctx(backend)`
-builds the one it needs — see that constructor.
+Its three passes have a real dependency — the top-k pass normalises `sim` IN
+PLACE and the readout pass reads it — so declaring is what puts the barrier
+there rather than resting on the queue's ordering.
+
+**Nothing here changes between frames.** `qk` and `qe` are a recorded plan's
+outputs, so `call` hands back the same buffers every time; the bank's arrays
+and `out` are persistent. The one thing that does change is how much of the
+bank is live, and that goes in `nref` — a `GPURef` is "the storage a per-run
+value lives in", which is exactly this. A value passed directly would be baked
+in at record time and the plan would have to be rebuilt.
+
+`sim` is therefore declared at the bank's CAPACITY rather than at the live
+extent, and the affinity pass fills all of it. The slots past the live ones get
+affinities computed from bank memory nothing has written yet — garbage, and
+never read: both later passes are bounded by `nref`. The waste is one pass over
+the empty part of a bank that fills within `mem_frames` frames and is exact
+afterwards, and it buys a shape that does not depend on the frame.
 """
-function readmemory(ctx, m::MemoryBank, qk, qe, w, h; topk::Int=30)
-    backend = ctx.backend
+function recordmemread(dev, m::MemoryBank, qk, qe, w, h, out, nref; topk::Int=30)
     hw = w * h
     ck = size(m.key, 2)
     bs = size(m.key, 3)
-    n = m.nvalid * m.hw
+    cap = size(m.key, 1)
     T = accum(eltype(m.key))
 
     qk2 = reshape(qk, hw, ck, bs)
     qe2 = reshape(qe, hw, ck, bs)
-    mk = view(m.key, 1:n, :, :)
-    ms = view(m.shrinkage, 1:n, :, :)
 
-    sim = KernelAbstractions.allocate(backend, T, hw, n, bs)
+    g = M.Graph(dev)
+    sim = M.Transient.Buffer(g, T, (hw, cap, bs))
     # `T(...)` on the HOST. `inv(sqrt(ck))` is a `Float64`, and passing one made the
     # scale a double-precision kernel ARGUMENT — which the body then truncated per
     # thread. A GPU that has no `double` cannot compile that at all, and the failure
     # is an `InvalidIRError` from `Float32(::Float64)` rather than anything naming a
     # scale. Rounding here is the same `fptrunc` on the same `Float64`, so the value
     # is bit-identical; it just happens once instead of per thread.
-    launch!(ctx, similarity_body, sim, mk, ms, qk2, qe2, Val(ck), T(inv(sqrt(ck))))
+    #
+    # The whole `key`/`shrinkage`, not a `view` of the live prefix: the view existed
+    # only to tell the kernel where the live part ended, and `nref` does that now.
+    launch!(g, similarity_body, sim, m.key, m.shrinkage, qk2, qe2,
+            Val(ck), T(inv(sqrt(ck))); name = "similarity")
 
-    sums = KernelAbstractions.allocate(backend, T, hw, bs)
+    # `sums` is scratch the top-k pass writes and nothing reads; a transient is
+    # exactly that, and the placer can alias it.
+    sums = M.Transient.Buffer(g, T, (hw, bs))
     let WG = 64
-        KI.Kernel(backend, topk_softmax_kernel!)(sums, sim, Val(topk), Val(T), Val(WG),
-                                               size(sim, 2); ndrange = (WG * hw, bs), workgroupsize = (WG, 1))
+        M.dispatch!(g, topk_softmax_kernel!,
+                    (sums, sim, Val(topk), Val(T), Val(WG), nref),
+                    (WG * hw, bs); group = (WG, 1), name = "topk_softmax")
     end
 
-    cv, nobj = size(m.value, 2), size(m.value, 3)
-    out = KernelAbstractions.allocate(backend, T, hw, cv, nobj, bs)
-    launch!(ctx, memreadout_body, out, sim, view(m.value, 1:n, :, :, :))
-    reshape(out, w, h, cv, nobj, bs)
+    launch!(g, memreadout_body, out, sim, m.value, nref; name = "memreadout")
+    plan = M.Plan(g)
+    M.record!(plan)
+    plan
 end

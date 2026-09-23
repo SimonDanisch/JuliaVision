@@ -210,6 +210,28 @@ be measurable. See [`Diagnostics`](@ref).
 @inline launch!(ctx::Ctx, f::F, out, args...) where {F} =
     launch!(f, out, args...; backend = ctx.backend, probe = ctx.diag.launches)
 
+"""
+    launch!(g::Mantle.Graph, f, out, args...; name)
+
+Declare into `g` what the other methods launch: the same `ndmap_flat!`, the same
+arguments, the same ndrange.
+
+The graph carries the device, so there is no backend argument and no `Ctx` — and
+declaring is what lets Mantle see the dependency between this pass and the next
+one that reads `out`, which a launch leaves to the queue's ordering.
+
+Always the FLAT kernel: a declared output is a transient or a `Buffer`, and both
+are dense, so the `IndexLinear` test the launching method makes has one answer
+here.
+"""
+function launch!(g::M.Graph, f::F, out, args...;
+                 name::AbstractString = string(nameof(f))) where {F}
+    n = length(out)
+    M.dispatch!(g, ndmap_flat!,
+                (f, out, map(M.FastDiv32, size(out)), n, args...), n; name)
+    out
+end
+
 function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out),
                  probe=nothing) where {F}
     p = probe
