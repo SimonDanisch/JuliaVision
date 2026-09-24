@@ -397,7 +397,13 @@ const H = Hunyuan3DRunner
             # device parameter, so no four models could satisfy them at all.
             m = H.Hunyuan3D(geo.backend, geo, geo, geo, geo, chunk,
                             Mantle.GPURef(dev, H.GridChunk(0, 0, 0.0, 0.0, 0)))
-            latents = Mantle.storage(Mantle.Buffer(dev, Float16, (1024, 4096, 1)))
+            # The BUFFER is kept, not just its storage. A `Buffer` finalizes now,
+            # and a device address is not a reference the collector can see, so
+            # `storage(Buffer(...))` hands back an array whose region can be
+            # retired the moment the temporary is collected. See Mantle's
+            # "The residency test was measuring use-after-free".
+            latentbuf = Mantle.Buffer(dev, Float16, (1024, 4096, 1))
+            latents = Mantle.storage(latentbuf)
             fill!(latents, Float16(0.01))
 
             hostgrid(G, first0) = begin
