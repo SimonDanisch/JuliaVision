@@ -311,7 +311,109 @@ The encoder downsamples by 16, so both extents must be multiples of it.
 padto16(n::Integer) = ((Int(n) + 15) ÷ 16) * 16
 
 """
-    matanyonepropagator(; graphdir, weights, backend, warmup = 10) -> f
+    propagatematte(model, backend, frames, seeds, warmup; progress = nothing) -> Array{UInt8,3}
+
+`frames` matted by `model`, seeded by the masks in `seeds` (frame index => mask).
+Frames before the first seed come back transparent — the memory bank has nothing
+to propagate from yet.
+
+Named rather than the body of `matanyonepropagator`'s closure so `model` and
+`backend` arrive as arguments: a closure over a `Ref{Any}` backend would make
+every `KA.allocate` below a dynamic dispatch.
+"""
+function propagatematte(model, backend, frames, seeds, warmup::Int; progress = nothing)
+    n = length(frames)
+    w, h = size(frames[1])
+    W, H = padto16(w), padto16(h)
+    img = KA.allocate(backend, Float32, W, H, 3, 1)
+    host = zeros(Float32, W, H, 3, 1)
+    maskhost = zeros(Float32, W, H)
+    state = initstate(model, W, H)
+    out = zeros(UInt8, w, h, n)
+    # One device buffer per frame, downloaded once at the end. `collect`ing
+    # each frame's alpha as it came cost a full queue drain per frame — the
+    # host waits for the GPU, then the GPU waits for the host to ask for the
+    # next frame, and neither overlaps. Device-to-device copies do not
+    # synchronise, so the pipeline stays full.
+    planes = [KA.allocate(backend, Float32, W, H) for _ in 1:n]
+    got = falses(n)
+    order = sort!(collect(keys(seeds)))
+    isempty(order) && return out
+    first = order[1]
+
+    for k in 1:n
+        # pad by edge replication rather than zeros: a black border reads as
+        # background the model has to explain away, and it leaks into the
+        # matte at the frame edge
+        frame = frames[k]
+        @inbounds for j in 1:H, i in 1:W
+            c = frame[min(i, w), min(j, h)]
+            host[i, j, 1, 1] = Float32(red(c))
+            host[i, j, 2, 1] = Float32(green(c))
+            host[i, j, 3, 1] = Float32(blue(c))
+        end
+        copyto!(img, host)
+
+        alpha = if haskey(seeds, k)
+            m = seeds[k]
+            fill!(maskhost, 0.0f0)
+            @inbounds for j in 1:min(h, H), i in 1:min(w, W)
+                # 0..255, NOT 0..1: the reference mask the model was
+                # validated against is `(0.0, 255.0)`, and a 0/1 mask is 255x
+                # too faint to register — it produces an all-zero matte with
+                # no error anywhere, which is the whole difficulty of this bug.
+                maskhost[i, j] = m[i, j] > 0x7f ? 255.0f0 : 0.0f0
+            end
+            dev = KA.allocate(backend, Float32, W, H)
+            copyto!(dev, maskhost)
+            # Mask ingest is its own step, WITHOUT `firstframe`. The two
+            # together hit a path where `State`'s `lastpixfeat`/`lastmskvalue`
+            # are still `nothing` and reach a broadcast, which fails to
+            # compile ("call to jl_f_throw_methoderror" inside
+            # `lava_broadcast_flat!`). The verified driver order is
+            # ingest-then-run, so do that.
+            # `firstframe` on the FIRST mark only: it resets the memory
+            # bank, which is right when seeding and wrong when correcting a
+            # drifting matte further into the clip.
+            seeding = k == first
+            step!(model, state, img; mask = dev, firstframe = seeding)
+            # The ingest step's own alpha IS the mask: `step!` overwrites
+            # `prob` with the supplied selection outright, so taking it would
+            # hand the user's rough box back as the matte — on exactly the
+            # frame they are looking at after marking. Re-run the frame to get
+            # a segmented one, which is what `DNNKernels.matte` does for its own
+            # first frame and the reason its result looks nothing like this
+            # one did.
+            a = nothing
+            for _ in 1:(seeding ? warmup : 1)
+                a = step!(model, state, img; firstframe = seeding)
+            end
+            a
+        elseif k < first
+            # nothing marked yet — leave these frames transparent rather than
+            # running the model on a bank that has never been seeded
+            progress === nothing || progress(k, n)
+            continue
+        else
+            step!(model, state, img)
+        end
+
+        copyto!(planes[k], alpha)
+        got[k] = true
+        progress === nothing || progress(k, n)
+    end
+    for k in 1:n
+        got[k] || continue
+        a = collect(planes[k])
+        @inbounds for j in 1:h, i in 1:w
+            out[i, j, k] = round(UInt8, clamp(a[i, j], 0.0f0, 1.0f0) * 255)
+        end
+    end
+    return out
+end
+
+"""
+    matanyonepropagator(; backend, warmup = 10) -> f
 
 A propagator matching `VideoEditor.registermatte!`'s contract:
 `f(frames, seeds; progress) -> Array{UInt8,3}`.
@@ -326,7 +428,15 @@ loaded, or loading the editor invalidates it again — and since the editor
 depends on this package directly, the editor is that far side.
 """
 function matanyonepropagator(;
-        backend = Mantle.defaultbackend(),
+        # `nothing`, not `defaultbackend()`: a kwarg default is evaluated when
+        # `matanyonepropagator` is CALLED, and building a backend creates the
+        # process-global device on whichever thread did the calling. The editor
+        # registers a propagator from its `__init__`, so the default would bind
+        # the device to the loading thread, and every later analysis — which runs
+        # on the pinned GPU worker — then dies on "SubmitChannel is
+        # single-writer". The backend is resolved beside the model instead, on
+        # the thread that will use it.
+        backend = nothing,
         # Re-runs of a seeded frame, settling the memory bank before its own matte
         # is read. `inference_matanyone2.py` uses 10 and `DNNKernels.matte` matches
         # it; it is also what makes a single-frame call (the live preview while
@@ -334,108 +444,17 @@ function matanyonepropagator(;
         warmup::Int = 10)
     ready() || error("no exported graphs in the `matanyone` artifact — " *
                      "re-bind it with `julia --project=. tools/make_artifacts.jl matanyone`")
-    # Built on FIRST USE, not here. A Vulkan `BatchQueue` is single-writer and
-    # belongs to whichever thread first touches the context, while the editor
-    # calls a propagator from `runanalysis` — its pinned GPU worker for a GPU
-    # backend, a plain task for a CPU one. Constructing the model at registration
-    # time binds the queue to whoever happened to call `usematanyone!` (usually
-    # the REPL's main thread), and every later call then dies on
-    # "BatchQueue is single-writer; cross-thread sweep forbidden". Building it
-    # inside the call puts the context on the executor that will use it.
-    modelref = Ref{Any}(nothing)
+    # Built on FIRST USE, not here — same reason as the backend above, and the
+    # model holds device arrays that belong to whichever context built it.
+    built = Ref{Any}(nothing)
 
     return function (frames, seeds; progress = nothing)
-        modelref[] === nothing &&
-            (modelref[] = Model(matanyonegraphs(), matanyoneweights(); backend))
-        model = modelref[]
-        n = length(frames)
-        w, h = size(frames[1])
-        W, H = padto16(w), padto16(h)
-        img = KA.allocate(backend, Float32, W, H, 3, 1)
-        host = zeros(Float32, W, H, 3, 1)
-        maskhost = zeros(Float32, W, H)
-        state = initstate(model, W, H)
-        out = zeros(UInt8, w, h, n)
-        # One device buffer per frame, downloaded once at the end. `collect`ing
-        # each frame's alpha as it came cost a full queue drain per frame — the
-        # host waits for the GPU, then the GPU waits for the host to ask for the
-        # next frame, and neither overlaps. Device-to-device copies do not
-        # synchronise, so the pipeline stays full.
-        planes = [KA.allocate(backend, Float32, W, H) for _ in 1:n]
-        got = falses(n)
-        order = sort!(collect(keys(seeds)))
-        isempty(order) && return out
-        first = order[1]
-
-        for k in 1:n
-            # pad by edge replication rather than zeros: a black border reads as
-            # background the model has to explain away, and it leaks into the
-            # matte at the frame edge
-            frame = frames[k]
-            @inbounds for j in 1:H, i in 1:W
-                c = frame[min(i, w), min(j, h)]
-                host[i, j, 1, 1] = Float32(red(c))
-                host[i, j, 2, 1] = Float32(green(c))
-                host[i, j, 3, 1] = Float32(blue(c))
-            end
-            copyto!(img, host)
-
-            alpha = if haskey(seeds, k)
-                m = seeds[k]
-                fill!(maskhost, 0.0f0)
-                @inbounds for j in 1:min(h, H), i in 1:min(w, W)
-                    # 0..255, NOT 0..1: the reference mask the model was
-                    # validated against is `(0.0, 255.0)`, and a 0/1 mask is 255x
-                    # too faint to register — it produces an all-zero matte with
-                    # no error anywhere, which is the whole difficulty of this bug.
-                    maskhost[i, j] = m[i, j] > 0x7f ? 255.0f0 : 0.0f0
-                end
-                dev = KA.allocate(backend, Float32, W, H)
-                copyto!(dev, maskhost)
-                # Mask ingest is its own step, WITHOUT `firstframe`. The two
-                # together hit a path where `State`'s `lastpixfeat`/`lastmskvalue`
-                # are still `nothing` and reach a broadcast, which fails to
-                # compile ("call to jl_f_throw_methoderror" inside
-                # `lava_broadcast_flat!`). The verified driver order is
-                # ingest-then-run, so do that.
-                # `firstframe` on the FIRST mark only: it resets the memory
-                # bank, which is right when seeding and wrong when correcting a
-                # drifting matte further into the clip.
-                seeding = k == first
-                step!(model, state, img; mask = dev, firstframe = seeding)
-                # The ingest step's own alpha IS the mask: `step!` overwrites
-                # `prob` with the supplied selection outright, so taking it would
-                # hand the user's rough box back as the matte — on exactly the
-                # frame they are looking at after marking. Re-run the frame to get
-                # a segmented one, which is what `DNNKernels.matte` does for its own
-                # first frame and the reason its result looks nothing like this
-                # one did.
-                a = nothing
-                for _ in 1:(seeding ? warmup : 1)
-                    a = step!(model, state, img; firstframe = seeding)
-                end
-                a
-            elseif k < first
-                # nothing marked yet — leave these frames transparent rather than
-                # running the model on a bank that has never been seeded
-                progress === nothing || progress(k, n)
-                continue
-            else
-                step!(model, state, img)
-            end
-
-            copyto!(planes[k], alpha)
-            got[k] = true
-            progress === nothing || progress(k, n)
+        if built[] === nothing
+            bk = backend === nothing ? Mantle.defaultbackend() : backend
+            built[] = (bk, Model(matanyonegraphs(), matanyoneweights(); backend = bk))
         end
-        for k in 1:n
-            got[k] || continue
-            a = collect(planes[k])
-            @inbounds for j in 1:h, i in 1:w
-                out[i, j, k] = round(UInt8, clamp(a[i, j], 0.0f0, 1.0f0) * 255)
-            end
-        end
-        return out
+        bk, model = built[]
+        return propagatematte(model, bk, frames, seeds, warmup; progress)
     end
 end
 
