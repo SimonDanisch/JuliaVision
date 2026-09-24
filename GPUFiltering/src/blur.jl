@@ -26,8 +26,9 @@ function gaussianweights(σ::Real; maxradius::Integer = 0)
 end
 
 # separable passes: dim=1 is the contiguous axis of our (width, height) frames
-@kernel function convpass_kernel!(out, @Const(img), @Const(weights), radius::Int32, ::Val{DIM}) where {DIM}
+@kernel function convpass_kernel!(out, @Const(img), @Const(weights), radiusp, ::Val{DIM}) where {DIM}
     I = @index(Global, Cartesian)
+    radius = Int32(paramvalue(radiusp))
     i, j = Tuple(I)
     len = Int32(size(img, DIM))
     r = 0.0f0
@@ -82,8 +83,9 @@ function gaussianblur!(out::AbstractMatrix{T}, img::AbstractMatrix{T}, σ::Real;
     return out
 end
 
-@kernel function unsharp_kernel!(out, @Const(img), @Const(blurred), amount::Float32)
+@kernel function unsharp_kernel!(out, @Const(img), @Const(blurred), amountp)
     I = @index(Global, Cartesian)
+    amount = Float32(paramvalue(amountp))
     px = img[I]
     c = tofloat(px)
     bl = tofloat(blurred[I])
