@@ -48,9 +48,16 @@ adaptive_avg_pool2d!(ctx, out, x) = launch!(ctx, adaptive_avg_pool, out, x,
         # `fastfloor` for the same reason as `upsample_nearest` below: `fx` is
         # bounded below by the `max` above and above by this `min`, so the
         # `InexactError` branch is unreachable and its allocation is not wanted
-        # in a kernel. The two `floor(Int32, …)` further down are NOT this case —
-        # they floor a coordinate that comes from user data (a sampling grid, a
-        # deformable offset), where out of range is reachable.
+        # in a kernel.
+        #
+        # The three floors further down are NOT this case — they floor a
+        # coordinate that comes from user data (a sampling grid, a deformable
+        # offset), where out of range is genuinely reachable — so they are
+        # `safetrunc(Int32, floor(…))` rather than either of the two: `fastfloor`
+        # would be undefined there and `floor(Int32, …)` throws, which in a
+        # kernel Lava lowers to a `gpu_gc_pool_alloc` whose undef return then
+        # feeds the index anyway. `safetrunc` saturates, and every one of those
+        # three sites already guards its index against the extents.
         x0 = min(fastfloor(fx), IX - 1)
         y0 = min(fastfloor(fy), IY - 1)
         tx = T(fx - x0)
@@ -267,7 +274,7 @@ function avg_pool2d!(out, x, kw::Integer, kh::Integer, sx::Integer, sy::Integer,
                      px::Integer = 0, py::Integer = 0)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(out)
-    KI.Kernel(backend, avg_pool2d_kernel!)(out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
+    harnesslaunch!(backend, avg_pool2d_kernel!, out, x, Int32(kw), Int32(kh), Int32(sx), Int32(sy),
                                 Int32(px), Int32(py), W4, H4, C4;
                                 ndrange = nd, workgroupsize = launchgroup(nd))
     return out
@@ -306,7 +313,7 @@ function grid_sample2d_kernel!(out, x, grid, ::Val{ALIGN},
                      ((gx + 1.0f0) * Float32(W) - 1.0f0) * 0.5f0 + 1.0f0
         py = ALIGN ? (gy + 1.0f0) * 0.5f0 * (Float32(H) - 1.0f0) + 1.0f0 :
                      ((gy + 1.0f0) * Float32(H) - 1.0f0) * 0.5f0 + 1.0f0
-        x0 = floor(Int32, px); y0 = floor(Int32, py)
+        x0 = safetrunc(Int32, floor(px)); y0 = safetrunc(Int32, floor(py))
         fx = px - Float32(x0); fy = py - Float32(y0)
         acc = zero(Float32)
         for dy in Int32(0):Int32(1), dx in Int32(0):Int32(1)
@@ -360,7 +367,7 @@ card stays fed.
 function grid_sample2d!(out, x, grid; align_corners::Bool = true, padding::Symbol = :zeros)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(out)
-    KI.Kernel(backend, grid_sample2d_kernel!)(out, x, grid, Val(align_corners), Val(padding),
+    harnesslaunch!(backend, grid_sample2d_kernel!, out, x, grid, Val(align_corners), Val(padding),
                                    W4, H4, C4;
                                    ndrange = nd, workgroupsize = launchgroup(nd))
     return out
@@ -420,7 +427,7 @@ function deform_conv2d_kernel!(out, x, offset, mask,
                     Float32(mask[i, j, dgi * Int32(KH) * Int32(KW) + tap + Int32(1), n]) : 1.0f0
                 sxp = Float32(x0 + (kw - Int32(1)) * dlx) + offx + 1.0f0
                 syp = Float32(y0 + (kh - Int32(1)) * dly) + offy + 1.0f0
-                xi0 = floor(Int32, sxp); yi0 = floor(Int32, syp)
+                xi0 = safetrunc(Int32, floor(sxp)); yi0 = safetrunc(Int32, floor(syp))
                 fx = sxp - Float32(xi0); fy = syp - Float32(yi0)
                 wv = Float32(w[kw, kh, ci, co])
                 sacc = zero(Float32)
@@ -444,7 +451,7 @@ function deform_conv2d!(out, x, offset, mask, w, bias;
                         groups::Integer = 1, deform_groups::Integer = 1)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(out)
-    KI.Kernel(backend, deform_conv2d_kernel!)(out, x, offset,
+    harnesslaunch!(backend, deform_conv2d_kernel!, out, x, offset,
                                    mask === nothing ? offset : mask, w, bias,
                                    Int32(stride[1]), Int32(stride[2]),
                                    Int32(padding[1]), Int32(padding[2]),
@@ -506,7 +513,7 @@ function deform_im2col_kernel!(col, x, offset, mask,
                                    dgi * KH * KW + tap + Int32(1), n + Int32(1)]) : 1.0f0
         sxp = Float32(i * sx - px + kw * dlx) + offx + 1.0f0
         syp = Float32(j * sy - py + kh * dly) + offy + 1.0f0
-        xi0 = floor(Int32, sxp); yi0 = floor(Int32, syp)
+        xi0 = safetrunc(Int32, floor(sxp)); yi0 = safetrunc(Int32, floor(syp))
         fx = sxp - Float32(xi0); fy = syp - Float32(yi0)
         sacc = zero(Float32)
         for ddy in Int32(0):Int32(1), ddx in Int32(0):Int32(1)
@@ -547,7 +554,7 @@ end
 function flip!(out, x, dims::Tuple)
     backend = KernelAbstractions.get_backend(out)
     nd, W4, H4, C4 = flat4(x)
-    KI.Kernel(backend, flip_kernel!)(out, x, Val(dims), W4, H4, C4;
+    harnesslaunch!(backend, flip_kernel!, out, x, Val(dims), W4, H4, C4;
                           ndrange = nd, workgroupsize = launchgroup(nd))
     return out
 end
@@ -625,7 +632,7 @@ function convolution3d!(out, x, w, bias, stride, pad, dil, groups::Integer;
     backend = KernelAbstractions.get_backend(out)
     # Folded to three axes; `conv3d_kernel!` unfolds the trailing three.
     nd = (size(out, 1), size(out, 2), size(out, 3) * size(out, 4) * size(out, 5))
-    KI.Kernel(backend, conv3d_kernel!)(out, x, w, bias === nothing ? w : bias,
+    harnesslaunch!(backend, conv3d_kernel!, out, x, w, bias === nothing ? w : bias,
                             Int32(stride[1]), Int32(stride[2]), Int32(stride[3]),
                             Int32(pad[1]), Int32(pad[2]), Int32(pad[3]),
                             Int32(dil[1]), Int32(dil[2]), Int32(dil[3]),

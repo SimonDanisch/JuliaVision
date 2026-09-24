@@ -59,6 +59,39 @@ has made unreachable.
 @inline fastfloor(v::AbstractFloat) = unsafe_trunc(Int, floor(v))
 
 """
+    fastcospi(t) -> Float32
+
+`cospi(t)` for an argument the caller knows is finite.
+
+Third of the same family, and found the same way: `cospi` opens with
+`isinf(x) && throw(DomainError(x, "`x` cannot be infinite."))`, and a throw in a
+kernel ALLOCATES its exception. Lava names it — "lowering `unreachable` in
+non-entry helper `gpu_gc_pool_alloc` of kernel `randomfill_kernel_`" — and the
+same code compiled through `log`, `sqrt` or `cos` is clean, so `cospi` was the
+whole of it.
+
+`cos(T(pi) * t)` would also be clean and is NOT what this does: `cospi` is picked
+where it is picked because the range reduction is exact in the units the argument
+is already in. Here the reduction is done first, against `t`, and only the
+remainder — `|r| <= 1/4` — is multiplied by π, where that product is accurate to
+half an ulp.
+
+    cos(pi * (n/2 + r)) = cos(pi*n/2)*cos(pi*r) - sin(pi*n/2)*sin(pi*r)
+
+which is `cos`, `-sin`, `-cos`, `sin` of `pi*r` as `n` runs mod 4.
+"""
+@inline function fastcospi(t::Float32)
+    n = round(2f0 * t)
+    r = muladd(-0.5f0, n, t)              # |r| <= 1/4
+    x = Float32(pi) * r
+    q = unsafe_trunc(Int32, n) & Int32(3)
+    q == Int32(0) && return cos(x)
+    q == Int32(1) && return -sin(x)
+    q == Int32(2) && return -cos(x)
+    return sin(x)
+end
+
+"""
 [`safetrunc`](@ref) with its target type as a TYPE PARAMETER rather than a
 broadcast argument.
 
@@ -721,15 +754,38 @@ function indexput_kernel!(dst, src, iv, ::Val{D},
     return nothing
 end
 
+"""
+    scatterindex(v) -> Int
+
+The 0-based index a scatter reads, as an `Int`, from either spelling of an index
+tensor.
+
+An index is an integer and `Int` is the whole conversion — but the tensor
+carrying it is not always an integer one: a graph that casts its indices arrives
+here as `Float32`, and `Int(::Float32)` raises `InexactError` for anything
+non-integral. That branch cannot be taken by an index, and a throw in a kernel
+ALLOCATES its exception, which is what Lava reported as "lowering `unreachable`
+in non-entry helper `gpu_gc_pool_alloc` of kernel `scatter_kernel_`" on exactly
+the `Float32` specialisation. Same family as [`safetrunc`](@ref), and it reuses
+it rather than restating the saturation.
+"""
+@inline scatterindex(v::Integer) = Int(v)
+@inline scatterindex(v::AbstractFloat) = safetrunc(Int, v)
+
 function scatter_kernel!(dst, idx, src, ::Val{D}, ::Val{N}) where {D,N}
     # `@index(Global, Cartesian)` was KernelAbstractions decomposing an
     # N-dimensional ndrange; `KernelInterface` gives three linear axes. Launched
     # flat and decomposed here, which is what `bmm_nsplit_reduce!` already does.
     lin = KI.get_global_id().x
     lin <= length(idx) || return nothing
-    I = CartesianIndices(size(idx))[lin]
+    # Both of the next two lines are INSIDE the `@inbounds` and neither used to
+    # be, which is what made this kernel a `gpu_gc_pool_alloc` in Lava's warning:
+    # the bounds check on `CartesianIndices`' `getindex` throws a `BoundsError`
+    # that the guard above has already ruled out, and a throw in a kernel has to
+    # ALLOCATE its exception.
     @inbounds begin
-        j = Int(idx[I]) + 1                        # torch indices are 0-based
+        I = CartesianIndices(size(idx))[lin]
+        j = scatterindex(idx[I]) + 1               # torch indices are 0-based
         dst[CartesianIndex(ntuple(k -> k == D ? j : I[k], Val(N)))] = src[I]
     end
     return nothing

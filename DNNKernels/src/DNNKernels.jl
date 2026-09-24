@@ -129,7 +129,11 @@ that is deliberate.
 # through a same-width bitcast rather than a `zext`/`trunc` built on a float, so
 # any kernel with a dynamically indexed `@private Float16` array wider than the
 # scalariser folds now emits different (and valid) SPIR-V.
-const KERNELS_VERSION = "45"
+# "46": two kernels lose a throw path, which is an allocation in a shader.
+# `randomfill_kernel!` draws its normal through `fastcospi` rather than `cospi`
+# (same distribution, different bits in the last place) and `scatter_kernel!`
+# decomposes its flat index inside the `@inbounds` its own guard had earned.
+const KERNELS_VERSION = "46"
 
 include("assets.jl")
 include("safetensors.jl")

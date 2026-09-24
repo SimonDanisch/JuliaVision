@@ -41,7 +41,10 @@ function randomfill_kernel!(out, state,
         if NORMAL
             y = rngmix32(xor(x, UInt32(0xc2b2ae35)))
             v = Float32(y >> 8) * Float32(0x1p-24)
-            out[i] = convert(eltype(out), sqrt(-2f0 * log(u)) * cospi(2f0 * v))
+            # `fastcospi` and not `cospi`: the latter throws on an infinite
+            # argument, and a throw in a kernel allocates its exception. `v` is
+            # built from 24 bits of an integer and is finite by construction.
+            out[i] = convert(eltype(out), sqrt(-2f0 * log(u)) * fastcospi(2f0 * v))
         else
             out[i] = convert(eltype(out), u)
         end

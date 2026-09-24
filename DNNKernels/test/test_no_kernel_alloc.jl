@@ -104,6 +104,41 @@ end
     @test DNNKernels.fastfloor(-0.0f0) == 0
 end
 
+# The same defect one family over: a TRANSCENDENTAL with a throw path.
+#
+# `randomfill_kernel!` draws a normal through Box-Muller, and its
+# `cospi(2f0 * v)` is why Lava warned about lowering `gpu_gc_pool_alloc` in it.
+# `cospi` opens with `isinf(x) && throw(DomainError(...))`; the same kernel
+# compiled through `log`, `sqrt` or `cos` is clean, which is how the culprit was
+# narrowed down to one call.
+#
+# `fastcospi` reduces the argument first and multiplies only the remainder by pi,
+# so it is a replacement for `cospi` rather than the `cos(pi * t)` that would
+# have thrown the range reduction away.
+@testset "fastcospi is cospi without the throw" begin
+    fc = DNNKernels.fastcospi
+    # The quarter points, where `cospi` is exact and `cos(pi * t)` is not.
+    @test fc(0.0f0) === 1.0f0
+    @test fc(1.0f0) === -1.0f0
+    @test fc(2.0f0) === 1.0f0
+    @test abs(fc(0.5f0)) === 0.0f0
+    @test abs(fc(1.5f0)) === 0.0f0
+    # Over the range the kernel uses — `2v` for `v` in [0, 1) — within an ulp.
+    for t in Float32.(range(0, 2; length = 4097))
+        @test isapprox(fc(t), cospi(t); atol = 1.2f-7)
+    end
+    # Negative arguments too: it is an even function and the reduction has to
+    # hold on both sides of zero, even though this caller only passes >= 0.
+    for t in Float32.(range(-2, 0; length = 1025))
+        @test isapprox(fc(t), cospi(t); atol = 1.2f-7)
+    end
+    # And the whole point: `cospi` throws where this one does not. A throw in a
+    # kernel is an ALLOCATION, which is the thing this file is about.
+    @test_throws DomainError cospi(Inf32)
+    @test isnan(fc(Inf32))
+    @test isnan(fc(NaN32))
+end
+
 # `clamp.default` keeps its bounds in the operand's own type when that type is an
 # integer, so the store is not a `convert(Int, ::Float32)` with a throw path.
 # Float bounds on an integer operand are a legitimate call the Wan VAE makes and
