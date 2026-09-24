@@ -14,7 +14,7 @@ using Scratch
 using SHA
 import Mantle
 
-export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, prefill!, generate
+export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, prefill!, generate, release!
 export encode, decode, chatprompt, loadweights!, checkpointpath
 
 include("tokenizer.jl")
@@ -343,6 +343,16 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
         replacement[il] = new
     end
     Mantle.runonce!(g)
+    # The copy is submitted, not finished — and that is exactly why the old
+    # caches can go back now: `free!` RETIRES a region, and the pool returns it
+    # to the free list only once the device has passed the submission reading
+    # it. Skipping this leaked a whole generation of the cache per doubling:
+    # 130 MiB at the first growth, 260 at the second, and nothing ever gave them
+    # back because Mantle frees on a verb and never from a finalizer.
+    for old in values(s.kv)
+        Mantle.free!(old.k); Mantle.free!(old.v)
+        Mantle.free!(old.kscale); Mantle.free!(old.vscale)
+    end
     s.kv = replacement
     oldplan = s.plan
     s.plan, s.scratch = _recordstep(s, Mantle.Device(s.model.backend))
@@ -352,6 +362,44 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
     end
     empty!(s.prefills)
     s
+end
+
+"""
+    release!(session) -> nothing
+
+Give back everything the session owns: its recorded step plan, the prefill plans
+it built per chunk length, the Q8 KV caches, the recurrent state, the logits and
+the two `GPURef`s.
+
+**A dropped session frees nothing.** Mantle frees on an explicit verb and never
+from a finalizer, so a caller that opens a session per conversation and lets it
+go out of scope keeps every one of them: about 274 MiB of state per session on
+the default page, plus a recording of 1527 passes. Measured while chasing what
+looked like a slowdown: twelve sessions held 11 GB, and dropping the references
+and running a full GC returned 281 MiB of it.
+
+The model is untouched — `release!` is per session, and another session can be
+opened on the same weights immediately.
+"""
+function release!(s::BonsaiSession)
+    Mantle.free!(s.plan)
+    for p in values(s.prefills)
+        foreach(Mantle.free!, p.plans)
+    end
+    empty!(s.prefills)
+    for c in values(s.kv)
+        Mantle.free!(c.k); Mantle.free!(c.v)
+        Mantle.free!(c.kscale); Mantle.free!(c.vscale)
+    end
+    empty!(s.kv)
+    for (a, b) in values(s.recurrent)
+        Mantle.free!(a); Mantle.free!(b)
+    end
+    empty!(s.recurrent)
+    Mantle.free!(s.logits)
+    Mantle.free!(s.tokenref)
+    Mantle.free!(s.positionref)
+    return nothing
 end
 
 @inline _w(s::BonsaiSession, name) = s.model.weights[name]
