@@ -734,11 +734,19 @@ function qwen_schedule(width::Integer, height::Integer; steps::Integer=40)
     (; timesteps, sigmas, mu)
 end
 
-"""One deterministic FlowMatch Euler update, performed in place."""
+"""One deterministic FlowMatch Euler update, performed in place.
+
+`Mantle.storage` on both operands, because either spelling reaches here: a
+caller that uploaded its noise with `DNNKernels.toback` holds a `Mantle.Buffer`
+— the pool region — and a `Buffer` is not an `AbstractArray`, so broadcasting
+into one is a `MethodError` from inside `BroadcastStyle`. `storage` is the
+identity on anything that is already an array.
+"""
 function euler_step!(sample, model_output, sigma::Real, sigma_next::Real)
-    axes(sample) == axes(model_output) || throw(DimensionMismatch(
+    x, d = Mantle.storage(sample), Mantle.storage(model_output)
+    axes(x) == axes(d) || throw(DimensionMismatch(
         "sample and model output must have identical axes"))
-    sample .+= convert(eltype(sample), sigma_next - sigma) .* model_output
+    x .+= convert(eltype(x), sigma_next - sigma) .* d
     sample
 end
 

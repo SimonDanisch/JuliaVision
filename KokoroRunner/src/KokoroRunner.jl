@@ -288,16 +288,28 @@ function gather_align_kernel!(en, asr, d, t_en, idx, F::Int32, C2::Int32, n::Int
 end
 
 """
-    gather_align!(backend, en, asr, d, t_en, idx) -> nothing
+    gather_align!(dev, en, asr, d, t_en, idx) -> nothing
 
-Launch [`gather_align_kernel!`](@ref) over `size(en, 1) * size(en, 2)` elements.
+Declare [`gather_align_kernel!`](@ref) over `size(en, 1) * size(en, 2)` elements
+and run it.
+
+One graph, planned, recorded, run and freed — [`Mantle.runonce!`](@ref) — rather
+than kept: every length this is called at is a NEW length, because `f` is the
+utterance's own frame count, so a cached plan would be one entry per utterance
+that is never replayed. The record costs about a millisecond against a `speak`
+that builds two model plans of its own for the same reason.
+
+`idx` is a device buffer of this utterance's alignment, and the caller owns it:
+`runonce!` does not wait, and the buffer has to outlive the submission.
 """
-function gather_align!(backend, en, asr, d, t_en, idx)
+function gather_align!(dev, en, asr, d, t_en, idx)
     f, c1 = size(en, 1), size(en, 2)
-    KI.Kernel(backend, gather_align_kernel!)(
-        en, asr, d, t_en, idx, Int32(f), Int32(size(asr, 2)), Int32(f * c1);
-        ndrange = f * c1, workgroupsize = 256)
-    nothing
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, gather_align_kernel!,
+                     (en, asr, d, t_en, idx, Int32(f), Int32(size(asr, 2)),
+                      Int32(f * c1)), f * c1; group = 256, name = "gather_align")
+    Mantle.runonce!(g)
+    return nothing
 end
 
 """
@@ -352,12 +364,22 @@ function speak(k::Kokoro; phonemes::AbstractString, voice::AbstractString = "af_
     #     the time against SAM 2's 3%.
     #
     # The gather itself is `f * 1152` reads and the device does it in one launch.
-    en = KA.allocate(k.backend, Float32, f, 640, 1)
-    asr = KA.allocate(k.backend, Float32, f, 512, 1)
-    gather_align!(k.backend, en, asr, d, t_en, toback(k.backend, idx))
+    #
+    # Into the VOCODER'S OWN inputs, at the addresses its plan was recorded
+    # against, so `call` below is handed back the arrays it already has and
+    # copies nothing into them. Two `KA.allocate`s of the same shape were 4.6 MB
+    # per utterance that nothing ever freed — Mantle frees on a verb and never
+    # from a finalizer — plus the copy `call` then made out of them.
+    ns = noise ? DNNKernels.RandomNoise() : DNNKernels.ZeroNoise()
+    voc = DNNKernels.recordedplan(k.model, "kokorovoc"; dims = (f = f,), noise = ns)
+    en, asr = voc.inputs[1], voc.inputs[2]
+    dev = Mantle.todevice(k.backend)
+    idxbuf = Mantle.Buffer(dev, Int32, (f,))
+    copyto!(Mantle.storage(idxbuf), idx)
+    gather_align!(dev, en, asr, d, t_en, idxbuf)
+    Mantle.free!(idxbuf)
 
-    audio, = call(k.model, "kokorovoc", en, asr, ref_s; dims = (f = f,),
-                  noise = noise ? DNNKernels.RandomNoise() : DNNKernels.ZeroNoise())
+    audio, = call(k.model, "kokorovoc", en, asr, ref_s; dims = (f = f,), noise = ns)
     out = Array(audio)
     trim ? trimsilence(out) : out
 end

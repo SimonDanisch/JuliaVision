@@ -370,6 +370,71 @@ const H = Hunyuan3DRunner
         @test size(f2, 2) == nf
     end
 
+    @testset "the geometry sweep writes its own queries" begin
+        # The one part of this file that runs a graph, and it needs only the
+        # 25 MB geometry decoder — not the 5.7 GiB denoiser. What it pins is the
+        # structure `occupancy` depends on: the query pass is declared INTO the
+        # decoder's graph, so a chunk is one submission, and which points it
+        # writes is a `GPURef` the host stores per run. Both of those are silent
+        # when wrong — a stale ref gives the previous chunk's points, which is a
+        # plausible-looking mesh — so the grid is checked against the host
+        # formula it is supposed to reproduce.
+        if !Hunyuan3DRunner.ready()
+            @info "Hunyuan3D parts not in the artifact store; skipping the sweep"
+        else
+            dir = H.geodir()
+            geo = DNNKernels.Model(
+                Dict("hunyuan3d_geo" => DNNKernels.loadgraph(
+                         joinpath(dir, "hunyuan3d_geo.json"))),
+                DNNKernels.readsafetensors(joinpath(dir, "weights.safetensors"));
+                backend = Mantle.defaultbackend())
+            chunk = Int(geo.graphs["hunyuan3d_geo"].buffers["queries"].shape[2])
+            dev = Mantle.todevice(geo.backend)
+            # The four models are one object here: `occupancy` reads `geo`,
+            # `chunk` and the ref, and giving it the same model four times keeps
+            # this test off the denoiser. That it CONSTRUCTS is half the
+            # assertion — the field types named `Model{B}`, which is `Model`'s
+            # device parameter, so no four models could satisfy them at all.
+            m = H.Hunyuan3D(geo.backend, geo, geo, geo, geo, chunk,
+                            Mantle.GPURef(dev, H.GridChunk(0, 0, 0.0, 0.0, 0)))
+            latents = Mantle.storage(Mantle.Buffer(dev, Float16, (1024, 4096, 1)))
+            fill!(latents, Float16(0.01))
+
+            hostgrid(G, first0) = begin
+                N = G^3
+                step = 2.02 / (G - 1)
+                q = zeros(Float16, 3, chunk)
+                for c in 1:chunk
+                    n = min(first0 + c - 1, N - 1)      # 0-based, clamped tail
+                    k = n % G; j = (n ÷ G) % G; i = n ÷ (G * G)
+                    q[1, c] = Float16(-1.01 + step * i)
+                    q[2, c] = Float16(-1.01 + step * j)
+                    q[3, c] = Float16(-1.01 + step * k)
+                end
+                q
+            end
+            queries() = Array(reshape(
+                first(DNNKernels.recordedplan(geo, "hunyuan3d_geo").inputs), 3, chunk))
+
+            field = H.occupancy(m, latents; octree = 32)
+            @test size(field) == (33, 33, 33)
+            @test all(isfinite, Array(field))
+            # The LAST chunk, because that is the one with a clamped tail.
+            @test queries() == hostgrid(33, (cld(33^3, chunk) - 1) * chunk)
+
+            # A second sweep at a different resolution replays the SAME plan —
+            # the grid is in the ref, not baked into the recording.
+            nplans = count(v -> v isa DNNKernels.RecordedPlan, values(geo.scratch))
+            f2 = H.occupancy(m, latents; octree = 16)
+            @test size(f2) == (17, 17, 17)
+            @test queries() == hostgrid(17, 0)
+            @test count(v -> v isa DNNKernels.RecordedPlan, values(geo.scratch)) == nplans
+
+            DNNKernels.releaseplans!(geo)
+            DNNKernels.releaseweights!(geo.weights)
+        end
+    end
+
     @testset "the box mapping divides by octree + 1" begin
         # Upstream's `vertices / grid_size * bbox_size + bbox_min` with
         # `grid_size = octree + 1`. Index 0 maps to -box_v exactly; index

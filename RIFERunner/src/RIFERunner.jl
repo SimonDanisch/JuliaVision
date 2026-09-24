@@ -41,7 +41,7 @@ using GPUFiltering: tofloat, topixel
 using ColorTypes: AbstractRGB, RGB
 
 export rifegraph, rifeweights
-export rife, interpolate!, framesize, RIFE
+export rife, interpolate!, framesize, RIFE, release!
 
 const KA = KernelAbstractions
 # Through DNNKernels rather than a direct dependency: this package already has
@@ -127,17 +127,6 @@ end
 # `GPUFiltering.resizeplanar!` therefore does not fit, and this is its own kernel
 # rather than a generalisation of that one: the two differ in what happens
 # outside the source, which is the whole point of each.
-"""
-    todevice(backend, img) -> AbstractMatrix
-
-`img` on `backend`, uploading it if it is on the host and returning it unchanged
-if it is already there. One allocation and one copy per host frame; nothing at
-all for a caller that already decoded onto the GPU.
-"""
-todevice(backend, img::AbstractMatrix) =
-    KA.get_backend(img) == backend ? img :
-    (d = KA.allocate(backend, eltype(img), size(img)...); copyto!(d, img); d)
-
 # Macro-free, over `KernelInterface`'s intrinsics. `@index(Global, Cartesian)`
 # becomes `KI.get_global_id()`, whose axes are 1-based; `@Const` was an identity
 # adaptor on this backend and drops.
@@ -182,6 +171,33 @@ function unpack_kernel!(out, src)
 end
 
 """
+The device frames a stream owns, and the two plans that move them.
+
+`pack` fills the graph's padded input from `a` and `b`; `unpack` crops the
+graph's result into `out`. Both are recorded ONCE per stream — against these
+buffers, at this frame size, for these pixel types — and replayed per frame.
+
+The buffers belong to this and not to the caller for the reason every recorded
+plan has: a plan is packed with the ADDRESS of what it reads, so the frames have
+to land at an address that does not move between frames. `interpolate!` copies
+the caller's frames into them, which is the upload a host frame needed anyway.
+"""
+struct FrameIO{P,U,A,O}
+    pack::P
+    unpack::U
+    a::A
+    b::A
+    out::O
+end
+
+function freeframeio!(io::FrameIO)
+    Mantle.free!(io.pack); Mantle.free!(io.unpack)
+    Mantle.free!(io.a); Mantle.free!(io.b); Mantle.free!(io.out)
+    return nothing
+end
+
+
+"""
     RIFE
 
 A loaded interpolator: the prepared graph, its weights, the scratch it needs, and
@@ -203,7 +219,35 @@ struct RIFE{B,M,I,T,A}
     # The arguments `call` takes, in the graph's own input order, resolved once
     # at load. The order is a property of the export and not of a frame.
     args::A
+    # The pack and unpack plans, per [`FrameIO`](@ref) key. A `Dict` because the
+    # frame size and the pixel type are the CALLER's, not the export's, and the
+    # plans are recorded against both: a stream records one entry and replays it
+    # for every frame in it.
+    frameio::Dict{Any,FrameIO}
 end
+
+"""
+    release!(model::RIFE) -> nothing
+
+Give back everything the model owns: the recorded plan for every frame geometry
+it has been called at, the device frames behind them, and the graph's own plan
+and weights.
+
+**A dropped model frees nothing.** Mantle frees on a verb and never from a
+finalizer, so without this a caller that interpolates a 1080p stream and then a
+720p one keeps the first stream's plans and its three frame buffers for the life
+of the process — and a `RIFE` that goes out of scope keeps all of it.
+"""
+function release!(model::RIFE)
+    for io in values(model.frameio)
+        freeframeio!(io)
+    end
+    empty!(model.frameio)
+    DNNKernels.releaseplans!(model.model)
+    DNNKernels.releaseweights!(model.model.weights)
+    return nothing
+end
+
 
 """
     framesize(model) -> (w, h)
@@ -234,15 +278,60 @@ function rife(; backend = Mantle.defaultbackend())
     # of Mantle's phases over the whole graph, so placement, aliasing and
     # barriers are decided before a byte is touched. `planfor` is the same one
     # `Model`'s `call` uses, so a runner cannot plan differently from the driver.
-    # `planahead!` and not a lazy first call: the latency test asserts that the
-    # first frame in a fresh process refuses zero pipeline compiles, so the
-    # compiling has to happen here. It builds the plan `call` would build, under
-    # the key `call` looks up.
-    DNNKernels.planahead!(model, "rife")
-    input = KA.allocate(model.backend, Float32, w, h, 6, 1)
-    timestep = KA.allocate(model.backend, Float32, 1, 1, 1, 1)
-    args = Tuple(id == "timestep" ? timestep : input for id in graph.inputs)
-    return RIFE(model.backend, model, input, timestep, (w, h), args)
+    # Planned HERE and not on a lazy first call: the latency test asserts that
+    # the first frame in a fresh process refuses zero pipeline compiles, so the
+    # compiling has to happen at load. `recordedplan` builds the plan `call`
+    # would build, under the key `call` looks up, and hands it back.
+    mp = DNNKernels.recordedplan(model, "rife")
+    # The plan's OWN inputs, and not two arrays of ours for `call` to copy in:
+    # identical objects are the case `replay!` skips, so a frame no longer moves
+    # the padded 1920x1152x6 input twice. That is 53 MB per frame for nothing,
+    # and the pack pass below writes the same buffer the graph reads.
+    args = Tuple(Mantle.storage(r) for r in mp.inputs)
+    tsi = findfirst(==("timestep"), graph.inputs)
+    tsi === nothing && throw(ArgumentError(
+        "the rife export has no `timestep` input; its inputs are $(graph.inputs)"))
+    input = args[findfirst(!=("timestep"), graph.inputs)]
+    return RIFE(model.backend, model, input, args[tsi], (w, h), args,
+                Dict{Any,FrameIO}())
+end
+
+"""
+    frameio!(model, w, h, Pin, Pout) -> FrameIO
+
+The pack and unpack plans for frames of this size and these pixel types,
+recorded on first use and replayed after.
+
+Recorded HERE and not at load, because none of the four is a property of the
+export: the caller's frame may be any size up to [`framesize`](@ref) and any
+`AbstractRGB`, and a plan is recorded against the buffers, the geometry and the
+types it will run with. The workload interpolates one frame, so a stream that
+matches it finds every pipeline in the frozen cache and this records without
+compiling anything — which is what the latency test asserts.
+"""
+function frameio!(model::RIFE, w::Int, h::Int, ::Type{Pin}, ::Type{Pout}) where {Pin,Pout}
+    get!(model.frameio, (w, h, Pin, Pout)) do
+        dev = Mantle.todevice(model.backend)
+        pw, ph = model.padded
+        a = Mantle.Buffer(dev, Pin, (w, h))
+        b = Mantle.Buffer(dev, Pin, (w, h))
+        out = Mantle.Buffer(dev, Pout, (w, h))
+        gp = Mantle.Graph(dev)
+        Mantle.dispatch!(gp, frames_kernel!, (model.input, a, b, Int32(w), Int32(h)),
+                         (pw, ph); group = DNNKernels.launchgroup((pw, ph)),
+                         name = "frames")
+        pack = Mantle.Plan(gp)
+        Mantle.record!(pack)
+        # The graph's result, at the address the model plan recorded it at: the
+        # unpack reads where the network writes, with no copy in between.
+        result = first(DNNKernels.recordedplan(model.model, "rife").outputs)
+        gu = Mantle.Graph(dev)
+        Mantle.dispatch!(gu, unpack_kernel!, (out, result), (w, h);
+                         group = DNNKernels.launchgroup((w, h)), name = "unpack")
+        unpack = Mantle.Plan(gu)
+        Mantle.record!(unpack)
+        FrameIO(pack, unpack, a, b, out)
+    end
 end
 
 """
@@ -275,39 +364,34 @@ function interpolate!(out::AbstractMatrix{<:AbstractRGB}, model::RIFE,
     0 <= t <= 1 || throw(ArgumentError("t must be in [0, 1], got $t"))
 
     fill!(model.timestep, Float32(t))
-    # Upload host frames first. `frames_kernel!` reads `a` and `b` ON THE DEVICE,
-    # but this function's signature takes `AbstractMatrix{<:AbstractRGB}` with no
-    # backend in the type, and every real caller starts from a host frame because
-    # that is what a decoder produces. Passing them straight through handed
-    # GPUCompiler a `::Matrix{RGB{N0f8}}` argument and failed at
-    # `check_invocation` — the documented entry point could not be called at all.
+    io = frameio!(model, w, h, eltype(a), eltype(out))
+    # `frames_kernel!` reads `a` and `b` ON THE DEVICE, and this function's
+    # signature takes `AbstractMatrix{<:AbstractRGB}` with no backend in the
+    # type: every real caller starts from a host frame, because that is what a
+    # decoder produces. Passing one straight through handed GPUCompiler a
+    # `::Matrix{RGB{N0f8}}` argument and failed at `check_invocation` — the
+    # documented entry point could not be called at all. (Same defect as
+    # `GPUFiltering.resizeplanar!` had, from the same commit, in a second
+    # package: a host-typed API in front of a device-only kernel, with no test
+    # that runs a forward pass to notice.)
     #
-    # Same defect as `GPUFiltering.resizeplanar!` had, from the same commit, in a
-    # second package: a host-typed API in front of a device-only kernel, with no
-    # test that runs a forward pass to notice. `RGB{N0f8}` is isbits, so this is
-    # one upload of the frame rather than a conversion.
-    ga, gb = todevice(model.backend, a), todevice(model.backend, b)
-    KI.Kernel(model.backend, frames_kernel!)(
-        model.input, ga, gb, Int32(w), Int32(h);
-        ndrange = (pw, ph), workgroupsize = DNNKernels.launchgroup((pw, ph)))
-    # `call`: the plan was recorded at load by `planahead!`, so this finds it in
-    # the model's cache, writes the inputs into the buffers they were declared
-    # against and submits one recording. `model.args` is already in `g.inputs`
-    # order, which is what `call` zips against.
-    result = first(DNNKernels.call(model.model, "rife", model.args...; dims = (;)))
-    # Same story on the way OUT: `unpack_kernel!` writes `out` on the device, and
-    # `out` is declared `AbstractMatrix{<:AbstractRGB}`. Unpack into a device
-    # buffer and copy back, unless the caller already gave us a device one.
-    if KA.get_backend(out) == model.backend
-        KI.Kernel(model.backend, unpack_kernel!)(
-            out, result; ndrange = (w, h), workgroupsize = DNNKernels.launchgroup((w, h)))
-    else
-        gout = KA.allocate(model.backend, eltype(out), w, h)
-        KI.Kernel(model.backend, unpack_kernel!)(
-            gout, result; ndrange = (w, h), workgroupsize = DNNKernels.launchgroup((w, h)))
-        KA.synchronize(model.backend)
-        copyto!(out, gout)
-    end
+    # So the frames are copied into the buffers the pack plan was recorded
+    # against. `RGB{N0f8}` is isbits, so for a host frame this is the upload it
+    # always needed, and for a device frame it is a device copy.
+    copyto!(Mantle.storage(io.a), a)
+    copyto!(Mantle.storage(io.b), b)
+    Mantle.run!(io.pack)
+    # `call`: the plan was recorded at load, so this finds it in the model's
+    # cache and submits one recording. `model.args` IS that plan's own input
+    # tuple, in `g.inputs` order, so nothing is copied into it here — the pack
+    # pass above already wrote it.
+    DNNKernels.call(model.model, "rife", model.args...; dims = (;))
+    Mantle.run!(io.unpack)
+    # Cropped back on the device, then handed over. A host `out` is the download
+    # it always was; a device `out` is one device copy, which buys the unpack a
+    # destination whose address a recorded plan can hold — a caller's array is
+    # not that, since nothing stops the next frame passing a different one.
+    copyto!(out, Mantle.storage(io.out))
     return out
 end
 

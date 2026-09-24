@@ -58,20 +58,50 @@ on `t`, and the schedule is in units of `t`.
 const TRAIN_TIMESTEPS = 1000
 
 """
+    GridChunk(first, G, lo, step, N)
+
+Which points of the sweep a launch of [`gridqueries_kernel!`](@ref) writes.
+
+One struct and not five arguments because it is read through a `GPURef`, and
+what that buys is a single recorded plan for ANY `octree` and `box_v`: the grid
+is a per-run value rather than something baked when the decoder's graph is
+recorded. `first` changes per chunk and the other four per call; both are the
+same store.
+"""
+struct GridChunk
+    first::Int          # 0-based index of this chunk's first point
+    G::Int              # points per axis
+    lo::Float64
+    step::Float64
+    N::Int              # points in the whole grid, for the tail clamp
+end
+
+"""
 A loaded shape pipeline: the four graphs with their weights on the device.
 
 Held together rather than passed separately because the denoiser runs once per
 step off the same weight table, and rebuilding it per call would dominate the
 loop.
 """
-struct Hunyuan3D{B}
+# `M<:Model` and not `Model{B}`: `Model` is parameterised on its DEVICE first and
+# its backend second, so `Model{B}` named the device type and no four models
+# could satisfy it beside a `backend::B` of the same `B`. Parameterising on the
+# model type says what was meant — four models of one kind — without this file
+# having to track `Model`'s parameter list.
+struct Hunyuan3D{B,M<:Model}
     backend::B
-    cond::Model{B}
-    dit::Model{B}
-    vae::Model{B}
-    geo::Model{B}
+    cond::M
+    dit::M
+    vae::M
+    geo::M
     "query points per `hunyuan3d_geo` call — a static shape, read off the graph"
     chunk::Int
+    # Which points the geometry decoder's query pass is writing. Here rather than
+    # in `occupancy` because the plan is packed with its ADDRESS at `record!` and
+    # cached for the model's life: a ref built per call would be one the plan
+    # does not read, and freeing it at the end of a call would leave the plan
+    # reading memory that is back in the pool.
+    querychunk::Mantle.GPURef{GridChunk}
 end
 
 """
@@ -79,30 +109,45 @@ end
 
 Load all four graphs. `root` holds the four directories [`PARTS`](@ref) names.
 
+`maxpasses` is how many passes of the DENOISER go in one submission; see the
+comment in the body for why it is not a tuning knob.
+
 Separate from [`generate`](@ref) so a workload can build it in `@setup_workload`,
 where the loading is not what is being cached.
 """
-function hunyuan3d(; backend = Mantle.defaultbackend())
+function hunyuan3d(; backend = Mantle.defaultbackend(), maxpasses::Integer = 64)
     # `weights` is explicit because the denoiser's do not sit beside its graph:
     # they are four shard artifacts merged by `hunyuan3dweights`, while the other
     # three parts each keep a `weights.safetensors` in their own artifact.
-    load(dir, name, weights = nothing) = begin
+    #
+    # `record_maxpasses` on the DENOISER, and it is a correctness fix rather than
+    # a tuning knob — the same one `kokorovoc` and Qwen-Image's transformer carry.
+    # One step of the 21-block model at batch 2 is seconds of device time, and a
+    # single submission that long is killed by the driver: RADV reports "the CS
+    # has been cancelled because the context is lost, this context is guilty of a
+    # hard recovery", the next call dies with VK_ERROR_DEVICE_LOST, and nothing
+    # in the Julia frame names the cause. The completion points cost nothing
+    # measurable and the barriers between the pieces are still the ones the graph
+    # derived. `maxpasses = 0` restores the single submission.
+    load(dir, name, weights = nothing; split = 0) = begin
         isfile(joinpath(dir, "$name.json")) || throw(ArgumentError(
             "Hunyuan3D-2.1: no $name.json in $dir. Re-export with " *
             "`uv run tools/export_hunyuan3d.py` and re-bind with " *
             "`julia --project=. tools/make_artifacts.jl`."))
         w = weights === nothing ?
             readsafetensors(joinpath(dir, "weights.safetensors")) : weights
-        Model(Dict(name => loadgraph(joinpath(dir, "$name.json"))), w; backend)
+        Model(Dict(name => loadgraph(joinpath(dir, "$name.json"))), w; backend,
+              record_maxpasses = Dict(name => Int(split)))
     end
     geo = load(geodir(), "hunyuan3d_geo")
     # The chunk is whatever the export was built at, not a constant here: passing
     # a different one is a silently truncated sweep, not an error.
     chunk = Int(geo.graphs["hunyuan3d_geo"].buffers["queries"].shape[2])
     return Hunyuan3D(backend, load(conddir(), "hunyuan3d_cond"),
-                     load(ditdir(), "hunyuan3d_dit", hunyuan3dweights()),
+                     load(ditdir(), "hunyuan3d_dit", hunyuan3dweights(); split = maxpasses),
                      load(vaedir(), "hunyuan3d_vae"),
-                     geo, chunk)
+                     geo, chunk,
+                     Mantle.GPURef(Mantle.todevice(backend), GridChunk(0, 0, 0.0, 0.0, 0)))
 end
 
 """
@@ -249,7 +294,11 @@ and comparing dtypes is the only way this kind of thing gets found.
 `sigma`/`sigma_next` are fp32 because [`flowsigmas`](@ref) returns fp32; the
 narrowing below is from there, not from an fp64 schedule.
 """
-function eulerstep(x::AbstractArray{T}, v, sigma::Float32, sigma_next::Float32) where {T}
+eulerstep(x, v, sigma::Float32, sigma_next::Float32) =
+    eulerstep(Mantle.storage(x), Mantle.storage(v), sigma, sigma_next)
+
+function eulerstep(x::AbstractArray{T}, v::AbstractArray, sigma::Float32,
+                   sigma_next::Float32) where {T}
     step = T(sigma_next - sigma) .* v
     return T.(Float32.(x) .+ Float32.(step))
 end
@@ -318,10 +367,10 @@ function shapelatents(m::Hunyuan3D, latents)
 end
 
 """
-    gridqueries!(q, first, G, lo, step, N)
+    gridqueries_kernel!(q, chunk)
 
-Fill `q`, a `(3, chunk)` device array, with the query points at flat indices
-`first .+ (0:chunk-1)`.
+Fill `q`, the decoder's `(3, chunk, 1)` query input, with the points
+[`GridChunk`](@ref) names.
 
 The addressing is upstream's `generate_dense_grid_points(..., indexing="ij")`
 followed by `reshape(-1, 3)`, which is row-major: the flat index runs over z
@@ -336,17 +385,20 @@ cannot read out of bounds.
 # Macro-free, over `KernelInterface`'s intrinsics. The guard is the one the
 # macro used to insert: `ndrange` is `m.chunk` and the workgroup need not divide
 # it, so the surplus threads wrote past `q`.
-function gridqueries_kernel!(q, first, G, lo, step, N)
+function gridqueries_kernel!(q, chunk)
     c = KI.get_global_id().x
     c <= size(q, 2) || return nothing
-    n = min(first + c - 1, N - 1)            # 0-based, clamped for the tail
-    k = n % G
-    j = (n ÷ G) % G
-    i = n ÷ (G * G)
+    g = @inbounds chunk[1]
+    n = min(g.first + c - 1, g.N - 1)        # 0-based, clamped for the tail
+    k = n % g.G
+    j = (n ÷ g.G) % g.G
+    i = n ÷ (g.G * g.G)
     T = eltype(q)
-    @inbounds q[1, c] = T(lo + step * i)
-    @inbounds q[2, c] = T(lo + step * j)
-    @inbounds q[3, c] = T(lo + step * k)
+    # Three indices because `q` is the decoder's own `(3, chunk, 1)` input and
+    # not a scratch array of this function's shape — see `occupancy`.
+    @inbounds q[1, c, 1] = T(g.lo + g.step * i)
+    @inbounds q[2, c, 1] = T(g.lo + g.step * j)
+    @inbounds q[3, c, 1] = T(g.lo + g.step * k)
     return nothing
 end
 
@@ -377,15 +429,31 @@ function occupancy(m::Hunyuan3D, latents; box_v::Real = 1.01, octree::Integer = 
     nchunks = cld(N, m.chunk)
 
     field = KA.allocate(m.backend, Float32, N)
-    q = KA.allocate(m.backend, Float16, 3, m.chunk)
-    kern = KI.Kernel(m.backend, gridqueries_kernel!)
+    # The queries are DECLARED INTO the decoder's own graph, so a chunk is one
+    # submission of one plan: the pass that writes `queries` and the twenty that
+    # read it, ordered by Mantle rather than by the queue. As a graph of its own
+    # it was a second submission per chunk, and `call` then copied the latents
+    # into the plan for every one of the 7134 — half a megabyte each, for a value
+    # that does not change over the sweep.
+    #
+    # Which points a run writes is the only thing that changes, and it is a
+    # `GPURef`: one small store per run into an address the plan was packed with,
+    # so a second sweep at a different `octree` replays this same plan.
+    mp = DNNKernels.recordedplan(m.geo, "hunyuan3d_geo"; before = ctx ->
+        Mantle.dispatch!(ctx.g, gridqueries_kernel!,
+                         (DNNKernels.operand(ctx, "queries"), m.querychunk),
+                         m.chunk; group = 256, name = "gridqueries"))
+    lat = Mantle.storage(latents)
+    size(mp.inputs[2]) == size(lat) || throw(DimensionMismatch(
+        "hunyuan3d_geo declares latents $(size(mp.inputs[2])) and got $(size(lat))"))
+    copyto!(mp.inputs[2], lat)                        # once, not per chunk
+    logits = vec(first(mp.outputs))
     for c in 1:nchunks
-        first = (c - 1) * m.chunk                     # 0-based
-        kern(q, first, G, lo, step, N; ndrange = m.chunk, workgroupsize = 256)
-        logits = only(call(m.geo, "hunyuan3d_geo", reshape(q, 3, m.chunk, 1), latents;
-                           dims = (;)))
-        len = min(m.chunk, N - first)
-        view(field, (first + 1):(first + len)) .= Float32.(view(vec(logits), 1:len))
+        first0 = (c - 1) * m.chunk                    # 0-based
+        m.querychunk[] = GridChunk(first0, G, lo, step, N)
+        Mantle.run!(mp.plan)
+        len = min(m.chunk, N - first0)
+        view(field, (first0 + 1):(first0 + len)) .= Float32.(view(logits, 1:len))
         progress === nothing || progress(c, nchunks)
     end
     return reshape(field, G, G, G)

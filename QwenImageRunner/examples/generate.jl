@@ -17,7 +17,8 @@ denoiser graph carries a `t` symbol and the plan binds it to this prompt's
 length, which is why nothing here has to match a number chosen by the exporter.
 The encoder is the one limit: it is exported for prompts up to 64 tokens.
 
-Writes a binary PPM, which needs no image package in this environment.
+Writes a binary PPM, or a binary PAM when the decoder's alpha channel is not
+opaque — netpbm both ways, so this needs no image package in this environment.
 """
 
 using QwenImageRunner, DNNKernels, Mantle, Random
@@ -30,7 +31,7 @@ const STEPS = parse(Int, get(ENV, "QWENIMAGE21_STEPS", "20"))
 const SIZE = parse(Int, get(ENV, "QWENIMAGE21_SIZE", "1024"))
 const SEED = parse(Int, get(ENV, "QWENIMAGE21_SEED", "42"))
 
-"""Write `(w, h, 3)` Float32 in [0,1] as a binary PPM."""
+"""Write `(w, h, >=3)` Float32 in [0,1] as a binary PPM, RGB only."""
 function writeppm(path, rgb)
     w, h = size(rgb, 1), size(rgb, 2)
     open(path, "w") do io
@@ -39,6 +40,24 @@ function writeppm(path, rgb)
         i = 1
         for y in 1:h, x in 1:w, c in 1:3
             bytes[i] = round(UInt8, clamp(rgb[x, y, c], 0f0, 1f0) * 255)
+            i += 1
+        end
+        write(io, bytes)
+    end
+    path
+end
+
+"""Write `(w, h, 4)` Float32 in [0,1] as a binary PAM — netpbm's RGBA, which
+needs no image package here and which every viewer and ImageMagick reads."""
+function writepam(path, rgba)
+    w, h = size(rgba, 1), size(rgba, 2)
+    open(path, "w") do io
+        write(io, "P7\nWIDTH $w\nHEIGHT $h\nDEPTH 4\nMAXVAL 255\n" *
+                  "TUPLTYPE RGB_ALPHA\nENDHDR\n")
+        bytes = Vector{UInt8}(undef, 4w * h)
+        i = 1
+        for y in 1:h, x in 1:w, c in 1:4
+            bytes[i] = round(UInt8, clamp(rgba[x, y, c], 0f0, 1f0) * 255)
             i += 1
         end
         write(io, bytes)
@@ -100,8 +119,25 @@ image = Array(decode!(vae, DNNKernels.toback(backend,
     reshape(Float16.(grid), SIDE, SIDE, 1, channels, 1))))
 println("decode: $(round(time() - t0, digits=1)) s")
 
-# The decoder returns RGBA in [-1, 1]; the alpha channel is opaque for a
-# text-to-image generation and the PPM has nowhere to put it.
-rgb = Float32.(image[:, :, 1:3, 1]) ./ 2f0 .+ 0.5f0
-writeppm(OUTPUT, rgb)
-println("wrote $OUTPUT in $(round(time() - total, digits=1)) s total")
+# The decoder returns RGBA in [-1, 1] and the fourth channel is a REAL matte,
+# not a formality: ask for a transparent background and it comes back soft-edged
+# and 62% at -1, which is the model doing the cut-out for you. Ask for an opaque
+# one — "plain white seamless background" — and it is 1.0 everywhere. So the
+# image is written as RGBA whenever the alpha says anything, and as RGB when it
+# does not.
+#
+# **A transparent-background prompt currently decodes to NaN** over most of the
+# background, because the exported VAE is fp16 where the checkpoint is bf16 and
+# the two differ by eight bits of exponent. See the comment above the
+# `vae.to(torch.float16)` in `tools/export_qwenimage21.py`.
+rgba = Float32.(image[:, :, 1:4, 1]) ./ 2f0 .+ 0.5f0
+alpha = @view rgba[:, :, 4]
+if all(>=(0.999f0), alpha)
+    writeppm(OUTPUT, rgba)
+    println("wrote $OUTPUT in $(round(time() - total, digits=1)) s total")
+else
+    out = replace(OUTPUT, r"\.ppm$" => "") * ".pam"
+    writepam(out, rgba)
+    println("alpha is not opaque (min $(round(minimum(alpha), digits=3))): wrote $out, RGBA, " *
+            "in $(round(time() - total, digits=1)) s total")
+end
