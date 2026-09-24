@@ -33,7 +33,32 @@ export pointwise!, stencil!
 export lut3d!
 export resizeplanar!
 export tofloat, topixel, alphaof, straight, premul, AnyRGB
+export paramvalue
 export WarpWrite, Replace, Over
+
+"""
+    paramvalue(x) -> value
+
+A kernel's scalar parameter, whether it arrived as a constant or as a device ref.
+
+A kernel called directly gets the value; one DECLARED in a graph is packed with
+its arguments once, when the plan records, so a value that changes between runs
+arrives as a one-element device array and is read out of it here.
+
+Three methods, because "is this a ref" cannot be asked of `AbstractArray` alone:
+a parameter is as often a struct (`ColorAdjustments`) as a number — so `Number`
+is too narrow — and a `Mat3f` or a `Vec4` passed BY VALUE is an `AbstractArray`
+too, so that is too wide. A warp matrix went down the ref path and came back as
+its first `Float32`.
+
+A STATIC array is the value case: it carries its size in its type, which is
+exactly what a one-element device array a `GPURef` resolves to does not. All
+three resolve at compile time, so a kernel written against this costs nothing
+either way and stays callable from a test with a plain value.
+"""
+@inline paramvalue(x::GeometryBasics.StaticArrays.StaticArray) = x
+@inline paramvalue(x::AbstractArray) = @inbounds x[1]
+@inline paramvalue(x) = x
 
 """
 A pixel these kernels work on: RGB, or RGB with an alpha channel.

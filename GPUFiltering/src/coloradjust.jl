@@ -22,8 +22,9 @@ end
 isneutral(adj::ColorAdjustments) =
     adj.brightness == 0 && adj.contrast == 1 && adj.saturation == 1 && adj.temperature == 0
 
-@kernel function coloradjust_kernel!(img, adj::ColorAdjustments)
+@kernel function coloradjust_kernel!(img, adjp)
     I = @index(Global, Cartesian)
+    adj = paramvalue(adjp)
     px = img[I]
     av = alphaof(px)
     c = straight(tofloat(px), av)   # contrast and brightness are not linear in coverage
@@ -59,8 +60,10 @@ function coloradjust!(img::AbstractMatrix{<:AnyRGB}, adj::ColorAdjustments)
     return img
 end
 
-@kernel function channellinear_kernel!(img, gain::Vec3f, offset::Vec3f)
+@kernel function channellinear_kernel!(img, gainp, offsetp)
     I = @index(Global, Cartesian)
+    gain = Vec3f(paramvalue(gainp))
+    offset = Vec3f(paramvalue(offsetp))
     px = img[I]
     av = alphaof(px)
     c = straight(tofloat(px), av)   # the OFFSET is what makes this non-linear

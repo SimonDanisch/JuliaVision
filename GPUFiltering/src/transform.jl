@@ -47,9 +47,17 @@ end
                    α * a + alphaof(dst) * k)
 end
 
-@kernel function warp_kernel!(out, @Const(img), M::Mat3f, skipoutside::Bool,
-                              x0::Int32, y0::Int32, x1::Int32, y1::Int32, write)
+@kernel function warp_kernel!(out, @Const(img), Mp, skipoutside::Bool,
+                              boundsp, writep)
     I = @index(Global, Cartesian)
+    M = Mat3f(paramvalue(Mp))
+    # The source rect and the write mode change per frame in a composition — the
+    # layer's crop and its opacity — so both arrive as parameters. ONE value for
+    # the rect rather than four: four refs is four stores that can disagree about
+    # which frame they describe.
+    bnds = paramvalue(boundsp)
+    x0, y0, x1, y1 = Int32(bnds[1]), Int32(bnds[2]), Int32(bnds[3]), Int32(bnds[4])
+    write = paramvalue(writep)
     p = M * Vec3f(Float32(I[1]), Float32(I[2]), 1.0f0)
     x = p[1] / p[3]
     y = p[2] / p[3]
@@ -135,8 +143,8 @@ function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
                              allocate `out` there and copy afterwards."))
     w, h = size(img, 1), size(img, 2)
     b = bounds === nothing ? (1, 1, w, h) : bounds
-    warp_kernel!(backend)(out, img, M, skipoutside, Int32(b[1]), Int32(b[2]),
-                          Int32(b[3]), Int32(b[4]), write; ndrange = size(out))
+    warp_kernel!(backend)(out, img, M, skipoutside,
+                          Vec4{Int32}(b[1], b[2], b[3], b[4]), write; ndrange = size(out))
     return out
 end
 
