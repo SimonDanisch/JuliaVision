@@ -84,7 +84,7 @@ even for an array allocated on exactly that device.
 `Persistent()` with the usage bits `bufferusage(dev, T)` names, and freed by
 `Mantle.free!` — the verb the emit's own owned buffers already take, so
 `releaseweights!` has one rule rather than two. `dispatch!` resolves one when it
-packs a pass and so does a bare `KI.Kernel` launch, so a weight is an operand
+packs a pass and so does a `harnesslaunch!`, so a weight is an operand
 either way; `Mantle.storage` is how to ask for the ARRAY over it, which is what
 `view`, `reshape` and `copyto!` want. It is the identity on anything that is
 already an array.
@@ -231,13 +231,31 @@ function toback(backend, a::PermutedDimsArray{T,2,(2,1)}) where {T}
     srcbuf = toback(backend, p)
     src = M.storage(srcbuf)
     E, L = size(p)
-    b = M.Buffer(M.todevice(backend), T, (L, E))
+    dev = M.todevice(backend)
+    b = M.Buffer(dev, T, (L, E))
     d = M.storage(b)
     st = map(Int32, strides(src))
     k = T === Float16 ? toLE_tiled_Float16! : toLE_tiled_Float32!
-    KI.Kernel(backend, k)(reshape(d, L, E, 1, 1), reshape(src, length(src)),
-        Int32(1), st[1], st[2], Int32(0), Int32(0), Int32(E), Int32(L), Int32(1);
-        ndrange = (32 * cld(E, 32), 4 * cld(L, 32), 1), workgroupsize = (32, 4, 1))
+    # Declared and run once — the case `runonce!` is for, in its own words
+    # "packing a checkpoint's weights". A graph per transposed weight and not one
+    # for all of them because `residentweights` asks for weights one at a time,
+    # on purpose: the upload loop drops each host tensor before taking the next,
+    # and a batch would hold every parent at once. `Plan` plus `record!` is about
+    # a millisecond against an upload of megabytes.
+    g = M.Graph(dev)
+    M.dispatch!(g, k, (reshape(d, L, E, 1, 1), reshape(src, length(src)),
+                       Int32(1), st[1], st[2], Int32(0), Int32(0),
+                       Int32(E), Int32(L), Int32(1)),
+                (32 * cld(E, 32), 4 * cld(L, 32), 1);
+                group = (32, 4, 1), name = "toback/transpose")
+    M.runonce!(g)
+    # The parent was a step on the way and the transpose is the weight, so the
+    # upload of it goes back — otherwise every transposed weight leaves a copy of
+    # itself on the device for the model's life. `free!` retires rather than
+    # releases, so the run above not having completed is fine, and `srcbuf === p`
+    # is `toback`'s own identity contract: an argument already resident belongs
+    # to the caller and is not ours to free.
+    srcbuf === p || M.free!(srcbuf)
     b
 end
 
@@ -648,12 +666,18 @@ struct RecordedPlan{P,I,O}
     plan::P
     inputs::I
     outputs::O
+    # Whether this plan was built with a runner's own passes declared into it —
+    # see [`recordedplan`](@ref). Kept because the plan is cached under a key
+    # that cannot name a closure, so this is what tells a second caller asking
+    # for hooks that it is being handed a plan that has none.
+    hooked::Bool
     # The emit's owned buffers, which `inputs` and `outputs` are storage views
     # into. They have to outlive the plan and nothing finalises them, so the
     # plan is what owns them and `Mantle.free!` below is what returns them.
     owned::Vector{Any}
-    RecordedPlan(plan::P, inputs::I, outputs::O, owned::Vector{Any}) where {P,I,O} =
-        new{P,I,O}(plan, inputs, outputs, owned)
+    RecordedPlan(plan::P, inputs::I, outputs::O, owned::Vector{Any},
+                 hooked::Bool = false) where {P,I,O} =
+        new{P,I,O}(plan, inputs, outputs, hooked, owned)
 end
 
 """
@@ -786,13 +810,59 @@ zero pipeline compiles. Their load is where the compiling belongs.
 
 Returns the model, so it composes with a constructor.
 """
-function planahead!(m::Model, name::AbstractString; dims = (;),
-                    clampattn::Bool = false, noise::NoiseSource = RandomNoise())
-    g = m.graphs[name]
-    get!(m.scratch, plankey(name, dims, clampattn, noise)) do
-        planfor(m, g, name, dims, clampattn, noise)
+planahead!(m::Model, name::AbstractString; dims = (;), clampattn::Bool = false,
+           noise::NoiseSource = RandomNoise()) =
+    (recordedplan(m, name; dims, clampattn, noise); m)
+
+"""
+    recordedplan(model, name; dims, clampattn, noise, before, after) -> RecordedPlan
+
+The plan `call` replays for these arguments, built now if it has not been built
+yet, and the place a runner puts work of its own that is not in the export.
+
+`before(ctx)` and `after(ctx)` are called while the graph is being declared —
+`before` after every buffer exists and before the first op, `after` once the ops
+and the output views are resolved. Each gets the emit context: `ctx.g` is the
+Mantle graph to `dispatch!` into and `DNNKernels.operand(ctx, id)` is the
+resource behind a graph buffer id.
+
+    # the queries the decoder reads are written by a pass in its own graph
+    mp = recordedplan(m.geo, "hunyuan3d_geo"; before = ctx -> Mantle.dispatch!(
+        ctx.g, gridqueries_kernel!, (operand(ctx, "queries"), …), chunk))
+
+**That this is the same graph is the point.** The alternative is a second plan
+beside the first, which is a second submission per run and an input the runner
+has to copy in; declared here, Mantle sees one dependency chain and orders it
+itself. Hunyuan3D's sweep is 7134 chunks, so the difference is 7134 submissions.
+
+The hooks are a LOAD-time thing: the plan is cached under a key that cannot name
+a closure, so asking for hooks on a graph something already called is an error
+rather than a second plan.
+
+`mp.inputs` and `mp.outputs` are the arrays it recorded against, valid while the
+plan lives — `releaseplans!` frees it and them.
+"""
+function recordedplan(m::Model, name::AbstractString; dims = (;),
+                      clampattn::Bool = false, noise::NoiseSource = RandomNoise(),
+                      before = nothing, after = nothing)
+    key = plankey(name, dims, clampattn, noise)
+    mp = get(m.scratch, key, nothing)
+    if mp === nothing
+        mp = planfor(m, m.graphs[name], name, dims, clampattn, noise; before, after)
+        m.scratch[key] = mp
+        return mp
     end
-    return m
+    # A plan is built once and its passes are part of what it IS, so a caller
+    # that wants its own in there cannot be handed one built without them. The
+    # key cannot tell them apart — a closure is not something to key on, being a
+    # fresh object per call — so the plan carries the answer. Reached when a
+    # plain `call` on this graph got in first, which is a load-order mistake and
+    # silently ran without the runner's passes before this said so.
+    (before === nothing && after === nothing) || mp.hooked || throw(ArgumentError(
+        "recordedplan: a plan for $name is already built and it has no passes of " *
+        "yours in it. Declare them the FIRST time this graph is planned, at load, " *
+        "before anything calls it."))
+    return mp::RecordedPlan
 end
 
 """Run one graph and return its outputs in declaration order."""
@@ -864,9 +934,9 @@ it needs no copy, and an input is the array the plan's dispatches were packed
 with, which is why `call` copies into it rather than rebinding.
 """
 planfor(m::Model, g::Graph, name::AbstractString, dims,
-        clampattn::Bool, noise::NoiseSource) =
+        clampattn::Bool, noise::NoiseSource; before = nothing, after = nothing) =
     planfor(m.device, g, m.weights, dims;
-            maxpasses = get(m.record_maxpasses, name, 0), noise)
+            maxpasses = get(m.record_maxpasses, name, 0), noise, before, after)
 
 # `profile = true` builds the plan with a timestamp query pool, so
 # `Mantle.timings(plan.plan)` reports per-pass GPU milliseconds after a replay.
@@ -874,9 +944,9 @@ planfor(m::Model, g::Graph, name::AbstractString, dims,
 # a plan asked for it is a plan being measured.
 function planfor(dev, g::Graph, weights::AbstractDict, dims;
                  maxpasses::Int = 0, noise::NoiseSource = RandomNoise(),
-                 profile::Bool = false)
+                 profile::Bool = false, before = nothing, after = nothing)
     resident = residentweights(dev, g, weights)
-    mantlegraph, emitctx = emitgraph(dev, g, resident, dims; noise)
+    mantlegraph, emitctx = emitgraph(dev, g, resident, dims; noise, before, after)
     plan = Mantle.Plan(mantlegraph; profile)
     Mantle.record!(plan; maxpasses)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
@@ -900,7 +970,8 @@ function planfor(dev, g::Graph, weights::AbstractDict, dims;
     for (k, v) in resident
         v === get(weights, k, nothing) || push!(owned, v)
     end
-    return RecordedPlan(plan, ins, outs, owned)
+    return RecordedPlan(plan, ins, outs, owned,
+                        before !== nothing || after !== nothing)
 end
 
 """

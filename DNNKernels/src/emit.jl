@@ -101,7 +101,8 @@ skipped op's output buffer still exists — `declare!` made it — and the calle
 writes it before the run.
 """
 function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
-                   keepall::Bool = false, skip = (), noise::NoiseSource = RandomNoise())
+                   keepall::Bool = false, skip = (), noise::NoiseSource = RandomNoise(),
+                   before = nothing, after = nothing)
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
     esc = keepall ? live : escaping(aten)
@@ -121,6 +122,12 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
         for id in aten.order
             declare!(emitctx, aten.buffers[id], weights, live, shapes, producers)
         end
+        # A runner's own work, in this graph rather than beside it. Before the
+        # ops, because a pass that fills an input has to be declared before the
+        # ops that read it -- Mantle derives the ordering from the declaration,
+        # and a pass declared after its reader is a race it would order the wrong
+        # way round. See [`recordedplan`](@ref) for what this is for.
+        before === nothing || before(emitctx)
         for op in aten.ops
             op.out in skip && continue
             emitctx.outid[] = op.out
@@ -151,6 +158,10 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
         for id in aten.outputs
             operand(emitctx, id)
         end
+        # …and after the ops, which is where a pass that READS an output goes,
+        # for the mirror-image reason. It runs after the output views above are
+        # resolved, so `resource` answers for an output that is one.
+        after === nothing || after(emitctx)
     catch
         freeowned!(emitctx)
         rethrow()
