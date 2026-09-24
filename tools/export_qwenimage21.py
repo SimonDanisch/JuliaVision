@@ -549,7 +549,23 @@ def build_vae(module, args):
     # in Float16: Mantle's cooperative-matrix path is fp16 and DNNKernels has no
     # bfloat16 buffer, but torch has no fp16 CPU convolution either — a 1024²
     # decode in fp16 on the host does not finish in twenty minutes, while the
-    # same decode in bf16 takes seconds. Same weights, one rounding apart.
+    # same decode in bf16 takes seconds.
+    #
+    # "Same weights, one rounding apart" is what this comment used to say next,
+    # and it is WRONG. bf16 and fp16 are not one rounding apart: they differ by
+    # eight bits of EXPONENT, so bf16 carries fp32's range and fp16 saturates at
+    # 65504. Measured 2026-09-23 on a "transparent background" prompt at 1024²:
+    # the decode is 60.5% NaN, and the NaN is exactly the background — the object
+    # in the middle survives. Scaling the same latents by 0.75 makes it 0% NaN,
+    # which is the signature of an overflow rather than a logic fault. A prompt
+    # that asks for an opaque background decodes clean, which is why this went
+    # unnoticed: the alpha channel is then 1.0 everywhere and nobody looked.
+    #
+    # So the fp16 cast below costs this port the model's transparent-background
+    # output, which is a real capability of the checkpoint (the decoder has four
+    # channels and the fourth is a genuine soft matte). Exporting the VAE at
+    # fp32 is the fix — its weights are 0.3 GB and the decode is 2.5 s, so
+    # neither the artifact nor the runtime is the reason this is fp16.
     reference = None
     if not args.no_reference:
         with torch.no_grad():
