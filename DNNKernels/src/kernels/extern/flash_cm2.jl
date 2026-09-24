@@ -942,7 +942,7 @@ function sdpaflashcm2!(ctx, out, plan::FlashCM2Plan, q, k, v, scale;
     sq, sk, sv, so = st(q), st(k), st(v), st(out)
     flat(r) = reshape(r[1], length(r[1]))
 
-    KI.Kernel(ctx.backend, attn_flash_cm2!)(
+    harnesslaunch!(ctx.backend, attn_flash_cm2!,
         flat(ro), flat(rq), flat(rk), flat(rv), Float32(scale),
         Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
         Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],

@@ -175,7 +175,7 @@ function convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation; act
     kact = (splitk == 1 && act === :relu) ? :relu : :none
     # `conv2d_igemm_ki!` from `kernels/conv_igemm.jl`, which is this kernel: the
     # declared path in `emit.jl` dispatches the same function.
-    KI.Kernel(backend, conv2d_igemm_ki!)(
+    harnesslaunch!(backend, conv2d_igemm_ki!,
         acc, x, w, bias, Val(accum(eltype(x))), Val(splitk), Val(kact),
         Val(BS_K), Val(BS_CRS), Val(BS_NPQ), Val(TS_K), Val(TS_NPQ),
         Val(KWk), Val(KHk),

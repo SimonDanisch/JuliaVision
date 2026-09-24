@@ -1024,7 +1024,7 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
                                                     dilation, Wid, Hei, Cin, npqc, p0))
         else
             vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
-            KI.Kernel(backend, im2col_kernel!)(col, x, Val(MP), Val(vec),
+            harnesslaunch!(backend, im2col_kernel!, col, x, Val(MP), Val(vec),
                                     Val(KW), Val(KH), Val(stride[1]), Val(stride[2]),
                                     Val(padding[1]), Val(padding[2]),
                                     Val(dilation[1]), Val(dilation[2]),
@@ -1034,7 +1034,7 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
             Mantle.coopmat_gemm!(C, col, B, MP, CoutP, CRSP; partials = C,
                                  reduce = false)
         end
-        KI.Kernel(backend, conv_epilogue_kernel!)(
+        harnesslaunch!(backend, conv_epilogue_kernel!,
             out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
             OW * OH, Cout, npqc, p0, MP * CoutP;
             ndrange = (cld(npqc, 256) * 256, Cout), workgroupsize = (256, 1))

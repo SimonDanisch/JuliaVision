@@ -288,7 +288,7 @@ function sdpaflash!(out, q, k, v, scale; backend = KernelAbstractions.get_backen
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     (Lq % BQ == 0 && Lk % BK == 0 && flashfits(E, BQ, BK, NT, sharedbudget)) || return false
-    KI.Kernel(backend, attn_flash!)(out, q, k, v, Float32(scale),
+    harnesslaunch!(backend, attn_flash!, out, q, k, v, Float32(scale),
                              Val(BQ), Val(BK), Val(E), Val(NT), Int32(Lk);
                              ndrange = (NT * div(Lq, BQ), H, B), workgroupsize = NT)
     return true
@@ -2388,14 +2388,14 @@ end
 const FLASH_MERGE_GROUP = 256
 
 # sdpaflashcm!(ctx, out, plan::FlashCMPlan, q, k, v, scale) -> out
-# 
+#
 # Run the cooperative-matrix fused kernel. `q`, `k`, `v` are `(E, L, H, B)`.
-# 
+#
 # **This cannot decline.** Every condition is settled by
 # [`flashcm_plan`](@ref), which is the point of holding a plan: a `return false`
 # here would run *after* the caller has allocated `out` and committed to the
 # fused path, and would have to agree with a predicate that already said yes.
-# 
+#
 # `ballast`, `shpad`, `nrsc` and `rscbar` are the diagnostics from the held-`O`
 # investigation (closed — see [`FLASHCM_HELD`](@ref)). They stay keywords rather
 # than plan fields because they describe an experiment, not a routing decision,

@@ -85,7 +85,7 @@ function q8gemm!(C, A::QInt8Matrix, B; tiling=(2,1,2,2,32,8), bias=nothing, epil
     m%bm == 0 && n%bn == 0 && k%bk == 0 || throw(ArgumentError("q8gemm tile does not divide operands"))
     # `Mantle.storage` on the weight's fields: they are `Mantle.Buffer`s, and a
     # bare launch packs its arguments with no graph to resolve them against.
-    KI.Kernel(KernelAbstractions.get_backend(C), Q8_GEMM_KERNELS[tiling])(
+    harnesslaunch!(KernelAbstractions.get_backend(C), Q8_GEMM_KERNELS[tiling],
         C,Mantle.storage(A.q),Mantle.storage(A.scale),B,bias,epilogue,Val(m),Val(n),Val(k);
         ndrange=(m÷bm)*(n÷bn)*wg, workgroupsize=wg)
     C

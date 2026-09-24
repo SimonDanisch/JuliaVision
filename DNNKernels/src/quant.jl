@@ -462,7 +462,7 @@ function convrot(ctx::Ctx, input, group_size::Integer)
     n = Int64(length(input))
     src = input
     for S in strides
-        KI.Kernel(ctx.backend, convrot_pass_kernel!)(out, src, Val(S), Val(sets),
+        harnesslaunch!(ctx.backend, convrot_pass_kernel!, out, src, Val(S), Val(sets),
                                                Val(Int(group_size)), n; ndrange, workgroupsize = 256)
         src = out
     end
@@ -789,12 +789,13 @@ function q8gemv!(ctx, out, A::QInt8Matrix, x, bias)
     MG = size(A.q, 1)
     # `Mantle.storage`: a packed weight's fields are `Mantle.Buffer`s, the pool
     # regions that own the bytes, and a BARE launch has no graph to resolve them
-    # against — `dispatch!` does that itself, `KI.Kernel` packs what it is given
-    # and a `Buffer` is not a bitstype. Identity on anything already an array.
+    # against — `dispatch!` does that itself, while `harnesslaunch!` packs what it
+    # is given and a `Buffer` is not a bitstype. Identity on anything already an
+    # array.
     q, sc = Mantle.storage(A.q), Mantle.storage(A.scale)
     if Q8SINGLE[]
         RG = q8rowgroups(M, K)
-        KI.Kernel(ctx.backend, Q8GEMV1_KERNELS[RG])(
+        harnesslaunch!(ctx.backend, Q8GEMV1_KERNELS[RG],
             out, q, x, sc, bias === nothing ? sc : bias,
             Int32(MG), Int32(M), Int32(K), Val(bias !== nothing);
             ndrange = cld(MG, RG) * Q8WG, workgroupsize = Q8WG)
@@ -804,9 +805,9 @@ function q8gemv!(ctx, out, A::QInt8Matrix, x, bias)
     S = q8split(M, K)
     KC = cld(K, S)
     P = Mantle.splitscratch(out, MP, 1, S)
-    KI.Kernel(ctx.backend, q8gemv_kernel!)(P, q, x, Int32(MG), Int32(MP), Int32(K),
+    harnesslaunch!(ctx.backend, q8gemv_kernel!, P, q, x, Int32(MG), Int32(MP), Int32(K),
                                      Int32(KC), Int32(MG * S); ndrange = MG * S, workgroupsize = 256)
-    KI.Kernel(ctx.backend, q8reduce_kernel!)(
+    harnesslaunch!(ctx.backend, q8reduce_kernel!,
         out, P, sc, bias === nothing ? sc : bias,
         Int32(M), Int32(MP), Int32(S), Val(bias !== nothing); ndrange = M, workgroupsize = 256)
     out
@@ -824,7 +825,7 @@ function q8dequant(ctx, A::QInt8Matrix)
     M, K = size(A)
     MG = size(A.q, 1)
     W = scratch!(ctx.ws, ctx.backend, Float16, M, K)
-    KI.Kernel(ctx.backend, q8dequant_kernel!)(W, Mantle.storage(A.q),
+    harnesslaunch!(ctx.backend, q8dequant_kernel!, W, Mantle.storage(A.q),
                                         Mantle.storage(A.scale), Int32(M), Int32(MG),
                                         Int64(MG) * K; ndrange = MG * K, workgroupsize = 256)
     W

@@ -341,13 +341,13 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
     if N >= 8 && bias === nothing
         mtiles = cld(M, PTQ1_MM_BM)
         ntiles = cld(N, PTQ1_MM_BN)
-        KI.Kernel(ctx.backend, ptq1_mul_mm_kernel!)(
+        harnesslaunch!(ctx.backend, ptq1_mul_mm_kernel!,
             out, Mantle.storage(A.data), x, Int32(M), Int32(K), Int32(N), Int32(mtiles);
             ndrange = mtiles * ntiles * PTQ1_WG, workgroupsize = PTQ1_WG)
     else
         kernel = N == 1 ? ptq1_mul_kernel! : ptq1_mul4_kernel!
         columns = N == 1 ? N : cld(N, PTQ1_COLS_PER_WG)
-        KI.Kernel(ctx.backend, kernel)(
+        harnesslaunch!(ctx.backend, kernel,
             out, Mantle.storage(A.data), x,
             bias === nothing ? Mantle.storage(A.data) : bias,
             Int32(M), Int32(K), Int32(N), Int32(rows), Val(bias !== nothing),
@@ -383,7 +383,7 @@ Decode zero-based vocabulary rows into consecutive `K`-element columns.
 function ptq1_getrows!(ctx, out, A::PTQ1Matrix, rows)
     N = length(rows)
     length(out) == A.k * N || throw(DimensionMismatch("embedding output must contain $(A.k*N) values"))
-    KI.Kernel(ctx.backend, ptq1_getrows_kernel!)(out, Mantle.storage(A.data), rows,
+    harnesslaunch!(ctx.backend, ptq1_getrows_kernel!, out, Mantle.storage(A.data), rows,
                                                  Int32(A.m), Int32(A.k), Int32(N);
                                                 ndrange=A.k * N, workgroupsize = 256)
     out
@@ -588,7 +588,7 @@ function hadamard!(ctx, x, signs=nothing; inverse::Bool=false, width::Integer=si
     signs !== nothing && length(signs) != width && throw(DimensionMismatch("sign vector has length $(length(signs)), expected $width"))
     blocks = width ÷ 1024
     columns = length(x) ÷ width
-    KI.Kernel(ctx.backend, hadamard1024_kernel!)(x, signs === nothing ? x : signs,
+    harnesslaunch!(ctx.backend, hadamard1024_kernel!, x, signs === nothing ? x : signs,
         Int32(width), Int32(blocks), Val(signs !== nothing), Val(inverse);
         ndrange=blocks * columns * 256, workgroupsize = 256)
     x

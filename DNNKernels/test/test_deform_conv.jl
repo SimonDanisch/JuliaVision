@@ -63,7 +63,9 @@ function deformgraph(; W = 8, H = 8, Cin = 4, Cout = 6, K = 3, dg = 2,
 end
 
 for be in Mantle.eachbackend()
-    dev = Mantle.todevice(be)
+    # `local`: a `dev` global exists in the test session, and a soft-scope
+    # assignment to a name that is also a global is a warning rather than a rule.
+    local dev = Mantle.todevice(be)
     @testset "im2col and the direct kernel agree — $(nameof(typeof(be)))" begin
         for (dg, stride, Cin, Cout) in ((2, 1, 4, 6), (1, 1, 4, 6), (2, 2, 4, 6), (2, 1, 8, 4))
             g = deformgraph(; dg, stride, Cin, Cout)

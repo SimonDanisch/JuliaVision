@@ -201,6 +201,36 @@ which `flat4` guarantees by construction.
 end
 
 """
+    harnesslaunch!(backend, kernel, args...; ndrange, workgroupsize)
+
+Launch one kernel immediately, with no graph. **The only place in this package
+that does**, and nothing that ships reaches it.
+
+Everything a runner calls declares instead: `launch!(g, f, out, args…)` for an
+op body, `Mantle.dispatch!` for a kernel with its own entry point, and one
+recorded plan per graph. That is what lets Mantle put a barrier between a pass
+and the pass that reads what it wrote, and what lets a whole model be one
+submission — a launch leaves both to the queue's ordering.
+
+What is left on this path is the KERNEL-TUNING harness: [`Ctx`](@ref), the entry
+points that take one (`matmul!`, `sdpa!`, `flash!`, `q8gemv!`, …), the tests that
+pin their numerics and the `tools/*lab*.jl` files that time them. Those exist to
+run ONE kernel and measure it, and `Plan` plus `record!` costs about a
+millisecond — thirty times a GEMM they are there to compare. A plan recorded once
+and replayed is the right measurement of a model; it is not the right measurement
+of a kernel.
+
+So a new caller belongs on the declared path, and this one function is where the
+harness is named rather than spread over thirty launch sites.
+"""
+@inline function harnesslaunch!(backend, kernel, args...; ndrange, workgroupsize = nothing)
+    k = KI.Kernel(backend, kernel)
+    workgroupsize === nothing ? k(args...; ndrange) :
+        k(args...; ndrange, workgroupsize)
+    return nothing
+end
+
+"""
     launch!(ctx, f, out, args...)
 
 The form every op body and kernel entry point uses: the backend and the launch
@@ -253,11 +283,11 @@ function launch!(f::F, out, args...; backend=KernelAbstractions.get_backend(out)
     end
     if ndims(out) > 1 && IndexStyle(out) === IndexLinear()
         n = length(out)
-        KI.Kernel(backend, ndmap_flat!)(f, out, map(Mantle.FastDiv32, size(out)), n, args...; ndrange=n)
+        harnesslaunch!(backend, ndmap_flat!, f, out, map(Mantle.FastDiv32, size(out)), n, args...; ndrange=n)
     else
         sz = size(out)
         n = length(out)
-        KI.Kernel(backend, ndmap!)(f, out, map(Mantle.FastDiv32, sz), n, args...;
+        harnesslaunch!(backend, ndmap!, f, out, map(Mantle.FastDiv32, sz), n, args...;
                                    ndrange = n)
     end
     out

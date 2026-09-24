@@ -113,13 +113,13 @@ function maskedprefill!(ctx,out,q,k,v,mask,scale)
     s=scratch!(ctx,Float16,nk,nq,h,b)
     p=scratch!(ctx,Float16,nk,nq,h,b)
     kt .= PermutedDimsArray(k,(2,1,3,4))
-    KI.Kernel(ctx.backend, masked_batch_gemm!)(s,kt,q,Val(nk),Val(nq),Val(e),
+    harnesslaunch!(ctx.backend, masked_batch_gemm!, s,kt,q,Val(nk),Val(nq),Val(e),
         Int32(nk*e),Int32(e*nq);ndrange=(nk÷128)*(nq÷128)*h*b*256, workgroupsize = 256)
-    KI.Kernel(ctx.backend, masked_prefill_softmax!)(p,s,mask,Float32(scale),Val(nk),Val(nq);
+    harnesslaunch!(ctx.backend, masked_prefill_softmax!, p,s,mask,Float32(scale),Val(nk),Val(nq);
         ndrange=nq*h*b*32, workgroupsize = 32)
     vr=stridedroot(v)
     vf=view(reshape(vr[1],length(vr[1])),vr[2]+1:length(vr[1]))
-    KI.Kernel(ctx.backend, masked_batch_gemm!)(out,vf,p,Val(e),Val(nq),Val(nk),
+    harnesslaunch!(ctx.backend, masked_batch_gemm!, out,vf,p,Val(e),Val(nq),Val(nk),
         Int32(strides(v)[3]),Int32(nk*nq);ndrange=(e÷128)*(nq÷128)*h*b*256, workgroupsize = 256)
     out
 end

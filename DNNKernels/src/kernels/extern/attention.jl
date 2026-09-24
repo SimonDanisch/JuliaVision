@@ -293,7 +293,7 @@ for (name, kern, args) in (("scoresblocked!", "attn_scores_b", (:scores, :q, :k,
     @eval function $(Symbol(name))(backend, tk, $(args...), ndrange)
         nd = (ndrange[1], ndrange[2], ndrange[3] * ndrange[4])
         wg = launchgroup(nd)
-        KI.Kernel(backend, $(Symbol(name, "kernel"))(tk))($(args...); ndrange = nd,
+        harnesslaunch!(backend, $(Symbol(name, "kernel"))(tk), $(args...); ndrange = nd,
                                                           workgroupsize = wg)
     end
 end
@@ -457,7 +457,7 @@ function transposeLE(ctx, a)
     # the index arithmetic folds to constants — 3.34 -> 2.01 ms in SAM 2's
     # encoder. Safe because `(32, 4, 1)`'s only unit extent is trailing; see
     # `Mantle.interior_unit_workgroup`.
-    KI.Kernel(backend, k)(d, flashflat(root), Int32(off + 1),
+    harnesslaunch!(backend, k, d, flashflat(root), Int32(off + 1),
                            st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H);
                            ndrange = toLErange(E, L, H, B), workgroupsize = (32, 4, 1))
     d
@@ -698,7 +698,7 @@ function attnsoftmax!(ctx, sums, p, s, scale)
     s3 = reshape(s, Lq, Lk, H * B)
     p3 = reshape(p, Lq, Lk, H * B)
     sm = reshape(sums, Lq, H * B)
-    KI.Kernel(backend, attn_softmax_rows!)(
+    harnesslaunch!(backend, attn_softmax_rows!,
         p3, sm, s3, Float32(scale), Int32(Lk);
         ndrange = (Lq ÷ ATTN_SM_LQ) * H * B * ATTN_SM_LQ * ATTN_SM_CH, workgroupsize = ATTN_SM_LQ * ATTN_SM_CH)
     sums

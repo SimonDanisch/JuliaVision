@@ -363,7 +363,7 @@ function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
     sg = hasproperty(ctx, :dev) ? ctx.dev.subgroup : 0
     dummy = γ === nothing ? (β === nothing ? a : β) : γ
     if sg > 0 && rowsg <= sg && sg % rowsg == 0
-        KI.Kernel(backend, layernorm_shfl_kernel!)(
+        harnesslaunch!(backend, layernorm_shfl_kernel!,
             out, mean, rstd, a,
             γ === nothing ? dummy : γ, β === nothing ? dummy : β,
             Int32(C), Int32(groups), Float32(eps), Val(sg), Val(rowsg),
@@ -372,7 +372,7 @@ function layernorm!(ctx, out, mean, rstd, a, γ, β, C::Integer, eps::Real)
         return out
     end
     wg = rowsg
-    KI.Kernel(backend, layernorm_kernel!)(
+    harnesslaunch!(backend, layernorm_kernel!,
         out, mean, rstd, a,
         γ === nothing ? dummy : γ, β === nothing ? dummy : β,
         Int32(C), Float32(eps), Val(wg), Val(γ !== nothing), Val(β !== nothing);
@@ -549,7 +549,7 @@ Launch [`rmsnorm_kernel!`](@ref) over `length(a) ÷ C` groups. Same contract as
 """
 function rmsnorm!(ctx, out, rstd, a, γ, C::Integer, eps::Real)
     groups = length(a) ÷ C
-    KI.Kernel(ctx.backend, rmsnorm_kernel!)(
+    harnesslaunch!(ctx.backend, rmsnorm_kernel!,
         out, rstd, a, γ === nothing ? a : γ,
         Int32(C), Float32(eps), Val(γ !== nothing);
         ndrange = groups * LN_WG, workgroupsize = LN_WG)

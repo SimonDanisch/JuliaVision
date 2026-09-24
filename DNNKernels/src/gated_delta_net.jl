@@ -39,7 +39,7 @@ function depthwise_conv4!(ctx, out, state, x, weight)
     length(out) == channels || throw(DimensionMismatch("convolution output has the wrong length"))
     length(state) == 3channels || throw(DimensionMismatch("convolution state must be 3×channels"))
     length(weight) == 4channels || throw(DimensionMismatch("convolution weight must be 4×channels"))
-    KI.Kernel(ctx.backend, depthwise_conv4_kernel!)(out, state, x, weight, Int32(channels); ndrange=channels, workgroupsize = 256)
+    harnesslaunch!(ctx.backend, depthwise_conv4_kernel!, out, state, x, weight, Int32(channels); ndrange=channels, workgroupsize = 256)
     out
 end
 
@@ -143,7 +143,7 @@ function gated_delta_net!(ctx, out, state, q, k, v, alpha, beta,
     all(length(x) == 48 for x in (alpha, beta, dt_bias, a)) ||
         throw(DimensionMismatch("alpha, beta, dt_bias and a must have 48 values"))
     length(norm_weight) == 128 || throw(DimensionMismatch("norm weight must have 128 values"))
-    KI.Kernel(ctx.backend, gated_delta_net_kernel!)(out, state, q, k, v, alpha, beta,
+    harnesslaunch!(ctx.backend, gated_delta_net_kernel!, out, state, q, k, v, alpha, beta,
         dt_bias, a, z, norm_weight, Float32(eps), Int32(48), Int32(16);
         ndrange=48*128, workgroupsize = 128)
     out

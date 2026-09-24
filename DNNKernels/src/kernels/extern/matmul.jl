@@ -407,7 +407,7 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
     Bp = B
     if NP != N
         Bp = scratch!(ctx, Float16, K, NP)
-        KI.Kernel(backend, padcols_kernel!)(Bp, B, Val(K), N; ndrange = (K, NP))
+        harnesslaunch!(backend, padcols_kernel!, Bp, B, Val(K), N; ndrange = (K, NP))
     end
     blk_split = Mantle.coopmat_gemm_shape(M, NP, K)
     splitk = blk_split[2]
@@ -432,7 +432,7 @@ function matmul_coopmat!(ctx, out, plan::MMCoopMatPlan, A, B, bias, epi;
     end
     C = scratch!(ctx, Float32, M, NP, max(splitk, 1))
     Mantle.coopmat_gemm!(C, A, Bp, M, NP, K; blk_split, partials = C, reduce = false, gemm...)
-    KI.Kernel(backend, mm_epilogue_kernel!)(out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
+    harnesslaunch!(backend, mm_epilogue_kernel!, out, C, bias, epi, Val(M), Val(splitk), M * NP, M * N;
                                  ndrange = M * N)
     out
 end
@@ -743,10 +743,10 @@ function bmm_nblocked!(ctx, out, A, B)
     end
     KC = cld(K, S)
     P = scratch!(ctx.ws, ctx.backend, Float32, M, N, NBATCH, S)
-    KI.Kernel(ctx.backend, BMM_N_KERNELS[N])(P, A, B, Int32(M), Int32(K), Int32(KC),
+    harnesslaunch!(ctx.backend, BMM_N_KERNELS[N], P, A, B, Int32(M), Int32(K), Int32(KC),
                                        Int32(NBATCH), Int32(M * NBATCH * S);
                                        ndrange = M * NBATCH * S, workgroupsize = 256)
-    KI.Kernel(ctx.backend, bmm_nsplit_reduce!)(out, P, Int32(S), Val((M, N, NBATCH)),
+    harnesslaunch!(ctx.backend, bmm_nsplit_reduce!, out, P, Int32(S), Val((M, N, NBATCH)),
                                          Int64(M * N * NBATCH); ndrange = M * N * NBATCH, workgroupsize = 256)
     out
 end

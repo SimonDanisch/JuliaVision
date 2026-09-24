@@ -185,7 +185,7 @@ function lstm!(ctx, out, x, w_ih, w_hh, b_ih, b_hh, h0, c0, T::Int, H::Int,
     # `(H, 4H)` -> `(4H, H)`, so the loop below reads coalesced. See the header.
     WhhT = similar(w_hh, eltype(w_hh), 4H, H)
     permutedims!(WhhT, w_hh, (2, 1))
-    KI.Kernel(ctx.backend, lstm_kernel!)(out, Gx, WhhT, b_hh, h0, c0, T, rowoff,
+    harnesslaunch!(ctx.backend, lstm_kernel!, out, Gx, WhhT, b_hh, h0, c0, T, rowoff,
                               Val(H), Val(reverse);
                               ndrange = 4H, workgroupsize = 4H)
     return out
