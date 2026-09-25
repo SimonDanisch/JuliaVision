@@ -130,6 +130,13 @@ def kokoro_demo():
 
 @demo("deepfilternet")
 def deepfilternet_demo():
+    # DeepFilterNet cannot be installed into the project's environment; see
+    # `demo_deepfilternet.py`, which declares the one it runs in.
+    subprocess.run(["uv", "run", str(Path(__file__).with_name("demo_deepfilternet.py"))],
+                   check=True)
+
+
+def deepfilternet():
     """Clean speech, the same speech buried in real noise, and the result. Two
     noise types and two levels, because a denoiser that works on steady hum can
     still fail on babble."""

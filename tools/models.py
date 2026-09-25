@@ -153,6 +153,9 @@ MODELS = [
         inputs="complex STFT frames (1, T, F, 2)",
         newops=["ERB filterbank (a small matmul, not a new op)"],
         pip="deepfilternet",
+        note=("`deepfilternet` does not install into the project environment (numpy<2, "
+              "no CPython 3.12 wheel for `deepfilterlib`). The exporter needs a script "
+              "environment of its own, like `tools/demo_deepfilternet.py`."),
     ),
     Model(
         name="demucs", package="DemucsRunner",

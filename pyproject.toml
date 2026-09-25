@@ -20,7 +20,10 @@ dependencies = [
     "omegaconf",
     "tqdm",
     "typer",
-    "huggingface-hub",
+    # The bounds are what the pinned `diffusers-src` (Qwen-Image 2.1) imports
+    # need; `export_qwenimage21.py` names both when they are missing.
+    "huggingface-hub>=1.31",
+    "transformers>=5.17",
     "requests",
     "safetensors",
     "duckdb>=1.5.5",
@@ -28,12 +31,15 @@ dependencies = [
     "pyarrow>=25.0.0",
     "gdown>=6.1.0",
     "demucs>=4.0.1",
-    "deepfilternet>=0.5.6",
     "kokoro>=0.9.4",
     "soundfile>=0.14.0",
     "matplotlib>=3.11.1",
     "scipy>=1.17.1",
     "diffusers>=0.39.0",
+    # `sam2`, run from its `sam2-src` artifact rather than installed, imports it
+    # in `hieradet.py`; without it Hydra reports the failed import as "Error
+    # locating target 'sam2.modeling.backbones.hieradet.Hiera'".
+    "iopath>=0.1.10",
     "accelerate>=1.14.0",
     "sentencepiece>=0.2.2",
     "protobuf>=7.35.1",
