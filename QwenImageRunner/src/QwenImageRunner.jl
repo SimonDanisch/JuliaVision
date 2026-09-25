@@ -20,6 +20,7 @@ module QwenImageRunner
 
 using DNNKernels
 using DNNKernels: loadgraph, readsafetensors, Model, planfor, replay!
+using DNNKernels: linspace, flowschedule, ExponentialShift, calculate_shift, eulerstep!
 # JSON3 comes through DNNKernels, which reads every exported graph with it. The
 # tokenizer's `vocab.json` is the only other JSON this package reads, and a
 # second copy in the manifest would be a second version to keep in step.
@@ -45,7 +46,7 @@ export QwenVAEDecoder, qwenimagevae, decode!
 export generate!
 export packlatents, unpacklatents, image_sequence_length
 export latentshape, imagetokenbounds
-export calculate_shift, qwen_schedule, euler_step!
+export qwen_schedule
 
 const QWEN_IMAGE_21 = (
     transformer_layers = 32,
@@ -61,9 +62,11 @@ const QWEN_IMAGE_21 = (
     train_timesteps = 1000,
     base_image_seq_len = 256,
     max_image_seq_len = 8192,
-    base_shift = 0.5f0,
-    max_shift = 0.9f0,
-    shift_terminal = 0.02f0,
+    # `scheduler_config.json`'s floats, kept Float64: diffusers holds them as Python
+    # floats and rounds them to float32 only where they meet the sigmas.
+    base_shift = 0.5,
+    max_shift = 0.9,
+    shift_terminal = 0.02,
 )
 
 const COMPONENT_FILES = Dict(
@@ -695,59 +698,29 @@ function unpacklatents(packed::AbstractArray{T,3}, width::Integer, height::Integ
     reshape(permutedims(packed, (2, 1, 3)), width, height, c, b)
 end
 
-"""Resolution-dependent shift used by the official FlowMatch scheduler."""
-function calculate_shift(image_seq_len::Integer;
-                         base_seq_len::Integer=QWEN_IMAGE_21.base_image_seq_len,
-                         max_seq_len::Integer=QWEN_IMAGE_21.max_image_seq_len,
-                         base_shift::Real=QWEN_IMAGE_21.base_shift,
-                         max_shift::Real=QWEN_IMAGE_21.max_shift)
-    base_seq_len < max_seq_len || throw(ArgumentError("base_seq_len must be below max_seq_len"))
-    slope = (max_shift - base_shift) / (max_seq_len - base_seq_len)
-    Float32(image_seq_len * slope + base_shift - slope * base_seq_len)
-end
-
 """
-    qwen_schedule(width, height; steps=40) -> (timesteps, sigmas)
+    qwen_schedule(width, height; steps=40) -> (; timesteps, sigmas, mu)
 
-The exact Qwen-Image 2.1 dynamic-shift, exponential FlowMatch schedule. `sigmas`
-has `steps + 1` entries because the final Euler update targets zero; `timesteps`
-has one entry per denoiser evaluation and is expressed on the model's 0..1000
-training scale.
+The Qwen-Image 2.1 dynamic-shift, exponential FlowMatch schedule, through
+DNNKernels' shared `flowschedule`. `sigmas` has `steps + 1` entries because the
+final Euler update targets zero; `timesteps` has one entry per denoiser
+evaluation and is expressed on the model's 0..1000 training scale.
+
+The pipeline supplies `linspace(1, 1/steps, steps)` to the scheduler. `1e-3` is
+the scheduler's default when no explicit sigmas are supplied, but Qwen does
+supply them; confusing the two substantially changes every late denoising step.
 """
 function qwen_schedule(width::Integer, height::Integer; steps::Integer=40)
     steps > 0 || throw(ArgumentError("steps must be positive"))
-    n = image_sequence_length(width, height)
-    mu = calculate_shift(n)
-    # The pipeline supplies `linspace(1, 1/steps, steps)` to the scheduler.
-    # `1e-3` is the scheduler's default when no explicit sigmas are supplied,
-    # but Qwen does supply them; confusing the two substantially changes every
-    # late denoising step.
-    raw = collect(range(1f0, inv(Float32(steps)); length=steps))
-    emu = exp(mu)
-    shifted = @. emu / (emu + (inv(raw) - 1f0))
-
-    terminal = QWEN_IMAGE_21.shift_terminal
-    scale = (1f0 - shifted[end]) / (1f0 - terminal)
-    shifted = @. 1f0 - (1f0 - shifted) / scale
-    timesteps = shifted .* Float32(QWEN_IMAGE_21.train_timesteps)
-    sigmas = [shifted; 0f0]
+    mu = calculate_shift(image_sequence_length(width, height);
+                         base_seq_len=QWEN_IMAGE_21.base_image_seq_len,
+                         max_seq_len=QWEN_IMAGE_21.max_image_seq_len,
+                         base_shift=QWEN_IMAGE_21.base_shift,
+                         max_shift=QWEN_IMAGE_21.max_shift)
+    (; sigmas, timesteps) = flowschedule(linspace(1.0, 1 / steps, steps), ExponentialShift(mu);
+                                         shiftterminal=QWEN_IMAGE_21.shift_terminal,
+                                         trainsteps=QWEN_IMAGE_21.train_timesteps)
     (; timesteps, sigmas, mu)
-end
-
-"""One deterministic FlowMatch Euler update, performed in place.
-
-`Mantle.storage` on both operands, because either spelling reaches here: a
-caller that uploaded its noise with `DNNKernels.toback` holds a `Mantle.Buffer`
-— the pool region — and a `Buffer` is not an `AbstractArray`, so broadcasting
-into one is a `MethodError` from inside `BroadcastStyle`. `storage` is the
-identity on anything that is already an array.
-"""
-function euler_step!(sample, model_output, sigma::Real, sigma_next::Real)
-    x, d = Mantle.storage(sample), Mantle.storage(model_output)
-    axes(x) == axes(d) || throw(DimensionMismatch(
-        "sample and model output must have identical axes"))
-    x .+= convert(eltype(x), sigma_next - sigma) .* d
-    sample
 end
 
 """
@@ -778,7 +751,7 @@ function generate!(transformer::QwenTransformer, vae::QwenVAEDecoder,
     for i in eachindex(schedule.timesteps)
         fill!(timestep, convert(eltype(timestep), schedule.timesteps[i] / 1000f0))
         prediction = denoise!(transformer, latents, prompt_embeddings, timestep)
-        euler_step!(latents, prediction, schedule.sigmas[i], schedule.sigmas[i + 1])
+        eulerstep!(latents, prediction, schedule.sigmas[i], schedule.sigmas[i + 1])
     end
 
     lw = width ÷ QWEN_IMAGE_21.vae_scale_factor

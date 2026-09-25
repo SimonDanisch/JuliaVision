@@ -64,7 +64,7 @@ embeddings = DNNKernels.toback(backend, emb)
 for i in eachindex(schedule.timesteps)
     fill!(timestep, convert(eltype(timestep), schedule.timesteps[i] / 1000.0f0))
     prediction = QIR.denoise!(transformer, latents, embeddings, timestep)
-    QIR.euler_step!(latents, prediction, schedule.sigmas[i], schedule.sigmas[i + 1])
+    DNNKernels.eulerstep!(latents, prediction, schedule.sigmas[i], schedule.sigmas[i + 1])
 end
 KA.synchronize(backend)
 Mantle.release!(transformer)

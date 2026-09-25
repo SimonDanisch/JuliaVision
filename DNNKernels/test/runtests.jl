@@ -94,6 +94,9 @@ include(joinpath(@__DIR__, "test_index_recovery.jl"))
 # `bmm` reaches the same capability dispatch a 2-D matmul does. It did not, and
 # that one line was 79.6% of Depth Anything's forward pass.
 include(joinpath(@__DIR__, "test_batchedmatmul.jl"))
+# The flow-matching sampler every diffusion runner shares, bit for bit against
+# diffusers, on the host and on the device.
+include(joinpath(@__DIR__, "test_flowmatch.jl"))
 # Elementwise fusion as a graph rewrite, and the `FusedOp` it emits. Asserts on
 # the numbers rather than on op counts: the failure this pass shipped first was a
 # binary op handed one argument, which runs and returns the wrong answer.

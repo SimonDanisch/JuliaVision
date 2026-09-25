@@ -102,7 +102,7 @@ schedule = qwen_schedule(SIZE, SIZE; steps=STEPS)
 t0 = time()
 for i in 1:STEPS
     fill!(timestep, convert(Float16, schedule.timesteps[i] / 1000f0))
-    euler_step!(latents, denoise!(transformer, latents, embeds, timestep),
+    DNNKernels.eulerstep!(latents, denoise!(transformer, latents, embeds, timestep),
                 schedule.sigmas[i], schedule.sigmas[i + 1])
 end
 Mantle.waitidle(Mantle.todevice(backend))

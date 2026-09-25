@@ -155,6 +155,7 @@ using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, readsafetensors, toback, Model, call
+using DNNKernels: linspace, flowschedule, NoShift, eulerstep, cfg
 using LazyArtifacts
 using Artifacts: artifact_hash, artifact_exists
 

@@ -1,4 +1,5 @@
 using Test, QwenImageRunner
+using DNNKernels: eulerstep!
 using Artifacts: artifact_hash, artifact_exists, artifact_path
 
 @testset "Qwen-Image 2.1 architecture" begin
@@ -37,7 +38,7 @@ end
 
     x = ones(Float32, 2, 3)
     prediction = fill(2f0, 2, 3)
-    euler_step!(x, prediction, 0.8f0, 0.5f0)
+    eulerstep!(x, prediction, 0.8f0, 0.5f0)
     @test x ≈ fill(0.4f0, 2, 3)
 end
 

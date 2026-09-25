@@ -100,7 +100,8 @@ const H = Hunyuan3DRunner
     # ------------------------------------------------------------ the schedule
 
     @testset "the sigma schedule is upstream's, in upstream's precision" begin
-        s = H.flowsigmas(50)
+        sched = H.hunyuanschedule(50)
+        s = sched.sigmas
         @test length(s) == 51                     # `steps` plus the appended 1.0
         @test eltype(s) === Float32               # `.to(dtype=torch.float32)`
         @test s[1] === 0.0f0                      # "we start from 0"
@@ -111,7 +112,7 @@ const H = Hunyuan3DRunner
         # in the last bit and that bit is taken fifty times.
         @test s[2] - s[1] === Float32(1 / 49)
 
-        t = H.flowtimesteps(s)
+        t = sched.timesteps
         @test length(t) == 50
         @test eltype(t) === Float32
         @test t[1] === 0.0f0
@@ -119,7 +120,7 @@ const H = Hunyuan3DRunner
     end
 
     @testset "the timestep is narrowed BEFORE it is divided" begin
-        t = H.flowtimesteps(H.flowsigmas(50))
+        t = H.hunyuanschedule(50).timesteps
         # `timestep.to(latents.dtype)` then `/ num_train_timesteps`, not the
         # other way round. Nine of the fifty steps land on a different fp16
         # value, and the result is an input to a 754-op forward.
@@ -137,24 +138,24 @@ const H = Hunyuan3DRunner
         # which is the more accurate of the two and not the one being reproduced.
         # These two values differ between the readings.
         pred = reshape(Float16[-0.0603, -0.08575], 1, 1, 2)
-        @test H.cfg(pred, 5.0)[1] === Float16(0.04144)
+        @test DNNKernels.cfg(view(pred, :, :, 1), view(pred, :, :, 2), 5.0)[1] === Float16(0.04144)
         @test Float16(Float32(-0.08575f0) +
                       5.0f0 * Float32(Float16(-0.0603) - Float16(-0.08575))) === Float16(0.0415)
     end
 
     @testset "the Euler step size is fp16, not fp32" begin
-        s = H.flowsigmas(50)
+        s = H.hunyuanschedule(50).sigmas
         # `(sigma_next - sigma)` is a 0-dim fp32 tensor and `model_output` is a
         # dimensioned fp16 one; PyTorch gives the dimensioned operand priority,
         # so the SCALAR narrows and the product is fp16. The effective step is
         # Float16(1/49) = 0.0204, not 0.020408163.
         @test Float16(s[2] - s[1]) === Float16(0.0204)
-        @test H.eulerstep(Float16[-0.4294], Float16[-3.25], s[1], s[2])[1] === Float16(-0.4956)
+        @test DNNKernels.eulerstep(Float16[-0.4294], Float16[-3.25], s[1], s[2])[1] === Float16(-0.4956)
         # what an fp32 step size would have given, for the failure message
         @test Float16(Float32(Float16(-0.4294)) +
                       (s[2] - s[1]) * Float32(Float16(-3.25))) === Float16(-0.4958)
         # the final step is a no-op by construction
-        @test H.eulerstep(Float16[1.5], Float16[9.0], s[50], s[51])[1] === Float16(1.5)
+        @test DNNKernels.eulerstep(Float16[1.5], Float16[9.0], s[50], s[51])[1] === Float16(1.5)
     end
 
     @testset "the VAE scale factor is the checkpoint's" begin

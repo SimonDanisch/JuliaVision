@@ -187,9 +187,10 @@ end
 # ------------------------------------------------------------------ the sampler
 
 """
-    flowsigmas(steps) -> Vector{Float64}
+    hunyuanschedule(steps) -> (; sigmas, timesteps)
 
-The noise levels the sampler steps through, `steps + 1` of them.
+The noise levels the sampler steps through, `steps + 1` of them, and the
+timestep each step conditions on; built by DNNKernels' shared `flowschedule`.
 
 Upstream's own comment: *this is slightly different from common usage, we start
 from 0*. `Hunyuan3DDiTFlowMatchingPipeline.__call__` passes
@@ -200,8 +201,8 @@ The last step therefore has `sigma_next - sigma == 0` and moves nothing — a
 behaviour and not a bug to round away.
 
 The checkpoint's scheduler has `shift = 1.0` and `use_dynamic_shifting = false`,
-so `shift * s / (1 + (shift - 1) * s)` is the identity and is not applied here.
-A checkpoint with a different shift needs it back.
+which is the identity: `NoShift`. A checkpoint with a different shift needs it
+back.
 
 **Float32, and narrowed before the differences are taken.** `set_timesteps` does
 `torch.from_numpy(sigmas).to(dtype=torch.float32)`, so the fp64 ramp is rounded
@@ -209,19 +210,14 @@ to fp32 *first* and `sigma_next - sigma` is an fp32 subtraction. Keeping fp64
 here and narrowing at the end is a different number in the last bit, which is far
 below an fp16 ULP on its own and still shows up: it is a step's worth of rounding,
 taken fifty times, into a state that is stored back as fp16 each time.
-"""
-flowsigmas(steps::Integer) = Float32[collect(range(0.0, 1.0; length = steps)); 1.0]
 
+The timesteps are the sigmas on the training horizon, one per step. They are
+*not* what reaches the model — see [`conditioningtime`](@ref), which is where the
+units are undone again.
 """
-    flowtimesteps(sigmas) -> Vector{Float32}
-
-What the denoiser is conditioned on: the noise level scaled by the training
-horizon. One entry per step, so the trailing sigma has none.
-
-This is *not* what reaches the model — see [`conditioningtime`](@ref), which is
-where the units are undone again.
-"""
-flowtimesteps(sigmas::AbstractVector) = sigmas[1:(end - 1)] .* TRAIN_TIMESTEPS
+hunyuanschedule(steps::Integer) =
+    flowschedule(linspace(0.0, 1.0, steps), NoShift(); terminal = 1f0,
+                 trainsteps = TRAIN_TIMESTEPS)
 
 """
     conditioningtime(T, t) -> T
@@ -242,68 +238,6 @@ is an input to a 754-op forward, not a rounding at the end of one.
 conditioningtime(::Type{T}, t::Real) where {T} = T(t) / TRAIN_TIMESTEPS
 
 """
-    cfg(pred, scale) -> v
-
-Classifier-free guidance over the denoiser's batch-2 output. `pred` is
-`(64, 4096, 2)` with the conditional prediction in column 1, so this is
-`uncond + scale * (cond - uncond)`.
-
-Evaluated in the prediction's own dtype, which is fp16: upstream combines the two
-halves before the scheduler's `.to(torch.float32)`, and doing it wider here would
-be a different arithmetic to compare against.
-
-**Three broadcasts, not one, and that is the whole point of writing it this way.**
-Fused into a single expression, Lava keeps the product in fp32 and rounds once at
-the store, while PyTorch rounds to fp16 after each of the subtract, the multiply
-and the add. Lava's is the more accurate of the two — but it is not the one this
-port is reproducing, and the difference is real: measured over the denoiser's
-262144 outputs, 5110 of them land on a different fp16 value, and replaying
-upstream's own per-step predictions through a fused `cfg` drifts 1.5 ULP off the
-reference trajectory by step 50 instead of matching it bit for bit. Each
-statement below materialises a fp16 array, which is what forces the rounding.
-"""
-function cfg(pred::AbstractArray{T,3}, scale::Real) where {T}
-    c, u = view(pred, :, :, 1), view(pred, :, :, 2)
-    d = c .- u
-    d = T(scale) .* d
-    return u .+ d
-end
-
-"""
-    eulerstep(x, v, sigma, sigma_next) -> x'
-
-One Euler step of the flow ODE:
-
-    prev_sample = sample.to(float32) + (sigma_next - sigma) * model_output
-
-**The step size is taken in fp16, and that is not a rounding detail.** Reading
-that line as fp32 arithmetic is wrong in a way that changes the integration, not
-just the last bit. `sigma_next - sigma` is a 0-dimensional fp32 tensor and
-`model_output` is a dimensioned fp16 one, and PyTorch's promotion gives a
-dimensioned operand priority over a 0-dimensional one of the same category — so
-the *scalar* is narrowed to fp16 and the product is fp16. At 50 steps the
-difference is `Float16(1/49)` = 0.0204 against 0.020408163, a step size 0.04%
-short, taken every step. Only the sum with the sample is fp32, and the result
-narrows again on the way out.
-
-Getting this wrong is not visible in one step — it moves 3969 of 262144 elements
-by one fp16 ULP — and it does not announce itself later either; it just walks a
-slightly different trajectory. Dumping torch's own `(sigma_next - sigma) * v`
-and comparing dtypes is the only way this kind of thing gets found.
-
-`sigma`/`sigma_next` are fp32 because [`flowsigmas`](@ref) returns fp32; the
-narrowing below is from there, not from an fp64 schedule.
-"""
-eulerstep(x, v, sigma::Float32, sigma_next::Float32) =
-    eulerstep(Mantle.storage(x), Mantle.storage(v), sigma, sigma_next)
-
-function eulerstep(x::AbstractArray{T}, v::AbstractArray, sigma::Float32,
-                   sigma_next::Float32) where {T}
-    step = T(sigma_next - sigma) .* v
-    return T.(Float32.(x) .+ Float32.(step))
-end
-
-"""
     denoise(m, cond, latents; steps, guidance, progress) -> latents
 
 The sampling loop: `steps` evaluations of the denoiser at batch 2, guidance, and
@@ -317,8 +251,7 @@ when the caller has no reference to match.
 """
 function denoise(m::Hunyuan3D, cond, latents; steps::Integer = 50,
                  guidance::Real = 5.0, progress = nothing)
-    sigmas = flowsigmas(steps)
-    ts = flowtimesteps(sigmas)
+    (; sigmas, timesteps) = hunyuanschedule(steps)
     x = toback(m.backend, latents)
     T = eltype(x)
     # The batch-2 input the denoiser is exported for: the same latents twice, one
@@ -330,9 +263,11 @@ function denoise(m::Hunyuan3D, cond, latents; steps::Integer = 50,
         copyto!(view(xin, :, :, 2), x)
         # The model takes `t / num_train_timesteps`, i.e. a 0..1 scalar broadcast
         # over the batch — not the timestep itself.
-        fill!(tin, conditioningtime(T, ts[k]))
+        fill!(tin, conditioningtime(T, timesteps[k]))
         pred = only(call(m.dit, "hunyuan3d_dit", xin, tin, cond; dims = (;)))
-        x = eulerstep(x, cfg(reshape(pred, size(x, 1), size(x, 2), 2), guidance),
+        # Column 1 of the batch is the image-conditioned prediction, column 2 the null one.
+        p = reshape(pred, size(x, 1), size(x, 2), 2)
+        x = eulerstep(x, cfg(view(p, :, :, 1), view(p, :, :, 2), guidance),
                       sigmas[k], sigmas[k + 1])
         progress === nothing || progress(k, steps)
     end

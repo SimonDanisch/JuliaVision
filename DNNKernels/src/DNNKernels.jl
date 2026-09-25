@@ -186,6 +186,7 @@ include("kernels/batchnorm.jl")
 include("kernels/conv_igemm.jl")
 include("emit.jl")
 include("driver.jl")
+include("flowmatch.jl")
 include("wan.jl")
 # `sam2.jl` moved to SAM2Runner. It arrived here in `7273481` "Import LavaDNN as
 # DNNKernels" — the rename described half the package and moved nothing — and it

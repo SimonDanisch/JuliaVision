@@ -7,7 +7,7 @@ solved by stepping a schedule, with two model evaluations per step. That lives
 here, in plain Julia, because it is scheduler arithmetic over a handful of
 scalars and putting it in a graph would fix the step count at export time.
 
-    sigmas = flowsigmas(50; shift = 5.0)
+    (; sigmas, timesteps) = wanschedule(50)
     latents = generate(pipe, tokens; steps = 50, guidance = 5.0)
 
 Structure of one step, matching `wan/text2video.py`:
@@ -20,48 +20,19 @@ Structure of one step, matching `wan/text2video.py`:
 Euler rather than Wan's UniPC/DPM-Solver: it is the first-order member of the
 same family, needs no solver state, and is exact to compare against. A
 higher-order solver reaches the same place in fewer steps and is a drop-in
-replacement for `step` below.
+replacement for the shared [`eulerstep`](@ref).
 """
 
 """
-    flowsigmas(steps; shift = 5.0) -> Vector{Float64}
+    wanschedule(steps; shift = 5.0) -> (; sigmas, timesteps)
 
-Wan's `get_sampling_sigmas`: a uniform 1→0 ramp warped by `shift`, which biases
-the schedule toward high noise. The endpoint 0 is dropped, so `sigmas[1] == 1`
-and there are exactly `steps` entries.
+Wan's `get_sampling_sigmas`, `linspace(1, 0, steps + 1)[:steps]` under a static
+shift that biases the schedule toward high noise, through the shared
+[`flowschedule`](@ref). `sigmas` ends in 0, which lands the last step exactly on
+the data manifold.
 """
-function flowsigmas(steps::Integer; shift::Real = 5.0)
-    s = [1.0 - k / steps for k in 0:(steps - 1)]        # linspace(1,0,steps+1)[1:steps]
-    return [shift * σ / (1 + (shift - 1) * σ) for σ in s]
-end
-
-"""
-    flowtimesteps(sigmas; train_steps = 1000) -> Vector{Float64}
-
-The timestep each sigma corresponds to, which is what the model is conditioned
-on. Flow matching parameterises time as the noise level itself, scaled by the
-training horizon.
-"""
-flowtimesteps(sigmas; train_steps::Integer = 1000) = sigmas .* train_steps
-
-"""
-    eulerstep(x, v, sigma, sigma_next) -> x'
-
-One Euler step of the flow ODE. `v` is the model's velocity prediction; the
-sample moves along it by the change in noise level. `sigma_next` is 0 on the
-last step, which lands exactly on the data manifold.
-"""
-eulerstep(x, v, sigma::Real, sigma_next::Real) = x .+ eltype(x)(sigma_next - sigma) .* v
-
-"""
-    cfg(v_cond, v_uncond, scale) -> v
-
-Classifier-free guidance: extrapolate away from the unconditional prediction.
-`scale == 1` is the conditional model alone; larger follows the prompt harder at
-the cost of diversity.
-"""
-cfg(v_cond, v_uncond, scale::Real) =
-    v_uncond .+ eltype(v_cond)(scale) .* (v_cond .- v_uncond)
+wanschedule(steps::Integer; shift::Real = 5.0) =
+    flowschedule(linspace(1.0, 0.0, steps + 1)[1:steps], StaticShift(Float64(shift)))
 
 """
 Everything one generation needs: the three graphs, their weights, and the
@@ -295,8 +266,7 @@ loop be exercised without a text encoder attached.
 function generate(pipe::WanPipeline, latent; context, contextnull,
                   steps::Integer = 50, guidance::Real = 5.0, shift::Real = 5.0,
                   progress = nothing)
-    sigmas = flowsigmas(steps; shift = shift)
-    ts = flowtimesteps(sigmas)
+    (; sigmas, timesteps) = wanschedule(steps; shift)
     # `g.inputs` leads with the constants export lifted (`c_m_freqs`,
     # `c__grid_sizes`), so positional indexing picks the wrong ones — take the
     # real inputs by name.
@@ -315,10 +285,9 @@ function generate(pipe::WanPipeline, latent; context, contextnull,
         rungraph(pipe, "dit", pipe.dit, pipe.ditweights,
                  Dict{String,Any}(din[1] => xk, din[2] => t, din[3] => c)), xshape)
     for k in 1:steps
-        t = fill(eltype(x)(ts[k]), 1)
+        t = fill(eltype(x)(timesteps[k]), 1)
         v = cfg(dit(x, t, ctxpos), dit(x, t, ctxneg), guidance)
-        σnext = k == steps ? 0.0 : sigmas[k + 1]
-        x = eulerstep(x, v, sigmas[k], σnext)
+        x = eulerstep(x, v, sigmas[k], sigmas[k + 1])
         progress === nothing || progress(k, steps)
     end
 
