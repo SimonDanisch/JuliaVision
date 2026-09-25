@@ -213,7 +213,7 @@ def run(frames, warmup, out_path, max_size, clip="test-sample1"):
     trace.wrap_memory_ops()
     processor = InferenceCore(model, cfg=model.cfg)
 
-    vid = common.UPSTREAM / "inputs" / "video"
+    vid = common.upstream() / "inputs" / "video"
     src = vid / clip if (vid / clip).exists() else vid / f"{clip}.mp4"
     vframes, fps, length, name = common.read_frames(src)
     vframes = torch.cat([vframes[0].unsqueeze(0).repeat(warmup, 1, 1, 1), vframes], 0).float()
@@ -225,7 +225,7 @@ def run(frames, warmup, out_path, max_size, clip="test-sample1"):
             nh, nw = int(h / min(h, w) * max_size), int(w / min(h, w) * max_size)
             vframes = F.interpolate(vframes, size=(nh, nw), mode="area")
 
-    mask = np.array(Image.open(common.UPSTREAM / "inputs" / "mask" / f"{clip}.png").convert("L"))
+    mask = np.array(Image.open(common.upstream() / "inputs" / "mask" / f"{clip}.png").convert("L"))
     mask = gen_erosion(gen_dilate(mask, 10, 10), 10, 10)
     mask = torch.from_numpy(mask).float().to(device)
     if max_size > 0 and mask.shape[-2:] != vframes.shape[-2:]:

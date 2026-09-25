@@ -2,16 +2,18 @@
 
 Dev-only. Nothing here ships. See lava-dnn.md.
 
-MatAnyone2 is used straight from its checkout in dev/ rather than installed as a
-package: its declared dependencies pull in gradio, PySide6, pycocotools and a
-git-sourced thinplate, none of which the inference path imports. Putting the
-checkout on sys.path keeps the venv to what is actually needed and keeps a
-`uv sync` from ever fighting an out-of-tree install.
+MatAnyone2 is used straight from its source tree (the `matanyone-src` artifact)
+rather than installed as a package: its declared dependencies pull in gradio,
+PySide6, pycocotools and a git-sourced thinplate, none of which the inference
+path imports. Putting the tree on sys.path keeps the venv to what is actually
+needed and keeps a `uv sync` from ever fighting an out-of-tree install.
 """
 
 import os
 import sys
 from pathlib import Path
+
+from artifacts import artifact
 
 
 def find_root():
@@ -46,25 +48,25 @@ def find_root():
 
 
 ROOT = find_root()
-UPSTREAM = ROOT / "dev" / "MatAnyone2"
 GEN = ROOT / "gen"
-CKPT_URL = "https://github.com/pq-yang/MatAnyone2/releases/download/v1.0.0/matanyone2.pth"
-CKPT = UPSTREAM / "pretrained_models" / "matanyone2.pth"
+
+
+def upstream():
+    """The MatAnyone2 repository at its pinned commit."""
+    return artifact("matanyone-src")
 
 
 def bootstrap():
-    """Make `matanyone2` importable from the dev checkout."""
-    if str(UPSTREAM) not in sys.path:
-        sys.path.insert(0, str(UPSTREAM))
-    return UPSTREAM
+    """Make `matanyone2` importable from its source tree, and return the tree."""
+    src = upstream()
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    return src
 
 
 def checkpoint():
-    """Path to matanyone2.pth, downloading it on first use."""
-    bootstrap()
-    from matanyone2.utils.download_util import load_file_from_url
-
-    return Path(load_file_from_url(CKPT_URL, str(CKPT.parent)))
+    """Path to matanyone2.pth."""
+    return artifact("matanyone-ckpt") / "matanyone2.pth"
 
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png")

@@ -36,7 +36,7 @@ hand, because a hand-computed tree hash that happens to be wrong fails at
 `Pkg.instantiate` on someone else's machine and nowhere earlier.
 """
 
-using Pkg.Artifacts, Printf, SHA
+using Pkg.Artifacts, Printf, SHA, Downloads
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 # Where the packages live, which depends on how `tools/` was reached. Symlinked
@@ -332,38 +332,115 @@ end
 # is not a graph. When the export lands, re-pack the same artifact NAME from
 # `gen/graphs/<name>` via `MODELS` and the binding is replaced.
 #
-# artifact name => (package that binds it, the fetch directory under gen/)
+#
+# A checkpoint only the exporters, the reference dumps and the PyTorch benchmark
+# read is bound in `tools/Artifacts.toml` rather than in a runner package: the
+# runner never opens it, and `tools/artifacts.py` resolves it from Python. The
+# three bound to runners are the ones whose `assetdir()` still points at their
+# checkpoint because nothing has been exported yet.
+#
+# artifact name => (package that binds it, or "tools"; the fetch directory under gen/)
 const CHECKPOINTS = Dict(
     "propainter-ckpt"    => ("ProPainterRunner", "propainter"),
-    "kokoro-ckpt"        => ("KokoroRunner", "kokoro"),
-    "basicvsrpp-ckpt"    => ("BasicVSRRunner", "basicvsrpp"),
     "deepfilternet-ckpt" => ("DeepFilterRunner", "deepfilternet"),
     "demucs-ckpt"        => ("DemucsRunner", "demucs"),
+    "kokoro-ckpt"        => ("tools", "kokoro"),
+    "basicvsrpp-ckpt"    => ("tools", "basicvsrpp"),
+    "sam2-large-ckpt"    => ("tools", "sam2"),
+    "matanyone-ckpt"     => ("tools", "matanyone"),
+    "depthanything-ckpt" => ("tools", "depthanything"),
+    "rife-ckpt"          => ("tools", "rife"),
+)
+
+# Checkpoints whose useful content is not simply the files at the top of their
+# fetch directory. RIFE's is the `train_log/` its archive expands to: the weights
+# plus the 4.26 architecture that matches them, which `export_rife.py` imports as
+# the package `train_log`. The archive itself would only duplicate it, and the
+# `__pycache__` beside it is the importer's, not the checkpoint's.
+#
+# artifact name => paths relative to the fetch directory
+const CHECKPOINT_FILES = Dict(
+    "rife-ckpt" => ["train_log/flownet.pkl", "train_log/IFNet_HDv3.py",
+                    "train_log/RIFE_HDv3.py", "train_log/refine.py"],
 )
 
 """
-Pack the upstream checkpoints for `name`, whole directory.
+Pack the upstream checkpoints for `name`.
 
-Everything in `gen/<dir>` goes in, unlike [`pack`](@ref) — there is no
-run-it/verify-it split to make yet, and a `.pth` this table names is by
-definition a file the port needs. Anything genuinely developer-only in there
-(`basicvsrpp`'s `refs.safetensors` and `node_stats.json`) is small next to the
-checkpoints and not worth a second table to exclude.
+Every file at the top of `gen/<dir>` goes in unless [`CHECKPOINT_FILES`](@ref)
+names the set, unlike [`pack`](@ref) — there is no run-it/verify-it split to make
+yet, and a `.pth` this table names is by definition a file the port needs.
+Anything genuinely developer-only in there (`basicvsrpp`'s `refs.safetensors`
+and `node_stats.json`) is small next to the checkpoints and not worth a second
+table to exclude.
 """
 function packcheckpoints(name::AbstractString, tag::AbstractString)
     pkg, dirname_ = CHECKPOINTS[name]
     src = joinpath(ROOT, "gen", dirname_)
-    isdir(src) || error("no checkpoints at $src — fetch them with `uv run tools/fetch.py $dirname_`")
-    files = sort(filter(f -> isfile(joinpath(src, f)), readdir(src)))
+    isdir(src) || error("no checkpoints at $src — fetch them with `uv run tools/models.py fetch $dirname_`")
+    files = get(CHECKPOINT_FILES, name) do
+        sort(filter(f -> isfile(joinpath(src, f)), readdir(src)))
+    end
     isempty(files) && error("$src is empty")
+    for f in files
+        isfile(joinpath(src, f)) || error("$src is missing $f")
+    end
 
     hash = create_artifact() do dir
         for f in files
+            mkpath(dirname(joinpath(dir, f)))
             cp(joinpath(src, f), joinpath(dir, f))
         end
     end
 
     return finishartifact(name, pkg, hash, tag, String[])
+end
+
+# ── Upstream source, pinned by commit.
+#
+# The Python the exporters trace, the reference dumps run and the PyTorch
+# benchmark times. Each was a `git clone --depth 1` of whatever HEAD was that
+# day, so two machines could measure parity against different reference code
+# without knowing it. The commits here are the ones those clones had when this
+# table replaced them; bumping one is editing its hash and re-running this.
+#
+# The tarball comes from GitHub's archive of the commit and is re-hosted on our
+# release like every other artifact, rather than bound to GitHub's URL directly:
+# an artifact pins exact bytes, and GitHub has changed the compression of those
+# archives before.
+#
+# artifact name => (GitHub repository, commit)
+const SOURCES = Dict(
+    "sam2-src"          => ("facebookresearch/sam2", "2b90b9f5ceec907a1c18123530e92e794ad901a4"),
+    "matanyone-src"     => ("pq-yang/MatAnyone2", "0079197acd6d16a741f71558809c06c586c579e0"),
+    "depthanything-src" => ("DepthAnything/Depth-Anything-V2", "a561b849ebae10a6f5ef49e26c83cbbcd36c71bf"),
+    "rife-src"          => ("hzwer/Practical-RIFE", "bbfd2ea90910789a860ea3e2b32a240cd577b75e"),
+    # Qwen-Image 2.1's `transformer_qwenimage21` and `autoencoder_kl_qwenimage21`
+    # are not in any released Diffusers yet; `export_qwenimage21.py` and
+    # `parity_qwenimage_vae.py` import them from this tree's `src/`.
+    "diffusers-src"     => ("huggingface/diffusers", "8b3c707ebd3ec4881f4190cf42931da07eaf3b65"),
+)
+
+"""
+Pack the upstream repository for `name` at its pinned commit.
+
+GitHub wraps the tree in one `<repo>-<commit>/` directory; the artifact is its
+contents, so the artifact root is the repository root.
+"""
+function packsource(name::AbstractString, tag::AbstractString)
+    repo, commit = SOURCES[name]
+    tarball = Downloads.download("https://github.com/$repo/archive/$commit.tar.gz")
+    hash = mktempdir() do tmp
+        run(`tar -xzf $tarball -C $tmp`)
+        top = joinpath(tmp, only(readdir(tmp)))
+        create_artifact() do dir
+            for f in readdir(top)
+                mv(joinpath(top, f), joinpath(dir, f))
+            end
+        end
+    end
+    rm(tarball)
+    return finishartifact(name, "tools", hash, tag, ["$repo@$(commit[1:7])"])
 end
 
 """
@@ -550,11 +627,13 @@ end
 names = isempty(args) ? ["depthanything", "neurallut", "rife"] : args   # the ported ones
 for n in names
     haskey(MODELS, n) || haskey(REFS, n) || haskey(CHECKPOINTS, n) ||
-        haskey(FIXTURES, n) || haskey(SHARDS, n) || haskey(TREES, n) || error(
+        haskey(FIXTURES, n) || haskey(SHARDS, n) || haskey(TREES, n) ||
+        haskey(SOURCES, n) || error(
         "unknown target $n; known: " *
         join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)),
                        collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)),
-                       collect(keys(SHARDS)), collect(keys(TREES)))), ", "))
+                       collect(keys(SHARDS)), collect(keys(TREES)),
+                       collect(keys(SOURCES)))), ", "))
 end
 
 println("binding artifacts against release tag `$tag`\n")
@@ -562,6 +641,7 @@ made = [haskey(REFS, n) ? packrefs(n, tag) :
         haskey(FIXTURES, n) ? packfixtures(n, tag) :
         haskey(TREES, n) ? packtree(n, tag) :
         haskey(SHARDS, n) ? packshard(n, tag) :
+        haskey(SOURCES, n) ? packsource(n, tag) :
         haskey(CHECKPOINTS, n) ? packcheckpoints(n, tag) : pack(n, tag) for n in names]
 
 total = sum(m -> m.bytes, made)

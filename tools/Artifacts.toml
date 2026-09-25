@@ -1,0 +1,79 @@
+[depthanything-ckpt]
+git-tree-sha1 = "28dff23c752457039021a02e02dc470d198cd91c"
+lazy = true
+
+    [[depthanything-ckpt.download]]
+    sha256 = "3d276f6a77db4d97815429c9d9cc674da39c9814f6247409df9b63bfc0c9e9ef"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/depthanything-ckpt.tar.gz"
+
+[depthanything-src]
+git-tree-sha1 = "fe3555cc4d5c159f9f1b76e3cfa623c53728a224"
+lazy = true
+
+    [[depthanything-src.download]]
+    sha256 = "19452b04c4d81d0e2c7f3306ce4fb32bd954ee71a12429a68bd5d5c26929f0ea"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/depthanything-src.tar.gz"
+
+[diffusers-src]
+git-tree-sha1 = "36cf1649871b91219126cf3f158ce94b637150c9"
+lazy = true
+
+    [[diffusers-src.download]]
+    sha256 = "45883b304ca0f26b292c70fe1771782c52736b32543ed752ec009a23a2b513cc"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/diffusers-src.tar.gz"
+
+[kokoro-ckpt]
+git-tree-sha1 = "f94fb62387b01b4a903c40667e169c28407b1308"
+lazy = true
+
+    [[kokoro-ckpt.download]]
+    sha256 = "b123b6049f5df0aeb7e4f6295fb76ff6126c86fa284f942c39846633942f3193"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/kokoro-ckpt.tar.gz"
+
+[matanyone-ckpt]
+git-tree-sha1 = "a8d11ce0e7af115a2675742ce678f2033c1d9fb3"
+lazy = true
+
+    [[matanyone-ckpt.download]]
+    sha256 = "97fb195974145c481f2268a05237d059acaf1547dcc78ae26b90007fa1f81b99"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/matanyone-ckpt.tar.gz"
+
+[matanyone-src]
+git-tree-sha1 = "70e53dd947845f48a4f15a7ef397a08c21b8de02"
+lazy = true
+
+    [[matanyone-src.download]]
+    sha256 = "151c0691d9327ac5e930202cc47e6e70dbaa67519173ae23716502cbd948e64d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/matanyone-src.tar.gz"
+
+[rife-ckpt]
+git-tree-sha1 = "bc7b54833430ab9d0de462455ecd1ae994289964"
+lazy = true
+
+    [[rife-ckpt.download]]
+    sha256 = "e21c2093107d475fb633c13e01096e5b4ba176747fbc6f911ada819cf895b045"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/rife-ckpt.tar.gz"
+
+[rife-src]
+git-tree-sha1 = "4bf2513df3e0ef02afbc483dcd862786741d5ab9"
+lazy = true
+
+    [[rife-src.download]]
+    sha256 = "7f0e2f11e65dec582dbe5d5aa807743515a32a6eb3c52d8feea0012e0e11847e"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/rife-src.tar.gz"
+
+[sam2-large-ckpt]
+git-tree-sha1 = "9ad2c23451da9bb3c45f3ba4726e59a8f1e008dd"
+lazy = true
+
+    [[sam2-large-ckpt.download]]
+    sha256 = "d562ae0d19e6733ccf0141a61d1722c0d13cb7a17f8d7141ece250847444cd47"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/sam2-large-ckpt.tar.gz"
+
+[sam2-src]
+git-tree-sha1 = "64becbca23f880e0056449377496da248a74da43"
+lazy = true
+
+    [[sam2-src.download]]
+    sha256 = "a93bb7ec56ee27b4ce70a75bbf21ec831733659c315ea106cff65434af00cc0a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/sam2-src.tar.gz"

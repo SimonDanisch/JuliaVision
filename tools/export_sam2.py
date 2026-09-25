@@ -34,6 +34,7 @@ import torch
 from safetensors.torch import save_file
 from torch.export import export
 
+from artifacts import artifact
 from common import find_root  # tools/ is symlinked; see find_root
 ROOT = find_root()
 sys.path.insert(0, str(ROOT / "tools"))
@@ -42,9 +43,11 @@ import export_graphs as EG  # noqa: E402
 
 MAXPOINTS = 16
 
+# size => (checkpoint artifact, file in it, config inside the `sam2` package).
+# Only the large checkpoint is packed; `small` names the artifact it would be.
 CKPTS = {
-    "large": ("sam2.1_hiera_large.pt", "configs/sam2.1/sam2.1_hiera_l.yaml"),
-    "small": ("sam2.1_hiera_small.pt", "configs/sam2.1/sam2.1_hiera_s.yaml"),
+    "large": ("sam2-large-ckpt", "sam2.1_hiera_large.pt", "configs/sam2.1/sam2.1_hiera_l.yaml"),
+    "small": ("sam2-small-ckpt", "sam2.1_hiera_small.pt", "configs/sam2.1/sam2.1_hiera_s.yaml"),
 }
 
 
@@ -127,23 +130,22 @@ def device():
 
 
 def build(size, dev=None):
-    # `sam2` is used straight from its checkout in `dev/`, like MatAnyone2 (see
-    # `common.bootstrap`) — vendored, not installed, so the venv stays what the
-    # exporter actually needs. Putting it on the path HERE rather than at import
-    # time keeps the module importable on a machine without the checkout.
+    # `sam2` is used straight from its source tree (the `sam2-src` artifact), like
+    # MatAnyone2 (see `common.bootstrap`) — not installed, so the venv stays what
+    # the exporter actually needs. Putting it on the path HERE rather than at
+    # import time means importing this module fetches nothing.
     #
     # It was missing entirely, which nothing noticed: the exporter is normally
     # run from a shell that already had it, and the only other caller,
     # `tools/sam2_pytorch_baseline.py`, is the PyTorch half of a comparison
     # nobody had re-run on this machine. It failed with `ModuleNotFoundError`.
-    upstream = str(ROOT / "dev" / "sam2")
+    upstream = str(artifact("sam2-src"))
     if upstream not in sys.path:
         sys.path.insert(0, upstream)
     from sam2.build_sam import build_sam2
 
-    ckpt, cfg = CKPTS[size]
-    model = build_sam2(cfg, str(ROOT / "dev" / "sam2" / "checkpoints" / ckpt),
-                       device=dev or device())
+    ckptartifact, ckpt, cfg = CKPTS[size]
+    model = build_sam2(cfg, str(artifact(ckptartifact) / ckpt), device=dev or device())
     return model.eval()
 
 

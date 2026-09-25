@@ -32,11 +32,11 @@ imported from upstream rather than reproduced here: the normalisation it applies
 (`flow_x / ((W-1)/2)`) is easy to write down slightly wrong and impossible to
 notice afterwards, since a half-pixel error looks like a marginally softer frame.
 
-**Two checkouts, for one file.** `gen/rife/train_log` carries the architecture
-next to the weights, but `IFNet_HDv3.py` still does `from model.warplayer import
-warp`, so upstream has to be on the path as well. `models-to-port.md` says this
-model "needs no separate upstream checkout"; that is not quite true, and the
-clone is two files' worth of MIT code.
+**Two artifacts, for one file.** `rife-ckpt`'s `train_log/` carries the
+architecture next to the weights, but `IFNet_HDv3.py` still does `from
+model.warplayer import warp`, so the upstream repository (`rife-src`) has to be on
+the path as well. `models-to-port.md` says this model "needs no separate upstream
+checkout"; that is not quite true, and it is two files' worth of MIT code.
 """
 
 import argparse
@@ -50,11 +50,10 @@ from safetensors.torch import save_file
 
 import export_graphs as EG
 
+from artifacts import artifact
 from common import find_root  # tools/ is symlinked; see find_root
 ROOT = find_root()
 GEN = ROOT / "gen"
-WEIGHTS = GEN / "rife"                       # train_log/ lives here
-CHECKOUT = ROOT / "dev" / "Practical-RIFE"   # for model/warplayer.py
 
 # `inference`'s own list at scale=1.0. The loop in `IFNet.forward` runs five
 # blocks and indexes this per block, so it has five entries, not four — the
@@ -88,28 +87,21 @@ class Interp(nn.Module):
 
 
 def load_flownet():
-    """`IFNet` with `flownet.pkl` loaded, from the weights dir plus the checkout."""
-    if not (WEIGHTS / "train_log" / "flownet.pkl").is_file():
-        raise SystemExit(f"no train_log/flownet.pkl under {WEIGHTS} — "
-                         "`uv run tools/models.py fetch rife`")
-    if not (CHECKOUT / "model" / "warplayer.py").is_file():
-        raise SystemExit(
-            f"no checkout at {CHECKOUT}\n"
-            "  git clone --depth 1 https://github.com/hzwer/Practical-RIFE dev/Practical-RIFE\n"
-            "The weights archive carries IFNet_HDv3.py but not the `model.warplayer` "
-            "it imports.")
+    """`IFNet` with `flownet.pkl` loaded, from the weights plus the upstream source."""
+    weights = artifact("rife-ckpt")    # train_log/
+    source = artifact("rife-src")      # model/warplayer.py
 
     # `train_log.IFNet_HDv3` and `model.warplayer` are both plain top-level
-    # imports, so both roots go on the path. The weights dir first: it is the one
-    # carrying the 4.26 architecture, and the checkout has its own older
-    # `train_log` that must not win.
-    sys.path.insert(0, str(CHECKOUT))
-    sys.path.insert(0, str(WEIGHTS))
+    # imports, so both roots go on the path. The weights first: they carry the
+    # 4.26 architecture, and the repository has its own older `train_log` that
+    # must not win.
+    sys.path.insert(0, str(source))
+    sys.path.insert(0, str(weights))
 
     from train_log.IFNet_HDv3 import IFNet   # noqa: E402  (needs sys.path first)
 
     net = IFNet()
-    raw = torch.load(WEIGHTS / "train_log" / "flownet.pkl",
+    raw = torch.load(weights / "train_log" / "flownet.pkl",
                      map_location="cpu", weights_only=True)
     # Trained under DDP, so every key is prefixed. `strict=False` because the
     # checkpoint also carries `teacher` and `caltime`, which `IFNet.__init__`

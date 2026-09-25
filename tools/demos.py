@@ -28,6 +28,7 @@ import sys
 import time
 from pathlib import Path
 
+from artifacts import artifact
 from common import find_root  # tools/ is symlinked; see find_root
 ROOT = find_root()
 GEN = ROOT / "gen"
@@ -336,21 +337,16 @@ def rife_demo():
     import numpy as np
     import torch
 
-    train_log = GEN / "rife" / "train_log"
-    if not (train_log / "flownet.pkl").exists():
-        sys.exit("no RIFE weights — uv run tools/models.py fetch rife")
+    weights = artifact("rife-ckpt")
+    train_log = weights / "train_log"
     # `train_log/RIFE_HDv3.py` ships inside the weights archive but imports
     # `model.warplayer` from the repo layout, so both paths are needed: the
-    # checkout for the shared modules, the archive for the architecture that
+    # repository for the shared modules, the archive for the architecture that
     # matches these particular weights.
-    repo = ROOT / "dev" / "Practical-RIFE"
-    if not repo.exists():
-        sys.exit(f"no RIFE checkout at {repo} — "
-                 "git clone --depth 1 https://github.com/hzwer/Practical-RIFE.git")
     # It also does `from train_log.IFNet_HDv3 import *`, so `train_log` has to be
     # importable as a package — meaning its *parent* on the path, not itself.
-    sys.path.insert(0, str(repo))
-    sys.path.insert(0, str(GEN / "rife"))
+    sys.path.insert(0, str(artifact("rife-src")))
+    sys.path.insert(0, str(weights))
     from train_log.RIFE_HDv3 import Model
 
     d = outdir("rife")

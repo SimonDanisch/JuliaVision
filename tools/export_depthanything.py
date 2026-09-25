@@ -45,11 +45,10 @@ from safetensors.torch import save_file
 
 import export_graphs as EG
 
+from artifacts import artifact
 from common import find_root  # tools/ is symlinked; see find_root
 ROOT = find_root()
 GEN = ROOT / "gen"
-WEIGHTS = GEN / "depthanything"
-CHECKOUT = ROOT / "dev" / "Depth-Anything-V2"
 
 PATCH = 14   # DINOv2's patch size; every input side must be a multiple of it
 
@@ -82,16 +81,8 @@ class Depth(nn.Module):
 
 
 def load_model():
-    if not CHECKOUT.is_dir():
-        raise SystemExit(
-            f"no checkout at {CHECKOUT}\n"
-            "  git clone https://github.com/DepthAnything/Depth-Anything-V2 "
-            "dev/Depth-Anything-V2")
-    ckpt = WEIGHTS / "depth_anything_v2_vits.pth"
-    if not ckpt.is_file():
-        raise SystemExit(f"no {ckpt} — `uv run tools/models.py fetch depthanything`")
-
-    sys.path.insert(0, str(CHECKOUT))
+    ckpt = artifact("depthanything-ckpt") / "depth_anything_v2_vits.pth"
+    sys.path.insert(0, str(artifact("depthanything-src")))
     from depth_anything_v2.dpt import DepthAnythingV2   # noqa: E402
 
     net = DepthAnythingV2(**CONFIG)

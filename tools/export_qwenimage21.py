@@ -7,17 +7,16 @@ static wrapper also removes Python/data-dependent mask construction from the
 Diffusers forward; the resulting graph contains the model arithmetic rather
 than host-side preparation that ``torch.export`` cannot represent.
 
-Current Diffusers releases may not yet contain ``QwenImage21Transformer2DModel``.
-Point ``--diffusers-source`` at a current Diffusers checkout in that case:
+Current Diffusers releases may not yet contain ``QwenImage21Transformer2DModel``,
+so the modules are imported from the pinned ``diffusers-src`` artifact unless
+``--diffusers-source`` names another Diffusers ``src/`` tree:
 
-    .venv/bin/python tools/export_qwenimage21.py --smoke \
-        --diffusers-source /path/to/diffusers/src
+    .venv/bin/python tools/export_qwenimage21.py --smoke
 
 The smoke configuration is a one-block, small-width numerical/export test.  A
 real export downloads the official BF16 transformer (about 14 GB):
 
-    .venv/bin/python tools/export_qwenimage21.py \
-        --diffusers-source /path/to/diffusers/src --height 1024 --width 1024
+    .venv/bin/python tools/export_qwenimage21.py --height 1024 --width 1024
 
 The Comfy-Org INT8+ConvRot file is not accepted here: it is not an ordinary
 Diffusers state dict and must retain its quantization metadata through a native
@@ -34,6 +33,7 @@ from safetensors.torch import save_file
 from torch.export import Dim
 
 import export_graphs as EG
+from artifacts import artifact
 from common import find_root
 
 
@@ -671,9 +671,11 @@ def main():
     parser.add_argument("--smoke", action="store_true", help="small random one-block export; downloads no weights")
     parser.add_argument("--graph-only", action="store_true", help="export from a meta model without downloading BF16 weights")
     parser.add_argument("--config-dir", type=Path, default=Path("/home/sim/.cache/JuliaVision/Qwen-Image-2.1-config"))
-    parser.add_argument("--diffusers-source", type=Path, default=None, help="path to a Diffusers src/ checkout")
+    parser.add_argument("--diffusers-source", type=Path, default=None,
+                        help="a Diffusers src/ tree; defaults to the pinned diffusers-src artifact")
     args = parser.parse_args()
-    transformer_module, vae_module = import_qwen21(args.diffusers_source)
+    transformer_module, vae_module = import_qwen21(
+        args.diffusers_source or artifact("diffusers-src") / "src")
     if args.component in ("transformer", "all"):
         export_transformer(transformer_module, args)
     if args.component in ("vae", "all"):

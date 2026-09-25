@@ -16,11 +16,6 @@ gen
 # --track-allocation=user output; never source
 *.mem
 
-# Upstream clones under dev/ are their own repositories, not submodules of
-# this one: `git add -A` turns them into gitlinks that a fresh clone cannot
-# resolve. They are checked out per machine by the porting tools.
-dev/sam2
-
 # Scratch scripts for a bring-up session: setup snippets re-run by hand,
 # not part of the package or its tests.
 tmp/

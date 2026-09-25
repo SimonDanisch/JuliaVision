@@ -122,19 +122,7 @@ def compiled(mod):
 
 
 def setup_sam2(dev):
-    # The `sam2` package is used straight from its checkout rather than
-    # installed, exactly as `common.bootstrap` does for matanyone2: its declared
-    # dependencies pull in far more than the inference path imports. Without
-    # this, Hydra fails to locate `sam2.modeling.backbones.hieradet.Hiera` and
-    # reports it as a config error rather than a missing import.
-    from common import find_root
-
-    checkout = find_root() / "dev" / "sam2"
-    if not checkout.is_dir():
-        raise Unsupported(f"no sam2 checkout at {checkout}")
-    if str(checkout) not in sys.path:
-        sys.path.insert(0, str(checkout))
-
+    # `ES.build` puts the `sam2-src` artifact on the path itself.
     import export_graphs as EG
     import export_sam2 as ES
 

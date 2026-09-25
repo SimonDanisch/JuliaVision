@@ -6,14 +6,6 @@ lazy = true
     sha256 = "fe2333483e6405b74aabaa8ae8d2767b8b630acfb6dbd9e57be9ba8e0ff3848e"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/kokoro.tar.gz"
 
-[kokoro-ckpt]
-git-tree-sha1 = "f94fb62387b01b4a903c40667e169c28407b1308"
-lazy = true
-
-    [[kokoro-ckpt.download]]
-    sha256 = "b123b6049f5df0aeb7e4f6295fb76ff6126c86fa284f942c39846633942f3193"
-    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/kokoro-ckpt.tar.gz"
-
 [kokoro-refs]
 git-tree-sha1 = "fe412eddc54a4c28a29bf7bf9fdb11821db24fdc"
 lazy = true

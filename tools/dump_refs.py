@@ -71,7 +71,7 @@ def capture(max_size, frames, warmup, precision="autocast"):
 
         setattr(model, name, make(name, bound))
 
-    src = common.UPSTREAM / "inputs" / "video" / "test-sample1"
+    src = common.upstream() / "inputs" / "video" / "test-sample1"
     vframes, _, length, _ = common.read_frames(src)
     vframes = torch.cat([vframes[0].unsqueeze(0).repeat(warmup, 1, 1, 1), vframes], 0).float()
     h, w = vframes.shape[-2:]
@@ -79,7 +79,7 @@ def capture(max_size, frames, warmup, precision="autocast"):
         nh, nw = int(h / min(h, w) * max_size), int(w / min(h, w) * max_size)
         vframes = F.interpolate(vframes, size=(nh, nw), mode="area")
 
-    mask = np.array(Image.open(common.UPSTREAM / "inputs" / "mask" / "test-sample1.png").convert("L"))
+    mask = np.array(Image.open(common.upstream() / "inputs" / "mask" / "test-sample1.png").convert("L"))
     mask = gen_erosion(gen_dilate(mask, 10, 10), 10, 10)
     mask = torch.from_numpy(mask).float().to(device)
     if mask.shape[-2:] != vframes.shape[-2:]:

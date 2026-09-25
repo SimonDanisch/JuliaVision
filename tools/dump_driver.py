@@ -34,14 +34,14 @@ def run(out_path, max_size, steps, warmup, precision):
     model, device = common.load_model()
     processor = InferenceCore(model, cfg=model.cfg)
 
-    src = common.UPSTREAM / "inputs" / "video" / "test-sample1"
+    src = common.upstream() / "inputs" / "video" / "test-sample1"
     vframes, _, length, _ = common.read_frames(src)
     h, w = vframes.shape[-2:]
     if min(h, w) > max_size:
         nh, nw = int(h / min(h, w) * max_size), int(w / min(h, w) * max_size)
         vframes = F.interpolate(vframes, size=(nh, nw), mode="area")
 
-    mask = np.array(Image.open(common.UPSTREAM / "inputs" / "mask" / "test-sample1.png").convert("L"))
+    mask = np.array(Image.open(common.upstream() / "inputs" / "mask" / "test-sample1.png").convert("L"))
     mask = gen_erosion(gen_dilate(mask, 10, 10), 10, 10)
     mask = torch.from_numpy(mask).float().to(device)
     if mask.shape[-2:] != vframes.shape[-2:]:

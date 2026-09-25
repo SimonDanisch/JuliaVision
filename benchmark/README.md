@@ -139,13 +139,12 @@ That is the suite working. Every torch cell that is empty has a line under the
 table saying why, and on this machine as of 2026-09-22 all seven do. They are
 two different problems and only one of them is about Python packages.
 
-**Missing upstream checkouts and weights.** `depthanything`, `neurallut`,
-`matanyone-step` and `rife` need `dev/Depth-Anything`,
-`dev/Image-Adaptive-3DLUT`, `dev/matanyone2` and RIFE's `flownet.pkl`
-respectively, none of which are on this box. `sam2-encode` has its checkout but
-the `sam2` package is not importable from the benchmark interpreter. These are
-`git clone` and weight downloads; `tools/models.py fetch` covers some of them and
-`plans/models-to-port.md` records the one it does not.
+**Missing upstream source and weights.** `sam2-encode`, `depthanything`,
+`matanyone-step` and `rife` read their upstream repository and checkpoint from
+the `<name>-src` and `<name>-ckpt` artifacts in `tools/Artifacts.toml`, fetched
+into the Julia depot on first use (`tools/artifacts.py`), so nothing is cloned by
+hand. `neurallut` still expects an `Image-Adaptive-3DLUT` checkout under the
+workspace's `dev/`; it has not been moved to an artifact yet.
 
 **Compiled extensions cannot be layered.** `whisper-encode` and `kokoro-speak`
 fail with `Could not import module 'WhisperForConditionalGeneration'`, which is

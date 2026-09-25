@@ -12,7 +12,6 @@ other.
 """
 
 import os, sys
-from pathlib import Path
 import numpy as np, torch
 
 # After `import torch`, exactly as benchmark/torch_models.py does it: the ROCm
@@ -23,6 +22,7 @@ for _p in filter(None, os.environ.get("JULIAVISION_TORCH_EXTRA_SITE", "").split(
         sys.path.append(_p)
 
 sys.path.insert(0, "tools")
+from artifacts import artifact
 from export_qwenimage21 import import_qwen21, NormalizedVAEDecoder
 
 lw = lh = 16
@@ -31,7 +31,7 @@ lw = lh = 16
 lat = np.fromfile("tmp/parity_latents.bin", dtype=np.float32).reshape(1, 64, 1, lh, lw)
 ours = np.fromfile("tmp/parity_ours.bin", dtype=np.float32).reshape(1, 4, 1, 256, 256)[:, :, 0]
 
-_transformer_module, module = import_qwen21(Path("dev/diffusers/src"))
+_transformer_module, module = import_qwen21(artifact("diffusers-src") / "src")
 vae = module.AutoencoderKLQwenImage21.from_pretrained(
     "Qwen/Qwen-Image-2.1", subfolder="vae", torch_dtype=torch.bfloat16,
     low_cpu_mem_usage=True).eval()
