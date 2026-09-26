@@ -213,17 +213,25 @@ function texturize(objpath::AbstractString, rgbapath::AbstractString;
     pts = [Point3f(P[1,k], P[3,k], P[2,k]) for k in axes(P, 2)]
     tri = [TriangleFace{Int}(a, b, c) for (a, b, c) in faces]
     (GeometryBasics.normal_mesh(pts, tri),
-     [RGBf(col[1,k], col[2,k], col[3,k]) for k in axes(col, 2)])
+     [RGB{Float32}(col[1,k], col[2,k], col[3,k]) for k in axes(col, 2)])
 end
 
 """One render of a coloured mesh. `eye` is in Makie's frame, so y is the depth
 axis and z is up."""
 function render(mesh, colours, path; eye = (0.05, -1.6, 0.15), size = (900, 900))
+    # GLMakie is loaded here rather than at the top so `texturize` alone does not
+    # pay for it. Its methods are then newer than this call, so the drawing has to
+    # run in the latest world; calling it directly works only when GLMakie was
+    # already loaded before this function ran.
     Makie = Base.require(Base.PkgId(Base.UUID("e9467ef8-e4e7-5192-8a1a-b1aee30e663a"), "GLMakie"))
+    return Base.invokelatest(drawmesh, Makie, mesh, colours, path, eye, size)
+end
+
+function drawmesh(Makie, mesh, colours, path, eye, size)
     f = Makie.Figure(; size, backgroundcolor = :white)
     l = Makie.LScene(f[1, 1]; show_axis = false,
-        scenekw = (lights = [Makie.AmbientLight(RGBf(0.55, 0.55, 0.58)),
-                             Makie.DirectionalLight(RGBf(0.75, 0.75, 0.75),
+        scenekw = (lights = [Makie.AmbientLight(Makie.RGBf(0.55, 0.55, 0.58)),
+                             Makie.DirectionalLight(Makie.RGBf(0.75, 0.75, 0.75),
                                                     Makie.Vec3f(0.4, 0.9, -0.7))],))
     Makie.mesh!(l, mesh; color = colours, shading = true)
     Makie.update_cam!(l.scene, Makie.cameracontrols(l.scene),
