@@ -7,6 +7,14 @@ implemented here independently of the execution backend. Exported component
 graphs are loaded through DNNKernels and can therefore run through any Mantle
 backend that implements the required kernels.
 
+**Transparent backgrounds are native.** The decoder returns RGBA and its fourth
+channel is a real soft alpha matte: ask for "a transparent background" in the
+prompt and the model does the cut-out. [`decode!`](@ref) and [`generate!`](@ref)
+return `(width, height, 4, batch)` in [-1, 1], and `x / 2 + 0.5` maps all four
+channels, alpha included, to [0, 1]. The VAE ships in fp32 for this: at fp16 its
+intermediates overflowed and the transparent area decoded to NaN. See the
+README's "Transparent backgrounds" and `test/test_transparency.jl`.
+
 The Comfy-Org compact checkpoints are not plain integer matrices. The denoiser
 uses tensor-wise INT8 with ConvRot and the smallest encoder uses asymmetric
 W4A8 with codebooks, per-group FP8 scales, per-channel scales, and ConvRot.
@@ -81,7 +89,7 @@ const COMPONENT_FILES = Dict(
 Which artifacts each component needs, for [`ready`](@ref).
 
 The pipeline is thirteen artifacts rather than one tree, for the reason
-Hunyuan3D is four: the parts are 22 MB, 644 MB, 6.8 GB and 5.9 GB, and a caller
+Hunyuan3D is four: the parts are 22 MB, 1.35 GB, 6.8 GB and 5.9 GB, and a caller
 that only wants prompt embeddings has no reason to fetch the denoiser. The two
 large checkpoints are also past what a single release asset can hold, so they
 arrive as shards regardless of how they are grouped here.
@@ -119,6 +127,10 @@ could not run anywhere else.
 assetdir() = @artifact_str("qwenimage21")
 vaedir() = @artifact_str("qwenimage21-vae")
 processordir() = joinpath(assetdir(), "processor")
+# Test fixtures only: `transparent.safetensors`, latents from a "transparent
+# background" prompt and diffusers' fp32 alpha for them. A caller generating
+# images never downloads this.
+refsdir() = @artifact_str("qwenimage21-refs")
 
 function _component(component::Symbol)
     haskey(COMPONENT_FILES, component) || throw(ArgumentError(
@@ -579,8 +591,13 @@ vaedims(latents) = (; h = size(latents, 2), w = size(latents, 1))
     decode!(model, latents)
 
 Decode normalized latents in Julia order `(width, height, 1, channels, batch)`
-to an image `(width*16, height*16, 4, batch)` — the decoder's fourth channel is
-alpha — on the same backend.
+to an **RGBA** image `(width*16, height*16, 4, batch)` in [-1, 1], on the same
+backend. The fourth channel is a real alpha matte: a prompt asking for a
+transparent background comes back with the background at -1. Keep it; the colour
+under a transparent pixel is arbitrary.
+
+`latents` may be any element type; they are converted to the graph's
+[`latenttype`](@ref), which is Float32.
 
 The output is rank 4 and the input rank 5, which is not a typo: the graph's
 declared output is `select`, torch `[1, 4, "16*h", "16*w"]`, and `select` is what
@@ -596,8 +613,27 @@ indexed `[:, :, 1, 1:3, 1]`.
 # One method. `call` plans for this grid on the first decode of it, keeps the
 # plan on the `Model`, and replays after — so the grid does not have to be known
 # when the decoder is built, and there is no unplanned path to fall down.
-decode!(model::QwenVAEDecoder, latents) =
-    first(DNNKernels.call(model.model, VAEGRAPH, latents; dims = vaedims(latents)))
+#
+# The latents are converted to the element type the graph declares for its input
+# (Float32) here, once, rather than by every caller: the denoiser hands over fp16,
+# and the decoder has to run with fp32's range to keep the alpha channel. See
+# `latenttype`.
+function decode!(model::QwenVAEDecoder, latents)
+    T = latenttype(model)
+    x = Mantle.storage(latents)
+    x = eltype(x) === T ? x : T.(x)
+    first(DNNKernels.call(model.model, VAEGRAPH, x; dims = vaedims(latents)))
+end
+
+"""
+    latenttype(vae) -> DataType
+
+The element type the decoder graph takes its latents in, read off the graph.
+Float32 since 2026-09-26: at fp16 the decoder's intermediates overflowed 65504
+and a transparent background decoded to NaN.
+"""
+latenttype(model::QwenVAEDecoder) =
+    (g = model.model.graphs[VAEGRAPH]; g.buffers[only(g.inputs)].dtype)
 
 """
     image_sequence_length(width, height) -> Int
@@ -729,6 +765,10 @@ end
 Run the diffusion loop from caller-supplied noise and precomputed Qwen3-VL
 prompt embeddings, then decode the result. `latents` is updated in place and
 has shape `(64, image_sequence_length(width,height), batch)`.
+
+Returns the **RGBA** image [`decode!`](@ref) returns: `(width, height, 4, batch)`
+in [-1, 1], with a real alpha matte in the fourth channel. Ask for a transparent
+background in the prompt to get one.
 
 Prompt encoding is intentionally outside this method: the compact Comfy-Org
 encoder is asymmetric W4A8+ConvRot and cannot be represented by the existing

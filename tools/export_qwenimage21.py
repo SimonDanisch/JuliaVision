@@ -536,46 +536,43 @@ def build_vae(module, args):
         ).eval()
         latent_height = latent_width = 2
     else:
+        # The VAE checkpoint is stored in fp32 (all 238 tensors). Loading it as
+        # bf16, as this did, rounded every weight before the export ever saw it.
         vae = module.AutoencoderKLQwenImage21.from_pretrained(
             args.model,
             subfolder="vae",
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch.float32,
             low_cpu_mem_usage=True,
         ).eval()
         if args.height % 16 or args.width % 16:
             raise SystemExit("--height and --width must be divisible by the VAE stride, 16")
         latent_height, latent_width = args.height // 16, args.width // 16
-    # The reference runs in the checkpoint's own BF16 and the graph is exported
-    # in Float16: Mantle's cooperative-matrix path is fp16 and DNNKernels has no
-    # bfloat16 buffer, but torch has no fp16 CPU convolution either — a 1024²
-    # decode in fp16 on the host does not finish in twenty minutes, while the
-    # same decode in bf16 takes seconds.
+    # The reference and the graph are both **Float32**, the checkpoint's own
+    # precision, because that is what carries the model's transparent
+    # backgrounds. The decoder has four output channels and the fourth is a real
+    # soft matte, which is one of the main reasons to use this model at all.
     #
-    # "Same weights, one rounding apart" is what this comment used to say next,
-    # and it is WRONG. bf16 and fp16 are not one rounding apart: they differ by
-    # eight bits of EXPONENT, so bf16 carries fp32's range and fp16 saturates at
-    # 65504. Measured 2026-09-23 on a "transparent background" prompt at 1024²:
-    # the decode is 60.5% NaN, and the NaN is exactly the background — the object
-    # in the middle survives. Scaling the same latents by 0.75 makes it 0% NaN,
-    # which is the signature of an overflow rather than a logic fault. A prompt
-    # that asks for an opaque background decodes clean, which is why this went
-    # unnoticed: the alpha channel is then 1.0 everywhere and nobody looked.
-    #
-    # So the fp16 cast below costs this port the model's transparent-background
-    # output, which is a real capability of the checkpoint (the decoder has four
-    # channels and the fourth is a genuine soft matte). Exporting the VAE at
-    # fp32 is the fix — its weights are 0.3 GB and the decode is 2.5 s, so
-    # neither the artifact nor the runtime is the reason this is fp16.
+    # It was Float16 until 2026-09-26, on the reasoning that fp16 and bf16 are
+    # "the same weights, one rounding apart". They are not: they differ by eight
+    # bits of EXPONENT. bf16 carries fp32's range and fp16 saturates at 65504, and
+    # this decoder's intermediates leave that range: 81% NaN on the `randn`
+    # latents the reference below uses, and 60.5% NaN on a "transparent
+    # background" prompt measured 2026-09-23, with the NaN exactly the background
+    # and the object in the middle intact. Whether a given image survived was
+    # luck of the latents; opaque backgrounds happen to stay in range, which is
+    # why nobody saw it. DNNKernels has no bf16 buffer, so fp32 is the type with
+    # the range. It doubles the weights, 338M parameters: 675 MB in fp16, 1.35 GB
+    # in fp32, still inside a GitHub release asset.
     reference = None
     if not args.no_reference:
         with torch.no_grad():
             example = torch.randn(1, vae.config.z_dim, 1, latent_height, latent_width,
                                   dtype=next(vae.parameters()).dtype)
             reference = NormalizedVAEDecoder(vae).eval()(example).float()
-    vae = vae.to(torch.float16)
+    vae = vae.to(torch.float32)
     wrapper = NormalizedVAEDecoder(vae).eval()
     example = torch.randn(1, vae.config.z_dim, 1, latent_height, latent_width,
-                          dtype=torch.float16) if reference is None else example.half()
+                          dtype=torch.float32) if reference is None else example.float()
     return wrapper, example, (latent_height, latent_width), reference
 
 

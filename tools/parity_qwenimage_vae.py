@@ -32,11 +32,12 @@ lat = np.fromfile("tmp/parity_latents.bin", dtype=np.float32).reshape(1, 64, 1, 
 ours = np.fromfile("tmp/parity_ours.bin", dtype=np.float32).reshape(1, 4, 1, 256, 256)[:, :, 0]
 
 _transformer_module, module = import_qwen21(artifact("diffusers-src") / "src")
+# fp32: the checkpoint's own dtype, and what the exported graph now runs in.
 vae = module.AutoencoderKLQwenImage21.from_pretrained(
-    "Qwen/Qwen-Image-2.1", subfolder="vae", torch_dtype=torch.bfloat16,
+    "Qwen/Qwen-Image-2.1", subfolder="vae", torch_dtype=torch.float32,
     low_cpu_mem_usage=True).eval()
 with torch.no_grad():
-    ref = NormalizedVAEDecoder(vae).eval()(torch.from_numpy(lat).to(torch.bfloat16)).float().numpy()
+    ref = NormalizedVAEDecoder(vae).eval()(torch.from_numpy(lat)).float().numpy()
 
 d = np.abs(ours - ref)
 sc = float(np.abs(ref).max())

@@ -8,27 +8,19 @@
 # `gap_vs_rocm.jl`/`.py`: they need different runtimes, and the INPUT is stated
 # once — here — so both sides decode the identical latents.
 #
-# ## Why not the exporter's own reference
+# ## Latents the model actually produces
 #
-# `export_qwenimage21.py --component vae` writes `vae_reference.safetensors`
-# from a `torch.randn` latent, and that reference cannot be reproduced in fp16 by
-# anyone: the decoder's intermediates leave float16's 65504 range and 81% of the
-# output comes back NaN. It is not a regression and not this tree's fault — the
-# SHIPPED pre-symbolic decoder returns NaN on the same input, and PyTorch only
-# escapes it because bfloat16 carries float32's exponent. A reference built from
-# data the model never emits tests the wrong thing.
+# The latents come out of twenty real denoise steps rather than from the
+# exporter's `vae_reference.safetensors`, whose `randn` latents are far outside
+# anything the denoiser emits. Until 2026-09-26 that reference could not be
+# reproduced at all: the VAE was exported in fp16, its intermediates left fp16's
+# 65504 range and 81% of the output came back NaN — the same failure that turned
+# a transparent background into NaN. The VAE ships in fp32 now and matches that
+# reference too (mean |diff| 1.1e-6), but real latents remain the fairer test.
 #
-# So the latents here come out of twenty real denoise steps. Measured
-# 2026-09-22, a 16x16 latent decoded to 256x256, ours fp16 on an 8060S against
-# PyTorch bfloat16 on the host:
-#
-#     correlation   0.9999861
-#     mean |diff|   0.00215     on a [-1, 1] output
-#     RMS           0.00357
-#     max |diff|    0.10352     isolated pixels, no structure
-#
-# The companion script renders ours, PyTorch and a 20x difference side by side;
-# the difference is high-frequency speckle on the apple's skin and nothing else.
+# Measured 2026-09-26 at 1024², the fp32 decoder against diffusers at fp32 on the
+# latents of a transparent-background prompt: mean |alpha diff| 1.4e-6, max
+# 8.5e-5. The fp16 decoder it replaced was at 1.8e-3 against a bf16 reference.
 
 using QwenImageRunner, DNNKernels, Mantle, KernelAbstractions, Random, Printf
 const QIR = QwenImageRunner

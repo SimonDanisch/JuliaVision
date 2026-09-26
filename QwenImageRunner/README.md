@@ -9,6 +9,35 @@ julia --project=. QwenImageRunner/examples/generate.jl \
     "a red fox sitting in a snowy forest at sunrise, photorealistic" fox.ppm
 ```
 
+## Transparent backgrounds, natively
+
+**The image comes back as RGBA, and the alpha is real.** The decoder's fourth
+channel is a soft matte: ask for a transparent background in the prompt and the
+model cuts the object out itself. No segmentation step, no background removal.
+This is one of the main reasons to use Qwen-Image 2.1.
+
+```sh
+julia --project=. QwenImageRunner/examples/generate.jl \
+    "A glossy red apple, isolated on a transparent background." apple.ppm
+# alpha is not opaque (min -1.0): wrote apple.pam, RGBA
+```
+
+`decode!` and `generate!` return `(width, height, 4, batch)` in [-1, 1].
+`x / 2 + 0.5` maps all four channels to [0, 1]; the alpha is straight, not
+premultiplied, exactly what diffusers' `postprocess` hands to PIL. **Keep the
+fourth channel:** `img[:, :, 1:3, :]` or an RGB writer throws the matte away, and
+the colour under a transparent pixel is arbitrary, often purple blotches.
+
+This needs the VAE at **fp32**, which is what ships since 2026-09-26. The fp16
+decoder before it overflowed fp16's 65504 inside the network: a
+transparent-background prompt could decode to 60% NaN, exactly the background,
+while opaque backgrounds stayed in range, so it went unnoticed. The exporter had
+also rounded the fp32 checkpoint to bf16 on load. Now the decode matches
+diffusers at fp32 to a mean alpha error of 1.4e-6, and
+`test/test_transparency.jl` pins it on a real transparent-background generation.
+The price is speed: fp32 convolutions miss the fp16 cooperative-matrix path, so a
+1024² decode takes 18.6 s instead of 2.5 s.
+
 Three components run in sequence, and the sequence is not optional: the denoiser
 decodes to 7.26 GB of INT8 on the device and the Qwen3-VL-8B conditioner to
 another 6.9 GB, which do not fit at once. Each is released as soon as its output
@@ -184,8 +213,9 @@ this head width for two different reasons. The plan file has both.
   checkpoint and a prompt reads forty rows of it. Checked end to end by
   decoding one token through `lm_head` — "The capital of France is" -> " Paris".
 - **Denoiser** — the 32-layer transformer in tensor-wise INT8 with ConvRot.
-- **VAE** — the 64-channel Wan-derived decoder, fp16, four output channels
-  (the fourth is alpha).
+- **VAE** — the 64-channel Wan-derived decoder, **fp32**, four output channels:
+  RGB and a real alpha matte. See "Transparent backgrounds" above for why it is
+  not fp16.
 - **Host pipeline** — architecture constants, unpatched stride-16 latent
   flattening, the dynamic-shift FlowMatch schedule and its Euler update.
 
@@ -230,11 +260,12 @@ downloading them.
 | artifact | size | holds |
 | --- | ---: | --- |
 | `qwenimage21` | 22 MB | denoiser and encoder graphs, their lifted constants, the tokenizer tables |
-| `qwenimage21-vae` | 644 MB | VAE decoder graph and weights |
+| `qwenimage21-vae` | 1.35 GB | VAE decoder graph and fp32 weights |
 | `qwenimage21-dit-w1..w6` | 6.8 GB | the INT8 ConvRot denoiser checkpoint |
 | `qwenimage21-enc-w1..w5` | 5.9 GB | the W4A8 Qwen3-VL conditioner checkpoint |
+| `qwenimage21-refs` | 3 MB | test fixture only: transparent-background latents and diffusers' alpha for them |
 
-Thirteen rather than one, for two reasons. A caller that only wants prompt
+Thirteen for the pipeline rather than one, for two reasons. A caller that only wants prompt
 embeddings has no reason to fetch the denoiser, and a GitHub release asset caps
 at 2 GiB — the two compact checkpoints are 7.26 GB and 6.31 GB, so they are
 split byte-for-byte by `tools/shard_safetensors.jl` and merged back on load.

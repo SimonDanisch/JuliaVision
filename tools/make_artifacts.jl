@@ -215,7 +215,7 @@ end
 # artifact name => directory under tools/licenses holding LICENSE and NOTICE
 const LICENSED = Dict{String,String}(
     n => "qwenimage21" for n in vcat(
-        ["qwenimage21", "qwenimage21-vae"],
+        ["qwenimage21", "qwenimage21-vae", "qwenimage21-refs"],
         ["qwenimage21-dit-w$i" for i in 1:6],
         ["qwenimage21-enc-w$i" for i in 1:5]))
 
@@ -276,10 +276,12 @@ const TREES = Dict(
          "transformer_constants.safetensors", "text_encoder_constants.safetensors",
          "transformer_op_histogram.json", "text_encoder_op_histogram.json",
          "processor"]),
-    # The VAE is its own artifact for the reason Hunyuan3D's four are: it is
-    # 644 MB and runs once per image, against the denoiser's 6.8 GB twenty
-    # times. Its graph travels with its weights so one `vaedir()` resolves
-    # both.
+    # The VAE is its own artifact for the reason Hunyuan3D's four are: it runs
+    # once per image, against the denoiser's 6.8 GB twenty times. Its graph
+    # travels with its weights so one `vaedir()` resolves both. It is the
+    # checkpoint's own **fp32**, 1.35 GB, not fp16: at fp16 its intermediates
+    # overflow and a transparent background decodes to NaN (see
+    # `export_qwenimage21.py`'s `build_vae`).
     "qwenimage21-vae" => ("QwenImageRunner", "qwenimage21-vae",
         ["qwenimage21_vae_decoder.json", "vae.safetensors", "vae_op_histogram.json"]),
     # SAM 2.1: two graphs, so `pack`'s "one `<name>.json`" does not fit either.
@@ -518,6 +520,10 @@ const FIXTURES = Dict(
     # artifact and `sam2-large` have to be rebound together or the node-by-node
     # pass reports a dtype difference as a bug.
     "sam2-large-refs" => ("SAM2Runner", "sam2-large", ["refs.safetensors"]),
+    # Latents from a "transparent background" prompt and diffusers' fp32 alpha for
+    # them: what pins that the decoder's matte survives. Written by hand from one
+    # generation (prompt, seed and steps are in the file's metadata).
+    "qwenimage21-refs" => ("QwenImageRunner", "qwenimage21-refs", ["transparent.safetensors"]),
 )
 
 """
@@ -533,6 +539,7 @@ function packfixtures(name::AbstractString, tag::AbstractString)
         for f in files
             cp(joinpath(src, f), joinpath(dir, f))
         end
+        copylicense(name, dir)
     end
     return finishartifact(name, pkg, hash, tag, files)
 end
@@ -617,43 +624,56 @@ function pack(name::AbstractString, tag::AbstractString)
     return finishartifact(name, pkg, hash, tag, String[])
 end
 
-args = copy(ARGS)
-tag = "assets-v1"
-i = findfirst(==("--tag"), args)
-if i !== nothing
-    tag = args[i + 1]
-    deleteat!(args, i:i+1)
+"""
+    makeartifacts(names; tag = "assets-v1") -> Vector
+
+Pack and bind each named artifact, and print the upload command. The same thing
+the command line does; callable from a session so it needs no `ARGS`.
+"""
+function makeartifacts(names::AbstractVector{<:AbstractString}; tag::AbstractString = "assets-v1")
+    for n in names
+        haskey(MODELS, n) || haskey(REFS, n) || haskey(CHECKPOINTS, n) ||
+            haskey(FIXTURES, n) || haskey(SHARDS, n) || haskey(TREES, n) ||
+            haskey(SOURCES, n) || error(
+            "unknown target $n; known: " *
+            join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)),
+                           collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)),
+                           collect(keys(SHARDS)), collect(keys(TREES)),
+                           collect(keys(SOURCES)))), ", "))
+    end
+
+    println("binding artifacts against release tag `$tag`\n")
+    made = [haskey(REFS, n) ? packrefs(n, tag) :
+            haskey(FIXTURES, n) ? packfixtures(n, tag) :
+            haskey(TREES, n) ? packtree(n, tag) :
+            haskey(SHARDS, n) ? packshard(n, tag) :
+            haskey(SOURCES, n) ? packsource(n, tag) :
+            haskey(CHECKPOINTS, n) ? packcheckpoints(n, tag) : pack(n, tag) for n in names]
+
+    total = sum(m -> m.bytes, made)
+    @printf("\n%d tarballs, %.1f MiB total, in gen/artifacts/\n", length(made), total / 2^20)
+    println("""
+    Not yet uploaded. To publish them:
+
+        gh release upload $tag \\
+    """ * join(["        gen/artifacts/$(m.name).tar.gz" for m in made], " \\\n") * """
+     \\
+            --repo SimonDanisch/JuliaVision --clobber
+
+    Until then the binding is local: `assetdir()` resolves to the tree just created,
+    because that is what `create_artifact` put in the store. Uploading is how it
+    reaches anyone else.""")
+    return made
 end
-names = isempty(args) ? ["depthanything", "neurallut", "rife"] : args   # the ported ones
-for n in names
-    haskey(MODELS, n) || haskey(REFS, n) || haskey(CHECKPOINTS, n) ||
-        haskey(FIXTURES, n) || haskey(SHARDS, n) || haskey(TREES, n) ||
-        haskey(SOURCES, n) || error(
-        "unknown target $n; known: " *
-        join(sort(vcat(collect(keys(MODELS)), collect(keys(REFS)),
-                       collect(keys(CHECKPOINTS)), collect(keys(FIXTURES)),
-                       collect(keys(SHARDS)), collect(keys(TREES)),
-                       collect(keys(SOURCES)))), ", "))
+
+# `@__FILE__ && main()` would parse as `@__FILE__(&& main())`, so a block.
+if abspath(PROGRAM_FILE) == @__FILE__
+    args = copy(ARGS)
+    tag = "assets-v1"
+    i = findfirst(==("--tag"), args)
+    if i !== nothing
+        tag = args[i + 1]
+        deleteat!(args, i:i+1)
+    end
+    makeartifacts(isempty(args) ? ["depthanything", "neurallut", "rife"] : args; tag)   # the ported ones
 end
-
-println("binding artifacts against release tag `$tag`\n")
-made = [haskey(REFS, n) ? packrefs(n, tag) :
-        haskey(FIXTURES, n) ? packfixtures(n, tag) :
-        haskey(TREES, n) ? packtree(n, tag) :
-        haskey(SHARDS, n) ? packshard(n, tag) :
-        haskey(SOURCES, n) ? packsource(n, tag) :
-        haskey(CHECKPOINTS, n) ? packcheckpoints(n, tag) : pack(n, tag) for n in names]
-
-total = sum(m -> m.bytes, made)
-@printf("\n%d tarballs, %.1f MiB total, in gen/artifacts/\n", length(made), total / 2^20)
-println("""
-Not yet uploaded. To publish them:
-
-    gh release upload $tag \\
-""" * join(["        gen/artifacts/$(m.name).tar.gz" for m in made], " \\\n") * """
- \\
-        --repo SimonDanisch/JuliaVision --clobber
-
-Until then the binding is local: `assetdir()` resolves to the tree just created,
-because that is what `create_artifact` put in the store. Uploading is how it
-reaches anyone else.""")

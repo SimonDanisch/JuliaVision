@@ -57,7 +57,8 @@ end
             push!(asked, m.captures[1])
         end
     end
-    @test length(asked) == 13
+    # The thirteen the pipeline reads, plus `qwenimage21-refs`, the test fixture.
+    @test length(asked) == 14
     for n in sort!(collect(asked))
         @test artifact_hash(n, toml) !== nothing
     end
@@ -65,7 +66,7 @@ end
     # `ready` is the question asked to decide whether to download, so it has to
     # cover every name a loader will reach for. One missing and it answers yes
     # to a pipeline that then fetches 6.8 GB.
-    @test asked == Set(reduce(vcat, values(QwenImageRunner.COMPONENT_ARTIFACTS)))
+    @test setdiff(asked, ["qwenimage21-refs"]) == Set(reduce(vcat, values(QwenImageRunner.COMPONENT_ARTIFACTS)))
     @test ready() isa Bool
     @test ready(:vae_decoder) isa Bool
     @test_throws ArgumentError ready(:not_a_component)
@@ -79,7 +80,7 @@ end
     # carry both — this asserts the condition on whichever are present rather
     # than downloading 14 GB to check.
     toml = QwenImageRunner.ARTIFACTS_TOML
-    names = sort!(unique(reduce(vcat, values(QwenImageRunner.COMPONENT_ARTIFACTS))))
+    names = sort!(unique(vcat(reduce(vcat, values(QwenImageRunner.COMPONENT_ARTIFACTS)), "qwenimage21-refs")))
     present = filter(names) do n
         h = artifact_hash(n, toml)
         h !== nothing && artifact_exists(h)
@@ -164,3 +165,4 @@ end
 
 # The decoder holds a Model and plans per grid; there is no unplanned path left.
 include(joinpath(@__DIR__, "test_vae_plans.jl"))
+include(joinpath(@__DIR__, "test_transparency.jl"))

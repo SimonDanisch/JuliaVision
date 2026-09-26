@@ -94,10 +94,18 @@ lazy = true
     sha256 = "fa4fe011aa8284b205bf241d09fd9664e3567cb8e0b541d61dbfaa3c8f3ee137"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-enc-w5.tar.gz"
 
+[qwenimage21-refs]
+git-tree-sha1 = "c9a1c1d1ff8828611d73b4aaa68d8a763bb34ef0"
+lazy = true
+
+    [[qwenimage21-refs.download]]
+    sha256 = "5ae6a19afa7be8f96e99ccb2743da0e90c20b5089465d7e7ddff54f10bec166a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-refs.tar.gz"
+
 [qwenimage21-vae]
-git-tree-sha1 = "c159ccc8ecac83b3ef4d020456ffb0ddb77a9d9e"
+git-tree-sha1 = "fd85e386c9c93687e717a132f93e4474addf240e"
 lazy = true
 
     [[qwenimage21-vae.download]]
-    sha256 = "e52236dcf77a989ca6b7c6aa1d889bfb54fa8c10fdb8f1c8460a4ffcf1eca741"
+    sha256 = "5c3bcc0c266b7435de10a909913c5a5b1189c376121230eaddb933042eed7a02"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21-vae.tar.gz"

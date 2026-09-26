@@ -17,6 +17,12 @@ denoiser graph carries a `t` symbol and the plan binds it to this prompt's
 length, which is why nothing here has to match a number chosen by the exporter.
 The encoder is the one limit: it is exported for prompts up to 64 tokens.
 
+**Transparent backgrounds work:** ask for one in the prompt and the output is
+RGBA with a real alpha matte, written as a PAM:
+
+    julia --project=. QwenImageRunner/examples/generate.jl \\
+        "A glossy red apple, isolated on a transparent background." apple.ppm
+
 Writes a binary PPM, or a binary PAM when the decoder's alpha channel is not
 opaque — netpbm both ways, so this needs no image package in this environment.
 """
@@ -121,15 +127,13 @@ println("decode: $(round(time() - t0, digits=1)) s")
 
 # The decoder returns RGBA in [-1, 1] and the fourth channel is a REAL matte,
 # not a formality: ask for a transparent background and it comes back soft-edged
-# and 62% at -1, which is the model doing the cut-out for you. Ask for an opaque
-# one — "plain white seamless background" — and it is 1.0 everywhere. So the
-# image is written as RGBA whenever the alpha says anything, and as RGB when it
-# does not.
+# with the background at -1, which is the model doing the cut-out for you. Ask
+# for an opaque one — "plain white seamless background" — and it is 1.0
+# everywhere. So the image is written as RGBA whenever the alpha says anything,
+# and as RGB when it does not.
 #
-# **A transparent-background prompt currently decodes to NaN** over most of the
-# background, because the exported VAE is fp16 where the checkpoint is bf16 and
-# the two differ by eight bits of exponent. See the comment above the
-# `vae.to(torch.float16)` in `tools/export_qwenimage21.py`.
+# This needs the fp32 VAE that ships since 2026-09-26; the fp16 one decoded a
+# transparent background to NaN. See `test/test_transparency.jl`.
 rgba = Float32.(image[:, :, 1:4, 1]) ./ 2f0 .+ 0.5f0
 alpha = @view rgba[:, :, 4]
 if all(>=(0.999f0), alpha)

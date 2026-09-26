@@ -68,11 +68,11 @@ end
                              keys(vae.model.scratch))
             @test nplans() == 0
 
-            # Scaled down: raw N(0,1) is not a denoised latent and overflows
-            # fp16 inside the decoder, which is a fact about the input and not
-            # about the decoder. 0.3 is in range at every grid tried.
-            lat(n) = DNNKernels.toback(backend,
-                Float16.(0.3f0 .* randn(Float32, n, n, 1, 64, 1)))
+            # Unscaled. These were scaled by 0.3 because "raw N(0,1) overflows
+            # fp16 inside the decoder, which is a fact about the input" — it was
+            # a fact about the decoder, whose fp16 export could not carry a
+            # transparent background either. See `test_transparency.jl`.
+            lat(n) = DNNKernels.toback(backend, Float16.(randn(Float32, n, n, 1, 64, 1)))
 
             a = Array(decode!(vae, lat(16)))
             @test size(a) == (256, 256, 4, 1)
