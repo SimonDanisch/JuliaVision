@@ -12,8 +12,9 @@ channel is a real soft alpha matte: ask for "a transparent background" in the
 prompt and the model does the cut-out. [`decode!`](@ref) and [`generate!`](@ref)
 return `(width, height, 4, batch)` in [-1, 1], and `x / 2 + 0.5` maps all four
 channels, alpha included, to [0, 1]. The VAE ships in fp32 for this: at fp16 its
-intermediates overflowed and the transparent area decoded to NaN. See the
-README's "Transparent backgrounds" and `test/test_transparency.jl`.
+intermediates overflowed and the transparent area decoded to NaN. Only its
+convolutions' operands are fp16 (`qwenimagevae(; halfconvs)`), which keeps the
+range. See the README's "Transparent backgrounds" and `test/test_transparency.jl`.
 
 The Comfy-Org compact checkpoints are not plain integer matrices. The denoiser
 uses tensor-wise INT8 with ConvRot and the smallest encoder uses asymmetric
@@ -509,7 +510,7 @@ struct QwenVAEDecoder{B,M}
 end
 
 """
-    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), maxpasses=8)
+    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), maxpasses=8, halfconvs=true)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
@@ -567,13 +568,39 @@ interpreted one is a memory and speed choice and not a correctness one.
 
 `maxpasses` is the recording's explicit submission split; 8 records and replays,
 64 is what times out.
+
+## `halfconvs`: fp16 convolution operands in an fp32 graph
+
+On by default. The graph and its weights stay fp32 and every convolution reads
+fp16 operands and writes fp32, which puts the convolutions on the tensor cores
+without giving the residual stream fp16's range. `DNNKernels.halfconvs` bounds
+each convolution's input from the graph: 36 of the 46 are normalised and cast
+as they are, 5 read the residual stream (up to 3.5e5 on unscaled `randn`
+latents) and are scaled by a power of two taken at run time, and 5 unbounded
+1x1s stay fp32 because they are no faster in fp16.
+
+Measured 2026-09-27 on an 8060S, warm 1024² decode, five alternating rounds
+per backend, minimum. The last column is the same `halfconvs` decode once its
+3x3 convolutions gather the image inside the GEMM instead of materialising
+im2col (`DNNKernels.convgather_wide`); its output is bit-identical to the one
+before it:
+
+    backend   fp32      halfconvs, im2col   halfconvs, gathered
+    Vulkan    3.44 s    2.27 s              1.92 to 2.05 s
+    ROCm      3.38 s    2.30 s              2.05 s
+
+Against diffusers at fp32 on the transparent-background latents, the alpha
+error is 3.1e-3 at most and 1.0e-4 on average (1.4e-6 on average at fp32), and
+the RGB where the image is opaque is within 5.5e-3 of the fp32 decode; one step
+of an 8-bit channel is 7.8e-3 on this [-1, 1] scale. `halfconvs = false` is the
+fp32 decoder.
 """
 function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=vaedir(),
-                      maxpasses::Integer=8)
+                      maxpasses::Integer=8, halfconvs::Bool=true)
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
     model = Model(Dict(VAEGRAPH => graph), weights; backend, fuseattn = false,
-                  record_maxpasses = Dict(VAEGRAPH => Int(maxpasses)))
+                  record_maxpasses = Dict(VAEGRAPH => Int(maxpasses)), halfconvs)
     QwenVAEDecoder(model.backend, model)
 end
 
@@ -630,7 +657,8 @@ end
 
 The element type the decoder graph takes its latents in, read off the graph.
 Float32 since 2026-09-26: at fp16 the decoder's intermediates overflowed 65504
-and a transparent background decoded to NaN.
+and a transparent background decoded to NaN. `halfconvs` does not change it: it
+narrows only the convolutions' operands.
 """
 latenttype(model::QwenVAEDecoder) =
     (g = model.model.graphs[VAEGRAPH]; g.buffers[only(g.inputs)].dtype)

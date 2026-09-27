@@ -37,7 +37,7 @@ using Mantle
     kws = Base.kwarg_decl(only(methods(qwenimagevae)))
     @test :record ∉ kws
     @test :latent ∉ kws
-    @test Set(kws) == Set([:backend, :dir, :maxpasses])
+    @test Set(kws) == Set([:backend, :dir, :maxpasses, :halfconvs])
 
     # One method. There were two: the second dispatched on `plan::Nothing` and
     # was the door to `execute!`.

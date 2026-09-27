@@ -35,8 +35,18 @@ while opaque backgrounds stayed in range, so it went unnoticed. The exporter had
 also rounded the fp32 checkpoint to bf16 on load. Now the decode matches
 diffusers at fp32 to a mean alpha error of 1.4e-6, and
 `test/test_transparency.jl` pins it on a real transparent-background generation.
-The price is speed: fp32 convolutions miss the fp16 cooperative-matrix path, so a
-1024² decode takes 18.6 s instead of 2.5 s.
+
+fp32 convolutions miss the fp16 cooperative-matrix path, so since 2026-09-27 the
+graph stays fp32 and only the convolutions' operands are fp16
+(`qwenimagevae(; halfconvs = true)`, the default). What overflowed was never a
+normalised convolution input but the residual stream, which reaches 3.5e5 on
+unscaled `randn` latents; the five convolutions that read it are scaled by a
+power of two at run time or left in fp32. The decoder's 3x3 convolutions gather
+the image inside the GEMM rather than materialising im2col. A warm 1024² decode takes about
+2.0 s on Vulkan and 2.05 s on ROCm, against 3.44 s and 3.38 s at fp32, with no NaN on
+either input and a maximum alpha error of 3.2e-3 against diffusers at fp32 (one
+8-bit step is 7.8e-3 on the [-1, 1] scale). `halfconvs = false` is the fp32
+decoder.
 
 Three components run in sequence, and the sequence is not optional: the denoiser
 decodes to 7.26 GB of INT8 on the device and the Qwen3-VL-8B conditioner to
@@ -213,9 +223,9 @@ this head width for two different reasons. The plan file has both.
   checkpoint and a prompt reads forty rows of it. Checked end to end by
   decoding one token through `lm_head` — "The capital of France is" -> " Paris".
 - **Denoiser** — the 32-layer transformer in tensor-wise INT8 with ConvRot.
-- **VAE** — the 64-channel Wan-derived decoder, **fp32**, four output channels:
-  RGB and a real alpha matte. See "Transparent backgrounds" above for why it is
-  not fp16.
+- **VAE** — the 64-channel Wan-derived decoder, **fp32** with fp16 convolution
+  operands, four output channels: RGB and a real alpha matte. See "Transparent
+  backgrounds" above for why it is not fp16.
 - **Host pipeline** — architecture constants, unpatched stride-16 latent
   flattening, the dynamic-shift FlowMatch schedule and its Euler update.
 

@@ -337,6 +337,10 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # of preconditions, and a model that does not meet them comes out
                # WRONG rather than slow.
                record::Bool = false, record_maxpasses = Dict{String,Int}(),
+               # Run every fp32 convolution on fp16 operands with an fp32 result,
+               # which is what reaches the tensor cores without giving up fp32's
+               # range between the convolutions. See `halfconvs`.
+               halfconvs::Bool = false,
                # Take ownership of `weights`: empty the caller's dictionary once
                # this one has its own, so the upload below holds the only
                # reference to each host tensor and dropping it actually frees it.
@@ -385,6 +389,14 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # every pass after it sees a shorter graph.
     graphs, npad = foldconvpad(graphs)
     npad > 0 && @info "foldconvpad: $npad explicit pad(s) -> the convolution's own"
+    # After `foldconvpad`, whose convolution has to read the pad directly, and
+    # before `hoistcasts`, which turns the weight casts this inserts into fp16
+    # weights. It reads `host` for the weights' magnitudes and changes none.
+    if halfconvs
+        graphs, nh = DNNKernels.halfconvs(graphs, host)
+        @info "halfconvs: fp16 operands for $(nh.plain) convolution(s) as they are, " *
+              "$(nh.scaled) scaled at run time; $(nh.kept) unbounded 1x1 left in fp32"
+    end
     graphs, next, nhoist = hoistcasts(graphs, host); host = handoff!(host, next)
 
     # After the casts: under autocast a weight's transposed view sits on top of

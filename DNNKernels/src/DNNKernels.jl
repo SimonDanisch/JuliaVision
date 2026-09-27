@@ -185,6 +185,7 @@ include("kernels/shapeops.jl")
 include("kernels/batchnorm.jl")
 include("kernels/conv_igemm.jl")
 include("emit.jl")
+include("halfconvs.jl")    # after emit.jl: it declares emitop! methods
 include("driver.jl")
 include("flowmatch.jl")
 include("wan.jl")
