@@ -210,7 +210,10 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
         haskey(refs, k) || continue
         w = get(weights, b.key, nothing)
         w === nothing && continue
-        got, want = tohost(w), refs[k]
+        # `M.storage` because a resident weight is a `Mantle.Buffer`, which
+        # `tohost` passes through untouched: SAM 2's gate errored here, in
+        # `maxerr`'s `zip`, on the first folded weight its refs name.
+        got, want = tohost(M.storage(w)), refs[k]
         (size(got) == size(want) && eltype(got) !== Bool && eltype(want) !== Bool) || continue
         err[id] = maxerr(got, want)
         half[id] = eltype(want) === Float16 || b.dtype === Float16
