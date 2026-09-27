@@ -2,12 +2,81 @@
 
 Qwen-Image 2.1 text-to-image on Lava, from the compact Comfy-Org checkpoints.
 
-A 1024x1024 image, end to end in Julia on a Radeon 8060S:
+## Generating an image
+
+```julia
+using QwenImageRunner
+
+img = generate("a red fox sitting in a snowy forest at sunrise, photorealistic")
+size(img)   # (1024, 1024, 4): RGBA in [0, 1], the fourth channel a real alpha matte
+
+wide = generate("a steampunk harbor at golden hour"; width = 1664, height = 928,
+                steps = 40, seed = 7)
+```
+
+Or from the shell, which writes a PPM, or a PAM when the alpha is not opaque:
 
 ```sh
 julia --project=. QwenImageRunner/examples/generate.jl \
     "a red fox sitting in a snowy forest at sunrise, photorealistic" fox.ppm
+QWENIMAGE21_SIZE=1664x928 julia --project=. QwenImageRunner/examples/generate.jl \
+    "a steampunk harbor at golden hour" harbor.ppm
 ```
+
+The defaults are the reference pipeline's (`QwenImage21Pipeline`): 1024x1024, 40
+steps and no classifier-free guidance, which the model is meant to be sampled
+without.
+
+- **Size:** any `width` and `height`, floored to multiples of 32 as the reference
+  does, from 64x64 up to 16384 image tokens (2048x2048 square, or e.g. 2560x1600).
+  The checkpoint is trained around 1024x1024 and is at its best near that area;
+  1664x928 and 928x1664 are the reference's 16:9 sizes. `qwen_resolution` says
+  what a size will run as, and refuses one the denoiser graph does not take
+  before anything is built.
+- **Prompt:** up to 1024 tokens, the reference's own limit. The text encoder
+  graph was static at 64 tokens until 2026-09-27, which after the chat template
+  left **42 tokens** of prompt.
+- **Memory:** the encoder (6.9 GB) and the denoiser (7.26 GB) run one after the
+  other and each is released before the next is built. Above about one megapixel
+  the decoder's buffers need more at their peak than one Vulkan allocation holds
+  (4 GB on RADV; 5.8 GB at 1664x928), and Mantle places them in several.
+
+## Examples
+
+Generated with the calls above, 40 steps, seed 42, on a Radeon 8060S through
+Vulkan (2026-09-27). Warm, in a session that has generated once, a 1024x1024
+image takes **221 s** and a 928x1664 one **302 s**, prompt to pixels; the first
+call in a session also compiles, and took 350 s at 1024x1024.
+
+<table>
+<tr>
+<td><img src="../media/qwenimage/fox.jpg" width="320"></td>
+<td><img src="../media/qwenimage/apple.jpg" width="320"></td>
+</tr>
+<tr>
+<td><em>a red fox sitting in a snowy forest at sunrise, photorealistic</em><br>1024x1024</td>
+<td><em>A glossy red apple, isolated on a transparent background.</em><br>1024x1024, RGBA, shown over a checkerboard</td>
+</tr>
+<tr>
+<td colspan="2"><img src="../media/qwenimage/harbor.jpg" width="640"></td>
+</tr>
+<tr>
+<td colspan="2"><em>A sprawling steampunk harbor city at golden hour, seen from a hillside: brass
+airships with patched canvas balloons moor at iron towers, cobblestone streets wind between
+crooked timber houses with copper roofs gone green, a crowded fish market spills onto the
+docks, gulls circle above tall ships whose sails glow orange in the low sun, steam vents from
+chimneys and drifts across the water, and in the foreground a young mechanic in goggles and a
+leather apron repairs a small clockwork bird on a workbench covered in gears, highly detailed,
+cinematic lighting, shallow depth of field.</em><br>1664x928, a 129-token prompt, three times
+what the encoder held before</td>
+</tr>
+<tr>
+<td><img src="../media/qwenimage/poster.jpg" width="320"></td>
+<td><em>A vintage travel poster for Lisbon with the word "LISBOA" in bold art deco letters at
+the top, a yellow tram climbing a steep street between pastel houses, flat illustration
+style</em><br>928x1664</td>
+</tr>
+</table>
 
 ## Transparent backgrounds, natively
 
@@ -22,7 +91,8 @@ julia --project=. QwenImageRunner/examples/generate.jl \
 # alpha is not opaque (min -1.0): wrote apple.pam, RGBA
 ```
 
-`decode!` and `generate!` return `(width, height, 4, batch)` in [-1, 1].
+`generate` returns `(width, height, 4)` already in [0, 1]. The lower-level
+`decode!` and `generate!` return `(width, height, 4, batch)` in [-1, 1], and
 `x / 2 + 0.5` maps all four channels to [0, 1]; the alpha is straight, not
 premultiplied, exactly what diffusers' `postprocess` hands to PIL. **Keep the
 fourth channel:** `img[:, :, 1:3, :]` or an RGB writer throws the matte away, and
@@ -53,7 +123,8 @@ decodes to 7.26 GB of INT8 on the device and the Qwen3-VL-8B conditioner to
 another 6.9 GB, which do not fit at once. Each is released as soon as its output
 is in hand.
 
-Measured, 20 steps at 1024x1024 (`examples/generate.jl`), one run of the script
+Measured, 20 steps at 1024x1024 (`examples/generate.jl` with `QWENIMAGE21_STEPS=20`;
+its default is the reference's 40 since 2026-09-27), one run of the script
 against another:
 
 | stage | was | then | now |
@@ -229,14 +300,19 @@ this head width for two different reasons. The plan file has both.
 - **Host pipeline** — architecture constants, unpatched stride-16 latent
   flattening, the dynamic-shift FlowMatch schedule and its Euler update.
 
-## The resolution is bound at export; the prompt length is not
+## Neither the prompt length nor the resolution is bound at export
 
 ```sh
-uv run tools/export_qwenimage21.py --component text_encoder --prompt-tokens 64
-uv run tools/export_qwenimage21.py --component transformer --graph-only \
-    --height 1024 --width 1024
-uv run tools/export_qwenimage21.py --component vae --height 1024 --width 1024
+uv run tools/export_qwenimage21.py --component text_encoder
+uv run tools/export_qwenimage21.py --component transformer --graph-only
+uv run tools/export_qwenimage21.py --component vae
 ```
+
+Every graph carries its lengths as symbols: the text encoder's prompt axis `t`,
+the denoiser's prompt axis `t` and image axis `i`, the decoder's latent grid `h`
+and `w`. `--prompt-tokens`, `--height` and `--width` only size the example each
+graph is traced at. The bounds each symbol was checked for are in the two
+`*_export.json` files, and the runner reads them rather than assuming.
 
 The denoiser graph carries a `t` symbol for the prompt axis, and
 `qwenimagetransformer(; context_tokens)` binds it when the plan is recorded —
@@ -256,9 +332,16 @@ generation, as the reference's `self.pos_embed(...)` does per forward. It
 matches PyTorch to 5.96e-8 — half a Float32 ULP — over every element at both
 lengths that were checked.
 
-The encoder is the remaining limit: it is exported for prompts up to 64 tokens.
-It is causal, so a shorter prompt is padded on the right and the kept rows are
-bit-identical.
+**The text encoder's length is a symbol too**, from 2 up to the 14-token system
+turn plus the 1024 prompt tokens the denoiser takes. It was the last static
+graph, at 64 tokens, which after the template left 42 tokens of prompt. A plan is
+recorded per length and its GEMMs are compiled for it, so a prompt is right-padded
+to the next of 64, 128, 256, 512 or the maximum, and at most five plans are ever
+built. That is exact because the encoder is causal: padding with a different
+token leaves the kept rows bit-identical, which `test/test_prompt_and_size.jl`
+checks. Running the same prompt at a different bucket is not bit-identical, since
+the kernels are tiled for the length, and moves the rows at fp16 rounding level
+(0.3% rms).
 
 ## The weights ship as artifacts
 
