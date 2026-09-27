@@ -34,6 +34,10 @@ using DNNKernels: linspace, flowschedule, ExponentialShift, calculate_shift, eul
 # tokenizer's `vocab.json` is the only other JSON this package reads, and a
 # second copy in the manifest would be a second version to keep in step.
 using DNNKernels: JSON3
+# `Random` the same way, for the one seeded draw `generate` makes: DNNKernels
+# already loads it, and a dependency of this package would be a second entry in
+# every manifest that resolves it.
+using DNNKernels: Random
 using KernelAbstractions
 using Lava
 import Mantle
@@ -52,7 +56,7 @@ export QwenTextEncoder, qwenimagetextencoder, encode_prompt, token_embeddings
 export qwen_prompt_template
 export QwenTransformer, qwenimagetransformer, denoise!
 export QwenVAEDecoder, qwenimagevae, decode!
-export generate!
+export generate, generate!, sample!, qwen_resolution
 export packlatents, unpacklatents, image_sequence_length
 export latentshape, imagetokenbounds
 export qwen_schedule
@@ -788,23 +792,41 @@ function qwen_schedule(width::Integer, height::Integer; steps::Integer=40)
 end
 
 """
-    generate!(transformer, vae, latents, prompt_embeddings; width, height, steps=40)
+    qwen_resolution(width, height; dir=assetdir()) -> (width, height)
 
-Run the diffusion loop from caller-supplied noise and precomputed Qwen3-VL
-prompt embeddings, then decode the result. `latents` is updated in place and
-has shape `(64, image_sequence_length(width,height), batch)`.
-
-Returns the **RGBA** image [`decode!`](@ref) returns: `(width, height, 4, batch)`
-in [-1, 1], with a real alpha matte in the fourth channel. Ask for a transparent
-background in the prompt to get one.
-
-Prompt encoding is intentionally outside this method: the compact Comfy-Org
-encoder is asymmetric W4A8+ConvRot and cannot be represented by the existing
-symmetric INT8 weight type without silently changing the model.
+A requested picture size as the reference pipeline takes it: each side floored
+to a multiple of 32 (`vae_scale_factor * 2`, `QwenImage21Pipeline.__call__`),
+with a warning when that changes it. Refused when the latent grid is outside
+what the denoiser graph was exported for, [`imagetokenbounds`](@ref): 16 to
+16384 image tokens, a 64x64 thumbnail up to 2048x2048, and any aspect ratio in
+between (1664x928 is 6032). The checkpoint is trained around 1024x1024, and
+far from that the pictures show it.
 """
-function generate!(transformer::QwenTransformer, vae::QwenVAEDecoder,
-                   latents, prompt_embeddings;
-                   width::Integer, height::Integer, steps::Integer=40)
+function qwen_resolution(width::Integer, height::Integer; dir::AbstractString=assetdir())
+    m = 2 * QWEN_IMAGE_21.vae_scale_factor
+    w, h = Int(width) ÷ m * m, Int(height) ÷ m * m
+    w > 0 && h > 0 || throw(ArgumentError(
+        "a Qwen-Image 2.1 picture is at least $(m)x$(m), got $(width)x$(height)"))
+    (w, h) == (width, height) || @warn "Qwen-Image 2.1 sizes are multiples of $m, " *
+        "as in the reference pipeline; $(width)x$(height) runs as $(w)x$(h)"
+    lo, hi = imagetokenbounds(dir)
+    n = image_sequence_length(w, h)
+    lo <= n <= hi || throw(ArgumentError(
+        "$(w)x$(h) is $n image tokens and the denoiser graph takes $lo..$hi"))
+    return (w, h)
+end
+
+"""
+    sample!(transformer, latents, prompt_embeddings; width, height, steps=40) -> latents
+
+The flow-matching loop: `steps` denoiser evaluations, each followed by the Euler
+update, on `latents` in place. `latents` is `(64, image_sequence_length(width,
+height), batch)` and the transformer has to have been built for that grid and
+this prompt's length. [`generate!`](@ref) is this and a decode; [`generate`](@ref)
+runs it between releasing the encoder and building the decoder.
+"""
+function sample!(transformer::QwenTransformer, latents, prompt_embeddings;
+                 width::Integer, height::Integer, steps::Integer=40)
     graph_channels = Int(last(transformer.graph.buffers["latents"].shape))
     size(latents, 1) == graph_channels || throw(DimensionMismatch(
         "latents have $(size(latents, 1)) channels, expected $graph_channels"))
@@ -821,11 +843,78 @@ function generate!(transformer::QwenTransformer, vae::QwenVAEDecoder,
         prediction = denoise!(transformer, latents, prompt_embeddings, timestep)
         eulerstep!(latents, prediction, schedule.sigmas[i], schedule.sigmas[i + 1])
     end
+    return latents
+end
 
+"""
+    generate!(transformer, vae, latents, prompt_embeddings; width, height, steps=40)
+
+Run the diffusion loop from caller-supplied noise and precomputed Qwen3-VL
+prompt embeddings, then decode the result. `latents` is updated in place and
+has shape `(64, image_sequence_length(width,height), batch)`.
+
+Returns the **RGBA** image [`decode!`](@ref) returns: `(width, height, 4, batch)`
+in [-1, 1], with a real alpha matte in the fourth channel. Ask for a transparent
+background in the prompt to get one.
+
+Both components are resident at once here. [`generate`](@ref) is the staged
+form, which builds each only after the previous one is released.
+"""
+function generate!(transformer::QwenTransformer, vae::QwenVAEDecoder,
+                   latents, prompt_embeddings;
+                   width::Integer, height::Integer, steps::Integer=40)
+    sample!(transformer, latents, prompt_embeddings; width, height, steps)
     lw = width ÷ QWEN_IMAGE_21.vae_scale_factor
     lh = height ÷ QWEN_IMAGE_21.vae_scale_factor
     grid = unpacklatents(latents, lw, lh)
     decode!(vae, reshape(grid, lw, lh, 1, size(grid, 3), size(grid, 4)))
+end
+
+"""
+    generate(prompt; width=1024, height=1024, steps=40, seed=42,
+             backend=Mantle.defaultbackend()) -> Array{Float32,3}
+
+One text-to-image generation: `prompt` in, an **RGBA** image `(width, height, 4)`
+in [0, 1] out, on the host. The fourth channel is a real alpha matte; ask for a
+transparent background in the prompt and it comes back cut out.
+
+The defaults are the reference pipeline's: 1024x1024, 40 steps, and no
+classifier-free guidance, which Qwen-Image 2.1 is meant to be sampled without.
+`width` and `height` go through [`qwen_resolution`](@ref), so any aspect ratio
+inside the denoiser's bounds works and a side that is not a multiple of 32 is
+floored to one. A prompt may be up to 1024 tokens, the reference's own limit.
+
+The three components run one after another and each is released before the
+next is built — the denoiser is 7.26 GB of INT8 and the Qwen3-VL conditioner
+6.9 GB, which do not fit on an 8060S together. Each call builds all three, so
+the first call in a session also compiles them; `examples/generate.jl` is this
+function and a file writer.
+"""
+function generate(prompt::AbstractString; width::Integer=1024, height::Integer=1024,
+                  steps::Integer=40, seed::Integer=42, backend=Mantle.defaultbackend())
+    w, h = qwen_resolution(width, height)
+    lw, lh = w ÷ QWEN_IMAGE_21.vae_scale_factor, h ÷ QWEN_IMAGE_21.vae_scale_factor
+    channels = QWEN_IMAGE_21.latent_channels
+
+    encoder = qwenimagetextencoder(; backend)
+    embeds_host = encode_prompt(encoder, prompt)
+    Mantle.release!(encoder)
+
+    transformer = qwenimagetransformer(; backend, context_tokens=size(embeds_host, 2),
+                                       latent=(lh, lw))
+    noise = randn(Random.Xoshiro(seed), Float32, channels, image_sequence_length(w, h), 1)
+    latents = DNNKernels.toback(backend, Float16.(noise))
+    embeds = DNNKernels.toback(backend, Float16.(embeds_host))
+    sample!(transformer, latents, embeds; width=w, height=h, steps)
+    denoised = Array(latents)
+    Mantle.release!(transformer)
+
+    vae = qwenimagevae(; backend)
+    grid = unpacklatents(denoised, lw, lh)
+    image = Array(decode!(vae, DNNKernels.toback(backend,
+                                                 reshape(Float16.(grid), lw, lh, 1, channels, 1))))
+    Mantle.release!(vae)
+    return Float32.(image[:, :, :, 1]) ./ 2f0 .+ 0.5f0
 end
 
 include("tokenizer.jl")

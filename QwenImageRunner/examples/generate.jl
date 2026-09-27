@@ -4,18 +4,23 @@ One Qwen-Image 2.1 text-to-image generation, end to end on Lava.
     julia --project=. QwenImageRunner/examples/generate.jl \\
         "a red fox sitting in a snowy forest at sunrise, photorealistic" fox.ppm
 
-Three components run in sequence, and the sequence is the point: the denoiser
-decodes to 7.26 GB of INT8 on the device and the Qwen3-VL conditioner to another
-6.9 GB, which do not fit at once on an 8060S. Each is released as soon as its
-output is in hand — the prompt embeddings are 360 KB and the latents 512 KB.
+This is [`generate`](@ref) and a file writer; from a session, call `generate`
+directly:
+
+    img = generate("a red fox ..."; width = 1664, height = 928)   # (w, h, 4), RGBA in [0, 1]
+
+Three environment variables, all optional:
+
+  * `QWENIMAGE21_SIZE`: `1024` for a square or `WIDTHxHEIGHT`, e.g. `1664x928`.
+    Sides are floored to multiples of 32; anything from 64x64 to 2048x2048 in
+    image tokens runs, and the checkpoint is at its best around 1024x1024.
+  * `QWENIMAGE21_STEPS`: denoising steps, 40 by default as in the reference.
+  * `QWENIMAGE21_SEED`: the noise seed, 42 by default.
+
+A prompt may be up to 1024 tokens, the reference pipeline's own limit.
 
 Everything downloads itself: thirteen artifacts, 13.4 GB, fetched on the first
 call and cached in the depot.
-
-The latent resolution is bound at export time; the prompt length is not. The
-denoiser graph carries a `t` symbol and the plan binds it to this prompt's
-length, which is why nothing here has to match a number chosen by the exporter.
-The encoder is the one limit: it is exported for prompts up to 64 tokens.
 
 **Transparent backgrounds work:** ask for one in the prompt and the output is
 RGBA with a real alpha matte, written as a PAM:
@@ -27,15 +32,19 @@ Writes a binary PPM, or a binary PAM when the decoder's alpha channel is not
 opaque — netpbm both ways, so this needs no image package in this environment.
 """
 
-using QwenImageRunner, DNNKernels, Mantle, Random
-using QwenImageRunner: encode, qwen_prompt_template, qwen_system_prefix
+using QwenImageRunner, Mantle
 
 const PROMPT = length(ARGS) >= 1 ? ARGS[1] :
     "a red fox sitting in a snowy forest at sunrise, photorealistic"
 const OUTPUT = length(ARGS) >= 2 ? ARGS[2] : "qwenimage21.ppm"
-const STEPS = parse(Int, get(ENV, "QWENIMAGE21_STEPS", "20"))
-const SIZE = parse(Int, get(ENV, "QWENIMAGE21_SIZE", "1024"))
-const SEED = parse(Int, get(ENV, "QWENIMAGE21_SEED", "42"))
+
+"""`QWENIMAGE21_SIZE` as `(width, height)`: one number is a square."""
+function parsesize(s::AbstractString)
+    parts = split(lowercase(s), 'x')
+    length(parts) in (1, 2) || throw(ArgumentError("QWENIMAGE21_SIZE is `1024` or `WIDTHxHEIGHT`, got $s"))
+    w = parse(Int, parts[1])
+    return (w, length(parts) == 2 ? parse(Int, parts[2]) : w)
+end
 
 """Write `(w, h, >=3)` Float32 in [0,1] as a binary PPM, RGB only."""
 function writeppm(path, rgb)
@@ -71,77 +80,26 @@ function writepam(path, rgba)
     path
 end
 
-backend = Mantle.LavaBackend()
-total = time()
+const WIDTH, HEIGHT = parsesize(get(ENV, "QWENIMAGE21_SIZE", "1024"))
+const STEPS = parse(Int, get(ENV, "QWENIMAGE21_STEPS", "40"))
+const SEED = parse(Int, get(ENV, "QWENIMAGE21_SEED", "42"))
 
 t0 = time()
-encoder = qwenimagetextencoder(; backend)
-prompt_embeds = encode_prompt(encoder, PROMPT)
-release!(encoder)
-println("prompt: $(size(prompt_embeds, 2)) embeddings in $(round(time() - t0, digits=1)) s")
+rgba = generate(PROMPT; width = WIDTH, height = HEIGHT, steps = STEPS, seed = SEED,
+                backend = Mantle.LavaBackend())
 
-# The latent grid this generation runs at. Needed BEFORE the denoiser is built:
-# a recorded plan binds the image axis, and the rotary tables need the height and
-# width separately — `i` alone cannot give them back, since 4096 tokens is 64x64
-# or 128x32 with nothing to tell them apart.
-#
-# Leaving it out bound the denoiser to the grid the export was TRACED at, which
-# is 1024², so every other `QWENIMAGE21_SIZE` died in `denoise!` with a
-# DimensionMismatch naming 4096 image tokens against however many this one has.
-const SIDE = SIZE ÷ QWEN_IMAGE_21.vae_scale_factor
-
-t0 = time()
-# The graph is generic in prompt length AND in the image axis; the recorded plan
-# binds both here, which is the only place either has to be known.
-transformer = qwenimagetransformer(; backend, context_tokens = size(prompt_embeds, 2),
-                                   latent = (SIDE, SIDE))
-println("denoiser ready in $(round(time() - t0, digits=1)) s")
-
-Random.seed!(SEED)
-tokens = image_sequence_length(SIZE, SIZE)
-channels = QWEN_IMAGE_21.latent_channels
-latents = DNNKernels.toback(backend, Float16.(randn(Float32, channels, tokens, 1)))
-embeds = DNNKernels.toback(backend, Float16.(prompt_embeds))
-timestep = DNNKernels.toback(backend, fill(Float16(0), 1))
-schedule = qwen_schedule(SIZE, SIZE; steps=STEPS)
-
-t0 = time()
-for i in 1:STEPS
-    fill!(timestep, convert(Float16, schedule.timesteps[i] / 1000f0))
-    DNNKernels.eulerstep!(latents, denoise!(transformer, latents, embeds, timestep),
-                schedule.sigmas[i], schedule.sigmas[i + 1])
-end
-Mantle.waitidle(Mantle.todevice(backend))
-denoised = Array(latents)
-println("denoise: $(round(time() - t0, digits=1)) s for $STEPS steps " *
-        "($(round((time() - t0) / STEPS, digits=2)) s/step)")
-latents = embeds = timestep = nothing
-release!(transformer)
-
-t0 = time()
-vae = qwenimagevae(; backend)
-grid = unpacklatents(denoised, SIDE, SIDE)
-image = Array(decode!(vae, DNNKernels.toback(backend,
-    reshape(Float16.(grid), SIDE, SIDE, 1, channels, 1))))
-println("decode: $(round(time() - t0, digits=1)) s")
-
-# The decoder returns RGBA in [-1, 1] and the fourth channel is a REAL matte,
-# not a formality: ask for a transparent background and it comes back soft-edged
-# with the background at -1, which is the model doing the cut-out for you. Ask
-# for an opaque one — "plain white seamless background" — and it is 1.0
-# everywhere. So the image is written as RGBA whenever the alpha says anything,
-# and as RGB when it does not.
-#
-# This needs the fp32 VAE that ships since 2026-09-26; the fp16 one decoded a
-# transparent background to NaN. See `test/test_transparency.jl`.
-rgba = Float32.(image[:, :, 1:4, 1]) ./ 2f0 .+ 0.5f0
+# The fourth channel is a REAL matte, not a formality: ask for a transparent
+# background and it comes back soft-edged with the background at 0, which is the
+# model doing the cut-out for you. Ask for an opaque one — "plain white seamless
+# background" — and it is 1.0 everywhere. So the image is written as RGBA
+# whenever the alpha says anything, and as RGB when it does not.
 alpha = @view rgba[:, :, 4]
 if all(>=(0.999f0), alpha)
     writeppm(OUTPUT, rgba)
-    println("wrote $OUTPUT in $(round(time() - total, digits=1)) s total")
+    println("wrote $OUTPUT ($(size(rgba, 1))x$(size(rgba, 2))) in $(round(time() - t0, digits=1)) s")
 else
     out = replace(OUTPUT, r"\.ppm$" => "") * ".pam"
     writepam(out, rgba)
     println("alpha is not opaque (min $(round(minimum(alpha), digits=3))): wrote $out, RGBA, " *
-            "in $(round(time() - total, digits=1)) s total")
+            "$(size(rgba, 1))x$(size(rgba, 2)), in $(round(time() - t0, digits=1)) s")
 end

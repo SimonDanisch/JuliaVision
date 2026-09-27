@@ -166,3 +166,4 @@ end
 # The decoder holds a Model and plans per grid; there is no unplanned path left.
 include(joinpath(@__DIR__, "test_vae_plans.jl"))
 include(joinpath(@__DIR__, "test_transparency.jl"))
+include(joinpath(@__DIR__, "test_prompt_and_size.jl"))
