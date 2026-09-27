@@ -2236,7 +2236,13 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("index.Tensor")})
         size(x) isa NTuple{length(od),Int} || error(
             "DNNKernels: `index.Tensor` (op $(op.id)) is separable, so its " *
             "output has the input's rank $(ndims(x)) and holds $(length(od)).")
-        M.dispatch!(emitctx.g, indexgather!, (out, od, x, size(x), idxs, Tuple(dims)),
+        prod(od) <= typemax(UInt32) || error(
+            "DNNKernels: `index.Tensor` (op $(op.id)) writes $(prod(od)) elements, " *
+            "past the 32-bit flat index `indexgather!` decomposes.")
+        I = length(x) <= typemax(Int32) ? Int32 : Int
+        M.dispatch!(emitctx.g, indexgather!,
+                    (out, map(M.FastDiv32, od), prod(od), x, map(I, colstrides(size(x))),
+                     idxs, Tuple(dims)),
                     prod(od); name = op.id)
     else
         length(dims) == n || error(
@@ -2470,10 +2476,10 @@ rather than one because a kernel writes one element per thread and these are two
 tensors; the scan is repeated, which is the same trade `runop!` made and is one
 extra read of the reduced axis.
 
-The index is torch's, so 0-based, and it comes back in the VALUES' element type —
-that is `maxdim_body`'s choice and it is what the declared buffer's dtype says
-too. `destor` for the indices, because a graph that reads only the maximum
-declares no buffer for them and the kernel writes them anyway.
+The index is torch's, so 0-based, and it is stored in whatever the indices buffer
+holds: int64 where the graph declares torch's, the values' element type where it
+declares none. `destor` for the indices, because a graph that reads only the
+maximum declares no buffer for them and the kernel writes them anyway.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max.dim")})
     a = operand(emitctx, op, 1)
@@ -4060,7 +4066,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         # one — `hoistpermutes` resolved those at build.
         Mm, N, K = size(out, 1), size(out, 2), size(A, 2)
         # The split-K GEMV's planes, declared rather than allocated.
-        S = N == 1 ? M.gemv_split(Mm, K) : 1
+        S = N == 1 ? M.gemv_split(out, A, B, Mm, K) : 1
         parts = S > 1 ? scratch(emitctx, Float32, Mm, 1, S) : nothing
         M.scalar_gemm_dispatch!(emitctx.g, out, A, B, Mm, N, K,
                                 one(eltype(out)), zero(eltype(out));
@@ -4667,7 +4673,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
             Val(KWk), Val(KHk),
             Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
             Val(dil[1]), Val(dil[2]),
-            Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn)
+            map(convindex(out, x, w), (Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn))...)
     # `bias` is passed as `nothing` when there is none, rather than omitted: the
     # kernel branches on `bias === nothing` at compile, and `nothing` is a
     # zero-size argument the compiled kernel has no parameter for

@@ -32,6 +32,9 @@ end
 function randomfill_kernel!(out, state,
                                                ::Val{NORMAL}) where {NORMAL}
     i = KI.get_global_id().x
+    # The bounds check `@kernel` used to insert: the launch is whole workgroups,
+    # and a noise tensor's length need not be a multiple of one.
+    i <= length(out) || return nothing
     @inbounds begin
         key = state[1]
         x = rngmix32(xor(key, UInt32(i) * UInt32(0x85ebca6b)))
@@ -255,14 +258,14 @@ time. Both signatures are typed identically so `Tuple{}` is strictly more
 specific — untyped trailing arguments make the two AMBIGUOUS, which inside a
 kernel is a `jl_f_throw_methoderror` reported as "method lookup failure".
 """
-@inline srccoord(::Tuple{}, ::Tuple{}, k::Int, c::Int) = c
-@inline function srccoord(idxs::Tuple, dims::Tuple, k::Int, c::Int)
-    first(dims) == k && return Int(@inbounds first(idxs)[c + 1])
+@inline srccoord(::Tuple{}, ::Tuple{}, k::Int, c::I) where {I<:Integer} = c
+@inline function srccoord(idxs::Tuple, dims::Tuple, k::Int, c::I) where {I<:Integer}
+    first(dims) == k && return (@inbounds first(idxs)[c + one(I)]) % I
     return srccoord(Base.tail(idxs), Base.tail(dims), k, c)
 end
 
 """
-    indexgather!(out, od, x, xd, idxs, dims)
+    indexgather!(out, od, n, x, xst, idxs, dims)
 
 `out = x[..., idxs[1], ..., idxs[2], ...]` where the index tensors form an OUTER
 PRODUCT over the axes they index — the separable case, and the only one Julia's
@@ -270,21 +273,25 @@ PRODUCT over the axes they index — the separable case, and the only one Julia'
 
 `out` has `x`'s rank with each indexed axis replaced by that index's length, so
 one linear pass over `out` decomposes into output coordinates and each one maps
-through `srccoord`.
+through `srccoord`. `od` is `out`'s extents as `Mantle.FastDiv32`, `n` their
+product, and `xst` `x`'s column strides in the integer type the source offset
+is formed in (`Int32` when `x` fits).
 """
-function indexgather!(out, od::NTuple{N,Int}, x, xd::NTuple{N,Int},
-                      idxs::Tuple, dims::Tuple) where {N}
+function indexgather!(out, od::NTuple{N,Mantle.FastDiv32}, n::Integer, x,
+                      xst::NTuple{N,I}, idxs::Tuple, dims::Tuple) where {N,I<:Integer}
+    # 64-bit `%` and `÷` by a runtime extent, four of each per element, were this
+    # kernel's whole cost on RADV, which expands a 64-bit division in software:
+    # the Qwen-Image 2.1 VAE's 2x upsample of 512x512x288 (`index_3`) took 94 ms
+    # there and 16.5 on ROCm. `cart32` is a multiply-high and a shift per axis,
+    # and the offset in `Int32` is 12 ms on RADV.
     i = KI.get_global_id().x
-    i <= prod(od) || return
-    xst = colstrides(xd)
-    off = 0
-    r = i - 1
+    i <= n || return
+    c = Mantle.cart32(UInt32(i) - UInt32(1), od)
+    off = zero(I)
     @inbounds for k in 1:N
-        c = r % od[k]
-        r = r ÷ od[k]
-        off += srccoord(idxs, dims, k, c) * xst[k]
+        off += srccoord(idxs, dims, k, (c[k] - 1) % I) * xst[k]
     end
-    @inbounds out[i] = x[off + 1]
+    @inbounds out[i] = x[off + one(I)]
     return
 end
 

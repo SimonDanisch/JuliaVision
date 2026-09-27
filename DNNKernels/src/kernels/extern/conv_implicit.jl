@@ -56,6 +56,16 @@ const CONV_SHAPE_32x256  = ( 32, 256, 16, 256, 8, 4)
 const CONV_SHAPE_64x128  = ( 64, 128, 16, 256, 8, 4)
 
 """
+    convindex(out, x, w) -> Int32 or Int64
+
+The integer type `conv2d_igemm_ki!` computes its indices in: `Int32` when every
+linear offset it forms fits, which is every convolution short of an 8 GiB fp32
+operand. The kernel's note says what `Int64` costs.
+"""
+convindex(out, x, w) =
+    max(length(out), length(x), length(w)) <= typemax(Int32) ? Int32 : Int64
+
+"""
     convtiles(K, NPQ; cores) -> (BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ)
 
 Block shape for a `K x NPQ` output, ported from `ggml_vk_conv_select_shape`
@@ -175,13 +185,14 @@ function convolution_igemm!(ctx, out, x, w, bias, stride, padding, dilation; act
     kact = (splitk == 1 && act === :relu) ? :relu : :none
     # `conv2d_igemm_ki!` from `kernels/conv_igemm.jl`, which is this kernel: the
     # declared path in `emit.jl` dispatches the same function.
+    I = convindex(out, x, w)
     harnesslaunch!(backend, conv2d_igemm_ki!,
         acc, x, w, bias, Val(accum(eltype(x))), Val(splitk), Val(kact),
         Val(BS_K), Val(BS_CRS), Val(BS_NPQ), Val(TS_K), Val(TS_NPQ),
         Val(KWk), Val(KHk),
         Val(stride[1]), Val(stride[2]), Val(padding[1]), Val(padding[2]),
         Val(dilation[1]), Val(dilation[2]),
-        Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn;
+        map(I, (Cin, Cout, Wid, Hei, OW, OH, NPQ, CRS, nbn))...;
         ndrange = (nbk * WG, nbn * splitk), workgroupsize = (WG, 1))
     if acc !== out
         act === :relu ? (out .= max.(acc, zero(eltype(acc)))) : (out .= acc)

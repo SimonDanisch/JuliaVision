@@ -151,3 +151,71 @@ end
         @test x[vec(r), vec(c), :] == torchindex(x, [1, 2], [r, c], (1, 3))
     end
 end
+
+# ── The separable gather on the device ─────────────────────────────────────────
+#
+# Everything above is the routing. This runs `indexgather!`, which until
+# 2026-09-26 decomposed each output index with 64-bit `%` and `÷` by runtime
+# extents: RADV expands a 64-bit division in software, and the Qwen-Image 2.1
+# VAE's 2x upsample of 512x512x288 took 94 ms there against 16.5 on ROCm. It is
+# `Mantle.cart32` over `FastDiv32` extents with the source offset in `Int32` now,
+# 12 ms, and these cases pin the answer on every backend.
+import Mantle
+
+"Emit one `index.Tensor` gathering `x` by `idxs` (torch-order `spec`) on `dev`, run it."
+function devicegather(dev, x, idxs::Dict, spec, od)
+    g = Mantle.Graph(dev)
+    res = Dict{String,Any}("x" => Mantle.Buffer(dev, x), "y" => Mantle.Buffer(dev, eltype(x), od))
+    for (k, v) in idxs
+        res[k] = Mantle.Buffer(dev, v)
+    end
+    op = DK.Op("y", "index.Tensor", vcat(["x"], collect(keys(idxs))), "y",
+               Dict{String,Any}("arg1" => spec))
+    emitctx = DK.EmitCtx(DK.Graph("y", String[], String[], String[],
+                                  Dict{String,DK.Buffer}(), String[], DK.Op[],
+                                  Vector{Vector{String}}()),
+                         g, dev, NamedTuple(), res, Set{String}(), Ref("y"), Any[],
+                         Dict{String,Any}())
+    DK.emitop!(emitctx, op, Val(Symbol("index.Tensor")))
+    plan = Mantle.Plan(g)
+    Mantle.record!(plan)
+    gathers = [d for pp in plan.passes for d in pp.pass.dispatches if d.kernel === DK.indexgather!]
+    Mantle.run!(plan)
+    Mantle.waitidle(dev)
+    got = Array(Mantle.storage(res["y"]))
+    Mantle.free!(plan)
+    foreach(Mantle.free!, values(res))
+    return got, gathers
+end
+
+function devicegathers(be)
+    dev = Mantle.todevice(be)
+    @testset "the separable gather on $(nameof(typeof(dev)))" begin
+        # A 2x nearest upsample, as the VAE declares it: torch's `x[:, :, ih[:, None], iw]`,
+        # so Julia dim 1 by `iw` and dim 2 by `ih`, which is shaped (1, 8).
+        x = rand(Float32, 5, 4, 3, 2)
+        iw = collect(0:9) .÷ 2
+        ih = reshape(collect(0:7) .÷ 2, 1, 8)
+        got, gathers = devicegather(dev, x, Dict("iw" => iw, "ih" => ih),
+                                    Any[nothing, nothing, "\$ih", "\$iw"], (10, 8, 3, 2))
+        @test got == x[iw .+ 1, vec(ih) .+ 1, :, :]
+        @test length(gathers) == 1
+        # The source offset is formed in `Int32` when `x` fits, and the output
+        # coordinates come from `FastDiv32`, not a 64-bit division.
+        @test only(gathers).args[5] isa NTuple{4,Int32}
+        @test only(gathers).args[2] isa NTuple{4,Mantle.FastDiv32}
+
+        # One index, on a middle axis, repeating and out of order.
+        x = rand(Float32, 6, 5, 4, 2)
+        i = [3, 0, 2, 2]
+        got, gathers = devicegather(dev, x, Dict("i" => i), Any[nothing, "\$i", nothing, nothing],
+                                    (6, 5, 4, 2))
+        @test got == x[:, :, i .+ 1, :]
+        @test length(gathers) == 1
+    end
+end
+
+let bes = Mantle.eachbackend()
+    isempty(bes) && @info "no usable backend; skipping the separable gather on the device"
+    foreach(devicegathers, bes)
+end

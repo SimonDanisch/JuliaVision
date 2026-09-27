@@ -62,6 +62,10 @@ stride/padding/dilation, all of which `convtiles` and the op choose at emit time
 so the body specialises on them. `ACC` is the accumulator and shared-memory
 element type and is a parameter rather than `accum(eltype(x))` computed in the
 body, because workgroup memory needs a static type.
+
+The index arithmetic runs in the integer type of the extents, and the caller
+passes `Int32` whenever every operand fits ([`convindex`](@ref)). See the note in
+the body for what `Int64` cost.
 """
 function conv2d_igemm_ki!(out, x, w, bias,
                           ::Val{ACC}, ::Val{SPLITK}, ::Val{ACT},
@@ -70,27 +74,44 @@ function conv2d_igemm_ki!(out, x, w, bias,
                           ::Val{KW}, ::Val{KH},
                           ::Val{SX}, ::Val{SY}, ::Val{PX}, ::Val{PY},
                           ::Val{DX}, ::Val{DY},
-                          Cin, Cout, Wid, Hei, OW, OH,
-                          NPQ, CRS, NBN) where {ACC,SPLITK,ACT,BS_K,BS_CRS,BS_NPQ,
-                                                TS_K,TS_NPQ,KW,KH,SX,SY,PX,PY,DX,DY}
+                          Cin::I, Cout::I, Wid::I, Hei::I, OW::I, OH::I,
+                          NPQ::I, CRS::I, NBN::I) where {ACC,SPLITK,ACT,BS_K,BS_CRS,BS_NPQ,
+                                                         TS_K,TS_NPQ,KW,KH,SX,SY,PX,PY,DX,DY,
+                                                         I<:Integer}
     T = eltype(out)
     A = ACC
+    # ── the index type ────────────────────────────────────────────────────
+    #
+    # Everything below is in `I`, the extents' type, constants included: one
+    # `Int64` literal promotes the whole expression back. With `Int64` the Qwen-
+    # Image 2.1 VAE's `convolution_37` (3x3, 288 -> 288, 1024x1024, fp32) compiled
+    # on RADV to 125,360 instructions and 256 VGPRs at 4 waves per SIMD, and ran
+    # in 1585 ms: every `÷` by a runtime extent is a 64-bit division, which the
+    # driver expands in software to roughly 900 instructions, and the 64-bit
+    # addresses held two registers each across the reduction loop. In `Int32`,
+    # with the write-back below decomposing each column once, it is 4,474
+    # instructions, 156 VGPRs at 8 waves, and 335 ms. The same change on ROCm,
+    # where LLVM already bypasses a 64-bit division whose operands fit in 32 bits,
+    # is 363 -> 280 ms. Outputs are bit-identical.
+    o = one(I)
+    z = zero(I)
 
-    NT_K = BS_K ÷ TS_K
-    NT_NPQ = BS_NPQ ÷ TS_NPQ
+    NT_K = I(BS_K ÷ TS_K)
+    NT_NPQ = I(BS_NPQ ÷ TS_NPQ)
     WG = NT_K * NT_NPQ
-    ArpWg = WG ÷ BS_CRS
-    BrpWg = max(WG ÷ BS_NPQ, 1)
-    Ash_stride = BS_CRS + 4
-    Bsh_stride = BS_NPQ + 4
-    nblk = cld(CRS, BS_CRS)
+    ArpWg = WG ÷ I(BS_CRS)
+    BrpWg = max(WG ÷ I(BS_NPQ), o)
+    Ash_stride = I(BS_CRS + 4)
+    Bsh_stride = I(BS_NPQ + 4)
+    KWKH = I(KW * KH)
+    nblk = cld(CRS, I(BS_CRS))
     # Split-K: the reduction is divided over SPLITK workgroups, which is the only
     # way to get both a large thread tile (arithmetic intensity) and enough
     # workgroups to fill the device. This model's dominant convolution is
     # 256 output channels over 120 pixels with a 2304-deep reduction: output
     # tiling alone yields 16 workgroups on 48 SMs, and shrinking the tile to get
     # more drops the MAC:load ratio from 16:8 to 2:3.
-    blkper = cld(nblk, SPLITK)
+    blkper = cld(nblk, I(SPLITK))
 
     # +4 on the minor extent staggers rows across banks; without it every thread
     # in a pass hits the same bank on the A load.
@@ -105,69 +126,79 @@ function conv2d_igemm_ki!(out, x, w, bias,
 
     # The workgroup is `(WG, 1)`, so the first component of the local id is the
     # linear one. Computed once: a register survives a barrier.
-    tid = KI.get_local_id().x - 1
-    bk = KI.get_group_id().x
-    gn = KI.get_group_id().y
+    tid = (KI.get_local_id().x - 1) % I
+    bk = KI.get_group_id().x % I
+    gn = KI.get_group_id().y % I
     # the second grid axis carries both the NPQ block and the split index
-    bnpq = (gn - 1) % NBN + 1
-    ksplit = (gn - 1) ÷ NBN
-    B_idx_K = (bk - 1) * BS_K
-    B_idx_NPQ = (bnpq - 1) * BS_NPQ
-    Ar = tid ÷ BS_CRS
-    Ac = tid % BS_CRS
-    Br = tid ÷ BS_NPQ
-    Bc = tid % BS_NPQ
+    bnpq = (gn - o) % NBN + o
+    ksplit = (gn - o) ÷ NBN
+    B_idx_K = (bk - o) * I(BS_K)
+    B_idx_NPQ = (bnpq - o) * I(BS_NPQ)
+    Ar = tid ÷ I(BS_CRS)
+    Ac = tid % I(BS_CRS)
+    Br = tid ÷ I(BS_NPQ)
+    Bc = tid % I(BS_NPQ)
     T_y = tid ÷ NT_NPQ
     T_x = tid % NT_NPQ
+
+    # The column a thread stages into B is the same on every block of the
+    # reduction, so it is decomposed once, here, and not per staging pass.
+    npq_b = B_idx_NPQ + Bc
+    n_b = npq_b ÷ (OH * OW)
+    r_b = npq_b - n_b * OH * OW
+    oh_b = r_b ÷ OW
+    ow_b = r_b - oh_b * OW
+    ix0 = ow_b * I(SX) - I(PX)
+    iy0 = oh_b * I(SY) - I(PY)
+    xbase = Wid * Hei * Cin * n_b
+    npq_ok = npq_b < NPQ
 
     # All 64, not only the ones inside the tile: the `if i <= TS_K` guards below
     # fold away at compile time, but the name still has to be bound for the
     # body to lower. The unused ones are dead stores the optimiser drops.
     Base.Cartesian.@nexprs 8 j -> Base.Cartesian.@nexprs 8 i -> acc_i_j = zero(A)
 
-    for bb in 0:(blkper - 1)
+    bb = z
+    while bb < blkper
         # Blocks past the end make `crs_a`/`crs_b` exceed CRS, so the bounds
         # guards below already stage zeros. The trip count stays uniform, which
         # a workgroup barrier requires: every thread has to reach every one.
         b_crs = ksplit * blkper + bb
 
         # ── stage A (the kernel), BS_K x BS_CRS ───────────────────────────
+        #
+        # Linear offsets rather than four subscripts: an N-d index is widened
+        # to `Int` by the array, which is the 64-bit arithmetic this avoids.
         @inbounds begin
-            crs_a = b_crs * BS_CRS + Ac
-            cin_a = crs_a ÷ (KW * KH)
-            rem_a = crs_a % (KW * KH)
-            kh_a = rem_a ÷ KW
-            kw_a = rem_a % KW
-            r = 0
-            while r < BS_K
+            crs_a = b_crs * I(BS_CRS) + Ac
+            cin_a = crs_a ÷ KWKH
+            rem_a = crs_a - cin_a * KWKH
+            kh_a = rem_a ÷ I(KW)
+            kw_a = rem_a - kh_a * I(KW)
+            wlin = kw_a + I(KW) * (kh_a + I(KH) * cin_a)
+            r = z
+            while r < I(BS_K)
                 ky = r + Ar
                 kidx = B_idx_K + ky
-                Ash[ky * Ash_stride + Ac + 1] = (kidx < Cout && crs_a < CRS) ?
-                    A(w[kw_a + 1, kh_a + 1, cin_a + 1, kidx + 1]) : zero(A)
+                Ash[ky * Ash_stride + Ac + o] = (kidx < Cout && crs_a < CRS) ?
+                    A(w[wlin + KWKH * Cin * kidx + o]) : zero(A)
                 r += ArpWg
             end
 
             # ── stage B (the input), BS_CRS x BS_NPQ, gathered by im2col ───
-            r = 0
-            while r < BS_CRS
+            r = z
+            while r < I(BS_CRS)
                 by = r + Br
-                npq = B_idx_NPQ + Bc
-                n_idx = npq ÷ (OH * OW)
-                npqr = npq - n_idx * OH * OW
-                oh = npqr ÷ OW
-                ow = npqr - oh * OW
-
-                crs_b = b_crs * BS_CRS + by
-                cin_b = crs_b ÷ (KW * KH)
-                rem_b = crs_b % (KW * KH)
-                kh_b = rem_b ÷ KW
-                kw_b = rem_b % KW
-
-                ix = ow * SX - PX + kw_b * DX
-                iy = oh * SY - PY + kh_b * DY
-                inb = (0 <= ix < Wid) && (0 <= iy < Hei) && npq < NPQ && crs_b < CRS
-                Bsh[by * Bsh_stride + Bc + 1] =
-                    inb ? A(x[ix + 1, iy + 1, cin_b + 1, n_idx + 1]) : zero(A)
+                crs_b = b_crs * I(BS_CRS) + by
+                cin_b = crs_b ÷ KWKH
+                rem_b = crs_b - cin_b * KWKH
+                kh_b = rem_b ÷ I(KW)
+                kw_b = rem_b - kh_b * I(KW)
+                ix = ix0 + kw_b * I(DX)
+                iy = iy0 + kh_b * I(DY)
+                inb = (z <= ix < Wid) && (z <= iy < Hei) && npq_ok && crs_b < CRS
+                Bsh[by * Bsh_stride + Bc + o] =
+                    inb ? A(x[xbase + ix + Wid * (iy + Hei * cin_b) + o]) : zero(A)
                 r += BrpWg
             end
         end
@@ -180,11 +211,11 @@ function conv2d_igemm_ki!(out, x, w, bias,
         # T_x, T_x+NT_NPQ, ... rather than a contiguous run of TS_NPQ. Blocked
         # ownership makes neighbouring threads read TS_NPQ apart, which is a
         # TS_NPQ-way shared-memory bank conflict — measurably fatal at TS_NPQ=8.
-        @inbounds for k in 0:(BS_CRS - 1)
+        @inbounds for k in z:I(BS_CRS - 1)
             Base.Cartesian.@nexprs 8 i -> a_i = i <= TS_K ?
-                Ash[(T_y + (i - 1) * NT_K) * Ash_stride + k + 1] : zero(A)
+                Ash[(T_y + I(i - 1) * NT_K) * Ash_stride + k + o] : zero(A)
             Base.Cartesian.@nexprs 8 j -> b_j = j <= TS_NPQ ?
-                Bsh[k * Bsh_stride + T_x + (j - 1) * NT_NPQ + 1] : zero(A)
+                Bsh[k * Bsh_stride + T_x + I(j - 1) * NT_NPQ + o] : zero(A)
             # The guard belongs on the multiply-add, not just the operand loads.
             # Zeroing a_i/b_j past the tile gives the right answer but still
             # issues all 64 FMAs; TS_K/TS_NPQ are static, so this `if` folds.
@@ -196,32 +227,35 @@ function conv2d_igemm_ki!(out, x, w, bias,
         end
 
         KI.barrier()
+        bb += o
     end
 
     # ── write back ────────────────────────────────────────────────────────
-    @inbounds Base.Cartesian.@nexprs 8 i -> begin
-        if i <= TS_K
-            kidx = B_idx_K + T_y + (i - 1) * NT_K
-            if kidx < Cout
-                bv = bias === nothing ? zero(A) : A(bias[kidx + 1])
-                Base.Cartesian.@nexprs 8 j -> begin
-                    if j <= TS_NPQ
-                        npq = B_idx_NPQ + T_x + (j - 1) * NT_NPQ
-                        if npq < NPQ
-                            n_idx = npq ÷ (OH * OW)
-                            npqr = npq - n_idx * OH * OW
-                            oh = npqr ÷ OW
-                            ow = npqr - oh * OW
-                            if SPLITK == 1
-                                v = acc_i_j + bv
-                                ACT === :relu && (v = max(v, zero(v)))
-                                out[ow + 1, oh + 1, kidx + 1, n_idx + 1] = T(v)
-                            else
-                                # partial sums from each split accumulate; the
-                                # graph pre-fills the bias so it is added once
-                                Atomix.@atomic out[ow + 1, oh + 1, kidx + 1,
-                                                   n_idx + 1] += T(acc_i_j)
-                            end
+    #
+    # Columns outside, rows inside: a column's `(n, oh, ow)` is decomposed once
+    # and not once per row. The other nesting put the two divisions inside
+    # sixty-four separately guarded blocks, which no pass merges.
+    OHW = OH * OW
+    @inbounds Base.Cartesian.@nexprs 8 j -> begin
+        if j <= TS_NPQ
+            npq_j = B_idx_NPQ + T_x + I(j - 1) * NT_NPQ
+            n_j = npq_j ÷ OHW
+            # `ow + OW * oh` is the remainder itself, so it needs no division.
+            obase_j = (npq_j - n_j * OHW) + OHW * Cout * n_j
+            ok_j = npq_j < NPQ
+            Base.Cartesian.@nexprs 8 i -> begin
+                if i <= TS_K
+                    kidx = B_idx_K + T_y + I(i - 1) * NT_K
+                    if kidx < Cout && ok_j
+                        bv = bias === nothing ? zero(A) : A(bias[kidx + o])
+                        if SPLITK == 1
+                            v = acc_i_j + bv
+                            ACT === :relu && (v = max(v, zero(v)))
+                            out[obase_j + OHW * kidx + o] = T(v)
+                        else
+                            # partial sums from each split accumulate; the
+                            # graph pre-fills the bias so it is added once
+                            Atomix.@atomic out[obase_j + OHW * kidx + o] += T(acc_i_j)
                         end
                     end
                 end
