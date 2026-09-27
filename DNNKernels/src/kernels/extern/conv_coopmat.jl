@@ -54,6 +54,13 @@ ported into those tuned variants rather than a fresh basic kernel, and on this
 evidence it would still only win where `Cout` is small. `plans/perf-plan.md`
 has the full table and the four hypotheses tested along the way.
 
+**It wins everywhere once the column block is as wide as `Cout`** (2026-09-27).
+The gather ported into the prefetch schedule, at a 192 x 144 or 96 x 288 block
+of twelve subgroups (`Mantle.CONV_GATHER_TILINGS`), gathers each element once
+per 144 or 288 output channels and multiplies no padded column, and it beats
+im2col and GEMM by 1.2x to 2.2x on every VAE shape but the smallest, bit for
+bit. [`convgather_wide`](@ref) is that path; the table is on the tilings.
+
 Materialising it is cheap here. The reduction extent `CRS = Cin*KH*KW` is large
 and the pixel count `NPQ = N*OH*OW` small (the dominant layer is 15x8), so the
 im2col matrix for that layer is 553 KB; writing and re-reading it costs a few
@@ -290,6 +297,13 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     # at once used to fall to the implicit-GEMM kernel at ~1 TFLOP/s; the
     # Qwen-Image 2.1 VAE has twenty-seven of those and they are 12.96 s of a
     # 16.0 s decode, against 19-22 TFLOP/s for the eighteen that fit.
+    #
+    # Before any of that, the gather as wide as the output channels, which has
+    # no im2col at all and pads no column. See `convgather_wide`.
+    if gather !== false
+        wide = convgather_wide(dev, NPQ, CRS, CRSP, Cout, im2colcap; force = gather === true)
+        wide === nothing || return wide
+    end
     rows = im2colcap ÷ (CRSP * sizeof(Float16))
     rows = min(NPQ, (rows ÷ GEMM_BLOCK) * GEMM_BLOCK)
     # One M-block is the floor: below it there is no chunk to take, and a
@@ -313,9 +327,76 @@ function conv_coopmat_plan(dev::M.DeviceCaps, ::Type{Tx}, ::Type{Tw},
     even = cld(cld(NPQ, nchunk), GEMM_BLOCK) * GEMM_BLOCK
     even <= rows && cld(NPQ, even) == nchunk && (rows = even)
     CoutP = convcoutpad(padgemm(rows), Cout, CRSP)
+    narrow = gather === nothing ? convgather_worth(padgemm(rows), CoutP, CRSP) : gather
     ConvCoopMatPlan(CRS, CRSP, Cout, CoutP, NPQ, rows,
-                    gather === nothing ?
-                        convgather_worth(padgemm(rows), CoutP, CRSP) : gather)
+                    narrow ? convgather_tiling(padgemm(rows), CoutP, CRSP) : nothing)
+end
+
+"""
+    planmp(plan) -> Int
+
+The row count of one chunk's GEMM: `plan.rows` rounded up to what the tiling
+divides. [`GEMM_BLOCK`](@ref) for a materialised im2col, which some plain tiling
+always divides, and the gathering tiling's own block height otherwise, because
+`CONV_GATHER_TILINGS`' 96 and 192 do not divide 128.
+"""
+planmp(plan::ConvCoopMatPlan) = plan.gathertiling === nothing ? padgemm(plan.rows) :
+    cld(plan.rows, Mantle.gemm_bm(plan.gathertiling)) * Mantle.gemm_bm(plan.gathertiling)
+
+"""
+The gathering tiling as wide as `Cout` allows, from `Mantle.CONV_GATHER_TILINGS`:
+288 columns where they divide `Cout`, else 144, else `nothing`. `CRSP` has to be
+a multiple of their `BK`.
+"""
+function convgather_widetiling(Cout::Int, CRSP::Int)
+    for t in sort(Mantle.CONV_GATHER_TILINGS; by = t -> -Mantle.gemm_bn(t))
+        Cout % Mantle.gemm_bn(t) == 0 && CRSP % Mantle.gemm_bk(t) == 0 && return t
+    end
+    return nothing
+end
+
+"""
+How many workgroups per shader core a chunk of the wide gather must launch.
+
+Measured with the 96 x 288 block at `1152 -> 1152`: over 64x64 it launches 172
+workgroups on the 8060S's 40 cores, 4.3 each, and loses (6.21 ms against 5.55 for
+im2col and GEMM); over 128x128 it launches 684, 17 each, and wins (22.2 against
+34.2). Eight is between the two, and a tuning line rather than a vendor switch:
+the mechanism, a block of twelve subgroups that the device cannot fill with
+enough of them, is the same anywhere.
+"""
+const CONVGATHER_MINGROUPS = 8
+
+"""
+    convgather_wide(dev, NPQ, CRS, CRSP, Cout, cap; force) -> ConvCoopMatPlan | nothing
+
+The convolution as a gather whose column block is all of `Cout`, or 288 columns
+of it: no im2col matrix, no padded output channel, and each A element gathered
+once per column block. Measured against im2col and GEMM on the Qwen-Image VAE's
+shapes it is 1.2x to 2.2x, bit-identical; the table is on
+`Mantle.CONV_GATHER_TILINGS`.
+
+The fp32 result of a chunk is the one scratch this path has, so `cap` bounds
+that the way it bounds the im2col matrix on the other path, and the chunks are
+spread evenly for the same reason. `force` skips only the workgroup count.
+"""
+function convgather_wide(dev::M.DeviceCaps, NPQ::Int, CRS::Int, CRSP::Int, Cout::Int,
+                         cap::Int; force::Bool = false)
+    t = convgather_widetiling(Cout, CRSP)
+    t === nothing && return nothing
+    bm = Mantle.gemm_bm(t)
+    rows = min(NPQ, (cap ÷ (Cout * sizeof(Float32)) ÷ bm) * bm)
+    rows >= bm || return nothing
+    nchunk = cld(NPQ, rows)
+    even = cld(cld(NPQ, nchunk), bm) * bm
+    even <= rows && cld(NPQ, even) == nchunk && (rows = even)
+    MP = cld(rows, bm) * bm
+    # The gathering kernel walks the whole reduction and writes one plane.
+    Mantle.coopmat_gemm_shape(MP, Cout, CRSP)[2] == 1 || return nothing
+    Mantle.gather_gemm_tiling(MP, Cout, CRSP, 1, 1; tiling = t) === nothing && return nothing
+    groups = (MP ÷ bm) * (Cout ÷ Mantle.gemm_bn(t))
+    force || groups >= CONVGATHER_MINGROUPS * dev.cores || return nothing
+    return ConvCoopMatPlan(CRS, CRSP, Cout, Cout, NPQ, rows, t)
 end
 
 """
@@ -990,12 +1071,13 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
     backend = ctx.backend
     # `rows` pixels at a time, which is `NPQ` whenever the whole matrix fits.
     ROWS = plan.rows
-    MP = padgemm(ROWS)
+    MP = planmp(plan)
+    gathering = plan.gathertiling !== nothing
 
     # Not allocated at all on the gathering path: the whole point is that this
     # buffer does not exist. `scratch!` hands out a shared arena, so reserving it
     # anyway would keep the arena at the size the materialised path needs.
-    col = plan.gather ? nothing : scratch!(ctx, Float16, MP, CRSP)
+    col = gathering ? nothing : scratch!(ctx, Float16, MP, CRSP)
 
     # Untouched when `CRS` is already on the tile AND the channels need no
     # widening, which is every convolution that took this path before — same
@@ -1016,10 +1098,10 @@ function convolution_coopmat!(ctx, out, plan::ConvCoopMatPlan, x, w, bias, strid
 
     for p0 in 0:ROWS:(NPQ - 1)
         npqc = min(ROWS, NPQ - p0)
-        if plan.gather
+        if gathering
             Mantle.coopmat_gemm!(C, x, B, MP, CoutP, CRSP; partials = C,
                                  reduce = false,
-                                 tiling = convgather_tiling(MP, CoutP, CRSP),
+                                 tiling = plan.gathertiling,
                                  aload = ConvGather(OW, OH, KW, KH, stride, padding,
                                                     dilation, Wid, Hei, Cin, npqc, p0))
         else

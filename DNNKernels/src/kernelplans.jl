@@ -519,8 +519,10 @@ struct ConvCoopMatPlan
     Cout::Int        # the weight's own output channels
     CoutP::Int       # …padded onto a column tile the staged GEMM has
     NPQ::Int
-    rows::Int        # pixels per im2col chunk; `NPQ` when it fits at once
-    gather::Bool     # read the image in the GEMM instead of materialising im2col
+    rows::Int        # pixels per chunk; `NPQ` when it fits at once
+    # The gathering kernel's tiling when the GEMM reads the image itself instead
+    # of a materialised im2col, `nothing` when it does not.
+    gathertiling::Union{Nothing,NTuple{6,Int}}
 end
 
 """

@@ -4350,9 +4350,11 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
     Wid, Hei = size(x, 1), size(x, 2)
     OW, OH, _, N = size(out)
     NPQ, ROWS = plan.NPQ, plan.rows
-    MP = padgemm(ROWS)
+    MP = planmp(plan)
     CRS, CRSP, CoutP = plan.CRS, plan.CRSP, plan.CoutP
-    col = scratch(emitctx, Float16, MP, CRSP)
+    # The gathering GEMM reads `x` itself, so there is no im2col to declare.
+    gathering = plan.gathertiling !== nothing
+    col = gathering ? nothing : scratch(emitctx, Float16, MP, CRSP)
     # The weight as a `(CRS, Cout)` matrix, zero-extended to `CRSP` rows and
     # `CoutP` columns where the plan padded the reduction axis or the output
     # channels. Two passes over 21 k elements for the stem, and they are the
@@ -4371,7 +4373,9 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
     # this is the recordable SIMD-group GEMM, which accumulates directly into fp32 —
     # so there is no split-K layout to construct and `splitk` is one, but everything
     # else about the chunked walk below is the same and it stays in the loop.
-    native = M.native_gemm_available(emitctx.dev, eltype(col), Float16, Float32)
+    # A gathering plan comes only from `CONV_GATHER_TILINGS` or the staged
+    # table, which exist where there is no native product.
+    native = !gathering && M.native_gemm_available(emitctx.dev, Float16, Float16, Float32)
     blk_split = native ? (nothing, 1) : M.coopmat_gemm_shape(MP, CoutP, CRSP)
     splitk = blk_split[2]
     C = scratch(emitctx, Float32, MP, CoutP, max(splitk, 1))
@@ -4383,26 +4387,37 @@ function emitconvcoopmat!(emitctx::EmitCtx, op::Op, plan::ConvCoopMatPlan,
         p0 = c * ROWS
         npqc = min(ROWS, NPQ - p0)
         sfx = nchunk == 1 ? "" : ".$(c + 1)"
-        # `IM2COL_VEC` rows a thread, the same as the immediate path takes —
-        # this is the DECLARED copy of that launch and the two have to agree on
-        # the kernel's signature, not merely on its arguments.
-        vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
-        M.dispatch!(emitctx.g, im2col_kernel!,
-                    (col, x, Val(MP), Val(vec),
-                     Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
-                     Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
-                     Val(OW), Val(OH),
-                     Wid, Hei, npqc, MP * CRSP, Cin, p0), cld(MP * CRSP, vec);
-                    name = "$(op.id).im2col$(sfx)")
-        if native
-            M.native_gemm_dispatch!(emitctx.dev, emitctx.g,
-                                    M.viewof(C, (MP, CoutP)), col, B;
-                                    name = "$(op.id).gemm$(sfx)") === nothing &&
-                error("native GEMM capability changed while declaring $(op.id)")
-        else
-            M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, CoutP, CRSP;
+        if gathering
+            # The GEMM computes each A element from `x` where the im2col kernel
+            # would have written it; `ConvGather` is that address rule.
+            M.coopmat_gemm_dispatch!(emitctx.g, C, x, B, MP, CoutP, CRSP;
                                      blk_split, partials = C, reduce = false,
+                                     tiling = plan.gathertiling,
+                                     aload = ConvGather(OW, OH, KWk, KHk, stride, pad, dil,
+                                                        Wid, Hei, Cin, npqc, p0),
                                      name = "$(op.id)$(sfx)")
+        else
+            # `IM2COL_VEC` rows a thread, the same as the immediate path takes —
+            # this is the DECLARED copy of that launch and the two have to agree
+            # on the kernel's signature, not merely on its arguments.
+            vec = MP % IM2COL_VEC == 0 ? IM2COL_VEC : 1
+            M.dispatch!(emitctx.g, im2col_kernel!,
+                        (col, x, Val(MP), Val(vec),
+                         Val(KWk), Val(KHk), Val(stride[1]), Val(stride[2]),
+                         Val(pad[1]), Val(pad[2]), Val(dil[1]), Val(dil[2]),
+                         Val(OW), Val(OH),
+                         Wid, Hei, npqc, MP * CRSP, Cin, p0), cld(MP * CRSP, vec);
+                        name = "$(op.id).im2col$(sfx)")
+            if native
+                M.native_gemm_dispatch!(emitctx.dev, emitctx.g,
+                                        M.viewof(C, (MP, CoutP)), col, B;
+                                        name = "$(op.id).gemm$(sfx)") === nothing &&
+                    error("native GEMM capability changed while declaring $(op.id)")
+            else
+                M.coopmat_gemm_dispatch!(emitctx.g, C, col, B, MP, CoutP, CRSP;
+                                         blk_split, partials = C, reduce = false,
+                                         name = "$(op.id)$(sfx)")
+            end
         end
         M.dispatch!(emitctx.g, conv_epilogue_kernel!,
                     (out, C, bias, Val(MP), Val(act), Val(splitk), Val(N),
