@@ -184,7 +184,10 @@ function toback(backend, A::RowCat)
     off = 0
     for p in A.parts
         rows = size(p, 1)
-        copyto!(view(d, (off + 1):(off + rows), :), M.storage(toback(backend, p)))
+        # The part's `Buffer` held across the copy: `storage` does not keep it
+        # alive, and a dropped `Buffer` retires its region from its finalizer.
+        pb = toback(backend, p)
+        GC.@preserve pb copyto!(view(d, (off + 1):(off + rows), :), M.storage(pb))
         off += rows
     end
     b

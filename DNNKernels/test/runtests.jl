@@ -141,6 +141,11 @@ include(joinpath(@__DIR__, "test_safesoftmax_attention.jl"))
 include(joinpath(@__DIR__, "test_convrot_q8.jl"))
 include(joinpath(@__DIR__, "test_conv_coopmat_chunk.jl"))
 include(joinpath(@__DIR__, "test_foldconvpad.jl"))
+include(joinpath(@__DIR__, "test_conv_igemm.jl"))
+include(joinpath(@__DIR__, "test_verify_weights.jl"))
+include(joinpath(@__DIR__, "test_maxdim.jl"))
+include(joinpath(@__DIR__, "test_logmel.jl"))
+include(joinpath(@__DIR__, "test_randomfill_tail.jl"))
 # Host-side gates a second backend exposed: which devices the matrix kernels are
 # for, and what a unary op does to an integer operand. Neither needs a device.
 include(joinpath(@__DIR__, "test_coopmat_gate.jl"))

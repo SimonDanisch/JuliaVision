@@ -117,8 +117,14 @@ function logmelspectrogram(backend, audio, filters;
     nb, nt = size(S)
     keep = droplast ? nt - 1 : nt
     mag = abs2.(view(S, :, 1:keep))                 # (nfreq, frames), real
-    F = toback(backend, filters)
-    mel = F * mag                                   # (nmels, frames)
+    # A host table uploads to a `Mantle.Buffer`, which is a resource and not an
+    # array, so `F * mag` had no method and Whisper's transcription stopped here.
+    # `storage` is the array over it, and it does NOT keep the `Buffer` alive: a
+    # dropped `Buffer` retires its region from its finalizer, and a GC between
+    # the upload and the multiply submitting would have it read retired memory.
+    # Held across the submit; retirement after that waits for the device.
+    Fb = toback(backend, filters)
+    mel = GC.@preserve Fb Mantle.storage(Fb) * mag  # (nmels, frames)
     ls = log10.(max.(mel, 1.0f-10))
     ls = max.(ls, maximum(ls) - 8.0f0)
     return (ls .+ 4.0f0) ./ 4.0f0
