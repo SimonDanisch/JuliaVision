@@ -1,9 +1,9 @@
 [qwenimage21]
-git-tree-sha1 = "038a01570be884f39155832f879911c6eb0af8b0"
+git-tree-sha1 = "4a6e7ce6af1ee46ecf0ae96f4243382f9ffe043d"
 lazy = true
 
     [[qwenimage21.download]]
-    sha256 = "5c3e5c0267b1cb618b0b84e2b001bd0a1958d6d96dd5ffd95844dae27b591c12"
+    sha256 = "67abbd1978e47dcd5ec8983b9b2dcf84644d2e0244977d65dd7a8c2437f29bab"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwenimage21.tar.gz"
 
 [qwenimage21-dit-w1]

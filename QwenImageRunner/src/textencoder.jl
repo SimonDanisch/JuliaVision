@@ -9,12 +9,23 @@ chat string, not on `apply_chat_template`'s rendering of one, and the leading
 system turn is dropped from the hidden states afterwards. Both come from
 `QwenImage21Pipeline._get_qwen_prompt_embeds`.
 
-**Right padding.** The exported graph is static at `prompt_tokens`, and the
-encoder is causal: position `i` reads nothing after it, so tokens appended past
-the prompt cannot change the rows we keep. One 64-token graph therefore serves
-every prompt up to that length, bit for bit. (The *denoiser* has no such freedom
-— its text stream is part of a joint attention — so its context length is bound
-to this prompt's embedding count at export.)
+**Right padding to a bucket.** The exported graph's length is its `t` symbol,
+from 2 up to the 14-token system turn plus the 1024 prompt tokens the denoiser
+takes. A plan is recorded per length, and its GEMMs are compiled for that
+length, so an exact plan per prompt would compile per prompt. The encoder is
+causal instead: position `i` reads nothing after it, so tokens appended past the
+prompt cannot change the rows we keep, and a prompt is padded up to the next of
+[`ENCODER_BUCKETS`](@ref) and runs that bucket's plan. Checked on a 143-token
+prompt at the 256 bucket: padding with a different token leaves the kept rows
+bit-identical. A different LENGTH is not bit-identical — the kernels are tiled for
+it — and moves them at fp16 rounding level, 0.3% rms between the exact length
+and the bucket. (The *denoiser* has no such freedom — its text stream is part of
+a joint attention — so its context length is bound to this prompt's embedding
+count.)
+
+It was static at 64 tokens until 2026-09-27, which after the system turn and
+the template left **42 tokens of prompt**. The reference pipeline truncates
+nothing.
 
 **The embedding table stays on the host.** It is 151936x4096 INT8 with a
 per-row scale, a fifth of the checkpoint, and a prompt reads forty rows of it.
@@ -144,12 +155,24 @@ end
 """The encoder graph's name, which is also its key in the `Model`."""
 const ENCODERGRAPH = "qwenimage21_text_encoder"
 
+"""
+The lengths the encoder is planned at, as far as the export allows: a prompt is
+right-padded to the first one it fits, and the export's own maximum takes
+anything longer. Five plans at most, so five compilations at most, against one
+per distinct prompt length; the price is at most twice the tokens, which at 64
+is nothing and at 512 is a fraction of a second.
+"""
+const ENCODER_BUCKETS = (64, 128, 256, 512)
+
 """A prepared Qwen3-VL text encoder: its `Model`, tokenizer and lengths."""
 struct QwenTextEncoder{B,M,C}
     backend::B
     model::M
     tokenizer::QwenTokenizer
-    tokens::Int
+    # The longest input the graph takes, system turn included. An export from
+    # before the length was a symbol takes exactly this many and no other.
+    maxtokens::Int
+    symbolic::Bool
     drop::Int
     # The checkpoint is kept, not the path it came from: `encode_prompt` reads
     # the embedding table out of it once per prompt, and re-opening five
@@ -178,18 +201,42 @@ function qwenimagetextencoder(; backend=Mantle.defaultbackend(),
     weights = compact_text_encoder_weights(graph; compact, constants_dir=dir)
     model = Model(Dict(ENCODERGRAPH => graph), weights; backend,
                   record_maxpasses = Dict(ENCODERGRAPH => Int(maxpasses)))
-    prepared = model.graphs[ENCODERGRAPH]
-    # `planahead!` and not a lazy first call: this is built once and the prompt
-    # is encoded once per image, so the compiling belongs here rather than
-    # inside the first encode. It builds the plan `call` would build, under the
-    # key `call` looks up. The graph is not symbolic — `dims = (;)` — so there
-    # is exactly one.
-    DNNKernels.planahead!(model, ENCODERGRAPH)
+    maxtokens, symbolic = encodertokens(dir)
+    # `planahead!` for the first bucket and not a lazy first call: this is built
+    # once and the prompt is encoded once per image, so the compiling belongs
+    # here rather than inside the first encode. It builds the plan `call` would
+    # build, under the key `call` looks up; a longer prompt plans its bucket
+    # when it arrives.
+    firstbucket = symbolic ? encoderbucket(1, maxtokens) : maxtokens
+    DNNKernels.planahead!(model, ENCODERGRAPH; dims = encoderdims(symbolic, firstbucket))
     tokenizer = QwenTokenizer(processor_dir)
-    tokens = Int(prepared.buffers[only(prepared.inputs)].shape[2])
     drop = length(encode(tokenizer, qwen_system_prefix()))
-    QwenTextEncoder(model.backend, model, tokenizer, tokens, drop, compact)
+    QwenTextEncoder(model.backend, model, tokenizer, maxtokens, symbolic, drop, compact)
 end
+
+"""
+    encodertokens(dir) -> (maxtokens, symbolic)
+
+The longest input the exported encoder takes and whether its length is a
+symbol, from `qwenimage21_text_encoder_export.json`. An export from before the
+symbol records a static `prompt_tokens`.
+"""
+function encodertokens(dir::AbstractString)
+    path = joinpath(dir, "qwenimage21_text_encoder_export.json")
+    isfile(path) || throw(ArgumentError("no Qwen-Image 2.1 text encoder metadata at $path"))
+    meta = JSON3.read(read(path, String))
+    haskey(meta, :token_symbol) ? (Int(meta.max_tokens), true) : (Int(meta.prompt_tokens), false)
+end
+
+"""The bucket an `n`-token input runs at: the first of `ENCODER_BUCKETS` it fits, else `maxtokens`."""
+function encoderbucket(n::Integer, maxtokens::Integer)
+    for b in ENCODER_BUCKETS
+        n <= b <= maxtokens && return b
+    end
+    return Int(maxtokens)
+end
+
+encoderdims(symbolic::Bool, tokens::Integer) = symbolic ? (; t = Int(tokens)) : (;)
 
 """
     encode_prompt(encoder, prompt) -> (hidden, tokens)
@@ -201,16 +248,20 @@ the denoiser must have been exported with.
 """
 function encode_prompt(encoder::QwenTextEncoder, prompt::AbstractString;
                        pad_token::Integer=151643)
-    ids = encode(encoder.tokenizer, qwen_prompt_template(prompt))
-    length(ids) <= encoder.tokens || throw(ArgumentError(
-        "prompt is $(length(ids)) tokens and the exported encoder holds " *
-        "$(encoder.tokens); re-export with " *
-        "`--component text_encoder --prompt-tokens $(length(ids))`"))
-    padded = vcat(ids, fill(Int(pad_token), encoder.tokens - length(ids)))
+    # The reference's own guard: Qwen has no BOS token, so an empty prompt would
+    # leave the encoder nothing of the user turn to read.
+    ids = encode(encoder.tokenizer, qwen_prompt_template(isempty(prompt) ? " " : prompt))
+    length(ids) <= encoder.maxtokens || throw(ArgumentError(
+        "prompt is $(length(ids) - encoder.drop) tokens with its template, and the " *
+        "exported encoder takes $(encoder.maxtokens - encoder.drop) after its " *
+        "$(encoder.drop)-token system turn; shorten it"))
+    tokens = encoder.symbolic ? encoderbucket(length(ids), encoder.maxtokens) : encoder.maxtokens
+    padded = vcat(ids, fill(Int(pad_token), tokens - length(ids)))
     embeddings = token_embeddings(padded; compact=encoder.compact)
     input = DNNKernels.toback(encoder.backend, reshape(embeddings, size(embeddings, 1),
                                                        size(embeddings, 2), 1))
-    hidden = first(DNNKernels.call(encoder.model, ENCODERGRAPH, input; dims = (;)))
+    hidden = first(DNNKernels.call(encoder.model, ENCODERGRAPH, input;
+                                   dims = encoderdims(encoder.symbolic, tokens)))
     # Causal attention: everything past `ids` is padding that no kept row read.
     kept = (encoder.drop + 1):length(ids)
     host = Array(hidden)

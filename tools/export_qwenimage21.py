@@ -43,6 +43,10 @@ ROOT = find_root()
 # encoder itself is capped at.
 QWEN_MAX_PROMPT_TOKENS = 1024
 
+# `QwenImage21Pipeline.sys_prompt`. The pipeline drops this turn's tokens from
+# the encoder's output, so the encoder has to hold them on top of the prompt.
+QWEN_SYSTEM_PROMPT = "Comprehend and analyze the provided prompt."
+
 # The image axis is a symbol too, and these are the bounds it is checked
 # against. One image token is a 16x16 pixel block, so the range is a 64x64
 # thumbnail up to 2048x2048 -- 16 to 16384 tokens. They are BOUNDS and not a
@@ -373,26 +377,31 @@ def export_transformer(module, args):
 
 
 class StaticRotary(torch.nn.Module):
-    """Qwen3-VL's rotary tables for one fixed prompt length, as constants.
+    """Qwen3-VL's rotary tables for every position up to a bound, as constants,
+    sliced to the prompt's length.
 
     The real module multiplies its inverse frequencies by the position ids and
-    recomposes the mRoPE sections; at a bound length that is a constant, and
-    computing it on CPU is what lets a meta-device export serialize it. Same
-    values as the module it replaces — they come *from* it.
+    recomposes the mRoPE sections. For text the three position streams are all
+    `0..T-1`, so the table for a shorter prompt is a PREFIX of the table for a
+    longer one: computing it once on CPU at the bound and slicing to the input's
+    length is the same values, and it is what lets a meta-device export
+    serialize it while the length stays a symbol.
     """
 
-    def __init__(self, rotary, position_ids, dtype):
+    def __init__(self, rotary, positions: int, dtype):
         super().__init__()
+        position_ids = torch.arange(positions).view(1, 1, positions).expand(3, 1, positions)
         with torch.no_grad():
-            cos, sin = rotary(torch.zeros(1, dtype=dtype), position_ids)
+            cos, sin = rotary(torch.zeros(1, dtype=dtype), position_ids.contiguous())
         self.tables = (cos.contiguous(), sin.contiguous())
 
     def forward(self, x, position_ids):
-        return tuple(table.to(x.device) for table in self.tables)
+        n = position_ids.shape[-1]
+        return tuple(table[:, :n].to(x.device) for table in self.tables)
 
 
 class StaticQwen3VLTextEncoder(torch.nn.Module):
-    """Qwen3-VL's language model over a fixed-length text prompt.
+    """Qwen3-VL's language model over a text prompt of any length up to a bound.
 
     Three things are bound here rather than computed per call.
 
@@ -406,26 +415,44 @@ class StaticQwen3VLTextEncoder(torch.nn.Module):
     reads forty rows of it.  The runner gathers those rows on the host and the
     table never reaches the device.
 
-    **Positions are static.**  Qwen3-VL's mRoPE splits the head dimension into
-    (24, 20, 20) lanes fed by three position streams; for text the three agree,
-    so the rotary tables fold to constants at export.
+    **Positions are `0..T-1` on all three mRoPE streams**, which is what text
+    gets, so the rotary tables are a constant prefix (see `StaticRotary`) and the
+    length `T` is the graph's `t` symbol.
     """
 
-    def __init__(self, text_model, tokens: int):
+    def __init__(self, text_model):
         super().__init__()
         text_model.norm = torch.nn.Identity()
         self.model = text_model
-        positions = torch.arange(tokens).view(1, 1, tokens).expand(3, 1, tokens)
-        self.position_ids = positions.contiguous()
 
     def forward(self, inputs_embeds):
+        tokens = inputs_embeds.shape[1]
+        positions = torch.arange(tokens, device=inputs_embeds.device)
         outputs = self.model(
             inputs_embeds=inputs_embeds,
-            position_ids=self.position_ids.to(inputs_embeds.device),
+            position_ids=positions.view(1, 1, tokens).expand(3, 1, tokens),
             attention_mask=None,
             use_cache=False,
         )
         return outputs.last_hidden_state
+
+
+def encoder_max_tokens(args):
+    """The longest input the text encoder is exported for: the system turn the
+    pipeline drops, plus the most prompt tokens the denoiser takes after it.
+
+    The system turn's length comes from the same chat template and the same
+    message the pipeline derives its `_drop_idx` from, rather than being
+    hardcoded here and in the runner separately. The tokenizer and not the
+    processor: the config's `processor` directory carries only the tokenizer,
+    and the template is the tokenizer's. (14 tokens for this checkpoint.)
+    """
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(args.config_dir / "processor")
+    message = [{"role": "system", "content": [{"type": "text", "text": QWEN_SYSTEM_PROMPT}]}]
+    drop = len(tokenizer.apply_chat_template(message, tokenize=True, return_dict=False))
+    return drop + QWEN_MAX_PROMPT_TOKENS
 
 
 def build_text_encoder(args):
@@ -447,23 +474,41 @@ def build_text_encoder(args):
             raise SystemExit(f"--layers must be in 1..{len(model.layers)}")
         model.layers = torch.nn.ModuleList(model.layers[: args.layers])
     # The rotary tables are a constant, not a parameter: build them on CPU so a
-    # meta-device export can serialize them.
-    positions = torch.arange(args.prompt_tokens).view(1, 1, args.prompt_tokens).expand(3, 1, -1)
+    # meta-device export can serialize them, for every position up to the bound.
+    max_tokens = encoder_max_tokens(args)
+    # One row past the bound: a slice to the table's whole length is a case
+    # `torch.export` guards against (`t <= 1037` for 1038 rows), and a longer
+    # table keeps every `t` inside the bound on the ordinary side of it.
     model.rotary_emb = StaticRotary(qwen3vl.Qwen3VLTextRotaryEmbedding(text_config),
-                                    positions.contiguous(), torch.float16)
-    wrapper = StaticQwen3VLTextEncoder(model, args.prompt_tokens).eval()
+                                    max_tokens + 1, torch.float16)
+    wrapper = StaticQwen3VLTextEncoder(model).eval()
     example = torch.randn(1, args.prompt_tokens, text_config.hidden_size,
                           dtype=torch.float16, device="meta")
-    return wrapper, (example,), text_config
+    return wrapper, (example,), text_config, max_tokens
 
 
 def export_text_encoder(args):
     torch.manual_seed(0)
-    wrapper, examples, text_config = build_text_encoder(args)
+    wrapper, examples, text_config, max_tokens = build_text_encoder(args)
+    # The prompt length is the graph's `t` symbol. It was the static
+    # `--prompt-tokens`, 64, which after the 14-token system turn and the
+    # template's 8 left 42 tokens of prompt, where the reference pipeline
+    # truncates nothing. The floor is 2 and not 1 because `torch.export`
+    # specialises a dimension it can prove is 1.
+    #
+    # `Dim.DYNAMIC` and not a named `Dim`: the attention's contiguity check
+    # guards on `Min(128*t, 512*t) == 128*t`, true for every positive `t`, and a
+    # named `Dim` makes the export PROVE each guard over its range, which the
+    # solver cannot do through a `Min`. The hint records the guard instead.
+    # Whether `t` stayed a symbol is then the converter's to check: it maps the
+    # input's axis to "t" and a specialised axis would carry an integer.
+    t = Dim.DYNAMIC(min=2, max=max_tokens)
     with torch.no_grad():
-        program = torch.export.export(wrapper, examples, strict=False).run_decompositions()
+        program = torch.export.export(
+            wrapper, examples, dynamic_shapes=({1: t},), strict=False
+        ).run_decompositions()
 
-    graph = EG.convert(program, ({},), "qwenimage21_text_encoder")
+    graph = EG.convert(program, ({1: "t"},), "qwenimage21_text_encoder")
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     (out / "qwenimage21_text_encoder.json").write_text(json.dumps(graph, indent=1))
@@ -487,7 +532,10 @@ def export_text_encoder(args):
         json.dumps(
             {
                 "model": args.model,
-                "prompt_tokens": args.prompt_tokens,
+                "prompt_tokens": None,
+                "token_symbol": "t",
+                "min_tokens": 2,
+                "max_tokens": max_tokens,
                 "layers": len(wrapper.model.layers),
                 "hidden_size": text_config.hidden_size,
                 "num_attention_heads": text_config.num_attention_heads,
@@ -498,7 +546,7 @@ def export_text_encoder(args):
         )
     )
     print(f"qwenimage21_text_encoder: {len(graph['ops'])} ops, "
-          f"{args.prompt_tokens} tokens, {len(wrapper.model.layers)} layers")
+          f"2..{max_tokens} tokens, {len(wrapper.model.layers)} layers")
     print(f"  wrote {out}")
 
 
@@ -663,7 +711,8 @@ def main():
     parser.add_argument("--no-reference", action="store_true",
                         help="skip the host reference decode for the VAE")
     parser.add_argument("--prompt-tokens", type=int, default=64,
-                        help="static prompt length for the text encoder export")
+                        help="the length the text encoder is traced at; the graph takes any "
+                             "length inside its `t` bounds")
     parser.add_argument("--layers", type=int, default=None, help="export only the first N real blocks for bring-up")
     parser.add_argument("--smoke", action="store_true", help="small random one-block export; downloads no weights")
     parser.add_argument("--graph-only", action="store_true", help="export from a meta model without downloading BF16 weights")

@@ -261,12 +261,11 @@ const GRAPHFILES = Dict(
 # three files `QwenTokenizer` opens rather than the seven the repository has —
 # `tokenizer.json` alone is 11 MB of BPE table this package never reads.
 #
-# The denoiser graph is exported at ONE prompt length. See `context_tokens` in
-# `qwenimage21_export.json`: its text stream is part of a joint attention and
-# the export passes `attention_mask=None`, so a shorter prompt cannot be padded
-# into it. The graph here is the 22-token one `examples/generate.jl` uses.
-# Making it length-generic means threading the mask back through
-# `tools/export_qwenimage21.py` and is not something the packaging can fix.
+# Both graphs here are length-generic: the denoiser's prompt and image axes and
+# the text encoder's prompt axis are symbols (`t`, `i`), bounded in the two
+# `*_export.json` files, and the runner binds them per generation. The text
+# encoder was static at 64 tokens until 2026-09-27, 42 of them left for the
+# prompt after the template.
 #
 # artifact name => (package that binds it, dir under gen/graphs, what to take)
 const TREES = Dict(
