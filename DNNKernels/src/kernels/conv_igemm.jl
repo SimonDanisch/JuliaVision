@@ -53,6 +53,22 @@ first tile. It is in `KernelInterface`'s signature now.
 """
 
 """
+    @nounroll for … end
+    @nounroll while … end
+
+The loop with `llvm.loop.unroll.disable` on it: LLVM leaves it rolled, and Lava
+writes DontUnroll into its `OpLoopMerge`, so a Vulkan driver leaves it rolled too.
+"""
+macro nounroll(loop)
+    Meta.isexpr(loop, (:for, :while)) ||
+        throw(ArgumentError("@nounroll takes a `for` or `while` loop"))
+    iter, body = loop.args
+    # Last in the body, which is where lowering looks for it.
+    hint = Expr(:loopinfo, (Symbol("llvm.loop.unroll.disable"),))
+    return esc(Expr(loop.head, iter, Expr(:block, body, hint)))
+end
+
+"""
     conv2d_igemm_ki!(out, x, w, bias, Val(ACC), Val(SPLITK), Val(ACT), …) -> nothing
 
 One block tile of the implicit GEMM. See this file's header.
@@ -169,6 +185,15 @@ function conv2d_igemm_ki!(out, x, w, bias,
         #
         # Linear offsets rather than four subscripts: an N-d index is widened
         # to `Int` by the array, which is the 64-bit arithmetic this avoids.
+        #
+        # Both stages LOAD unconditionally and select zero afterwards; an index
+        # the guard rejects is replaced by 1, which is always in bounds. Written
+        # `ok ? A(w[i]) : zero(A)` the load sits inside a branch, and both LLVM
+        # (ROCm) and ACO (RADV) then waited on each gather before starting the
+        # next: eight memory latencies in a row per stage, hidden only by
+        # whatever other waves were resident. Branch-free, `convolution_37`
+        # (3x3, 288 -> 288, 1024x1024) went 273 -> 261 ms on ROCm and
+        # 340 -> 324 on RADV. Same values: the zero is still selected.
         @inbounds begin
             crs_a = b_crs * I(BS_CRS) + Ac
             cin_a = crs_a ÷ KWKH
@@ -180,8 +205,9 @@ function conv2d_igemm_ki!(out, x, w, bias,
             while r < I(BS_K)
                 ky = r + Ar
                 kidx = B_idx_K + ky
-                Ash[ky * Ash_stride + Ac + o] = (kidx < Cout && crs_a < CRS) ?
-                    A(w[wlin + KWKH * Cin * kidx + o]) : zero(A)
+                ok = kidx < Cout && crs_a < CRS
+                v = w[ok ? wlin + KWKH * Cin * kidx + o : o]
+                Ash[ky * Ash_stride + Ac + o] = ok ? A(v) : zero(A)
                 r += ArpWg
             end
 
@@ -197,8 +223,8 @@ function conv2d_igemm_ki!(out, x, w, bias,
                 ix = ix0 + kw_b * I(DX)
                 iy = iy0 + kh_b * I(DY)
                 inb = (z <= ix < Wid) && (z <= iy < Hei) && npq_ok && crs_b < CRS
-                Bsh[by * Bsh_stride + Bc + o] =
-                    inb ? A(x[xbase + ix + Wid * (iy + Hei * cin_b) + o]) : zero(A)
+                v = x[inb ? xbase + ix + Wid * (iy + Hei * cin_b) + o : o]
+                Bsh[by * Bsh_stride + Bc + o] = inb ? A(v) : zero(A)
                 r += BrpWg
             end
         end
@@ -211,7 +237,14 @@ function conv2d_igemm_ki!(out, x, w, bias,
         # T_x, T_x+NT_NPQ, ... rather than a contiguous run of TS_NPQ. Blocked
         # ownership makes neighbouring threads read TS_NPQ apart, which is a
         # TS_NPQ-way shared-memory bank conflict — measurably fatal at TS_NPQ=8.
-        @inbounds for k in z:I(BS_CRS - 1)
+        #
+        # Rolled, on purpose. LLVM's AMDGPU backend declines to unroll it, but
+        # a Vulkan driver sees a constant trip count and unrolls all BS_CRS
+        # steps unless told not to: RADV then held 156 VGPRs, too many for the
+        # six workgroups per WGP that shared memory allows, against 120 rolled.
+        # `convolution_37` measured 324 ms unrolled and 281 rolled on RADV;
+        # rolling the B stage above instead gave 287, and both 309.
+        @inbounds @nounroll for k in z:I(BS_CRS - 1)
             Base.Cartesian.@nexprs 8 i -> a_i = i <= TS_K ?
                 Ash[(T_y + I(i - 1) * NT_K) * Ash_stride + k + o] : zero(A)
             Base.Cartesian.@nexprs 8 j -> b_j = j <= TS_NPQ ?

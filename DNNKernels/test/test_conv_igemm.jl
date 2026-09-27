@@ -122,3 +122,26 @@ let bes = MC.eachbackend()
     isempty(bes) && @info "no usable backend; skipping the declared convolution"
     foreach(declaredconv, bes)
 end
+
+# The FMA loop is rolled on purpose (see the kernel). LLVM's AMDGPU backend keeps
+# it rolled by itself; a Vulkan driver unrolls it unless the SPIR-V says
+# DontUnroll, and on RADV that was 156 VGPRs against 120 and 324 ms against 281
+# on the Qwen-Image VAE's `convolution_37`. Pinned on the emitted module at that
+# convolution's tiling, so it needs no device.
+@testset "the implicit GEMM's FMA loop reaches SPIR-V as DontUnroll" begin
+    LV = DK.Lava
+    A4 = LV.LavaDeviceArray{Float32,4}
+    tt = Tuple{A4, A4, A4, LV.LavaDeviceArray{Float32,1}, Val{Float32}, Val{1}, Val{:none},
+               Val{128}, Val{16}, Val{128}, Val{8}, Val{8}, Val{3}, Val{3},
+               Val{1}, Val{1}, Val{1}, Val{1}, Val{1}, Val{1}, ntuple(_ -> Int32, 9)...}
+    spv = LV.lava_compile_gpu(DK.conv2d_igemm_ki!, tt; workgroup_size = (256, 1, 1)).spirv_bytes
+    lines = split(LV.disassemble_spirv(spv), '\n')
+    merges = findall(l -> occursin("OpLoopMerge", l), lines)
+    # A loop's merge instruction ends its header block; count the FMAs in it.
+    fmas(m) = count(l -> occursin(" Fma ", l),
+                    lines[findlast(l -> occursin("OpLabel", l), lines[1:m]):m])
+    fmaloop = only(filter(m -> fmas(m) == 64, merges))
+    @test endswith(strip(lines[fmaloop]), "DontUnroll")
+    # Only that one: the staging loop is left to the driver.
+    @test count(m -> endswith(strip(lines[m]), "DontUnroll"), merges) == 1
+end
