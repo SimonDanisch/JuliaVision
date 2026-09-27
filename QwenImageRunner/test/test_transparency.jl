@@ -21,12 +21,11 @@ using DNNKernels
 using Mantle
 using Random
 
-@testset "transparent backgrounds come through the decoder" begin
-    if !(ready(:vae_decoder) && isfile(joinpath(vaedir(), "vae.safetensors")))
-        @info "no Qwen-Image VAE checkpoint; the transparency test is SKIPPED, not passing"
-        @test_skip ready(:vae_decoder)
-    else
-        backend = Mantle.LavaBackend()
+# On every backend this session has, not only Vulkan: ROCm's attention computed
+# one head in 32 until 2026-09-27 (a launch-size bug in KernelInterface), and
+# nothing here ran there to see it.
+function transparencycheck(backend)
+    @testset "transparent backgrounds come through the decoder — $(nameof(typeof(backend)))" begin
         vae = qwenimagevae(; backend)
         try
             @testset "the decoder runs with fp32's range" begin
@@ -58,4 +57,13 @@ using Random
             Mantle.release!(vae)
         end
     end
+end
+
+if !(ready(:vae_decoder) && isfile(joinpath(vaedir(), "vae.safetensors")))
+    @info "no Qwen-Image VAE checkpoint; the transparency test is SKIPPED, not passing"
+    @testset "transparent backgrounds come through the decoder" begin
+        @test_skip ready(:vae_decoder)
+    end
+else
+    foreach(transparencycheck, Mantle.eachbackend())
 end
