@@ -658,7 +658,12 @@ premap(op::Op) = get(op.attrs, "premap", nothing)
                 bi = i
             end
         end
-        WANTIDX ? oftype(best, bi - 1) : best
+        # The index as an integer, and the store converts it to whatever the
+        # indices buffer holds. It was `oftype(best, bi - 1)`, which for a
+        # graph declaring torch's int64 indices went Float32 -> Int64 through an
+        # `InexactError` path: a GPU allocation Lava could only lower to an
+        # undefined pointer, and past 2^24 an index rounded to a float.
+        WANTIDX ? bi - 1 : best
     end
 end
 
