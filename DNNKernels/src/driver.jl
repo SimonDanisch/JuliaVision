@@ -43,12 +43,6 @@ struct Model{D,B}
     # different things — `m.diag.optimes = Dict{String,Tuple{Int,Float64}}()` and
     # every graph this model runs starts accumulating. See `Diagnostics`.
     diag::Diagnostics
-    # Whether this model's graphs are recorded into a Mantle plan and replayed —
-    # see [`record`](@ref) for what a model has to satisfy to say yes. On the
-    # model and not a module `Ref` for the same reason `diag` is: it is a
-    # property of a model, two of them in one process disagree, and a global
-    # would make one of them silently wrong.
-    record_maxpasses::Dict{String,Int}
 end
 
 # `record` was a field and a keyword here. It is not a choice any more: `call`
@@ -56,16 +50,14 @@ end
 # for it to take. The keyword is still ACCEPTED and ignored, because four call
 # sites in the runners and the tools pass it and a model that asks for the only
 # behaviour there is should not be an error.
-function Model(graphs, weights, target, memevery, memframes, topk;
-               record::Bool = true, record_maxpasses = Dict{String,Int}())
-    Model(graphs, weights, target, memevery, memframes, topk, Dict{Any,Any}();
-          record, record_maxpasses)
+function Model(graphs, weights, target, memevery, memframes, topk; record::Bool = true)
+    Model(graphs, weights, target, memevery, memframes, topk, Dict{Any,Any}(); record)
 end
 function Model(graphs, weights, target, memevery, memframes, topk, scratch;
-               record::Bool = true, record_maxpasses = Dict{String,Int}())
+               record::Bool = true)
     dev = M.todevice(target)
     Model(graphs, weights, dev, M.backend(dev), memevery, memframes, topk, scratch,
-          Diagnostics(), Dict{String,Int}(record_maxpasses))
+          Diagnostics())
 end
 
 """
@@ -336,7 +328,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # [`record`](@ref) — it is off by default because it is not free
                # of preconditions, and a model that does not meet them comes out
                # WRONG rather than slow.
-               record::Bool = false, record_maxpasses = Dict{String,Int}(),
+               record::Bool = false,
                # Run every fp32 convolution on fp16 operands with an fp32 result,
                # which is what reaches the tensor cores without giving up fp32's
                # range between the convolutions. See `halfconvs`.
@@ -563,7 +555,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     tfuse = (time_ns() - t0) / 1e9 - thost - tupload
     @info "Model: built in $(round(thost + tupload + tfuse, digits=1)) s" host_passes_s =
         round(thost, digits=1) upload_s = round(tupload, digits=1) fusion_s = round(tfuse, digits=1)
-    Model(graphs, weights, dev, memevery, memframes, topk; record, record_maxpasses)
+    Model(graphs, weights, dev, memevery, memframes, topk; record)
 end
 
 """
@@ -676,10 +668,10 @@ scope, and missing submission tracking for captured dispatch buffers. Operation
 results and output materialisation are now captured; Mantle registers the
 buffers so host writes and work on other queues wait for pending replay reads.
 
-`record_maxpasses = Dict(graph_name => N)` selects explicit submission
-partitions on Vulkan. The full graph is still compiled once, with the same
-dependency analysis. Horizon prefill uses 64 passes per submission because its
-single submission timed out; decode keeps the default single submission.
+Where a recording is cut into submissions is Mantle's (`Mantle.partitionranges`):
+a plan measures itself on its first run and is cut to the device's submission
+budget, so a graph long enough to trip the driver's watchdog needs nothing from
+its caller.
 """
 
 """
@@ -969,20 +961,19 @@ with, which is why `call` copies into it rather than rebinding.
 """
 planfor(m::Model, g::Graph, name::AbstractString, dims,
         clampattn::Bool, noise::NoiseSource; before = nothing, after = nothing) =
-    planfor(m.device, g, m.weights, dims;
-            maxpasses = get(m.record_maxpasses, name, 0), noise, before, after)
+    planfor(m.device, g, m.weights, dims; noise, before, after)
 
 # `profile = true` builds the plan with a timestamp query pool, so
 # `Mantle.timings(plan.plan)` reports per-pass GPU milliseconds after a replay.
 # It is not free — a query pair around every pass — so it is off by default and
 # a plan asked for it is a plan being measured.
 function planfor(dev, g::Graph, weights::AbstractDict, dims;
-                 maxpasses::Int = 0, noise::NoiseSource = RandomNoise(),
+                 noise::NoiseSource = RandomNoise(),
                  profile::Bool = false, before = nothing, after = nothing)
     resident = residentweights(dev, g, weights)
     mantlegraph, emitctx = emitgraph(dev, g, resident, dims; noise, before, after)
     plan = Mantle.Plan(mantlegraph; profile)
-    Mantle.record!(plan; maxpasses)
+    Mantle.record!(plan)
     ins  = Tuple(Mantle.storage(emitctx.res[id]) for id in g.inputs)
     outs = Tuple(Mantle.storage(emitctx.res[id]) for id in g.outputs)
     # Handed over, not copied: the plan owns them from here and the context is

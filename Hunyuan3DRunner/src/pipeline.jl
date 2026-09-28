@@ -109,42 +109,32 @@ end
 
 Load all four graphs. `root` holds the four directories [`PARTS`](@ref) names.
 
-`maxpasses` is how many passes of the DENOISER go in one submission; see the
-comment in the body for why it is not a tuning knob.
-
 Separate from [`generate`](@ref) so a workload can build it in `@setup_workload`,
 where the loading is not what is being cached.
 """
-function hunyuan3d(; backend = Mantle.defaultbackend(), maxpasses::Integer = 64)
+function hunyuan3d(; backend = Mantle.defaultbackend())
     # `weights` is explicit because the denoiser's do not sit beside its graph:
     # they are four shard artifacts merged by `hunyuan3dweights`, while the other
     # three parts each keep a `weights.safetensors` in their own artifact.
     #
-    # `record_maxpasses` on the DENOISER, and it is a correctness fix rather than
-    # a tuning knob — the same one `kokorovoc` and Qwen-Image's transformer carry.
-    # One step of the 21-block model at batch 2 is seconds of device time, and a
-    # single submission that long is killed by the driver: RADV reports "the CS
-    # has been cancelled because the context is lost, this context is guilty of a
-    # hard recovery", the next call dies with VK_ERROR_DEVICE_LOST, and nothing
-    # in the Julia frame names the cause. The completion points cost nothing
-    # measurable and the barriers between the pieces are still the ones the graph
-    # derived. `maxpasses = 0` restores the single submission.
-    load(dir, name, weights = nothing; split = 0) = begin
+    # One step of the 21-block denoiser at batch 2 is seconds of device time, and
+    # a single submission that long is killed by the driver. Mantle cuts the
+    # recording by the device's submission budget, so nothing here asks for it.
+    load(dir, name, weights = nothing) = begin
         isfile(joinpath(dir, "$name.json")) || throw(ArgumentError(
             "Hunyuan3D-2.1: no $name.json in $dir. Re-export with " *
             "`uv run tools/export_hunyuan3d.py` and re-bind with " *
             "`julia --project=. tools/make_artifacts.jl`."))
         w = weights === nothing ?
             readsafetensors(joinpath(dir, "weights.safetensors")) : weights
-        Model(Dict(name => loadgraph(joinpath(dir, "$name.json"))), w; backend,
-              record_maxpasses = Dict(name => Int(split)))
+        Model(Dict(name => loadgraph(joinpath(dir, "$name.json"))), w; backend)
     end
     geo = load(geodir(), "hunyuan3d_geo")
     # The chunk is whatever the export was built at, not a constant here: passing
     # a different one is a silently truncated sweep, not an error.
     chunk = Int(geo.graphs["hunyuan3d_geo"].buffers["queries"].shape[2])
     return Hunyuan3D(backend, load(conddir(), "hunyuan3d_cond"),
-                     load(ditdir(), "hunyuan3d_dit", hunyuan3dweights(); split = maxpasses),
+                     load(ditdir(), "hunyuan3d_dit", hunyuan3dweights()),
                      load(vaedir(), "hunyuan3d_vae"),
                      geo, chunk,
                      Mantle.GPURef(Mantle.todevice(backend), GridChunk(0, 0, 0.0, 0.0, 0)))

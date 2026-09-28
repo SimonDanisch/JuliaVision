@@ -65,7 +65,7 @@ function compare_prefill_routes(m, reference_graphs; tokens = 128, repeats = 7, 
         base.device, base.memevery, base.memframes, base.topk; record=false)
     flashmodel = DNNKernels.Model(Dict(name => stagedoff(graph)), base.weights,
         base.device, base.memevery, base.memframes, base.topk;
-        record=base.record, record_maxpasses=base.record_maxpasses)
+        record=base.record)
     @testset "prefill route comparison $tokens" begin
         expected = routeoutputs(reference, name, args, kv, k, v)
         reference = nothing

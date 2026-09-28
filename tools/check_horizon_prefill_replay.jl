@@ -51,7 +51,7 @@ function check_prefill_replay(m)
         (;), false, DNNKernels.RandomNoise())
     println("RECORD_DONE seconds=", record_time,
             " passes=", length(recorded.plan.passes),
-            " maxpasses=", recorded.plan.record_maxpasses,
+            " budget=", recorded.plan.budget,
             " submissions=", recorded.plan.recording isa Mantle.RecordingSequence ?
                 length(recorded.plan.recording.parts) : 1)
     flush(stdout)

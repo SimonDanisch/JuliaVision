@@ -181,10 +181,10 @@ function commandcensus(dev, pl; R = 5, top = 12)
     rec = pl.recording
     rec === nothing && throw(ArgumentError("commandcensus: this plan was not recorded."))
     parts = rec isa M.RecordingParts ? rec.parts : [rec]
-    maxp = rec isa M.RecordingParts ? pl.record_maxpasses : length(pl.passes)
     agg = Dict{String,Tuple{Int,Float64}}()
     for (pi, part) in enumerate(parts)
-        chunk = ((pi - 1) * maxp + 1):min(pi * maxp, length(pl.passes))
+        # The pass range Mantle cut this piece at (`partitionranges`).
+        chunk = pl.partition[pi]
         _, nwriters, _ = M.planshape(pl, chunk)
         owner = commandowners(pl, chunk, pi == 1 && nwriters > 0)
         length(owner) == part.ncommands || throw(ErrorException(

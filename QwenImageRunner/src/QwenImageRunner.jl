@@ -374,12 +374,10 @@ because they are not independent of the prompt length: `QwenImage21Rope` freezes
 the image block's frame axis at the position the text reached. An earlier export
 lifted them as constants, which silently bound the whole graph to one prompt.
 
-`maxpasses` splits the recording into submissions of that many passes. One step
-of the 32-layer model at 1024² is ~9.6 s of device time, and a single
-submission that long is killed by the driver — `ring gfx_0.0.0 timeout`, a
-device loss, and nothing in the Julia frame naming the cause. The completion
-points cost nothing measurable and the barriers between the pieces are still
-the ones the graph derived. `0` restores the single submission.
+One step of the 32-layer model at 1024² is ~9.6 s of device time, and a single
+submission that long is killed by the driver (`ring gfx_0.0.0 timeout`, a device
+loss, and nothing in the Julia frame naming the cause). Mantle cuts the recording
+by the device's submission budget, so nothing is asked for here.
 """
 function qwenimagetransformer(; context_tokens::Integer,
                               dir::AbstractString=assetdir(),
@@ -388,8 +386,7 @@ function qwenimagetransformer(; context_tokens::Integer,
                               # reads the export's own trace grid.
                               latent::Tuple{Integer,Integer}=latentshape(dir),
                               backend=Mantle.defaultbackend(),
-                              compact::Union{Nothing,AbstractDict}=compact_denoiser(),
-                              maxpasses::Integer=64)
+                              compact::Union{Nothing,AbstractDict}=compact_denoiser())
     graph_path = joinpath(dir, first(COMPONENT_FILES[:transformer]))
     isfile(graph_path) || throw(ArgumentError(
         "no Qwen-Image 2.1 transformer graph at $dir — run " *
@@ -413,8 +410,7 @@ function qwenimagetransformer(; context_tokens::Integer,
         compact_transformer_weights(graph; compact, constants_dir=dir)
     model = Model(Dict("qwenimage21_transformer" => graph), weights; backend)
     prepared = model.graphs["qwenimage21_transformer"]
-    plan = planfor(model.device, prepared, model.weights, (; t = ctx, i = img);
-                   maxpasses=Int(maxpasses))
+    plan = planfor(model.device, prepared, model.weights, (; t = ctx, i = img))
     rc, rs = rotarytables(ctx, lh, lw)
     rotary = (DNNKernels.toback(backend, rc), DNNKernels.toback(backend, rs))
     QwenTransformer(model.backend, prepared, model.weights, plan, rotary, ctx,
@@ -514,7 +510,7 @@ struct QwenVAEDecoder{B,M}
 end
 
 """
-    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), maxpasses=8, halfconvs=true)
+    qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), halfconvs=true)
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
@@ -570,8 +566,8 @@ a column tile the staged GEMM has. See `DNNKernels.IM2COL_CAP`. The two paths
 agreed to 9.3e-5 rms and 4.9e-4 peak of a [-1, 1] range, so dropping the
 interpreted one is a memory and speed choice and not a correctness one.
 
-`maxpasses` is the recording's explicit submission split; 8 records and replays,
-64 is what times out.
+Mantle cuts the recording by the device's submission budget; the decode at 64
+passes per submission timed out.
 
 ## `halfconvs`: fp16 convolution operands in an fp32 graph
 
@@ -600,11 +596,10 @@ of an 8-bit channel is 7.8e-3 on this [-1, 1] scale. `halfconvs = false` is the
 fp32 decoder.
 """
 function qwenimagevae(; backend=Mantle.defaultbackend(), dir::AbstractString=vaedir(),
-                      maxpasses::Integer=8, halfconvs::Bool=true)
+                      halfconvs::Bool=true)
     graph = qwenimagegraph(:vae_decoder; dir)
     weights = qwenimageweights(:vae_decoder; dir)
-    model = Model(Dict(VAEGRAPH => graph), weights; backend, fuseattn = false,
-                  record_maxpasses = Dict(VAEGRAPH => Int(maxpasses)), halfconvs)
+    model = Model(Dict(VAEGRAPH => graph), weights; backend, fuseattn = false, halfconvs)
     QwenVAEDecoder(model.backend, model)
 end
 

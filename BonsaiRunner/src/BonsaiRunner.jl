@@ -796,22 +796,12 @@ end
 
 const PREFILL_CHUNK = 512
 
-"""
-How many submissions one prefill is split into.
-
-A recording this long has to be broken up — a single submission of all 64
-layers outruns what the driver allows and is cancelled, which presents as a
-device loss with nothing naming the cause. That is a property of the
-SUBMISSION, and `record!` takes it as `maxpasses`.
-
-It used to be a property of the GRAPH: sixteen graphs of four layers each. That
-works for the submission length and costs everything else, because Mantle
-derives liveness, placement, aliasing and barriers per graph — so nothing
-crossing a cut could be a transient and the whole working set had to be
-permanent. Sixteen is kept here so the submissions stay the size they were.
-"""
-const PREFILL_SUBMISSIONS = 16
-
+# A recording of all 64 layers outruns what the driver allows in ONE submission
+# and is cancelled, which presents as a device loss with nothing naming the
+# cause. Where it is cut is Mantle's (`Mantle.partitionranges`, by the device's
+# submission budget), and the graph stays one: splitting it into sixteen graphs
+# of four layers worked for the submission length and cost everything else,
+# because Mantle derives liveness, placement, aliasing and barriers per graph.
 function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     dev = Mantle.Device(s.model.backend)
     tokens = Mantle.Buffer(dev, zeros(Int32, ntokens))
@@ -822,7 +812,7 @@ function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     _declareprefill_stage!(s, g, q, tokens, position, ntokens, 0:NLAYERS-1;
                            initialize=true, finalize=true)
     plan = Mantle.Plan(g; profile)
-    Mantle.record!(plan; maxpasses = cld(length(plan.passes), PREFILL_SUBMISSIONS))
+    Mantle.record!(plan)
     PrefillExec(tokens, position, q, Any[plan])
 end
 

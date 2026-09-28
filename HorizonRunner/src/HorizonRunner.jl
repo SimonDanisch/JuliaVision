@@ -112,17 +112,16 @@ weights: 64.78 GiB becomes 32.4 GiB and the per-token floor halves. Pass
 `quantize = false` for the fp16 reference.
 
 `record` replays each graph from a compiled Mantle plan instead of submitting a
-command buffer per dispatch. Prefill recordings use bounded submission sizes.
+command buffer per dispatch. Mantle cuts a long prefill into submissions itself.
 On by default HERE and not in `Model`: the preconditions are real
 (`DNNKernels.record`), and this is the model they have been checked against.
 """
 function horizon32b(; backend = Mantle.defaultbackend(), dir::AbstractString = assetdir(),
                     quantize::Bool = true, record::Bool = true, bucketdir::AbstractString = dir)
     gs = horizon32bgraphs(; dir, bucketdir)
-    # A full 512-token prefill takes over 20 seconds on the 8060S. Give the
-    # driver completion points between baked pieces; decode remains one submit.
-    m = Model(gs, horizon32bweights(; dir); backend, quantize, record,
-              record_maxpasses = Dict(n => 64 for n in keys(gs) if startswith(n, "horizon32b_prefill")))
+    # A full 512-token prefill takes over 20 seconds on the 8060S; Mantle cuts
+    # its recording by the device's submission budget.
+    m = Model(gs, horizon32bweights(; dir); backend, quantize, record)
     dec = m.graphs["horizon32b_decode"]
     # Julia sees safetensors dims REVERSED, so torch (L,B,KVH,maxlen,hd) is
     # (hd,maxlen,KVH,B,L) here. Read the extents off the graph rather than the
@@ -191,8 +190,7 @@ function bucketmodel(m::Horizon32B, name::String)
     get!(m.model.scratch, (:horizon_bucket_model, name)) do
         base = m.model
         Model(Dict(name => base.graphs[name]), base.weights, base.device,
-              base.memevery, base.memframes, base.topk;
-              record_maxpasses=base.record_maxpasses)
+              base.memevery, base.memframes, base.topk)
     end
 end
 

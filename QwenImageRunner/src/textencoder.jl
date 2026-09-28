@@ -195,12 +195,10 @@ denoiser runs every step.
 function qwenimagetextencoder(; backend=Mantle.defaultbackend(),
                               dir::AbstractString=assetdir(),
                               compact::AbstractDict=compact_encoder(),
-                              processor_dir::AbstractString=processordir(),
-                              maxpasses::Integer=64)
+                              processor_dir::AbstractString=processordir())
     graph = qwenimagegraph(:text_encoder; dir)
     weights = compact_text_encoder_weights(graph; compact, constants_dir=dir)
-    model = Model(Dict(ENCODERGRAPH => graph), weights; backend,
-                  record_maxpasses = Dict(ENCODERGRAPH => Int(maxpasses)))
+    model = Model(Dict(ENCODERGRAPH => graph), weights; backend)
     maxtokens, symbolic = encodertokens(dir)
     # `planahead!` for the first bucket and not a lazy first call: this is built
     # once and the prompt is encoded once per image, so the compiling belongs

@@ -130,30 +130,19 @@ function Kokoro(; backend = Mantle.defaultbackend())
         "Kokoro assets incomplete in $dir. Generate them with " *
         "`uv run tools/export_kokoro.py` and `uv run tools/export_kokoro_assets.py`, " *
         "then bind with `julia --project=. tools/make_artifacts.jl`."))
-    # `record_maxpasses` on the VOCODER, and it is a correctness fix rather than
-    # a tuning knob. Its 794 ops recorded as ONE submission take longer than the
-    # driver's timeout once the utterance is long enough: at 323 frames RADV
-    # cancels the command stream — "The CS has been cancelled because the
-    # context is lost. This context is guilty of a hard recovery" — and what
-    # comes back is garbage. `long/am_michael` correlated 0.0024 against its
-    # reference with |max| 17.45 where the reference peaks at 0.44, and the next
-    # submission then died with VK_ERROR_DEVICE_LOST.
-    #
-    # It is a timeout and not a memory fault, which took ruling out three other
-    # things to see: the kernels are guarded and correct at the failing shape
-    # when launched directly, the placer puts no two live transients on
-    # overlapping bytes, and synchronization validation reports no hazard. The
-    # giveaway is in the message — a cancelled CS is what a hang looks like.
-    #
-    # 288 frames was under the limit and 323 over it, so nothing shorter than a
-    # long sentence ever hit it. Splitting the recording into 8-pass submissions
-    # costs nothing measurable and the completion points are where the graph's
-    # own barriers already are. `qwenimagetransformer` carries the same setting
-    # for the same reason.
+    # The VOCODER's 794 ops as ONE submission outrun the driver's timeout once
+    # an utterance is long enough: at 323 frames RADV cancels the command stream
+    # ("The CS has been cancelled because the context is lost. This context is
+    # guilty of a hard recovery"), what comes back is garbage (`long/am_michael`
+    # correlated 0.0024 with its reference), and the next submission dies with
+    # VK_ERROR_DEVICE_LOST. It was a timeout and not a memory fault: the kernels
+    # are correct at that shape launched directly, no two live transients
+    # overlap, and synchronization validation reports no hazard. Mantle now cuts
+    # every recording by the device's submission budget, so nothing is asked
+    # for here.
     model = Model(Dict(n => loadgraph(joinpath(dir, "$n.json"))
                        for n in ("kokorotext", "kokorovoc")),
-                  readsafetensors(joinpath(dir, "weights.safetensors")); backend,
-                  record_maxpasses = Dict("kokorovoc" => 8))
+                  readsafetensors(joinpath(dir, "weights.safetensors")); backend)
     raw = JSON3.read(read(joinpath(dir, "vocab.json"), String))
     # The keys are single characters; the values are the ids the embedding
     # indexes with directly (0-based — `embedding.default` adds the 1).

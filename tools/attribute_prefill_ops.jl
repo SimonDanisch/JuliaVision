@@ -30,7 +30,7 @@ function attribute_prefill_ops(m, tokens; atens = nothing, repeats = 7, warmup =
     function timeone(double)
         model = DNNKernels.Model(Dict(name => graph), base.weights, base.device,
             base.memevery, base.memframes, base.topk;
-            record = base.record, record_maxpasses = base.record_maxpasses)
+            record = base.record)
         model.diag.opdouble = double
         replay() = begin
             logits = first(DNNKernels.call(model, name, args...; dims = (; kv)))

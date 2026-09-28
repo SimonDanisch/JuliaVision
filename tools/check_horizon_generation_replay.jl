@@ -4,8 +4,7 @@ using HorizonRunner, DNNKernels, Test
 function check_generation_replay(reference)
     m = reference.model
     recordedmodel = DNNKernels.Model(m.graphs, m.weights, m.device,
-        m.memevery, m.memframes, m.topk; record=true,
-        record_maxpasses=m.record_maxpasses)
+        m.memevery, m.memframes, m.topk; record=true)
     recorded = Horizon32B(reference.backend, recordedmodel, reference.maxlen,
                          reference.prefill, reference.vocab)
     prompts = [Int64[0,250018,2672,200,46348,803,2853,18147,1094,293,

@@ -37,7 +37,8 @@ using Mantle
     kws = Base.kwarg_decl(only(methods(qwenimagevae)))
     @test :record ∉ kws
     @test :latent ∉ kws
-    @test Set(kws) == Set([:backend, :dir, :maxpasses, :halfconvs])
+    # …and neither is a submission split: that is Mantle's (`partitionranges`).
+    @test Set(kws) == Set([:backend, :dir, :halfconvs])
 
     # One method. There were two: the second dispatched on `plan::Nothing` and
     # was the door to `execute!`.
@@ -61,9 +62,6 @@ end
         backend = Mantle.LavaBackend()
         vae = qwenimagevae(; backend)
         try
-            # The recording split the old code passed to `planfor` by hand now
-            # reaches the plan through the `Model`, which is what `call` reads.
-            @test vae.model.record_maxpasses == Dict(VAEGRAPH => 8)
             nplans() = count(k -> k isa Tuple && first(k) === :plan,
                              keys(vae.model.scratch))
             @test nplans() == 0
