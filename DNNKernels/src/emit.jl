@@ -3890,6 +3890,14 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
         "not split from `sdpaflashcm2!` yet, so it has no declared form. " *
         "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
         "shape a port takes.")
+    # The same order the immediate path takes (`sdpaplan`). This kernel cannot
+    # write the permuted order directly, so a following permute runs as its own
+    # pass: 0.3 ms against the 16 ms this saves at Qwen-Image 2.1's attention.
+    rows = flashrows_plan(caps, q, k, v, bias)
+    if rows isa FlashRowsPlan
+        flashrows_dispatch!(emitctx.g, out, rows, q, k, v, scale; name = op.id)
+        return sdparesults(emitctx, dst)
+    end
     plan = flashcm_plan(caps, q, k, v, bias)
     # The same padded retry the immediate path takes — see `flashcm_padded_plan`.
     # Without it a key length no tile divides falls through to `threepass!`,

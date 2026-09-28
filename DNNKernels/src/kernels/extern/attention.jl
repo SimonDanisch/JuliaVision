@@ -846,6 +846,11 @@ function sdpaplan(ctx, q, k, v, bias)
     # workgroups and cm1's key-axis split wins by 84%. See `flashcm2_tiling`.
     cm2 = ctx.flashcm2 ? flashcm2_plan(ctx.dev, q, k, v, bias) : Decline(:off)
     cm2 isa FlashCM2Plan && return (cm2, k, v)
+    # Subgroups that own their rows, where the shape is one it is written for:
+    # 10.8 ms against 27.2 for `flashcm_plan`'s kernel at Qwen-Image 2.1's
+    # attention. See `flash_rows.jl`.
+    rows = flashrows_plan(ctx.dev, q, k, v, bias)
+    rows isa FlashRowsPlan && return (rows, k, v)
 
     plan = flashcm_plan(ctx.dev, q, k, v, bias; clamp = ctx.clampattn)
     # An extent the tiling cannot divide is not a reason to write the score
