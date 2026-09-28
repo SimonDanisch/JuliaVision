@@ -63,9 +63,12 @@ DROP_OPS = {"_assert_tensor_metadata.default", "_assert_scalar.default"}
 # image axis is a symbol too, `Dim + Dim` is not expressible in `torch.export`,
 # and the joint axis is a free symbol in its own right. Leaving the old alias in
 # place would have silently bound the rotary length to the prompt length.
+#
+# `n` is TRELLIS.2's active-voxel count, the token axis of its four SLat flow
+# models (`export_trellis2.py --part slat`).
 ROOT = {"h": "h", "H": "h", "h2": "h", "h4": "h", "h8": "h",
         "w": "w", "W": "w", "w2": "w", "w4": "w", "w8": "w",
-        "t": "t", "i": "i", "tj": "tj"}
+        "t": "t", "i": "i", "tj": "tj", "n": "n"}
 
 
 def symbol_names(ep, specs):

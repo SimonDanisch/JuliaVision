@@ -25,7 +25,6 @@ rather than by a second implementation of its checks written here.
 import os
 import shutil
 import subprocess
-import tomllib
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
@@ -46,6 +45,10 @@ def depots():
 
 
 def treehash(name):
+    # Imported here and not at the top: `tomllib` is Python 3.11+, and this
+    # module is imported (through `common`) by exporters that run in an
+    # upstream's own venv and never resolve an artifact. TRELLIS.2's is 3.10.
+    import tomllib
     with open(TOML, "rb") as fh:
         table = tomllib.load(fh)
     if name not in table:
