@@ -242,6 +242,11 @@ function matmul!(ctx, ::MMInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
         epi === identity || (out .= epi.(out))
         return out
     end
+    # The pipelined kernel first for a wide product; see `q8gemm_pipelined_tile`.
+    pcfg = islavaarray(B) && eltype(B) === Float16 && ndims(B) == 2 && islavaarray(out) ?
+        q8gemm_pipelined_tile(ctx.dev, eltype(out), size(A)..., size(B, 2)) : nothing
+    pcfg === nothing || M.basealignment(B) < 16 ||
+        return q8gemm_pipelined!(out, A, B; cfg = pcfg, bias, epilogue = epi)
     tiling = q8gemm_tiling(ctx.dev, A, B, out)
     tiling === nothing || return q8gemm!(out, A, B; tiling, bias, epilogue=epi)
     # Wider than one column: hand the fp16 GEMM a dense operand and let it plan

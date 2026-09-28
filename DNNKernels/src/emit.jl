@@ -4271,11 +4271,15 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         # whether the access walk reads that as a dispatch input has not been
         # checked; a bias keeps the path below until it has been.
         NP = q8gemm_columns(N)
-        tiling = bias === nothing && eltype(B) === Float16 ?
+        packed = bias === nothing && eltype(B) === Float16
+        # The pipelined kernel for a wide product, where it was measured faster;
+        # it reads the activations 16 bytes at a time, so they must be aligned
+        # to that, which a padded copy always is and a view may not be.
+        pcfg = packed ? q8gemm_pipelined_tile(caps, eltype(out), Mm, K, NP) : nothing
+        pcfg !== nothing && NP == N && M.basealignment(B) < 16 && (pcfg = nothing)
+        tiling = packed && pcfg === nothing ?
             q8gemm_tiling(caps, eltype(out), Mm, K, NP) : nothing
-        if tiling !== nothing
-            stm, stn, wm, wn, bk, _ = tiling
-            bm, bn, wg = 16stm*wm, 16stn*wn, 32wm*wn
+        if pcfg !== nothing || tiling !== nothing
             Bp = B
             if NP != N
                 Bp = scratch(emitctx, Float16, K, NP)
@@ -4287,10 +4291,17 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             declared = get(emitctx.padded, op.out, nothing)
             dst = NP == N ? out : (declared === nothing ?
                                    scratch(emitctx, eltype(out), Mm, NP) : declared)
-            M.dispatch!(emitctx.g, Q8_GEMM_KERNELS[tiling],
-                        (dst, A.q, A.scale, Bp, nothing, epi,
-                         Val(Mm), Val(NP), Val(K)),
-                        (Mm ÷ bm) * (NP ÷ bn) * wg; group = wg, name = op.id)
+            if pcfg !== nothing
+                l = q8gemm_pipelined_launch(dst, A, Bp, nothing, epi, Mm, NP, K, pcfg)
+                M.dispatch!(emitctx.g, l.kern, l.args, l.ndrange; group = l.group, name = op.id)
+            else
+                stm, stn, wm, wn, bk, _ = tiling
+                bm, bn, wg = 16stm*wm, 16stn*wn, 32wm*wn
+                M.dispatch!(emitctx.g, Q8_GEMM_KERNELS[tiling],
+                            (dst, A.q, A.scale, Bp, nothing, epi,
+                             Val(Mm), Val(NP), Val(K)),
+                            (Mm ÷ bm) * (NP ÷ bn) * wg; group = wg, name = op.id)
+            end
             # Columns 1..N of an `Mm x NP` buffer ARE its first `Mm * N`
             # elements, so this is a linear copy rather than a gather — the same
             # argument the fp16 path below makes for its own padding.

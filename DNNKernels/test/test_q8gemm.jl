@@ -74,3 +74,49 @@ end
         @test_skip false
     end
 end
+
+@testset "pipelined int8 GEMM for wide products" begin
+    backend = Mantle.LavaBackend()
+    dev = DNNKernels.caps(backend)
+    # Which products take it: wide ones, measured at Qwen-Image 2.1's four.
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == (2, 4, 2, 2, 32)
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 12288, 4096, 4224) == (2, 4, 2, 2, 32)
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4224) == (2, 4, 2, 2, 32)
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 12288, 4224) == (4, 2, 2, 2, 32)
+    # Narrow ones keep the tiles measured for them.
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 53248, 5120, 512) === nothing
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4118) === nothing
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Int8, 4096, 4096, 4224) === nothing
+
+    if dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16
+        rng = MersenneTwister(19)
+        # Both tiles, and a k deep enough to run the prefetch through many blocks.
+        for (m, k, n) in ((256, 512, 1024), (256, 1024, 1024))
+            a = DNNKernels.quantizeint8(backend,
+                DNNKernels.toback(backend, Float16.(0.05f0 .* randn(rng, Float32, m, k))))
+            q, scale = Array(a.q), Array(a.scale)
+            # The exact product this kernel computes: scale[m] * (q B), in fp32.
+            qf = Float32[DNNKernels.q8byte(q[cld(i, 4), j], (i - 1) % 4) for i in 1:m, j in 1:k]
+            bh = Float16.(randn(rng, Float32, k, n))
+            biash = randn(rng, Float32, m)
+            exact = scale .* (qf * Float32.(bh)) .+ biash
+            cfg = DNNKernels.q8gemm_pipelined_tile(dev, Float16, m, k, n)
+            @test cfg !== nothing
+            b = DNNKernels.toback(backend, bh)
+            bias = DNNKernels.toback(backend, biash)
+            for T in (Float32, Float16)
+                c = KernelAbstractions.allocate(backend, T, m, n)
+                DNNKernels.q8gemm_pipelined!(c, a, b; cfg, bias)
+                # fp32: the accumulation order is the only difference. fp16: plus
+                # the output's own rounding.
+                tol = T === Float32 ? 1e-4 : 2e-3
+                @test maximum(abs, Float32.(Array(c)) .- exact) <= tol * maximum(abs, exact)
+            end
+            # The other tile on the same operands, and an epilogue.
+            other = cfg == (2, 4, 2, 2, 32) ? (4, 2, 2, 2, 32) : (2, 4, 2, 2, 32)
+            c = KernelAbstractions.allocate(backend, Float32, m, n)
+            DNNKernels.q8gemm_pipelined!(c, a, b; cfg = other, epilogue = x -> max(x, 0f0))
+            @test maximum(abs, Array(c) .- max.(exact .- biash, 0f0)) <= 1e-4 * maximum(abs, exact)
+        end
+    end
+end
