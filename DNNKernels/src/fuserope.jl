@@ -315,3 +315,80 @@ function fusepairrope(g::Graph)
     (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
            order, keep, g.fusion), n)
 end
+
+"""
+    FUSERMSROPE[] = true
+
+Turn `fusermsrope` off, to A/B it against the norm and the rotary apart.
+"""
+const FUSERMSROPE = Ref(true)
+
+"""
+    fusermsrope(graphs) -> (graphs, n)
+
+Fold a `fused.groupedrms` whose only reader is a `fused.pairrope`, directly or
+through one widening cast, into one `fused.rmsrope`.
+
+Qwen-Image 2.1 normalises each query and key head and rotates it, and the export
+widens the norm's fp16 result to fp32 in between. Apart, that is four passes over
+the head: the copy of the head out of the QKV product that the norm is handed,
+the norm, the cast and the rotary, twice a layer. One pass reads the head where
+the product left it and writes it rotated (see [`rmsrope_kernel!`](@ref)).
+
+The cast is only folded when it WIDENS a float, which is exact, so the rotary
+reads the value the norm rounded to either way.
+"""
+function fusermsrope(graphs::AbstractDict)
+    FUSERMSROPE[] || return (Dict{String,Any}(graphs), 0)
+    out = Dict{String,Any}()
+    total = 0
+    for (k, g) in graphs
+        if g isa Graph
+            g2, n = fusermsrope(g)
+            out[k] = g2; total += n
+        else
+            out[k] = g
+        end
+    end
+    (out, total)
+end
+
+function fusermsrope(g::Graph)
+    readers = Dict{String,Vector{Op}}()
+    for op in g.ops, id in op.ins
+        push!(get!(readers, viewroot(g, id), Op[]), op)
+    end
+    escaping = Set(viewroot(g, id) for id in g.outputs)
+    sole(id) = (rs = get(readers, id, Op[]); !(id in escaping) && length(rs) == 1 ? only(rs) : nothing)
+    widens(from, to) = from <: AbstractFloat && to <: AbstractFloat && sizeof(to) > sizeof(from)
+    ops = copy(g.ops)
+    drop = Set{String}()
+    n = 0
+    for nrm in g.ops
+        nrm.aten == "fused.groupedrms" || continue
+        rope = sole(nrm.out)
+        rope === nothing && continue
+        cast = nothing
+        if rope.aten == "_to_copy.default" && rope.ins == [nrm.out] &&
+           widens(g.buffers[nrm.out].dtype, g.buffers[rope.out].dtype)
+            cast = rope
+            rope = sole(cast.out)
+            rope === nothing && continue
+        end
+        rope.aten == "fused.pairrope" && rope.ins[1] == (cast === nothing ? nrm.out : cast.out) ||
+            continue
+        Int(nrm.attrs["C"]) == 2 * Int(rope.attrs["P"]) || continue
+        ops[findfirst(==(rope), ops)] =
+            Op(rope.id, "fused.rmsrope", [nrm.ins[1], nrm.ins[2], rope.ins[2], rope.ins[3]],
+               rope.out, Dict{String,Any}(nrm.attrs..., "P" => rope.attrs["P"],
+                                          "normdtype" => g.buffers[nrm.out].dtype))
+        push!(drop, nrm.id)
+        cast === nothing || push!(drop, cast.id)
+        n += 1
+    end
+    n == 0 && return (g, 0)
+    dropped = Set(o.out for o in g.ops if o.id in drop)
+    (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
+           [id for id in g.order if !(id in dropped)],
+           [o for o in ops if !(o.id in drop)], g.fusion), n)
+end

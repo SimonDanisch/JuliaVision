@@ -431,6 +431,8 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # `FusedOp` and hide the epsilon this needs to read.
     graphs, nswi = fuseswiglu(graphs)
     nswi > 0 && @info "fuseswiglu: $nswi SwiGLU(s) -> one op each"
+    graphs, nswm = fuseswiglumm(graphs)
+    nswm > 0 && @info "fuseswiglumm: $nswm SwiGLU(s) folded into the product that reads them"
     graphs, nrms = fusegroupedrms(graphs)
     nrms > 0 && @info "fusegroupedrms: $nrms grouped RMS norm(s) -> one op each"
     # Before `dropdead`, which would otherwise see the `cat` as live and keep the
@@ -447,6 +449,9 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # halves. Same place in the order and for the same reasons.
     graphs, npair = fusepairrope(graphs)
     npair > 0 && @info "fusepairrope: $npair interleaved rotary embedding(s) -> one op each"
+    # After `fusepairrope` and `fusegroupedrms`, whose ops this joins.
+    graphs, nrmsrope = fusermsrope(graphs)
+    nrmsrope > 0 && @info "fusermsrope: $nrmsrope norm(s) folded into the rotary behind them"
     graphs, ndead = dropdead(graphs)
     # Upload only the weights the surviving graphs still name. `dropdead` prunes
     # dead *ops*; without this the host dict keeps every orphan those passes
@@ -536,6 +541,11 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                 # 6 per layer.
                 graphs, nattndead = dropdead(graphs)
                 ndead += nattndead
+                # Again, now that the attention is one op: the narrowing cast
+                # behind it was behind a `bmm` the first time, and the fused
+                # op stores through its declared type.
+                graphs, nattncast = foldoutcasts(graphs)
+                noutcast += nattncast
             end
         end
         graphs, nfused = fuseops(graphs)

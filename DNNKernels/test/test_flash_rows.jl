@@ -140,5 +140,60 @@ end
             @test maximum(abs.(Array(Mantle.storage(out)) .- rowsref(qh, kh, vh, scale))) < 5e-4
             Mantle.free!(p)
         end
+
+        # What Qwen-Image 2.1's attention does with its result: reshape it, cast
+        # it to fp16, permute it to `(E, H, L)` and hand it on. The cast was a
+        # 1.1 ms pass a layer and the permute 0.5; `foldoutcasts` now narrows
+        # the fused op's own result, and the kernel writes the permuted order
+        # itself, so neither runs.
+        @testset "a fused attention stores its cast and its permute" begin
+            gdev = Mantle.Device(back)
+            E, Lq, Lk, H = 128, 512, 300, 16
+            A(p...) = Dict{String,Any}(p...)
+            buf(id, kind, shape, T; of = "", viewop = "", attrs = A()) =
+                DNNKernels.Buffer(id, kind, Any[shape...], T, "", (0, 0), of, viewop, attrs)
+            bs = [buf("q", :external, (1, H, Lq, E), Float16),
+                  buf("k", :external, (1, H, Lk, E), Float16),
+                  buf("v", :external, (1, H, Lk, E), Float16),
+                  buf("o", :transient, (H, Lq, E), Float32),
+                  buf("ov", :view, (1, H, Lq, E), Float32; of = "o", viewop = "view.default",
+                      attrs = A("arg1" => Any[1, H, Lq, E])),
+                  buf("oh", :transient, (1, H, Lq, E), Float16),
+                  buf("op", :view, (1, Lq, H, E), Float16; of = "oh", viewop = "permute.default",
+                      attrs = A("arg1" => Any[0, 2, 1, 3])),
+                  buf("y", :transient, (1, Lq, H, E), Float16)]
+            scale = 1 / sqrt(E)
+            ops = [DNNKernels.Op("o", "fused.sdpa", ["q", "k", "v"], "o", A("scale" => scale)),
+                   DNNKernels.Op("oh", "_to_copy.default", ["ov"], "oh", A()),
+                   DNNKernels.Op("y", "clamp.default", ["op"], "y", A("arg1" => -1000, "arg2" => 1000))]
+            g = DNNKernels.Graph("attn", String[], ["q", "k", "v"], ["y"],
+                                 Dict(b.id => b for b in bs), [b.id for b in bs], ops)
+            folded, n = DNNKernels.foldoutcasts(g)
+            @test n == 1
+            @test folded.buffers["o"].dtype === Float16
+            qh = Float16.(randn(Float32, E, Lq, H, 1))
+            kh = Float16.(randn(Float32, E, Lk, H, 1))
+            vh = Float16.(randn(Float32, E, Lk, H, 1))
+            ins = (Mantle.Buffer(gdev, qh), Mantle.Buffer(gdev, kh), Mantle.Buffer(gdev, vh))
+            function run(g)
+                plan = DNNKernels.planfor(gdev, g, Dict{String,Any}(), (;))
+                got = Array(first(DNNKernels.replay!(plan, "attn", ins)))
+                names = [String(p.pass.name) for p in plan.plan.passes]
+                Mantle.free!(plan.plan)
+                got, names
+            end
+            want, wnames = run(g)
+            got, names = run(folded)
+            @test "oh" in wnames && "op.permute" in wnames
+            @test !("oh" in names) && !any(startswith("op."), names)
+            @test size(got) == (E, H, Lq, 1)
+            # The store rounds once either way; the kernel variant may contract
+            # its final scaling differently, which moves a handful of elements
+            # by an ulp.
+            @test count(got .!= want) <= length(got) ÷ 1000
+            @test maximum(abs.(Float32.(got) .- Float32.(want))) <= 2e-3
+            ref = permutedims(rowsref(qh, kh, vh, Float32(scale)), (1, 3, 2, 4))
+            @test maximum(abs.(Float32.(got) .- ref)) < 2e-3
+        end
     end
 end

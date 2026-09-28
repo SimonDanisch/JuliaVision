@@ -411,24 +411,69 @@ function convrot_pass_kernel!(
     base = g * Int64(G) + (S == 1 ? w * Int64(16) : w) + Int64(1)
     if base <= n
         @inbounds begin
-            Base.Cartesian.@nexprs 16 i -> v_i = Float32(input[base + Int64((i - 1) * S)])
-            # Stride 1 across the sixteen registers, then stride 4. Both are the
-            # same symmetric 4x4, and both round to the output type in between.
-            Base.Cartesian.@nexprs 4 q -> begin
-                a = v_{4q-3}; b = v_{4q-2}; c = v_{4q-1}; d = v_{4q}
-                v_{4q-3} = Float32(eltype(out)(( a + b + c - d) * 0.5f0))
-                v_{4q-2} = Float32(eltype(out)(( a + b - c + d) * 0.5f0))
-                v_{4q-1} = Float32(eltype(out)(( a - b + c + d) * 0.5f0))
-                v_{4q}   = Float32(eltype(out)((-a + b + c + d) * 0.5f0))
-            end
-            Base.Cartesian.@nexprs 4 q -> begin
-                a = v_q; b = v_{q+4}; c = v_{q+8}; d = v_{q+12}
-                v_q      = Float32(eltype(out)(( a + b + c - d) * 0.5f0))
-                v_{q+4}  = Float32(eltype(out)(( a + b - c + d) * 0.5f0))
-                v_{q+8}  = Float32(eltype(out)(( a - b + c + d) * 0.5f0))
-                v_{q+12} = Float32(eltype(out)((-a + b + c + d) * 0.5f0))
-            end
-            Base.Cartesian.@nexprs 16 i -> out[base + Int64((i - 1) * S)] = eltype(out)(v_i)
+            v = convrot16(ntuple(i -> Float32(input[base + Int64((i - 1) * S)]), Val(16)),
+                          eltype(out))
+            Base.Cartesian.@nexprs 16 i -> out[base + Int64((i - 1) * S)] = eltype(out)(v[i])
+        end
+    end
+    return nothing
+end
+
+"""One radix-4 stage of the transform on four values, each rounded to `T`."""
+@inline convrot4(a, b, c, d, ::Type{T}) where {T} =
+    (Float32(T(( a + b + c - d) * 0.5f0)), Float32(T(( a + b - c + d) * 0.5f0)),
+     Float32(T(( a - b + c + d) * 0.5f0)), Float32(T((-a + b + c + d) * 0.5f0)))
+
+"""
+Two stages over sixteen registers: stride 1 across them, then stride 4. Both
+are the same symmetric 4x4, and both round to `T` in between.
+"""
+@inline function convrot16(v::NTuple{16,Float32}, ::Type{T}) where {T}
+    a1 = convrot4(v[1], v[2], v[3], v[4], T)
+    a2 = convrot4(v[5], v[6], v[7], v[8], T)
+    a3 = convrot4(v[9], v[10], v[11], v[12], T)
+    a4 = convrot4(v[13], v[14], v[15], v[16], T)
+    # `aK[q]` is element `4(K-1) + q`; the stride-4 stage mixes `a1..a4` at one
+    # `q`, and element `4(k-1) + q` of the result is `bq[k]`.
+    b1 = convrot4(a1[1], a2[1], a3[1], a4[1], T)
+    b2 = convrot4(a1[2], a2[2], a3[2], a4[2], T)
+    b3 = convrot4(a1[3], a2[3], a3[3], a4[3], T)
+    b4 = convrot4(a1[4], a2[4], a3[4], a4[4], T)
+    (b1[1], b2[1], b3[1], b4[1], b1[2], b2[2], b3[2], b4[2],
+     b1[3], b2[3], b3[3], b4[3], b1[4], b2[4], b3[4], b4[4])
+end
+
+"""
+The first ConvRot pass with a SwiGLU in front of it.
+
+A SwiGLU MLP's down projection rotates `silu(gate) * up`, and as two ops that
+product was written (101 MB at Qwen-Image 2.1's `12288 x 4118`) only for the
+rotation to read it straight back. This pass reads the two halves where the
+stacked up projection left them and never writes the product.
+
+`gate` and `up` are flat parents: element `(r, c)` of the `K x N` product is at
+`gb + r + c * gcol` and `ub + r + c * ucol`, 0-based `r` and `c`. A thread's
+sixteen elements are consecutive rows of one column, because the group divides
+`K`. The SwiGLU rounds to `H` where [`swiglu_run_kernel!`](@ref) rounds to its
+output type, so this computes what the two kernels computed.
+"""
+function convrot_swiglu_kernel!(out, gate, up, gb::Int64, ub::Int64, gcol::Int64, ucol::Int64,
+                                ::Val{H}, ::Val{K}, ::Val{SETS}, ::Val{G},
+                                n::Int64) where {H,K,SETS,G}
+    j = Int64(KI.get_global_id().x) - Int64(1)
+    g = j ÷ Int64(SETS)
+    w = j - g * Int64(SETS)
+    base = g * Int64(G) + w * Int64(16)
+    if base < n
+        c = base ÷ Int64(K)
+        gi = gb + (base - c * Int64(K)) + c * gcol
+        ui = ub + (base - c * Int64(K)) + c * ucol
+        @inbounds begin
+            v = convrot16(ntuple(Val(16)) do i
+                    x = Float32(gate[gi + Int64(i - 1)])
+                    Float32(H(Float32(H(x / (1f0 + exp(-x)))) * Float32(up[ui + Int64(i - 1)])))
+                end, eltype(out))
+            Base.Cartesian.@nexprs 16 i -> out[base + Int64(i)] = eltype(out)(v[i])
         end
     end
     return nothing

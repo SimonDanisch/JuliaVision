@@ -96,6 +96,23 @@ function fusedfunc(g::Graph, op::Op)
             (src === nothing || !(src.dtype <: Integer)) && return nothing
         end
         return (Cast(b.dtype), 1)
+    elseif a == "where.self"
+        # A select, so exact in any group. Qwen-Image 2.1 picks every token's
+        # modulation with one, and alone each built a `tokens x 4096` tensor only
+        # for the next op to read it back: four passes a layer.
+        b = get(g.buffers, op.out, nothing)
+        b === nothing && return nothing
+        return (Select(b.dtype), 3)
+    elseif a == "clamp.default"
+        # The bounds `clampbounds` gives a float tensor. An integer one takes a
+        # different path there, and a symbolic bound is not known yet.
+        src = get(g.buffers, resolvealias(g, first(op.ins)), nothing)
+        (src === nothing || !(src.dtype <: AbstractFloat)) && return nothing
+        bound(v, open) = v === nothing ? open : scalar(v)
+        lo = bound(get(op.attrs, "arg1", nothing), -Inf32)
+        hi = bound(get(op.attrs, "arg2", nothing), Inf32)
+        (lo isa Real && hi isa Real) || return nothing
+        return (ClampF32(Float32(lo), Float32(hi)), 1)
     end
     f = get(UNARY_FUSED, a, nothing)
     f === nothing ? nothing : (f, 1)

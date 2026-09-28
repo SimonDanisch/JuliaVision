@@ -530,16 +530,20 @@ Without the clause MatAnyone costs 14.5% more. A static count of dispatch
 overhead puts that at ~0.5%, wrong by a factor of thirty, so this is a question
 for a model run and not for the dispatch count.
 """
-@inline function planewise_worth(ctx, out, A, B)
+@inline planewise_worth(ctx, out, A, B) =
+    planewise_worth(ctx.dev, out, A, B, islavaarray(A) && islavaarray(B))
+
+# The same question from the device's capabilities and whether both operands are
+# dense, which is all a declaration has: its operands are graph resources.
+@inline function planewise_worth(caps, out, A, B, dense::Bool)
     size(out, 3) == 1 && return true
     M, N = size(out, 1), size(out, 2)
     (M >= Mantle.SGEMM_BM && N >= Mantle.SGEMM_BN) || return false
-    t = ctx.dev.tile
+    t = caps.tile
     # A plane of a DENSE fp16 operand is a `LavaArray{T,2}`, so the parent type
     # settles this without building the view — the views are not free at this
     # call rate.
-    if ctx.dev.coopmat && eltype(A) === Float16 && eltype(B) === Float16 &&
-       islavaarray(A) && islavaarray(B) &&
+    if caps.coopmat && eltype(A) === Float16 && eltype(B) === Float16 && dense &&
        size(A, 1) % t == 0 && size(A, 2) % t == 0
         return true
     end

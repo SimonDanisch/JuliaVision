@@ -256,3 +256,48 @@ end
                gany.order, ops, gany.fusion)
     @test DK.foldpremap(g3)[2] == 0
 end
+
+# `where.self` and `clamp.default` join a group. Qwen-Image 2.1 picks every
+# token's modulation with a `where` and clamps its residual stream, and alone
+# each built or rewrote a `tokens x 4096` tensor for the next op to read back:
+# five passes a layer, 75 ms a denoising step. Both are selects, so fused or not
+# they compute the same bits. (The chain here has no `add`: a fused `mul` and
+# `add` contract to an FMA, which is `Rounded`'s note and not these two ops.)
+@testset "fuseops takes where and clamp" begin
+    b(id, kind, shape, T) =
+        Buffer(id, kind, Any[shape...], T, "", (0, 0), "", "", Dict{String,Any}())
+    A(p...) = Dict{String,Any}(p...)
+    function modgraph(; lo = -0.3, hi = 0.7)
+        buffers = Dict{String,Buffer}(
+            "m" => b("m", :external, (4, 1), Bool),
+            "a" => b("a", :external, (1, 6), Float16),
+            "c" => b("c", :external, (1, 6), Float16),
+            "x" => b("x", :external, (4, 6), Float16),
+            "w" => b("w", :transient, (4, 6), Float16),
+            "t" => b("t", :transient, (4, 6), Float16),
+            "u" => b("u", :transient, (4, 6), Float16),
+            "y" => b("y", :transient, (4, 6), Float16))
+        ops = [Op("o1", "where.self", ["m", "a", "c"], "w", A()),
+               Op("o2", "tanh.default", ["w"], "t", A()),
+               Op("o3", "mul.Tensor", ["t", "x"], "u", A()),
+               Op("o5", "clamp.default", ["u"], "y", A("arg1" => lo, "arg2" => hi))]
+        Graph("mod", String[], ["m", "a", "c", "x"], ["y"], buffers,
+              ["m", "a", "c", "x", "w", "t", "u", "y"], ops, Vector{Vector{String}}())
+    end
+    g = modgraph()
+    gf, n = DK.fuseops(g)
+    @test n == 3
+    @test length(gf.ops) == 1 && only(gf.ops).aten == "fused.elementwise"
+    # Julia order: the `(4, 1)` mask is a row, the `(1, 6)` vectors are columns.
+    rng = DK.Random.MersenneTwister(31)
+    inp = Dict{String,Any}("m" => Bool[1 0 1 0], "a" => Float16.(randn(rng, Float32, 6, 1)),
+                           "c" => Float16.(randn(rng, Float32, 6, 1)),
+                           "x" => Float16.(3 .* randn(rng, Float32, 6, 4)))
+    got, want = declaredrun(gf, inp), declaredrun(g, inp)
+    @test got == want
+    @test any(==(Float16(0.7)), got) && any(==(Float16(-0.3f0)), got)   # the bounds bit
+
+    # A symbolic bound is not known when the passes run, and a missing one is open.
+    @test !DK.fusable(g, Op("o5", "clamp.default", ["u"], "y", A("arg1" => "s0", "arg2" => 1)))
+    @test DK.fusable(g, Op("o5", "clamp.default", ["u"], "y", A("arg2" => 1)))
+end

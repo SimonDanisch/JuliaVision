@@ -409,8 +409,9 @@ function paddedcolumns(emitctx::EmitCtx, b::Buffer, dims::Dims,
     (b.id in emitctx.esc || b.id in emitctx.aten.outputs) && return nothing
     op = get(producers, b.id, nothing)
     op === nothing && return nothing
-    op.aten in ("mm.default", "addmm.default") || return nothing
-    # `mm(a, b)` is `b * a` reversed, so the MATRIX operand is the last input.
+    op.aten in ("mm.default", "addmm.default", "fused.swiglumm") || return nothing
+    # `mm(a, b)` is `b * a` reversed, so the MATRIX operand is the last input,
+    # and `fused.swiglumm` keeps it there.
     # Read from the weight table and not from `res`: declarations run in the
     # graph's order and the weight need not have been declared yet.
     wb = get(emitctx.aten.buffers, last(op.ins), nothing)
@@ -1372,20 +1373,102 @@ that asked for it.
 scratch(emitctx::EmitCtx, ::Type{T}, dims::Integer...) where {T} =
     M.Transient.Buffer(emitctx.g, T, map(Int, dims))
 
+"""
+A SwiGLU nobody computed: the two strided halves of the stacked up projection,
+which the first ConvRot pass reads in place of the product. `H` is the type the
+product would have had, and so the type the SwiGLU rounds to.
+"""
+struct SwiGLUHalves{H,P,Q}
+    gate::P
+    up::Q
+    # 1-based offsets into the flat parents, and the stride between columns.
+    gb::Int64
+    ub::Int64
+    gcol::Int64
+    ucol::Int64
+    dims::Tuple{Int,Int}
+end
+
+Base.size(h::SwiGLUHalves) = h.dims
+Base.size(h::SwiGLUHalves, d::Integer) = h.dims[d]
+Base.length(h::SwiGLUHalves) = prod(h.dims)
+Base.eltype(::SwiGLUHalves{H}) where {H} = H
+
 """Declare the radix-4 regular-Hadamard ConvRot transform — see
-[`convrot_kernel!`](@ref) for why it is one pass and not one per stage."""
-function convrot(emitctx::EmitCtx, input, group_size::Integer; name::AbstractString="convrot")
-    out = scratch(emitctx, eltype(input), size(input)...)
+[`convrot_pass_kernel!`](@ref) for why it is two passes and not one per stage."""
+function convrot(emitctx::EmitCtx, input, group_size::Integer; name::AbstractString="convrot",
+                 out = scratch(emitctx, eltype(input), size(input)...))
+    # `out` may be LONGER than `input`: a `K x NP` buffer whose first `N`
+    # columns take the result, which is the same linear index a `K x N` one
+    # would give them. The passes only touch `length(input)` elements.
     strides, sets, ndrange = convrot_passes(input, group_size)
     n = Int64(length(input))
     src = input
     for (i, S) in enumerate(strides)
-        M.dispatch!(emitctx.g, convrot_pass_kernel!,
-                    (out, src, Val(S), Val(sets), Val(Int(group_size)), n),
-                    ndrange; group=256, name="$name.$i")
+        convrotpass!(emitctx, out, src, Val(S), sets, group_size, n, ndrange, "$name.$i")
         src = out
     end
     out
+end
+
+convrotpass!(emitctx::EmitCtx, out, src, ::Val{S}, sets, G, n, ndrange, name) where {S} =
+    M.dispatch!(emitctx.g, convrot_pass_kernel!, (out, src, Val(S), Val(sets), Val(Int(G)), n),
+                ndrange; group = 256, name)
+
+# A SwiGLU is only ever the source of the FIRST pass, which is the stride-1 one.
+convrotpass!(emitctx::EmitCtx, out, src::SwiGLUHalves{H}, ::Val{1}, sets, G, n, ndrange,
+             name) where {H} =
+    M.dispatch!(emitctx.g, convrot_swiglu_kernel!,
+                (out, src.gate, src.up, src.gb, src.ub, src.gcol, src.ucol,
+                 Val(H), Val(size(src, 1)), Val(sets), Val(Int(G)), n),
+                ndrange; group = 256, name)
+
+"""
+    swigluhalves(emitctx, op, H, K) -> SwiGLUHalves | nothing
+
+The `K x N` SwiGLU of `op`'s first two inputs, uncomputed. `nothing` unless
+both halves are strided windows whose first axis is a run of exactly `K`
+elements, with at most one further non-singleton axis.
+"""
+function swigluhalves(emitctx::EmitCtx, op::Op, ::Type{H}, K::Integer) where {H}
+    sg = stridedoperand(emitctx, op.ins[1])
+    su = stridedoperand(emitctx, op.ins[2])
+    (sg === nothing || su === nothing || sg.dims != su.dims) && return nothing
+    d = sg.dims
+    (length(d) >= 2 && d[1] == K && sg.strides[1] == 1 && su.strides[1] == 1) || return nothing
+    all(==(1), d[3:end]) || return nothing
+    SwiGLUHalves{H,typeof(swiglustridedflat(sg.parent)),typeof(swiglustridedflat(su.parent))}(
+        swiglustridedflat(sg.parent), swiglustridedflat(su.parent),
+        Int64(sg.offset + 1), Int64(su.offset + 1),
+        Int64(sg.strides[2]), Int64(su.strides[2]), (Int(K), Int(d[2])))
+end
+
+"""
+    convrotinput(emitctx, op, caps, out, A, B, bias) -> (rotated, padded)
+
+`B` rotated for the packed product of `A`, and the `K x NP` buffer it was
+rotated into when that product pads its columns (`nothing` when it does not).
+`B` is an operand or a [`SwiGLUHalves`](@ref).
+
+The rotation goes straight into the padded buffer, where there is one: a
+separate `padB` pass re-read and re-wrote all of it, 0.43 ms a product at
+Qwen-Image 2.1's `4096 x 4118` and 1.29 at the `12288 x 4118` down projection,
+four products a layer. Its pad columns are never written. Output column `j`
+reads column `j` of `B` and nothing else, and the output's own pad columns are
+discarded (see `paddedcolumns`), so whatever the pad holds cannot reach a
+result; zeroing it was 128 more dispatches a step.
+"""
+function convrotinput(emitctx::EmitCtx, op::Op, caps, out, A::ConvRotQInt8Matrix, B, bias)
+    K, N = size(B, 1), size(B, 2)
+    NP = q8gemm_columns(N)
+    if N > 1 && NP != N && bias === nothing && eltype(B) === Float16 &&
+       (q8gemm_pipelined_tile(caps, eltype(out), size(A, 1), K, NP) !== nothing ||
+        q8gemm_tiling(caps, eltype(out), size(A, 1), K, NP) !== nothing)
+        padded = scratch(emitctx, Float16, K, NP)
+        convrot(emitctx, B, A.group_size; name = "$(op.id).convrot", out = padded)
+        return M.viewof(padded, (K, N)), padded
+    end
+    convrot(emitctx, B, A.group_size; name = "$(op.id).convrot"), nothing
 end
 
 """
@@ -3230,8 +3313,11 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.groupedrms")})
 end
 
 """The fused SwiGLU produced by `fuseswiglu`, as one declared dispatch."""
-function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
-    out = dest(emitctx)
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")}) =
+    swiglu!(emitctx, op, dest(emitctx))
+
+"""`silu(gate) * up` of `op`'s first two inputs, into `out`, as one dispatch."""
+function swiglu!(emitctx::EmitCtx, op::Op, out; name::AbstractString = op.id)
     # In place off whatever the halves are views OF, which is what the
     # interpreted `runop!` has always done and the declared path did not.
     # `fuseqkv` stacks the gate and the up projection into ONE product, so both
@@ -3259,7 +3345,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
                          Int32(sg.offset + 1), Int32(su.offset + 1), Int32(1),
                          map(Int32, sg.strides), map(Int32, su.strides),
                          map(Int32, os), Val(V), nd),
-                        prod(nd); group = 256, name = op.id)
+                        prod(nd); group = 256, name)
             return out
         end
         M.dispatch!(emitctx.g, swiglu_strided_kernel!,
@@ -3267,7 +3353,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
                      swiglustridedflat(su.parent),
                      Int32(sg.offset + 1), Int32(su.offset + 1),
                      map(Int32, sg.strides), map(Int32, su.strides)),
-                    prod(sg.dims); group = 256, name = op.id)
+                    prod(sg.dims); group = 256, name)
         return out
     end
     gate = operand(emitctx, op.ins[1])
@@ -3277,7 +3363,7 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")})
         "output shapes, got $(size(gate)), $(size(up)) and $(size(out)).")
     M.dispatch!(emitctx.g, swiglu_kernel!,
                 (out, gate, up, Int64(length(gate))), length(gate);
-                name = op.id)
+                name)
     return out
 end
 
@@ -3328,6 +3414,56 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.pairrope")})
         "and sine values, got $(length(cs)) and $(length(sn)).")
     M.dispatch!(emitctx.g, pairrope_kernel!,
                 (out, x, cs, sn, Val(P), Val(H), Int32(npair)), npair; name = op.id)
+    return out
+end
+
+"""
+The grouped RMS norm and the interleaved rotary behind it, which `fusermsrope`
+makes one op, as one dispatch that reads the head where it lies.
+
+The input is taken as a strided window where it is one, `(C, heads, tokens)`
+with each head contiguous: Qwen-Image 2.1's query and key heads are windows of
+the QKV product, and resolving the operand is a 34 MB copy per window.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rmsrope")})
+    γ = operand(emitctx, op.ins[2])
+    cs = operand(emitctx, op.ins[3])
+    sn = operand(emitctx, op.ins[4])
+    out = dest(emitctx)
+    C = Int(op.attrs["C"])
+    NG = Int(op.attrs["ng"])
+    P = Int(op.attrs["P"])
+    C == 2P && size(out, 1) == C || error(
+        "DNNKernels: `fused.rmsrope` (op $(op.id)) norms groups of $C and rotates " *
+        "$P pairs of a head of $(size(out, 1)).")
+    length(γ) == C * NG || error(
+        "DNNKernels: `fused.rmsrope` (op $(op.id)) needs $(C * NG) gain values " *
+        "for $NG groups of $C, but received $(length(γ)).")
+    NH = size(out, 2)
+    groups = length(out) ÷ C
+    length(cs) >= P * (groups ÷ NH) && length(sn) >= P * (groups ÷ NH) || error(
+        "DNNKernels: `fused.rmsrope` (op $(op.id)) needs $(P * (groups ÷ NH)) cosine " *
+        "and sine values, got $(length(cs)) and $(length(sn)).")
+    s = stridedoperand(emitctx, op.ins[1])
+    a, abase, hs, ts = if s !== nothing && s.dims == size(out) && length(s.dims) >= 3 &&
+                          s.strides[1] == 1 &&
+                          all(==(1), s.dims[4:end]) &&
+                          length(s.parent) <= typemax(Int32)
+        swiglustridedflat(s.parent), s.offset, s.strides[2], s.strides[3]
+    else
+        x = operand(emitctx, op.ins[1])
+        length(x) == length(out) || error(
+            "DNNKernels: `fused.rmsrope` (op $(op.id)) writes $(length(out)) " *
+            "elements from $(length(x)).")
+        x, 0, C, C * NH
+    end
+    wg = rmsgroup(C)
+    M.dispatch!(emitctx.g, rmsrope_kernel!,
+                (out, a, γ, cs, sn, Int32(abase), Int32(hs), Int32(ts), Int32(NG),
+                 Float32(op.attrs["eps"]), Val(C), Val(NH),
+                 Val(Bool(get(op.attrs, "midround", false))), Val(wg),
+                 Val(op.attrs["normdtype"])),
+                groups * wg; group = wg, name = op.id)
     return out
 end
 
@@ -3701,28 +3837,48 @@ function flashplanar(s::StridedOperand)
 end
 
 """
+    sdpaoutputpermute(emitctx, op, want) -> permute buffer | nothing
+
 The sole `(E,L,H,B) -> (E,H,L,B)` consumer of an attention result, if there is
 one. Flash can write that physical order directly. Registering the permute as a
 dense view then removes the otherwise compulsory full-tensor copy before the
 output projection.
 
-Conservative by construction: the unpermuted result must have no direct op or
-graph-output reader and exactly this one view child.
+torch's four-result op hands the result back as `getitem(…, 0)`; `fused.sdpa`
+is its own result, and reaches the permute through reshapes and the alias a
+folded output cast leaves (Qwen-Image 2.1: `bmm -> view -> alias -> permute`,
+0.5 ms a layer as a copy). The permute's operand has to be `want`, the
+`(E, L, H, B)` the kernel writes, so no reshape on the way changed the order.
+
+Conservative by construction: nothing on the way has an op or graph-output
+reader, and each has exactly one view child.
 """
-function sdpaoutputpermute(emitctx::EmitCtx, op::Op)
-    gets = [b for b in values(emitctx.aten.buffers)
-            if b.of == op.id && occursin("getitem", b.viewop) &&
-               Int(get(b.attrs, "arg1", -1)) == 0]
-    length(gets) == 1 || return nothing
-    getbuf = only(gets)
-    getbuf.id in emitctx.aten.outputs && return nothing
-    any(getbuf.id in x.ins for x in emitctx.aten.ops) && return nothing
-    children = [b for b in values(emitctx.aten.buffers) if b.of == getbuf.id]
-    length(children) == 1 || return nothing
-    p = only(children)
-    p.viewop == "permute.default" || return nothing
-    Tuple(Int.(p.attrs["arg1"])) == (0, 2, 1, 3) || return nothing
-    return p
+function sdpaoutputpermute(emitctx::EmitCtx, op::Op, want::Dims)
+    aten = emitctx.aten
+    id = if maybedest(emitctx, 0) === nothing
+        op.out
+    else
+        gets = [b for b in values(aten.buffers)
+                if b.of == op.id && occursin("getitem", b.viewop) &&
+                   Int(get(b.attrs, "arg1", -1)) == 0]
+        length(gets) == 1 || return nothing
+        only(gets).id
+    end
+    for _ in 1:8
+        id in aten.outputs && return nothing
+        any(id in x.ins for x in aten.ops) && return nothing
+        children = [b for b in values(aten.buffers) if b.of == id]
+        length(children) == 1 || return nothing
+        p = only(children)
+        if p.viewop == "permute.default"
+            Tuple(Int.(p.attrs["arg1"])) == (0, 2, 1, 3) || return nothing
+            evalshape(aten.buffers[id].shape, emitctx.dims) == want || return nothing
+            return p
+        end
+        p.viewop in ("view.default", "_unsafe_view.default", "alias.default") || return nothing
+        id = p.id
+    end
+    return nothing
 end
 
 """
@@ -3883,19 +4039,26 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     q = sdpaoperand(emitctx, op, 1)
     k = sdpaoperand(emitctx, op, 2)
     v = sdpaoperand(emitctx, op, 3)
-    outperm = sdpaoutputpermute(emitctx, op)
+    outperm = sdpaoutputpermute(emitctx, op, (E, Lq, H, B))
     cm2 = flashcm2_plan(caps, q, k, v, bias)
     cm2 isa Decline || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
         "not split from `sdpaflashcm2!` yet, so it has no declared form. " *
         "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
         "shape a port takes.")
-    # The same order the immediate path takes (`sdpaplan`). This kernel cannot
-    # write the permuted order directly, so a following permute runs as its own
-    # pass: 0.3 ms against the 16 ms this saves at Qwen-Image 2.1's attention.
+    # The same order the immediate path takes (`sdpaplan`). A following
+    # `(0, 2, 1, 3)` permute is written by the kernel itself and registered as a
+    # dense view, as the cooperative-matrix kernel below does.
     rows = flashrows_plan(caps, q, k, v, bias)
     if rows isa FlashRowsPlan
-        flashrows_dispatch!(emitctx.g, out, rows, q, k, v, scale; name = op.id)
+        if outperm === nothing
+            flashrows_dispatch!(emitctx.g, out, rows, q, k, v, scale; name = op.id)
+        else
+            permuted = M.viewof(dst, (E, H, Lq, B))
+            flashrows_dispatch!(emitctx.g, permuted, rows, q, k, v, scale;
+                                outperm = true, name = op.id)
+            emitctx.res[outperm.id] = M.viewof(dst, evalshape(outperm.shape, emitctx.dims))
+        end
         return sdparesults(emitctx, dst)
     end
     plan = flashcm_plan(caps, q, k, v, bias)
@@ -4085,9 +4248,11 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.sdpa")}) =
 # ── matrix products ──────────────────────────────────────────────────────────
 
 """
-    gemm!(emitctx, op, out, A, B; bias = nothing, epi = identity) -> out
+    gemm!(emitctx, op, out, A, B; bias = nothing, epi = identity, padded = nothing) -> out
 
 `out = A * B` (+ bias, then `epi`) as declared dispatches, in Mantle's layout.
+`padded`, when given, is a `K x NP` buffer whose first columns ARE `B`; a packed
+int8 product that pads to `NP` reads it instead of copying `B` into a new one.
 
 The operands are already swapped by the caller: torch's `a * b` is `b * a` in the
 reversed layout, which is what `runop!` passed `matmul!` too.
@@ -4099,7 +4264,8 @@ plan REFUSES by name rather than being written untested. A refusal names the
 plan and the shape, which is what tells the next person which one to port and
 what to check it against.
 """
-function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity)
+function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity,
+               padded = nothing)
     dev = emitctx.dev
     caps = M.caps(dev)
     # A backend library with this exact fused epilogue wins before choosing a
@@ -4219,7 +4385,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         return out
     end
     if plan isa MMConvRotInt8Plan
-        B = convrot(emitctx, B, A.group_size; name="$(op.id).convrot")
+        B, padded = convrotinput(emitctx, op, caps, out, A, B, bias)
         A = QInt8Matrix(A.q, A.scale, A.m)
         plan = MMInt8Plan()
     end
@@ -4281,7 +4447,9 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             q8gemm_tiling(caps, eltype(out), Mm, K, NP) : nothing
         if pcfg !== nothing || tiling !== nothing
             Bp = B
-            if NP != N
+            if padded !== nothing && size(padded, 2) == NP
+                Bp = padded
+            elseif NP != N
                 Bp = scratch(emitctx, Float16, K, NP)
                 M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
                             name = "$(op.id).padB")
@@ -4392,6 +4560,32 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mm.default")})
 end
 
 """
+`mm(silu(gate) * up, w)`, which `fuseswiglumm` makes of a SwiGLU whose only
+reader is a product with a weight.
+
+A ConvRot weight rotates the SwiGLU's product before the GEMM, and the first
+rotation pass computes the SwiGLU itself (see [`convrot_swiglu_kernel!`](@ref)),
+so the product is never written. Any other weight, or halves that are not the
+strided windows that pass reads, gets the two ops it replaced.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglumm")})
+    A = operand(emitctx, op, 3)
+    out = dest(emitctx)
+    H = op.attrs["dtype"]
+    K = size(A, 2)
+    if A isa ConvRotQInt8Matrix
+        halves = swigluhalves(emitctx, op, H, K)
+        if halves !== nothing
+            B, padded = convrotinput(emitctx, op, M.caps(emitctx.dev), out, A, halves, nothing)
+            return gemm!(emitctx, op, out, QInt8Matrix(A.q, A.scale, A.m), B; padded)
+        end
+    end
+    h = scratch(emitctx, H, evalshape(emitctx.aten.buffers[op.ins[1]].shape, emitctx.dims)...)
+    swiglu!(emitctx, op, h; name = "$(op.id).swiglu")
+    return gemm!(emitctx, op, out, A, M.viewof(h, (K, length(h) ÷ K)))
+end
+
+"""
 `aten::addmm(bias, a, b)` = `bias + a*b`, with the bias and any folded
 activation inside the GEMM's store.
 
@@ -4432,6 +4626,12 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("bmm.default")})
     nb == size(b, 3) == size(out, 3) || error(
         "DNNKernels: `bmm` (op $(op.id)) has batch extents " *
         "$(size(a, 3)), $(size(b, 3)) and $(size(out, 3)).")
+    # The immediate path's choice (`batchedmatmul!`): planes too small to fill a
+    # GEMM tile go to ONE flat launch over every plane, not a dispatch per plane.
+    # Qwen-Image 2.1's text attention is 32 heads of `22 x 22` and `128 x 22`,
+    # which per plane was 64 dispatches of ~40 us a layer.
+    planewise_worth(M.caps(emitctx.dev), out, b, a, true) ||
+        return launch!(emitctx.g, mm3, out, b, a; name = op.id)
     for i in 1:nb
         gemm!(emitctx, op, planeof(emitctx, out, i),
               planeof(emitctx, b, i), planeof(emitctx, a, i))

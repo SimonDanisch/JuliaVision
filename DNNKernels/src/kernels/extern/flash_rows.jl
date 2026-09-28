@@ -66,10 +66,13 @@ const FLASHROWS_NW = 4
     reinterpret(Ptr{FLASHROWS_H4}, base + 2 * off)
 
 """
-    attn_flash_rows!(out, q, k, v, scale, qbase, qsL, qsH, qsB, kbase, …, Val(E), Val(NW), Lq, Lk)
+    attn_flash_rows!(out, q, k, v, scale, qbase, qsL, qsH, qsB, kbase, …, Val(E), Val(NW), Val(OUTPERM), Lq, Lk)
 
 `out[:, i, h, b] = softmax(scale * K[:, :, h, b]ᵀ q[:, i, h, b]) V` for every
 query `i`, with `q`, `k`, `v` read at 1-based `base + e + stride_L*l + stride_H*(h-1) + stride_B*(b-1)`.
+With `OUTPERM`, `out` is `(E, H, L, B)` and row `i` of head `h` goes to
+`out[:, h, i, b]`: the order a following `(0, 2, 1, 3)` permute asks for, which
+then needs no pass of its own (see `sdpaoutputpermute`).
 `E` contiguous and 16-byte-aligned key rows are [`flashrows_plan`](@ref)'s to
 check.
 """
@@ -77,7 +80,7 @@ function attn_flash_rows!(out, q, k, v, scale::Float32,
         qbase::Int32, qsL::Int32, qsH::Int32, qsB::Int32,
         kbase::Int32, ksL::Int32, ksH::Int32, ksB::Int32,
         vbase::Int32, vsL::Int32, vsH::Int32, vsB::Int32,
-        ::Val{E}, ::Val{NW}, Lq::Int32, Lk::Int32) where {E,NW}
+        ::Val{E}, ::Val{NW}, ::Val{OUTPERM}, Lq::Int32, Lk::Int32) where {E,NW,OUTPERM}
     # Sizes written from the type parameters, never from a local: Lava
     # miscompiles an `@localmem` sized by a local binding (see `flash.jl`).
     # K rows are padded by 8 halves, which keeps them 16-byte aligned and puts
@@ -232,9 +235,16 @@ function attn_flash_rows!(out, q, k, v, scale::Float32,
         end
         Base.Cartesian.@nexprs 8 t -> if t <= E ÷ 16
             acco_t = Mantle.coopmat_mul(acco_t, fac)
-            Base.Cartesian.@nexprs 8 i ->
-                out[1 + Int32((t - 1) * 16) + ocol_i, 1 + q0 + orow_i, 1 + h, 1 + b] =
-                    convert(eltype(out), Mantle.coopmat_getcomp(acco_t, Int32(i - 1)))
+            Base.Cartesian.@nexprs 8 i -> begin
+                e_i = 1 + Int32((t - 1) * 16) + ocol_i
+                l_i = 1 + q0 + orow_i
+                o_i = convert(eltype(out), Mantle.coopmat_getcomp(acco_t, Int32(i - 1)))
+                if OUTPERM
+                    out[e_i, 1 + h, l_i, 1 + b] = o_i
+                else
+                    out[e_i, l_i, 1 + h, 1 + b] = o_i
+                end
+            end
         end
     end
     return nothing
@@ -295,12 +305,12 @@ function flashrows_plan(dev::M.DeviceCaps, q, k, v, bias)
 end
 
 """
-    flashrows_launches(out, plan, q, k, v, scale) -> Vector
+    flashrows_launches(out, plan, q, k, v, scale; outperm = false) -> Vector
 
 The launch, as [`Mantle.runlaunches!`](@ref) and [`flashrows_dispatch!`](@ref)
 take it.
 """
-function flashrows_launches(out, plan::FlashRowsPlan, q, k, v, scale)
+function flashrows_launches(out, plan::FlashRowsPlan, q, k, v, scale; outperm::Bool = false)
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
     rq, rk, rv = stridedroot(q), stridedroot(k), stridedroot(v)
@@ -311,7 +321,7 @@ function flashrows_launches(out, plan::FlashRowsPlan, q, k, v, scale)
               Int32(rq[2] + 1), sq[2], sq[3], sq[4],
               Int32(rk[2] + 1), sk[2], sk[3], sk[4],
               Int32(rv[2] + 1), sv[2], sv[3], sv[4],
-              Val(E), Val(FLASHROWS_NW), Int32(Lq), Int32(Lk)),
+              Val(E), Val(FLASHROWS_NW), Val(outperm), Int32(Lq), Int32(Lk)),
       ndrange = (NT * cld(Lq, 16 * FLASHROWS_NW), H, B), group = NT)]
 end
 
@@ -327,9 +337,9 @@ function sdpa!(ctx, plan::FlashRowsPlan, out, q, k, v, bias, scale)
 end
 
 """DECLARE this attention into a graph."""
-function flashrows_dispatch!(g, out, plan::FlashRowsPlan, q, k, v, scale;
+function flashrows_dispatch!(g, out, plan::FlashRowsPlan, q, k, v, scale; outperm::Bool = false,
                              name::AbstractString = "sdpa")
-    l = only(flashrows_launches(out, plan, q, k, v, scale))
+    l = only(flashrows_launches(out, plan, q, k, v, scale; outperm))
     M.dispatch!(g, l.kern, l.args, l.ndrange; group = l.group, name)
     return out
 end

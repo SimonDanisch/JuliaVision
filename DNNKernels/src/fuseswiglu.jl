@@ -105,3 +105,79 @@ function fuseswiglu(g::Graph)
     (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
            order, keep, g.fusion), n)
 end
+
+"""
+    FUSESWIGLUMM[] = true
+
+Turn `fuseswiglumm` off, to A/B it against the SwiGLU and its product apart.
+"""
+const FUSESWIGLUMM = Ref(true)
+
+"""
+    fuseswiglumm(graphs) -> (graphs, n)
+
+Fold each `fused.swiglu` whose only reader is `mm(swiglu, w)`, with `w` a
+weight, into that product: `fused.swiglumm(gate, up, w)`.
+
+What it buys is in the emit. A ConvRot weight rotates the product's input before
+the GEMM, and the rotation's first pass can compute the SwiGLU as it reads, so
+the SwiGLU's result (101 MB a layer at Qwen-Image 2.1's `12288 x 4118`) is never
+written or read back. Any other weight gets the same two ops as before.
+
+The product may see the SwiGLU through reshapes and nothing else, since the fused
+op stands for the SwiGLU's own dense layout.
+"""
+function fuseswiglumm(graphs::AbstractDict)
+    FUSESWIGLUMM[] || return (Dict{String,Any}(graphs), 0)
+    out = Dict{String,Any}()
+    total = 0
+    for (k, g) in graphs
+        if g isa Graph
+            g2, n = fuseswiglumm(g)
+            out[k] = g2; total += n
+        else
+            out[k] = g
+        end
+    end
+    (out, total)
+end
+
+function fuseswiglumm(g::Graph)
+    readers = Dict{String,Vector{Op}}()
+    for op in g.ops, id in op.ins
+        push!(get!(readers, viewroot(g, id), Op[]), op)
+    end
+    escaping = Set(viewroot(g, id) for id in g.outputs)
+    ops = copy(g.ops)
+    drop = Set{String}()
+    for sw in g.ops
+        sw.aten == "fused.swiglu" || continue
+        sw.out in escaping && continue
+        rs = get(readers, sw.out, Op[])
+        length(rs) == 1 || continue
+        mm = only(rs)
+        mm.aten == "mm.default" && reshapeof(g, mm.ins[1], sw.out) || continue
+        wb = get(g.buffers, mm.ins[2], nothing)
+        (wb === nothing || wb.kind !== :weight) && continue
+        ops[findfirst(==(mm), ops)] =
+            Op(mm.id, "fused.swiglumm", [sw.ins[1], sw.ins[2], mm.ins[2]], mm.out,
+               Dict{String,Any}("dtype" => g.buffers[sw.out].dtype))
+        push!(drop, sw.id)
+    end
+    isempty(drop) && return (g, 0)
+    dropped = Set(o.out for o in g.ops if o.id in drop)
+    (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
+           [id for id in g.order if !(id in dropped)],
+           [o for o in ops if !(o.id in drop)], g.fusion), length(drop))
+end
+
+"""Whether `id` is `root` or a chain of reshapes of it."""
+function reshapeof(g::Graph, id::AbstractString, root::AbstractString)
+    cur = id
+    while cur != root
+        b = g.buffers[cur]
+        (b.kind === :view && b.viewop in SHAPEONLY_VIEWS) || return false
+        cur = b.of
+    end
+    true
+end

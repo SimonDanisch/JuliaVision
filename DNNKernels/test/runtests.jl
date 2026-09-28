@@ -78,6 +78,7 @@ include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
 include(joinpath(@__DIR__, "test_fusegroupedrms.jl"))
 include(joinpath(@__DIR__, "test_cat_interleave.jl"))
 include(joinpath(@__DIR__, "test_fusepairrope.jl"))
+include(joinpath(@__DIR__, "test_fusermsrope.jl"))
 include(joinpath(@__DIR__, "test_swiglu_stacked.jl"))
 # The one rewrite that runs the ops it folds — here on the CPU backend.
 include(joinpath(@__DIR__, "test_constfold.jl"))

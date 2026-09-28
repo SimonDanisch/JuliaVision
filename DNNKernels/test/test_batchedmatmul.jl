@@ -235,3 +235,36 @@ end
         @test maximum(abs.(Array(out)[:, :, 1] .- Ah * Bh)) < 1e-4
     end
 end
+
+# The declared `bmm` makes the same per-plane-or-flat choice `batchedmatmul!`
+# makes. It used to dispatch every plane on its own whatever its size, and
+# Qwen-Image 2.1's text attention is 32 heads of `22 x 22` and `128 x 22`
+# planes: 64 dispatches of ~40 us a layer, 2048 a step. Planes too small to fill
+# the GEMM's tiles are ONE flat `mm3` launch now; a plane that fills them still
+# gets a product of its own.
+@testset "a declared bmm of small planes is one launch" begin
+    attrs(p...) = Dict{String,Any}(p...)
+    buf(id, kind, shape) =
+        DK.Buffer(id, kind, Any[shape...], Float32, "", (0, 0), "", "", attrs())
+    dev = Mantle.todevice(back)
+    # torch order: `a (nb, m, k) x b (nb, k, n) -> (nb, m, n)`
+    for (nb, m, k, n) in ((32, 22, 128, 22), (32, 22, 22, 128), (2, 256, 64, 256))
+        bs = [buf("a", :external, (nb, m, k)), buf("b", :external, (nb, k, n)),
+              buf("y", :transient, (nb, m, n))]
+        g = DK.Graph("bmm", String[], ["a", "b"], ["y"], Dict(x.id => x for x in bs),
+                     ["a", "b", "y"], [DK.Op("y", "bmm.default", ["a", "b"], "y", attrs())])
+        ah = randn(Float32, k, m, nb)
+        bh = randn(Float32, n, k, nb)
+        plan = DK.planfor(dev, g, Dict{String,Any}(), (;))
+        got = Array(first(DK.replay!(plan, "bmm", (DK.toback(back, ah), DK.toback(back, bh)))))
+        npass = count(p -> startswith(String(p.pass.name), "y"), plan.plan.passes)
+        Mantle.free!(plan.plan)
+        # Reversed: `Y[:, :, p] = B[:, :, p] * A[:, :, p]`.
+        want = stack(bh[:, :, p] * ah[:, :, p] for p in 1:nb)
+        @test size(got) == (n, m, nb)
+        @test got ≈ want rtol = 1e-5
+        flat = !DK.planewise_worth(DK.caps(back), got, bh, ah, true)
+        @test flat == (m < 256)
+        @test flat ? npass == 1 : npass >= nb
+    end
+end

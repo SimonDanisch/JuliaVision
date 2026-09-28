@@ -101,6 +101,23 @@ Cast(::Type{T}) where {T} = Cast{T}()
 
 Base.show(io::IO, ::Cast{T}) where {T} = print(io, T)
 
+"""`where.self` into `T`: both branches converted to the result type, then one
+picked, which is what its own emit does."""
+struct Select{T} end
+Select(::Type{T}) where {T} = Select{T}()
+@inline (::Select{T})(p, x, y) where {T} = ifelse(p, convert(T, x), convert(T, y))
+
+Base.show(io::IO, ::Select{T}) where {T} = print(io, "where[", T, "]")
+
+"""`clamp.default` on a float tensor: the Float32 bounds `clampbounds` gives it."""
+struct ClampF32
+    lo::Float32
+    hi::Float32
+end
+@inline (c::ClampF32)(x) = clamp(x, c.lo, c.hi)
+
+Base.show(io::IO, c::ClampF32) = print(io, "clamp[", c.lo, ", ", c.hi, "]")
+
 """
 `f`, then rounded to `T` — what materialising the result into a `T` array does.
 

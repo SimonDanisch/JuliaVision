@@ -140,8 +140,10 @@ const FUSION_CREATES = ("fused.elementwise" => "fusepass.jl / fusemaskedattentio
                         "fused.maskedattention" => "fusemaskedattention.jl",
                         "fused.rope"        => "fuserope.jl",
                         "fused.pairrope"    => "fuserope.jl",
+                        "fused.rmsrope"     => "fuserope.jl",
                         "fused.ropecache"   => "fuserope.jl",
                         "fused.swiglu"      => "fuseswiglu.jl",
+                        "fused.swiglumm"    => "fuseswiglu.jl",
                         "alias.default"     => "foldcache.jl")
 
 """

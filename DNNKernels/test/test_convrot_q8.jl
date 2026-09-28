@@ -129,6 +129,59 @@ const DKA = DNNKernels
     end
 end
 
+# The declared ConvRot product rotates its activations straight into the
+# `K x NP` buffer the packed GEMM reads. It used to rotate into a `K x N` one
+# and copy that into the padded buffer with `padcols_kernel!`: 85 ms of a
+# Qwen-Image 2.1 step, all of it bytes moved for nothing. The pad columns are
+# left unwritten, since output column `j` reads only column `j` of `B` and the
+# output's pad is discarded.
+#
+# Both packed kernels behind it: `N = 4118` pads to 4224 and takes the pipelined
+# kernel, `N = 300` pads to 384 and takes the staged tiling.
+@testset "ConvRot writes the padded GEMM input directly" begin
+    backend = first(Mantle.eachbackend())
+    caps = DNNKernels.caps(backend)
+    if DNNKernels.coopmatkernels(caps) && caps.coopmatsubgroup == 32
+        rng = MersenneTwister(12)
+        Mm, K = 256, 512
+        A = DKA.convrotqint8(backend, rand(rng, Int8.(-40:40), K, Mm),
+                             rand(rng, Float32, Mm) .* 0.01f0 .+ 0.002f0; group_size = 256)
+        buf(id, shape; kind = :transient, dtype = Float16) =
+            DKA.Buffer(id, kind, Any[shape...], dtype, id == "w" ? "w" : "", (0, 0), "", "",
+                       Dict{String,Any}())
+        for (N, pipelined) in ((4118, true), (300, false))
+            NP = DKA.q8gemm_columns(N)
+            @test (DKA.q8gemm_pipelined_tile(caps, Float16, Mm, K, NP) !== nothing) == pipelined
+            @test DKA.q8gemm_tiling(caps, Float16, Mm, K, NP) !== nothing
+            B = DKA.toback(backend, Float16.(randn(rng, Float32, K, N) .* 0.5f0))
+            buffers = Dict(b.id => b for b in (buf("x", (N, K); kind = :external),
+                                               buf("w", (Mm, K); kind = :weight),
+                                               buf("y", (N, Mm)),
+                                               buf("z", (N, Mm))))
+            ops = [DKA.Op("y", "mm.default", ["x", "w"], "y", Dict{String,Any}()),
+                   DKA.Op("z", "clamp.default", ["y"], "z",
+                          Dict{String,Any}("arg1" => -1000, "arg2" => 1000))]
+            g = DKA.Graph("q8rot", String[], ["x"], ["z"], buffers, collect(keys(buffers)), ops)
+            plan = DKA.planfor(Mantle.todevice(backend), g, Dict{String,Any}("w" => A), (;))
+            got = Float32.(Array(first(DKA.replay!(plan, "q8rot", (B,)))))
+            passnames = [String(p.pass.name) for p in plan.plan.passes]
+            @test count(n -> occursin("padB", n), passnames) == 0
+            @test count(n -> occursin("convrot", n), passnames) == 2
+            Mantle.free!(plan.plan)
+
+            ctx = DKA.Ctx(Dict{String,Any}(), g, (;), backend)
+            out = KernelAbstractions.allocate(backend, Float16, Mm, N)
+            DKA.matmul!(ctx, DKA.MMConvRotInt8Plan(), out, A, B, nothing, identity)
+            KernelAbstractions.synchronize(backend)
+            want = clamp.(Float32.(Array(out)), -1000, 1000)
+            @test size(got) == (Mm, N)
+            @test maximum(abs, got .- want) <= 0.01maximum(abs, want)
+        end
+    else
+        @test_skip false
+    end
+end
+
 # The checkpoint's `(K, M)` int8 becomes the GEMM's `(M/4, K)` packed words, and
 # the two disagree on which axis is contiguous.
 #
@@ -244,6 +297,93 @@ end
             @test got == ref
             @test size(A) == (M, K)
             @test Array(A.scale) ≈ scale
+        end
+    else
+        @test_skip false
+    end
+end
+
+# A SwiGLU whose only reader is a product with a ConvRot weight is folded into
+# it (`fuseswiglumm`), and the rotation's first pass computes the SwiGLU as it
+# reads: the product, 101 MB a layer at Qwen-Image 2.1's `12288 x 4118`, is
+# never written. Same arithmetic in the same order, so the result is the
+# unfused graph's to the bit, and a weight without a rotation gets the two
+# unfused ops back.
+#
+# `N = 4118` and `N = 300` pad (to the pipelined and the staged kernel), and
+# `N = 256` does not, which rotates into a plain `K x N` buffer instead.
+@testset "a SwiGLU is computed inside the ConvRot that reads it" begin
+    backend = first(Mantle.eachbackend())
+    caps = DNNKernels.caps(backend)
+    if DNNKernels.coopmatkernels(caps) && caps.coopmatsubgroup == 32
+        rng = MersenneTwister(14)
+        Mm, K = 256, 512
+        A(p...) = Dict{String,Any}(p...)
+        buf(id, kind, shape; of = "", viewop = "", attrs = A()) =
+            DKA.Buffer(id, kind, Any[shape...], Float16, id == "w" ? "w" : "", (0, 0),
+                       of, viewop, attrs)
+        # `x` is the stacked gate/up product, `(N, 2K)` in torch's order; the
+        # SwiGLU's result reaches the product through a reshape, as it does in
+        # the export.
+        function mlpgraph(N; readers = 1, output = false)
+            bs = [buf("x", :external, (N, 2K)),
+                  buf("gate", :view, (N, K); of = "x", viewop = "slice.Tensor",
+                      attrs = A("arg1" => 1, "arg2" => 0, "arg3" => K)),
+                  buf("up", :view, (N, K); of = "x", viewop = "slice.Tensor",
+                      attrs = A("arg1" => 1, "arg2" => K, "arg3" => 2K)),
+                  buf("h", :transient, (1, N, K)),
+                  buf("hv", :view, (N, K); of = "h", viewop = "view.default",
+                      attrs = A("arg1" => Any[N, K])),
+                  buf("w", :weight, (Mm, K)),
+                  buf("y", :transient, (N, Mm)),
+                  buf("z", :transient, (N, Mm)),
+                  buf("h2", :transient, (1, N, K))]
+            ops = [DKA.Op("h", "fused.swiglu", ["gate", "up"], "h", A()),
+                   DKA.Op("y", "mm.default", ["hv", "w"], "y", A()),
+                   DKA.Op("z", "clamp.default", ["y"], "z", A("arg1" => -1000, "arg2" => 1000))]
+            readers == 2 && push!(ops, DKA.Op("h2", "clamp.default", ["h"], "h2",
+                                              A("arg1" => -1000, "arg2" => 1000)))
+            outs = output ? ["z", "h"] : readers == 2 ? ["z", "h2"] : ["z"]
+            DKA.Graph("mlp", String[], ["x"], outs, Dict(b.id => b for b in bs),
+                      [b.id for b in bs], ops)
+        end
+        function run(g, w, x)
+            plan = DKA.planfor(Mantle.todevice(backend), g, Dict{String,Any}("w" => w), (;))
+            got = Array(first(DKA.replay!(plan, "mlp", (x,))))
+            names = [String(p.pass.name) for p in plan.plan.passes]
+            Mantle.free!(plan.plan)
+            got, names
+        end
+
+        # The rewrite, and the two SwiGLUs it has to leave alone: one with a
+        # second reader, and one the graph returns.
+        g, n = DKA.fuseswiglumm(mlpgraph(300))
+        @test n == 1
+        op = only(o for o in g.ops if o.aten == "fused.swiglumm")
+        @test op.ins == ["gate", "up", "w"] && op.out == "y" && op.attrs["dtype"] === Float16
+        @test !any(o -> o.aten == "fused.swiglu", g.ops)
+        @test DKA.fuseswiglumm(mlpgraph(300; readers = 2))[2] == 0
+        @test DKA.fuseswiglumm(mlpgraph(300; output = true))[2] == 0
+
+        wrot = DKA.convrotqint8(backend, rand(rng, Int8.(-40:40), K, Mm),
+                                rand(rng, Float32, Mm) .* 0.01f0 .+ 0.002f0; group_size = 256)
+        wq8 = DKA.quantizeint8(backend,
+            DKA.toback(backend, Float16.(randn(rng, Float32, Mm, K) .* 0.2f0)))
+        for N in (4118, 300, 256)
+            x = DKA.toback(backend, Float16.(randn(rng, Float32, 2K, N) .* 2f0))
+            want, _ = run(mlpgraph(N), wrot, x)
+            got, names = run(first(DKA.fuseswiglumm(mlpgraph(N))), wrot, x)
+            @test got == want
+            @test "y.convrot.1" in names && "y.convrot.2" in names
+            # No SwiGLU pass, no copy into a padded input, and no copy out of a
+            # padded output: `paddedcolumns` has to know the fused op too.
+            @test !any(n -> n == "h" || occursin("swiglu", n) || occursin("padB", n) ||
+                            occursin("unpad", n), names)
+
+            want, _ = run(mlpgraph(N), wq8, x)
+            got, names = run(first(DKA.fuseswiglumm(mlpgraph(N))), wq8, x)
+            @test got == want
+            @test "y.swiglu" in names
         end
     else
         @test_skip false

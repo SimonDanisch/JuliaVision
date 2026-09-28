@@ -54,8 +54,12 @@ wide array, so this list is deliberately short and grows only by checking.
 # `_softmax` stores through `eltype(out)` taken from its declared output buffer
 # and computes in `Float32` regardless, so narrowing that declaration moves the
 # rounding into its store instead of a second pass over the scores.
+# `fused.sdpa` writes every element through `eltype(out)` on every path — the
+# flash kernels with `convert`, `threepass!` through its GEMM — and accumulates
+# in fp32 regardless, so the fp16 its result is always cast to next is the
+# rounding its store would do. Qwen-Image 2.1's cast was 1.1 ms a layer.
 const OUTCAST_PRODUCERS = Set(["native_layer_norm.default", "clone.default",
-                               "_softmax.default"])
+                               "_softmax.default", "fused.sdpa"])
 
 """Buffer ids from `id` down to the first non-view buffer, `id` included."""
 function viewchain(g::Graph, id::AbstractString)

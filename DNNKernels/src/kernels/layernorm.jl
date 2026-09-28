@@ -541,6 +541,74 @@ function groupedrms_kernel!(out, a, γ, C::Int32,
     return nothing
 end
 
+# The grouped RMS norm with the interleaved rotary behind it, as one pass — see
+# `fusermsrope`.
+#
+# Qwen-Image 2.1 normalises every query and key head and then rotates it, and as
+# separate ops that was a copy of the head out of the QKV product, the norm, a
+# widening cast and the rotary: four passes over 34 MB each, twice a layer. Here
+# the head is read where the product left it, `abase + h * hs + s * ts` for head
+# `h` of token `s`, and written once, rotated.
+#
+# The reduction is `groupedrms_kernel!`'s, lane for lane and in the same order,
+# so the scale is its scale. The store is not: lane `t` then takes the PAIRS `t`,
+# `t + WG`, ..., because a pair has to be rotated by one thread, and it
+# recomputes the normalised value of both elements from the input, which its
+# first loop just read. `T` is the norm's own output type, which is where the
+# graph rounded before the cast widened it again.
+function rmsrope_kernel!(out, a, γ, cs, sn, abase::Int32, hs::Int32, ts::Int32,
+                         NG::Int32, eps::Float32, ::Val{C}, ::Val{NH}, ::Val{MIDROUND},
+                         ::Val{WG}, ::Val{T}) where {C,NH,MIDROUND,WG,T}
+    red = KI.localmemory(Float32, Val((WG,)), Val(1))
+    g = Int32(KI.get_group_id().x) - Int32(1)
+    t = Int32(KI.get_local_id().x) - Int32(1)
+    s = g ÷ Int32(NH)
+    ab = abase + (g - s * Int32(NH)) * hs + s * ts
+    gof = (g % NG) * Int32(C)
+    ob = g * Int32(C)
+    n = Float32(C)
+
+    acc = 0.0f0
+    i = t
+    @inbounds while i < Int32(C)
+        x = Float32(a[ab + i + Int32(1)])
+        acc += x * x
+        i += Int32(WG)
+    end
+    @inbounds red[t + 1] = acc
+    KI.barrier()
+    stride = Int32(WG ÷ 2)
+    while stride > Int32(0)
+        @inbounds if t < stride
+            red[t + 1] += red[t + 1 + stride]
+        end
+        KI.barrier()
+        stride ÷= Int32(2)
+    end
+    @inbounds r = 1.0f0 / sqrt(red[1] / n + eps)
+
+    p = t
+    @inbounds while p < Int32(C ÷ 2)
+        e = Int32(2) * p
+        y1 = Float32(a[ab + e + Int32(1)]) * r
+        y2 = Float32(a[ab + e + Int32(2)]) * r
+        if MIDROUND
+            y1 = Float32(T(y1))
+            y2 = Float32(T(y2))
+        end
+        h1 = Float32(T(y1 * Float32(γ[gof + e + Int32(1)])))
+        h2 = Float32(T(y2 * Float32(γ[gof + e + Int32(2)])))
+        # `cos`/`sin` are `(P, tokens)`: per token and per pair, not per head.
+        c = p + Int32(C ÷ 2) * s
+        cv = Float32(cs[c + Int32(1)])
+        sv = Float32(sn[c + Int32(1)])
+        out[ob + e + Int32(1)] = eltype(out)(h1 * cv - h2 * sv)
+        out[ob + e + Int32(2)] = eltype(out)(h1 * sv + h2 * cv)
+        p += Int32(WG)
+    end
+    return nothing
+end
+
 """
     rmsnorm!(ctx, out, rstd, a, γ, C, eps) -> out
 
