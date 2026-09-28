@@ -360,6 +360,14 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                consume::Bool = true)
     backend !== nothing && device !== nothing &&
         throw(ArgumentError("pass either `device` or `backend`, not both"))
+    # What the host passes derive (a folded constant, a hoisted cast) is keyed
+    # by the graph's NAME, so two graphs sharing one would share every derived
+    # tensor, and one of them would run on the other's. TRELLIS.2's DINOv3 at
+    # 1024 px got the 512 px rotary tables that way.
+    names = [g.name for g in values(graphs)]
+    allunique(names) || throw(ArgumentError(
+        "Model: graphs $(sort(collect(keys(graphs)))) are named $(sort(names)); their " *
+        "derived tensors would collide. Give each its own name with `Graph(g, name)`."))
     # Resolve the convenience `backend` spelling exactly once, at this public
     # boundary. Everything below receives and retains the actual owner.
     dev = M.todevice(device === nothing ?
@@ -673,6 +681,17 @@ partitions on Vulkan. The full graph is still compiled once, with the same
 dependency analysis. Horizon prefill uses 64 passes per submission because its
 single submission timed out; decode keeps the default single submission.
 """
+
+"""
+    emitgraph!(g, model, name; dims, inputs, outputs = Dict(), noise) -> Dict{String,Any}
+
+[`emitgraph!`](@ref) of `model`'s graph `name`, as the model's passes prepared it,
+against its resident weights.
+"""
+emitgraph!(g::M.Graph, m::Model, name::AbstractString; dims::NamedTuple = (;),
+           inputs::AbstractDict, outputs::AbstractDict = Dict{String,Any}(),
+           noise::NoiseSource = RandomNoise()) =
+    emitgraph!(g, m.graphs[name], m.weights, dims; inputs, outputs, noise)
 
 # NOT `MantlePlan` — `mantle.jl` already has one, and it is a slab placement.
 # Recorded plan plus the arrays it closed over: the inputs the caller's arguments

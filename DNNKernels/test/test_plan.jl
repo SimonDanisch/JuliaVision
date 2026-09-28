@@ -74,11 +74,11 @@ const GRAPHS = testgraphs()
 Shape cases a DECLARED op refuses, per graph.
 
 Empty, and kept as the mechanism rather than deleted: `convolution.default` has
-one `emitop!` covering 1-D and 2-D, dense and split-K, and it still refuses 3-D
-(`convolution3d!`) and the grouped form (`convolution_direct!`). No graph in the
-artifacts asks for either, so writing them would be untested code — but a graph
-that does will refuse at an op the coverage table calls ported, and this is where
-that is recorded rather than read as a coverage bug.
+one `emitop!` covering 1-D, 2-D and 3-D, dense and split-K, and it still refuses
+the grouped 2-D form (`convolution_direct!`). No graph in the artifacts asks for
+it, so writing it would be untested code — but a graph that does will refuse at
+an op the coverage table calls ported, and this is where that is recorded rather
+than read as a coverage bug.
 
 It held MatAnyone's two mask encoders until the 1-D convolution was declared.
 """

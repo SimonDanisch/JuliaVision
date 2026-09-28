@@ -105,7 +105,96 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
                    before = nothing, after = nothing)
     g = M.Graph(dev)
     live = consumedids(aten; all = keepall)
-    esc = keepall ? live : escaping(aten)
+    # Standalone, the graph's inputs and outputs are its own persistent buffers:
+    # the caller copies into the one and reads the other after the run.
+    esc = keepall ? live : union!(escaping(aten), externals(aten))
+    emitctx = emitinto!(g, aten, weights, dims, live, esc, Dict{String,Any}();
+                        skip, noise, before, after)
+    return g, emitctx
+end
+
+"""
+    emitgraph!(g, aten, weights, dims; inputs, outputs = Dict(), noise) -> Dict{String,Any}
+    emitgraph!(g, model, name; dims, inputs, outputs = Dict(), noise) -> Dict{String,Any}
+
+Declare `aten` INTO the caller's graph `g`, wired by resource. Runs nothing.
+
+Every graph input is one of the caller's resources, `inputs[id]`: a `Buffer`, a
+transient of `g`, or a view of either, of exactly the declared shape and element
+type (there is no copy in between to convert). An output is written into
+`outputs[id]` when the caller names one, and is otherwise a transient of `g`,
+which the caller's own passes declared after this read like any other. The
+result maps every output id to the resource that holds it.
+
+This is what lets one call be one graph: several modules, the caller's passes
+between them and the loop around them are declared into `g`, and Mantle
+schedules, places and partitions the whole of it. Nothing escapes a composed
+module, so nothing it declares is persistent except what the caller bound.
+"""
+function emitgraph!(g::M.Graph, aten::Graph, weights::AbstractDict, dims::NamedTuple;
+                    inputs::AbstractDict, outputs::AbstractDict = Dict{String,Any}(),
+                    noise::NoiseSource = RandomNoise())
+    unbound = [id for id in aten.inputs if !haskey(inputs, id)]
+    isempty(unbound) || throw(ArgumentError(
+        "emitgraph!: $(aten.name) has inputs $(join(unbound, ", ")) that the caller " *
+        "did not bind. A composed module reads the caller's resources; give each " *
+        "one in `inputs`."))
+    for id in keys(outputs)
+        id in aten.outputs || throw(ArgumentError(
+            "emitgraph!: `$id` is not an output of $(aten.name) " *
+            "(outputs: $(join(aten.outputs, ", ")))."))
+    end
+    bound = Dict{String,Any}()
+    merge!(bound, inputs)
+    # A bound output that the graph declares as a VIEW is not written by an op of
+    # its own; it is copied into the caller's resource after the ops instead.
+    for (id, r) in outputs
+        aten.buffers[id].kind === :view || (bound[id] = r)
+    end
+    live = consumedids(aten)
+    emitctx = emitinto!(g, aten, residentweights(g.dev, aten, weights), dims, live,
+                        Set{String}(), bound; noise)
+    result = Dict{String,Any}()
+    for id in aten.outputs
+        src = operand(emitctx, id)
+        dst = get(outputs, id, nothing)
+        if dst === nothing || dst === src
+            result[id] = src
+        else
+            copyinto!(emitctx, dst, src)
+            result[id] = dst
+        end
+    end
+    return result
+end
+
+"""A pass copying `src` into the caller's `dst`, element for element in its own
+type: the one place a composed module's result is not written where it lives."""
+function copyinto!(emitctx::EmitCtx, dst, src)
+    size(dst) == size(src) || throw(ArgumentError(
+        "emitgraph!: an output of $(emitctx.aten.name) is $(size(src)) and the caller " *
+        "bound a $(size(dst)) resource."))
+    od = size(dst)
+    ewdispatch!(emitctx, dst, od, (src,), (bcstrides(od, od),), identity;
+                name = "$(emitctx.aten.name).out")
+    return dst
+end
+
+"""The ids the caller writes: a standalone graph's persistent inputs."""
+externals(aten::Graph) = Set{String}(id for (id, b) in aten.buffers if b.kind === :external)
+
+"""
+    emitinto!(g, aten, weights, dims, live, esc, bound; skip, noise, before, after) -> EmitCtx
+
+The one emit both [`emitgraph`](@ref) and [`emitgraph!`](@ref) are: `live` is what
+gets storage, `esc` what must be persistent, and `bound` the ids whose resource
+the caller already has.
+"""
+function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
+                   live::Set{String}, esc::Set{String}, bound::AbstractDict;
+                   skip = (), noise::NoiseSource = RandomNoise(),
+                   before = nothing, after = nothing)
+    dev = g.dev
     emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[],
                       Dict{String,Any}())
     shapes = resultshapes(aten)
@@ -120,7 +209,9 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
     # answer, and only the cleanup is added.
     try
         for id in aten.order
-            declare!(emitctx, aten.buffers[id], weights, live, shapes, producers)
+            r = get(bound, id, nothing)
+            r === nothing ? declare!(emitctx, aten.buffers[id], weights, live, shapes, producers) :
+                            bind!(emitctx, aten.buffers[id], r)
         end
         # A runner's own work, in this graph rather than beside it. Before the
         # ops, because a pass that fills an input has to be declared before the
@@ -166,7 +257,26 @@ function emitgraph(dev, aten::Graph, weights::AbstractDict, dims::NamedTuple;
         freeowned!(emitctx)
         rethrow()
     end
-    return g, emitctx
+    return emitctx
+end
+
+"""
+    bind!(emitctx, buffer, resource)
+
+Give a graph buffer the caller's resource instead of storage of its own, after
+checking it is that buffer: same shape, same element type.
+"""
+function bind!(emitctx::EmitCtx, b::Buffer, r)
+    want = evalshape(b.shape, emitctx.dims)
+    size(r) == want || throw(ArgumentError(
+        "emitgraph!: `$(b.id)` of $(emitctx.aten.name) is declared $(want) and the " *
+        "caller bound a $(size(r)) resource."))
+    eltype(r) === b.dtype || throw(ArgumentError(
+        "emitgraph!: `$(b.id)` of $(emitctx.aten.name) is $(b.dtype) and the caller " *
+        "bound a $(eltype(r)) resource. A composed module reads the resource as it " *
+        "is; convert it with a pass of your own."))
+    emitctx.res[b.id] = r
+    return nothing
 end
 
 """
@@ -438,8 +548,7 @@ declaration still has to answer something: a zero-byte buffer of its own.
 """
 function make(emitctx::EmitCtx, id::AbstractString, ::Type{T}, dims::Dims) where {T}
     b = emitctx.aten.buffers[id]
-    isowned = prod(dims) == 0 || b.kind === :external ||
-              id in emitctx.esc || id in emitctx.aten.outputs
+    isowned = prod(dims) == 0 || id in emitctx.esc
     isowned || return M.Transient.Buffer(emitctx.g, T, dims)
     buf = M.Buffer(emitctx.dev, T, dims)
     push!(emitctx.owned, buf)
@@ -4555,10 +4664,12 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
                         Val(stride[1]), Val(pad[1]), Val(dil[1]),
                         Val(groups))
     end
+    length(stride) == 3 &&
+        return mapbody!(emitctx, op, conv3d, out, actfn(act), x, w, bias,
+                        Val(Tuple(stride)), Val(Tuple(pad)), Val(Tuple(dil)), Val(groups))
     length(stride) == 2 || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) is $(length(stride))-D, and only " *
-        "the 1-D and 2-D convolutions are declared. 3-D has `convolution3d!` and " *
-        "needs an `emitop!` of its own.")
+        "DNNKernels: `$(op.aten)` (op $(op.id)) is $(length(stride))-D; the " *
+        "convolution is declared for 1-D, 2-D and 3-D only.")
     # A backend library with its own direct convolution wins before any of the four
     # lowerings below: they all materialise something — an im2col matrix, a padded
     # reduction axis, split-K planes to sum — and a library convolution materialises

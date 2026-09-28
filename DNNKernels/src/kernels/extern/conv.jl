@@ -474,6 +474,49 @@ Layout `(x, c, n)`; weight reversed `(C_out, C_in÷groups, K)` = `(kx, ci, co)`.
     end
 end
 
+"""
+3-D convolution, one output element per thread, for `mapbody!`. `aten::convolution`
+tells the ranks apart only by the length of its stride tuple, so this is reached
+from the same `emitop!` as the 1-D and 2-D forms.
+
+Layout `(x, y, z, c, n)`; weight reversed `(kx, ky, kz, ci, co)`. `f` is the
+activation a fold attached (`actfn`), `identity` when there is none.
+
+Direct and scalar: TRELLIS.2's sparse-structure decoder, the one graph with 3-D
+convolutions, runs once per generation, twenty 3x3x3 layers of at most 512
+channels on a 16^3 to 64^3 grid.
+"""
+@inline function conv3d(I, f::F, x, w, bias, ::Val{S}, ::Val{P}, ::Val{D},
+                        ::Val{GROUPS}) where {F,S,P,D,GROUPS}
+    ox, oy, oz, co, n = I
+    @inbounds begin
+        KX, KY, KZ, CIN = size(w, 1), size(w, 2), size(w, 3), size(w, 4)
+        A = accum(eltype(x))
+        acc = bias === nothing ? zero(A) : A(bias[co])
+        g = GROUPS == 1 ? 0 : (co - 1) ÷ (size(w, 5) ÷ GROUPS)
+        bx = (ox - 1) * S[1] - P[1]
+        by = (oy - 1) * S[2] - P[2]
+        bz = (oz - 1) * S[3] - P[3]
+        for ci in 1:CIN
+            xc = g * CIN + ci
+            for kz in 1:KZ
+                iz = bz + (kz - 1) * D[3] + 1
+                (iz < 1 || iz > size(x, 3)) && continue
+                for ky in 1:KY
+                    iy = by + (ky - 1) * D[2] + 1
+                    (iy < 1 || iy > size(x, 2)) && continue
+                    for kx in 1:KX
+                        ix = bx + (kx - 1) * D[1] + 1
+                        (ix < 1 || ix > size(x, 1)) && continue
+                        acc = muladd(A(x[ix, iy, iz, xc, n]), A(w[kx, ky, kz, ci, co]), acc)
+                    end
+                end
+            end
+        end
+        f(acc)
+    end
+end
+
 convolution1d!(ctx, out, x, w, bias, stride, padding, dilation, groups) =
     launch!(ctx, conv1d, out, x, w, bias, Val(stride[1]), Val(padding[1]),
             Val(dilation[1]), Val(groups))

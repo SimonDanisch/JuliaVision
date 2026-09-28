@@ -91,6 +91,16 @@ end
 Graph(name, symbols, inputs, outputs, buffers, order, ops) =
     Graph(name, symbols, inputs, outputs, buffers, order, ops, Vector{String}[])
 
+"""
+    Graph(g, name) -> Graph
+
+`g` under another name. Two exports of one module (TRELLIS.2's DINOv3 at 512
+and 1024 px) carry the same name, and one [`Model`](@ref) needs its graphs'
+names distinct: the host passes key what they derive by it.
+"""
+Graph(g::Graph, name::AbstractString) =
+    Graph(String(name), g.symbols, g.inputs, g.outputs, g.buffers, g.order, g.ops, g.fusion)
+
 jget(o, k, default) = haskey(o, k) ? o[k] : default
 
 """
