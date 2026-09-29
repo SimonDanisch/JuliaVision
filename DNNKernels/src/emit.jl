@@ -3372,6 +3372,43 @@ swiglustridedflat(r) = reshape(r, length(r))
 swiglustridedflat(x::Union{M.Buffer,M.TransientBuffer,M.ResourceView,M.BufferRange}) =
     M.viewof(x, (length(x),))
 
+"""
+    ropestrides(op, x, cs, sn) -> (d2, d3, s2, s3, s4)
+
+How a rotary's cosine and sine tables broadcast against the tensor they rotate:
+`x`'s extents along its axes 2 and 3, and the tables' strides along `x`'s axes
+2 to 4, zero on an axis they broadcast over. Torch aligns shapes from the last
+axis, which is the FIRST in Julia order, so a table with fewer axes than `x` is
+missing trailing Julia axes.
+
+What this replaced assumed one layout: tables `(H, T)` against `x` as
+`(H, T, heads, batch)`, which is every HF language model. Qwen3-VL's vision
+tower rotates `(H, heads, tokens)` with `(H, 1, tokens)` tables, and was read
+by head instead of by token: the tower's output came out 99% wrong, with no
+error. A layout that does not broadcast is refused here rather than guessed.
+"""
+function ropestrides(op::Op, x, cs, sn)
+    N = ndims(x)
+    N <= 4 || error("DNNKernels: `$(op.aten)` (op $(op.id)) rotates a $N-D tensor; " *
+                    "the kernel indexes up to four axes.")
+    size(cs) == size(sn) || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) has cosine $(size(cs)) and sine $(size(sn)) tables.")
+    ndims(cs) <= 4 || error("DNNKernels: `$(op.aten)` (op $(op.id)) has a $(ndims(cs))-D cosine table.")
+    xs = ntuple(k -> k <= N ? size(x, k) : 1, 4)
+    cz = ntuple(k -> k <= ndims(cs) ? size(cs, k) : 1, 4)
+    cz[1] == xs[1] || error(
+        "DNNKernels: `$(op.aten)` (op $(op.id)) rotates heads of $(xs[1]) with tables of $(cz[1]).")
+    stride = (1, cz[1], cz[1] * cz[2], cz[1] * cz[2] * cz[3])
+    s = ntuple(4) do k
+        k == 1 && return 1
+        cz[k] == xs[k] && return stride[k]
+        cz[k] == 1 && return 0
+        error("DNNKernels: `$(op.aten)` (op $(op.id)) has $(size(cs)) tables that do not " *
+              "broadcast against the $(size(x)) tensor they rotate.")
+    end
+    (Int32(xs[2]), Int32(xs[3]), Int32(s[2]), Int32(s[3]), Int32(s[4]))
+end
+
 """The fused rotary embedding produced by `fuserope`, declared once for every backend."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
     x = operand(emitctx, op.ins[1])
@@ -3381,12 +3418,9 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.rope")})
     H = size(x, 1)
     iseven(H) || error(
         "DNNKernels: `fused.rope` (op $(op.id)) needs an even head size, got $H.")
-    HT = H * size(x, 2)
-    length(cs) >= HT && length(sn) >= HT || error(
-        "DNNKernels: `fused.rope` (op $(op.id)) needs at least $HT cosine and " *
-        "sine values, got $(length(cs)) and $(length(sn)).")
+    d2, d3, s2, s3, s4 = ropestrides(op, x, cs, sn)
     M.dispatch!(emitctx.g, rope_kernel!,
-                (out, x, cs, sn, Int32(H), Int32(H ÷ 2), Int32(HT),
+                (out, x, cs, sn, Int32(H), Int32(H ÷ 2), d2, d3, s2, s3, s4,
                  Int64(length(x))), length(x); name = op.id)
     return out
 end
@@ -3477,16 +3511,13 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.ropecache")})
     H = size(x, 1)
     iseven(H) || error(
         "DNNKernels: `fused.ropecache` (op $(op.id)) needs an even head size, got $H.")
-    HT = H * size(x, 2)
-    length(cs) >= HT && length(sn) >= HT || error(
-        "DNNKernels: `fused.ropecache` (op $(op.id)) needs at least $HT cosine " *
-        "and sine values, got $(length(cs)) and $(length(sn)).")
+    _, _, s2, s3, s4 = ropestrides(op, x, cs, sn)
     length(indices) >= size(x, 2) || error(
         "DNNKernels: `fused.ropecache` (op $(op.id)) needs one cache index per " *
         "token, got $(length(indices)) for $(size(x, 2)) tokens.")
     M.dispatch!(emitctx.g, rope_store_kernel!,
                 (cache, x, cs, sn, indices, Int32(H), Int32(H ÷ 2),
-                 Int32(HT), Val(ndims(x)), Val(size(x)), Int64(length(x))),
+                 s2, s3, s4, Val(ndims(x)), Val(size(x)), Int64(length(x))),
                 length(x); name = op.id)
     emitctx.res[op.out] = cache
     return cache

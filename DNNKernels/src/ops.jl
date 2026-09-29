@@ -417,19 +417,24 @@ end
 # elementwise function of one tensor. The concatenated half is never needed as a
 # tensor — it is `-x[j + H/2]` for the low half and `x[j - H/2]` for the high one,
 # which is an index, not a buffer.
-function rope_kernel!(out, x, cs, sn,
-                                        H::Int32, half::Int32, HT::Int32, n::Int64)
+function rope_kernel!(out, x, cs, sn, H::Int32, half::Int32,
+                      d2::Int32, d3::Int32, s2::Int32, s3::Int32, s4::Int32, n::Int64)
     i = KI.get_global_id().x
     if i <= n
         @inbounds begin
             l = Int32(i) - Int32(1)
             j = l % H                       # 0-based position within the head dim
-            # `cos`/`sin` are per TOKEN as well as per component: they are
-            # `(H, T)` in Julia order against `x`'s `(H, T, heads, batch)`, so the
-            # index is the position within the first two axes, not within one
-            # head. Indexing by `j` alone is right at decode, where `T == 1`, and
-            # silently wrong for every prompt longer than one token.
-            c = l % HT
+            # `cos`/`sin` broadcast against `x` the way the graph multiplied
+            # them: `s2..s4` are their strides along `x`'s axes 2 to 4, zero
+            # where they broadcast (see `ropestrides`). An HF language model
+            # passes `(H, T)` tables against `(H, T, heads, batch)`; a vision
+            # tower rotates `(H, heads, tokens)` with `(H, 1, tokens)` tables,
+            # whose tokens are on the THIRD axis. Assuming the first layout for
+            # both read the vision tower's cosine by head instead of by token.
+            r0 = l ÷ H
+            i2 = r0 % d2
+            r1 = r0 ÷ d2
+            c = j + s2 * i2 + s3 * (r1 % d3) + s4 * (r1 ÷ d3)
             o = j < half ? (l + half) : (l - half)
             r = Float32(x[o + Int32(1)])
             j < half && (r = -r)
@@ -585,7 +590,7 @@ end
 # launch shape saves.
 function rope_store_kernel!(dst, x, cs, sn,
                                               iv, H::Int32, half::Int32,
-                                              HT::Int32, ::Val{N}, ::Val{SZ},
+                                              s2::Int32, s3::Int32, s4::Int32, ::Val{N}, ::Val{SZ},
                                               n::Int64) where {N,SZ}
     lin = KI.get_global_id().x
     if lin <= n
@@ -600,7 +605,11 @@ function rope_store_kernel!(dst, x, cs, sn,
                                         (k == 2 ? (Int(o ÷ H) + 1) : I[k]), Val(N)))
         r = Float32(x[xo])
         j < half && (r = -r)
-        v = muladd(Float32(x[I]), Float32(cs[l + Int32(1)]), r * Float32(sn[l + Int32(1)]))
+        # The tables broadcast as `rope_kernel!` reads them; `ropestrides`.
+        c = j + s2 * (Int32(I[2]) - Int32(1)) +
+            (N >= 3 ? s3 * (Int32(I[min(3, N)]) - Int32(1)) : Int32(0)) +
+            (N >= 4 ? s4 * (Int32(I[min(4, N)]) - Int32(1)) : Int32(0))
+        v = muladd(Float32(x[I]), Float32(cs[c + Int32(1)]), r * Float32(sn[c + Int32(1)]))
         t = Int(iv[I[2]]) + 1
         dst[CartesianIndex(ntuple(k -> k == 2 ? t : I[k], Val(N)))] = eltype(dst)(v)
     end
