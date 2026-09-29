@@ -119,8 +119,9 @@ from, because it arrives as five artifacts that `compact_encoder` merges.
 """
 function compact_text_encoder_weights(graph;
         compact::AbstractDict=compact_encoder(),
-        constants_dir::AbstractString=assetdir())
-    constants_path = joinpath(constants_dir, "text_encoder_constants.safetensors")
+        constants_dir::AbstractString=assetdir(),
+        constants_file::AbstractString="text_encoder_constants.safetensors")
+    constants_path = joinpath(constants_dir, constants_file)
     isfile(constants_path) || throw(ArgumentError(
         "text encoder graph constants not found at $constants_path"))
     constants = readsafetensors(constants_path; mmap=false)

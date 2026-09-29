@@ -19,19 +19,26 @@ MODIFICATIONS, per section 3(b) of the Agreement
 
 The files here are NOT the upstream files. Each was changed, as follows.
 
-  * `qwenimage21_*.json` are graph exports: the transformer, text encoder and
-    VAE decoder traced out of the Diffusers implementation by
-    `tools/export_qwenimage21.py` into JuliaVision's own operator format.
-    They describe the upstream model's structure and carry no weights.
+  * `qwenimage21_*.json` are graph exports traced out of the Diffusers and
+    Transformers implementations into JuliaVision's own operator format: the
+    transformer, text encoder and VAE decoder by `tools/export_qwenimage21.py`,
+    and for reference images the vision tower, the language model with
+    multimodal positions, the VAE encoder, and the transformer split into
+    prefix segments and a cached denoising step by
+    `tools/export_qwenimage21_condition.py`. They describe the upstream
+    model's structure and carry no weights.
 
   * `*_constants.safetensors` hold tensors the export lifted out of the
-    traced graph -- the rotary position tables, the output selection mask and
-    the timestep frequency table. They are computed from the upstream
-    configuration, at the one latent resolution and prompt length the graph
-    was exported for.
+    traced graphs -- rotary frequency tables, selection masks and the timestep
+    frequency table -- computed from the upstream configuration.
 
-  * `vae.safetensors` is the upstream VAE decoder converted to half precision
-    and renamed to the exported graph's buffer names.
+  * `vae.safetensors` is the upstream VAE at its own single precision,
+    renamed to the exported graphs' buffer names.
+
+  * In the test-fixture artifact, `*.safetensors` other than the weights are
+    activations computed by running the model on generated inputs, and
+    `smoke_*` are the same graph exports taken from a small randomly
+    initialised model with the upstream architecture.
 
   * `weights-<i>of<n>.safetensors` are Comfy-Org's quantized checkpoints --
     themselves a modification of Qwen's released weights -- split into pieces

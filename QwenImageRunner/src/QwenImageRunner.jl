@@ -60,6 +60,11 @@ export generate, generate!, sample!, qwen_resolution
 export packlatents, unpacklatents, image_sequence_length
 export latentshape, imagetokenbounds
 export qwen_schedule
+export QwenConditionEncoder, qwenimageconditionencoder, encode_condition, encode_image
+export QwenVAEEncoder, qwenimagevaeencoder, encode_latents
+export QwenConditionedTransformer, qwenimageconditionedtransformer, prefill, sample_conditioned!
+export JointLayout, joint_layout, condition_size, pil_resize, over_white, vision_patches
+export vision_grid_inputs, mrope_positions, condition_tokens, qwen_condition_template
 
 const QWEN_IMAGE_21 = (
     transformer_layers = 32,
@@ -103,6 +108,12 @@ const COMPONENT_ARTIFACTS = Dict(
     :transformer  => vcat(["qwenimage21"], ["qwenimage21-dit-w$i" for i in 1:6]),
     :text_encoder => vcat(["qwenimage21"], ["qwenimage21-enc-w$i" for i in 1:5]),
     :vae_decoder  => ["qwenimage21-vae"],
+    # Reference images (`condition.jl`): the same checkpoints through other
+    # graphs. The vision tower's weights are in the encoder's shards and the VAE
+    # encoder's in `vae.safetensors`.
+    :condition_encoder       => vcat(["qwenimage21"], ["qwenimage21-enc-w$i" for i in 1:5]),
+    :vae_encoder             => ["qwenimage21", "qwenimage21-vae"],
+    :conditioned_transformer => vcat(["qwenimage21"], ["qwenimage21-dit-w$i" for i in 1:6]),
 )
 
 """
@@ -269,8 +280,9 @@ merges. Pass one read by hand to use a checkpoint from somewhere else.
 """
 function compact_transformer_weights(graph;
         compact::AbstractDict=compact_denoiser(),
-        constants_dir::AbstractString=assetdir())
-    constants_path = joinpath(constants_dir, "transformer_constants.safetensors")
+        constants_dir::AbstractString=assetdir(),
+        constants_file::AbstractString="transformer_constants.safetensors")
+    constants_path = joinpath(constants_dir, constants_file)
     isfile(constants_path) || throw(ArgumentError("graph constants not found at $constants_path"))
     constants = readsafetensors(constants_path; mmap=false)
     out = Dict{String,Any}()
@@ -914,6 +926,7 @@ end
 
 include("tokenizer.jl")
 include("textencoder.jl")
+include("condition.jl")
 
 """
     Mantle.release!(component)
@@ -951,7 +964,8 @@ freeplans!(c::Union{QwenTextEncoder,QwenVAEDecoder}) =
 heldweights(c::QwenTransformer) = c.weights
 heldweights(c::Union{QwenTextEncoder,QwenVAEDecoder}) = c.model.weights
 
-function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVAEDecoder})
+function Mantle.release!(component::Union{QwenTextEncoder,QwenTransformer,QwenVAEDecoder,
+                                           QwenConditionEncoder,QwenVAEEncoder,QwenConditionedTransformer})
     dev = Mantle.todevice(component.backend)
     freeplans!(component)
     # The weight dict is the only reference the component holds to the device

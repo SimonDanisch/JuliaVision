@@ -284,6 +284,89 @@ diagnostics in the kernel price the softmax at 6% of it and those reads at 29%,
 and the only lever on the 29% is a taller query tile, which is inadmissible at
 this head width for two different reasons. The plan file has both.
 
+## Reference images: edits, composites, cut-outs
+
+`generate(prompt, images)` takes up to twelve reference images next to the
+prompt (the model card's number is ten). This is how Qwen-Image 2.1 edits,
+composites and extracts subjects from photographs, and a cut-out comes back
+with the same real alpha matte as a transparent text-to-image generation.
+
+```julia
+using QwenImageRunner, FileIO, ColorTypes, FixedPointNumbers
+
+# A reference image is `(4, width, height)` RGBA UInt8; this package does not
+# depend on ColorTypes, so the conversion is the caller's.
+rgba(path) = collect(reinterpret(reshape, UInt8, permutedims(RGBA{N0f8}.(load(path)))))
+
+cut = generate("This is an RGBA image with transparency. Extract the fox from the " *
+               "picture, exactly as it is. The image has alpha channel and the " *
+               "background is transparent.", [rgba("fox.jpg")]; width = 992, height = 992)
+
+scene = generate("Put the fox from the first picture into the harbor scene of the second " *
+                 "picture, sitting on the cobblestone street in the foreground in the " *
+                 "golden evening light.", [rgba("fox.jpg"), rgba("harbor.jpg")])
+```
+
+Every reference image is resized to about `resolution^2` pixels (1024² by
+default) at its own aspect ratio, and the output takes the last reference
+image's size unless `width` and `height` say otherwise, as in the reference
+pipeline. Both examples below start from this README's own fox and harbor.
+
+<table>
+<tr>
+<td><img src="../media/qwenimage/fox_cutout.jpg" width="320"></td>
+<td><img src="../media/qwenimage/fox_harbor.jpg" width="480"></td>
+</tr>
+<tr>
+<td><em>The fox extracted</em><br>992x992, RGBA, shown over a checkerboard, 204 s</td>
+<td><em>The fox put into the harbor</em><br>1376x768 from two references, 243 s</td>
+</tr>
+</table>
+
+Each image reaches the model twice, and each path is its own export
+(`tools/export_qwenimage21_condition.py`):
+
+- **Into the prompt**, through Qwen3-VL's **vision tower** (Float32, with the
+  attention's operands at Float16: its residual stream reaches 1.5e4). The
+  template gets one `<|vision_start|><|image_pad|><|vision_end|>` slot per image,
+  each `<|image_pad|>` is widened to one token per merged 32x32 patch, and the
+  language model reads the tower's features there with M-RoPE grid positions
+  and three DeepStack features added after its first three layers.
+- **Into the denoiser**, through the **VAE encoder**: the image's latents take the
+  places of its slots in the joint sequence, four latent tokens per slot.
+
+The denoiser runs the way the reference does by default (`use_kv_cache=True`).
+The prompt and the reference images are modulated from `t = 0` and never see the
+target, so their keys and values are computed once, one segment at a time (a
+text run causally, an image block bidirectionally, each against the cache of the
+segments before it), and each of the steps runs only the target's tokens against
+that cache. That is three prefix graphs and a step graph over the same weights.
+Nothing new is downloaded but graphs: the vision tower's weights are in the
+encoder's shards, and the VAE encoder's in `vae.safetensors`.
+
+The stages run one after another, each released before the next is built. One
+reference image at 800x1280, the first call of a session: conditioner 35 s, VAE
+encoder 12 s, prefix 60 s including building the denoiser, 40 steps at 3.6 s,
+decode 42 s.
+
+**What is checked** (`test/test_condition.jl`, fixtures in `qwenimage21-refs`):
+Pillow's resize and white composite to the byte, `Qwen3VLProcessor`'s tokens and
+patch order, `get_rope_index`, the vision tower's grid inputs and
+`QwenImage21Rope`, all against the reference's own code on two synthetic images;
+the vision tower and the VAE encoder against PyTorch on the real weights; and the
+segmented denoiser against the reference's block-causal forward on a random
+two-block model. One step of the real denoiser was also checked against the
+Diffusers transformer at Float32 with the compact checkpoint dequantized, on the
+same inputs: 0.56% and 1.7% relative difference at two target sizes.
+
+**One behaviour of the checkpoint worth knowing.** Asked to extract the fox from
+`fox.jpg` at the default size, where the target is exactly the reference's
+64x64 latent grid, it returned an over-sharpened copy of the whole photograph
+instead. The Float32 Diffusers transformer does the same on the same inputs, so
+this is the model and not the port; the same request at 992x992 is the cut-out
+above, and the 800x1280 character this was first tried on extracted cleanly at
+its own size.
+
 ## What is where
 
 - **Tokenizer** (`src/tokenizer.jl`) — Qwen's byte-level BPE from the
@@ -299,6 +382,10 @@ this head width for two different reasons. The plan file has both.
   backgrounds" above for why it is not fp16.
 - **Host pipeline** — architecture constants, unpatched stride-16 latent
   flattening, the dynamic-shift FlowMatch schedule and its Euler update.
+- **Reference images** (`src/condition.jl`) — Pillow's LANCZOS resize on
+  premultiplied RGBA, the vision processor's patches, the vision tower, the
+  language model with M-RoPE and DeepStack inputs, the VAE encoder, the joint
+  layout and rotary tables, and the segmented, cached denoiser.
 
 ## Neither the prompt length nor the resolution is bound at export
 
@@ -352,11 +439,11 @@ downloading them.
 
 | artifact | size | holds |
 | --- | ---: | --- |
-| `qwenimage21` | 22 MB | denoiser and encoder graphs, their lifted constants, the tokenizer tables |
+| `qwenimage21` | 17 MB | every graph (text to image and reference images), their lifted constants, the tokenizer tables |
 | `qwenimage21-vae` | 1.35 GB | VAE decoder graph and fp32 weights |
 | `qwenimage21-dit-w1..w6` | 6.8 GB | the INT8 ConvRot denoiser checkpoint |
 | `qwenimage21-enc-w1..w5` | 5.9 GB | the W4A8 Qwen3-VL conditioner checkpoint |
-| `qwenimage21-refs` | 3 MB | test fixture only: transparent-background latents and diffusers' alpha for them |
+| `qwenimage21-refs` | 19 MB | test fixtures only: transparent-background latents and diffusers' alpha for them, and the reference-image path's |
 
 Thirteen for the pipeline rather than one, for two reasons. A caller that only wants prompt
 embeddings has no reason to fetch the denoiser, and a GitHub release asset caps
@@ -368,7 +455,7 @@ original: 649 and 1762 tensors, zero mismatches.
 Re-pack and re-bind them with:
 
 ```sh
-julia --project=. tools/make_artifacts.jl qwenimage21 qwenimage21-vae \
+julia --project=. tools/make_artifacts.jl qwenimage21 qwenimage21-vae qwenimage21-refs \
     qwenimage21-dit-w{1,2,3,4,5,6} qwenimage21-enc-w{1,2,3,4,5}
 ```
 
@@ -390,8 +477,6 @@ allowing descriptive use.
 
 ## Not ported
 
-- Condition images (`Qwen-Image-Edit`): needs the vision tower and the
-  image-conditioned template.
 - Classifier-free guidance. The checkpoint's default is `true_cfg_scale = 1.0`
   — "Qwen-Image 2.1 is meant to be sampled without guidance" — so a generation
   is one denoiser evaluation per step, and a negative prompt would be two.

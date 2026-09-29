@@ -269,11 +269,26 @@ const GRAPHFILES = Dict(
 #
 # artifact name => (package that binds it, dir under gen/graphs, what to take)
 const TREES = Dict(
+    #
+    # The reference-image graphs (`export_qwenimage21_condition.py`) travel in
+    # the same tree: they read the same two compact checkpoints and the VAE's
+    # weights, so nothing new is downloaded but graphs. The vision tower, the
+    # language model with M-RoPE and DeepStack inputs, the VAE encoder, and the
+    # denoiser split into three prefix-segment graphs and the cached step.
     "qwenimage21" => ("QwenImageRunner", "qwenimage21",
         ["qwenimage21_transformer.json", "qwenimage21_text_encoder.json",
          "qwenimage21_export.json", "qwenimage21_text_encoder_export.json",
          "transformer_constants.safetensors", "text_encoder_constants.safetensors",
          "transformer_op_histogram.json", "text_encoder_op_histogram.json",
+         "qwenimage21_vision.json", "qwenimage21_vision_constants.safetensors",
+         "qwenimage21_vl_encoder.json", "qwenimage21_vl_encoder_constants.safetensors",
+         "qwenimage21_vl_encoder_export.json",
+         "qwenimage21_vae_encoder.json", "qwenimage21_vae_encoder_constants.safetensors",
+         "qwenimage21_prefix_text0.json", "qwenimage21_prefix_text0_constants.safetensors",
+         "qwenimage21_prefix_text.json", "qwenimage21_prefix_text_constants.safetensors",
+         "qwenimage21_prefix_image.json", "qwenimage21_prefix_image_constants.safetensors",
+         "qwenimage21_step.json", "qwenimage21_step_constants.safetensors",
+         "qwenimage21_condition_export.json",
          "processor"]),
     # The VAE is its own artifact for the reason Hunyuan3D's four are: it runs
     # once per image, against the denoiser's 6.8 GB twenty times. Its graph
@@ -522,7 +537,20 @@ const FIXTURES = Dict(
     # Latents from a "transparent background" prompt and diffusers' fp32 alpha for
     # them: what pins that the decoder's matte survives. Written by hand from one
     # generation (prompt, seed and steps are in the file's metadata).
-    "qwenimage21-refs" => ("QwenImageRunner", "qwenimage21-refs", ["transparent.safetensors"]),
+    #
+    # And the reference-image path's: the host bookkeeping against the
+    # reference's own code on two synthetic images (`condition_host`), the
+    # vision tower and the VAE encoder against PyTorch on the real weights, and
+    # the segmented denoiser against the reference forward on a random two-block
+    # model (`smoke_*`). All written by `export_qwenimage21_condition.py`.
+    "qwenimage21-refs" => ("QwenImageRunner", "qwenimage21-refs",
+        ["transparent.safetensors", "condition_host.safetensors",
+         "condition_vision.safetensors", "condition_vae_encoder.safetensors",
+         "smoke_qwenimage21_prefix_text0.json", "smoke_qwenimage21_prefix_text0_constants.safetensors",
+         "smoke_qwenimage21_prefix_text.json", "smoke_qwenimage21_prefix_text_constants.safetensors",
+         "smoke_qwenimage21_prefix_image.json", "smoke_qwenimage21_prefix_image_constants.safetensors",
+         "smoke_qwenimage21_step.json", "smoke_qwenimage21_step_constants.safetensors",
+         "smoke_weights.safetensors", "smoke_reference.safetensors"]),
 )
 
 """

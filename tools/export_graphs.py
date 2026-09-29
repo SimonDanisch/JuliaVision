@@ -65,10 +65,13 @@ DROP_OPS = {"_assert_tensor_metadata.default", "_assert_scalar.default"}
 # place would have silently bound the rotary length to the prompt length.
 #
 # `n` is TRELLIS.2's active-voxel count, the token axis of its four SLat flow
-# models (`export_trellis2.py --part slat`).
+# models (`export_trellis2.py --part slat`), and the token count of one prefix
+# segment in Qwen-Image 2.1's reference-image graphs. `p` is the prefix those
+# graphs attend to: the tokens of every segment before, whose keys and values
+# are cached (`export_qwenimage21_condition.py`).
 ROOT = {"h": "h", "H": "h", "h2": "h", "h4": "h", "h8": "h",
         "w": "w", "W": "w", "w2": "w", "w4": "w", "w8": "w",
-        "t": "t", "i": "i", "tj": "tj", "n": "n"}
+        "t": "t", "i": "i", "tj": "tj", "n": "n", "p": "p"}
 
 
 def symbol_names(ep, specs):

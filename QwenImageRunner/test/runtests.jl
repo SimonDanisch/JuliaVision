@@ -167,3 +167,4 @@ end
 include(joinpath(@__DIR__, "test_vae_plans.jl"))
 include(joinpath(@__DIR__, "test_transparency.jl"))
 include(joinpath(@__DIR__, "test_prompt_and_size.jl"))
+include(joinpath(@__DIR__, "test_condition.jl"))
