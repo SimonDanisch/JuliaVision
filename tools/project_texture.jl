@@ -22,11 +22,11 @@ maps, view-dependent shading, or any colour on a surface the photo never saw.
 
 The mesh comes back in the grid's own axes and nothing in the file says which
 one faces the camera. [`orientfit`](@ref) settles it by silhouette: project the
-vertices along each candidate axis pair, rasterise, and score IoU against the
-alpha of the image `prepareimage` actually fed the model. On the demo teapot the
-winner is `x = +axis1, y = -axis2` at **IoU 0.915**, with the runner-up at 0.791
-— a margin worth having, and the reason this is a function rather than a
-constant.
+vertices along each candidate view (every axis as up, turned about it),
+rasterise, and score IoU against the alpha of the image `prepareimage` actually
+fed the model. On the demo teapot the winner is `x = +axis1, y = -axis2` at
+**IoU 0.915**, with the runner-up at 0.791 — a margin worth having, and the
+reason this is a function rather than a constant.
 
 Two details that are easy to get wrong and produce a plausible-looking
 misregistration rather than an error:
@@ -42,12 +42,20 @@ using FileIO, MeshIO, GeometryBasics, ImageCore, LinearAlgebra
 import Hunyuan3DRunner as H
 
 """
-    orientfit(P, alpha; n = 256) -> (iou, ax, sx, ay, sy)
+    orientfit(P, alpha; n = 256, step = 2) -> (iou, R)
 
-Which mesh axes the image's x and y are, by silhouette overlap. `P` is `3 x N`
-vertex positions and `alpha` the `(S, S, 1)` placed alpha `recenter` returns.
+The direction the image looks at the mesh from, by silhouette overlap. `R` is a
+3x3 rotation whose rows are the image's x, its y (pointing down) and the depth,
+in mesh coordinates. `P` is `3 x N` vertex positions and `alpha` the `(S, S, 1)`
+placed alpha `recenter` returns.
+
+Every mesh axis is tried as up, and the view is turned about it in `step`
+degrees. Trying only the axis-aligned views is enough for a teapot, but the
+image does not always look down a mesh axis: for a character in a
+three-quarter pose, the best axis-aligned view reached IoU 0.40, and it painted
+the texture on from the side.
 """
-function orientfit(P::AbstractMatrix, alpha::AbstractArray{UInt8,3}; n::Int = 256)
+function orientfit(P::AbstractMatrix, alpha::AbstractArray{UInt8,3}; n::Int = 256, step::Int = 2)
     S = size(alpha, 1)
     tgt = falses(n, n)
     for j in 1:n, i in 1:n
@@ -55,22 +63,31 @@ function orientfit(P::AbstractMatrix, alpha::AbstractArray{UInt8,3}; n::Int = 25
         y = clamp(round(Int, (i - 0.5) * S / n), 1, S)
         tgt[i, j] = alpha[x, y, 1] > 0x7f
     end
-    best = (-1.0, 1, 1, 2, -1)
-    for ax in 1:3, ay in 1:3
-        ax == ay && continue
-        for sx in (1, -1), sy in (1, -1)
-            g = silhouette(P, ax, sx, ay, sy, n)
+    # A silhouette needs far fewer points than a full-resolution mesh has.
+    Q = P[:, 1:max(1, size(P, 2) ÷ 50_000):end]
+    best = (-1.0, Matrix{Float32}(I, 3, 3))
+    for k in 1:3, su in (1f0, -1f0)
+        u = zeros(Float32, 3); u[k] = su
+        a = zeros(Float32, 3); a[mod1(k + 1, 3)] = 1f0
+        b = cross(u, a)
+        for θ in 0:step:360-step
+            h = cosd(θ) .* a .+ sind(θ) .* b
+            # Depth is `h x u`: with up = +axis2 and x = +axis1 that is +axis3,
+            # the depth the axis-aligned search used, so `facing` means the same.
+            R = Matrix{Float32}(vcat(h', -u', cross(h, u)'))
+            g = silhouette(Q, R, n)
             s = count(g .& tgt) / count(g .| tgt)
-            s > best[1] && (best = (s, ax, sx, ay, sy))
+            s > best[1] && (best = (s, R))
         end
     end
     best
 end
 
-"""The point cloud's silhouette on an `n x n` grid, framed as `recenter` frames
-the image: aspect preserved, object filling `1 - BORDER_RATIO` of the square."""
-function silhouette(P, ax, sx, ay, sy, n; border = H.BORDER_RATIO)
-    x = sx .* view(P, ax, :); y = sy .* view(P, ay, :)
+"""The point cloud's silhouette on an `n x n` grid, seen through the view `R`
+and framed as `recenter` frames the image: aspect preserved, object filling
+`1 - BORDER_RATIO` of the square."""
+function silhouette(P, R::AbstractMatrix, n; border = H.BORDER_RATIO)
+    x = vec(R[1:1, :] * P); y = vec(R[2:2, :] * P)
     xlo, xhi = extrema(x); ylo, yhi = extrema(y)
     s = max(xhi - xlo, yhi - ylo) / (1 - border)
     cx = (xhi + xlo) / 2; cy = (ylo + yhi) / 2
@@ -81,6 +98,36 @@ function silhouette(P, ax, sx, ay, sy, n; border = H.BORDER_RATIO)
         (1 <= px <= n && 1 <= py <= n) && (g[py, px] = true)
     end
     g
+end
+
+"""
+    frontdepth(u, v, z, faces, S) -> S x S Matrix{Float32}
+
+The nearest surface per image pixel: every triangle rasterised at its projected
+`(u, v)` in `[0, 1]`, keeping the largest `z` (the camera looks down `-z`).
+Without it a normal test alone paints every surface that faces the camera,
+including the ones behind the one the photo shows: hair behind a face took the
+face a second time.
+"""
+function frontdepth(u, v, z, faces, S::Int)
+    zb = fill(-Inf32, S, S)
+    @inbounds for (a, b, c) in faces
+        xa, ya = u[a] * S, v[a] * S; xb, yb = u[b] * S, v[b] * S; xc, yc = u[c] * S, v[c] * S
+        det = (xb - xa) * (yc - ya) - (xc - xa) * (yb - ya)
+        abs(det) < 1f-12 && continue
+        x0 = max(1, floor(Int, min(xa, xb, xc))); x1 = min(S, ceil(Int, max(xa, xb, xc)))
+        y0 = max(1, floor(Int, min(ya, yb, yc))); y1 = min(S, ceil(Int, max(ya, yb, yc)))
+        for yi in y0:y1, xi in x0:x1
+            px = Float32(xi); py = Float32(yi)    # pixel `xi` is where `round(u * S)` lands
+            wb = ((px - xa) * (yc - ya) - (xc - xa) * (py - ya)) / det
+            wc = ((xb - xa) * (py - ya) - (px - xa) * (yb - ya)) / det
+            wa = 1 - wb - wc
+            (wa >= 0 && wb >= 0 && wc >= 0) || continue
+            d = wa * z[a] + wb * z[b] + wc * z[c]
+            d > zb[xi, yi] && (zb[xi, yi] = d)
+        end
+    end
+    zb
 end
 
 """Area-weighted vertex normals, `3 x N`."""
@@ -155,7 +202,7 @@ function fillholes!(col, seen, ptr, adj; smooth::Int = 8, maxrounds::Int = 400)
 end
 
 """
-    texturize(objpath, rgbapath; facing = -1, grazing = 0.02) -> (mesh, colours)
+    texturize(objpath, rgbapath; facing = -1, grazing = 0.02, occlusion = 3) -> (mesh, colours)
 
 The whole thing: read the mesh and the RGBA cut-out, recentre the image the way
 the model saw it, fit the orientation, project, fill.
@@ -167,9 +214,13 @@ like a smudge rather than the photograph), flip it.
 
 `grazing` is the smallest `|n . view|` that still takes colour. Lower catches
 more of the spout at the cost of stretching the texture along it.
+
+`occlusion` is how far behind the nearest surface, in pixels of depth, a vertex
+may lie and still take colour. Surfaces closer together than that behind one
+another both get the front one's colour.
 """
 function texturize(objpath::AbstractString, rgbapath::AbstractString;
-                   facing::Int = -1, grazing::Float32 = 0.02f0)
+                   facing::Int = -1, grazing::Float32 = 0.02f0, occlusion::Float32 = 3f0)
     msh = load(objpath)
     V = coordinates(msh)
     P = [Float32(V[i][c]) for c in 1:3, i in eachindex(V)]
@@ -185,27 +236,33 @@ function texturize(objpath::AbstractString, rgbapath::AbstractString;
         rgba[x,y,3] = reinterpret(UInt8, blue(c));  rgba[x,y,4] = reinterpret(UInt8, alpha(c))
     end
     rgb, alpha8 = H.recenter(rgba)
-    score, ax, sx, ay, sy = orientfit(P, alpha8)
-    @info "silhouette fit" iou=round(score; digits=3) x="$(sx > 0 ? "+" : "-")axis$ax" y="$(sy > 0 ? "+" : "-")axis$ay"
+    score, R = orientfit(P, alpha8)
+    @info "silhouette fit" iou=round(score; digits=3) x=round.(R[1, :]; digits=3) up=-R[2, :]
 
-    xs = sx .* view(P, ax, :); ys = sy .* view(P, ay, :)
+    xs = vec(R[1:1, :] * P); ys = vec(R[2:2, :] * P)
     xlo, xhi = extrema(xs); ylo, yhi = extrema(ys)
     s = max(xhi - xlo, yhi - ylo) / (1 - H.BORDER_RATIO)
     cx = (xhi + xlo) / 2; cy = (ylo + yhi) / 2
-    depth = 6 - ax - ay                      # the axis neither image axis uses
-    nrm = vertexnormals(P, faces)
+    nrm = vec(R[3:3, :] * vertexnormals(P, faces))    # each normal along the depth
     S = size(rgb, 1)
-    col = zeros(Float32, 3, size(P, 2)); seen = falses(size(P, 2))
+    us = (xs .- cx) ./ s .+ 0.5f0; vs = (ys .- cy) ./ s .+ 0.5f0
+    zs = facing .* vec(R[3:3, :] * P)
+    zb = frontdepth(us, vs, zs, faces, S)
+    # A vertex sits up to half a pixel off the centre its depth is compared at,
+    # so the front surface is anything within `occlusion` pixels of depth of it.
+    tol = occlusion * s / S
+    col = zeros(Float32, 3, size(P, 2)); seen = falses(size(P, 2)); hidden = 0
     for k in axes(P, 2)
-        facing * nrm[depth, k] > grazing || continue
-        u = (xs[k] - cx) / s + 0.5f0; v = (ys[k] - cy) / s + 0.5f0
+        facing * nrm[k] > grazing || continue
+        u = us[k]; v = vs[k]
         (0 <= u <= 1 && 0 <= v <= 1) || continue
         xi = clamp(round(Int, u * S), 1, S); yi = clamp(round(Int, v * S), 1, S)
         alpha8[xi, yi, 1] > 0x7f || continue
+        zs[k] >= zb[xi, yi] - tol || (hidden += 1; continue)
         for c in 1:3; col[c, k] = rgb[xi, yi, c] / 255f0; end
         seen[k] = true
     end
-    @info "projected" painted=count(seen) of=size(P, 2)
+    @info "projected" painted=count(seen) hidden of=size(P, 2)
     ptr, adj = adjacency(size(P, 2), faces)
     fillholes!(col, seen, ptr, adj)
 
