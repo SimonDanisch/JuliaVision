@@ -457,23 +457,27 @@ sixteen elements are consecutive rows of one column, because the group divides
 `K`. The SwiGLU rounds to `H` where [`swiglu_run_kernel!`](@ref) rounds to its
 output type, so this computes what the two kernels computed.
 """
-function convrot_swiglu_kernel!(out, gate, up, gb::Int64, ub::Int64, gcol::Int64, ucol::Int64,
+function convrot_swiglu_kernel!(out, gate, up, gb::Int32, ub::Int32, gcol::Int32, ucol::Int32,
                                 ::Val{H}, ::Val{K}, ::Val{SETS}, ::Val{G},
-                                n::Int64) where {H,K,SETS,G}
-    j = Int64(KI.get_global_id().x) - Int64(1)
-    g = j ÷ Int64(SETS)
-    w = j - g * Int64(SETS)
-    base = g * Int64(G) + w * Int64(16)
+                                n::Int32) where {H,K,SETS,G}
+    # Int32 throughout. With these indices in Int64 Lava miscompiles the
+    # sixteen adjacent reads into an address outside `gate`: a GPUVM fault at
+    # Qwen-Image 2.1's `512 x 4118`, the same bug as `q8gemm.jl`'s pair loads.
+    # `convrotpass!` checks that every index fits.
+    j = Int32(KI.get_global_id().x) - Int32(1)
+    g = j ÷ Int32(SETS)
+    w = j - g * Int32(SETS)
+    base = g * Int32(G) + w * Int32(16)
     if base < n
-        c = base ÷ Int64(K)
-        gi = gb + (base - c * Int64(K)) + c * gcol
-        ui = ub + (base - c * Int64(K)) + c * ucol
+        c = base ÷ Int32(K)
+        gi = gb + (base - c * Int32(K)) + c * gcol
+        ui = ub + (base - c * Int32(K)) + c * ucol
         @inbounds begin
             v = convrot16(ntuple(Val(16)) do i
-                    x = Float32(gate[gi + Int64(i - 1)])
-                    Float32(H(Float32(H(x / (1f0 + exp(-x)))) * Float32(up[ui + Int64(i - 1)])))
+                    x = Float32(gate[gi + Int32(i - 1)])
+                    Float32(H(Float32(H(x / (1f0 + exp(-x)))) * Float32(up[ui + Int32(i - 1)])))
                 end, eltype(out))
-            Base.Cartesian.@nexprs 16 i -> out[base + Int64(i)] = eltype(out)(v[i])
+            Base.Cartesian.@nexprs 16 i -> out[base + Int32(i)] = eltype(out)(v[i])
         end
     end
     return nothing

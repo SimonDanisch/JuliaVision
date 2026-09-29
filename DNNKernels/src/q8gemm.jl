@@ -34,23 +34,29 @@ for cfg in ((2, 1, 2, 2, 32, 8), (2, 2, 2, 2, 32, 8), (2, 2, 2, 2, 64, 8),
                 c_mt_nt = Mantle.accinit(bias, bp, Int32(1)+tm+(sm+Int32(mt-1))*Int32(16))
             for kb in Int32(0):Int32(K÷$BK-1)
                 k0 = kb*Int32($BK)
+                # Global indices in Int32, as Mantle's narrow kernel forms them:
+                # `splitidx` returns `Int`, and with an Int64 index Lava loads
+                # only the first half of the pair `(B[g], B[g+1])`. The second
+                # read as 0, every product lost half its k terms (and faulted
+                # the device at 6144 x 4096 x 256), and Qwen-Image's
+                # conditioner came out NaN.
                 @inbounds for r in Int32(0):Int32($AR-1)
                     idx = tid + r*Int32($WG)
-                    p, kk = Mantle.splitidx(idx, Val($(BM÷4)))
-                    row = tm+4p
+                    p, kk = map(Int32, Mantle.splitidx(idx, Val($(BM÷4))))
+                    row = tm+Int32(4)*p
                     w = Q[Int32(1)+row÷Int32(4)+(k0+kk)*Int32(M÷4)]
                     a0 = Float16(q8byte(w,0)*scale0)
                     a1 = Float16(q8byte(w,1)*scale1)
                     a2 = Float16(q8byte(w,2)*scale2)
                     a3 = Float16(q8byte(w,3)*scale3)
-                    sA[Int32(1)+2p+kk*Int32($LDA2)] = (VecElement(a0),VecElement(a1))
-                    sA[Int32(2)+2p+kk*Int32($LDA2)] = (VecElement(a2),VecElement(a3))
+                    sA[Int32(1)+Int32(2)*p+kk*Int32($LDA2)] = (VecElement(a0),VecElement(a1))
+                    sA[Int32(2)+Int32(2)*p+kk*Int32($LDA2)] = (VecElement(a2),VecElement(a3))
                 end
                 @inbounds for r in Int32(0):Int32($BR-1)
                     idx = tid+r*Int32($WG)
-                    p,j = Mantle.splitidx(idx,Val($(BK÷2)))
-                    g = Int32(1)+k0+2p+(tn+j)*Int32(K)
-                    sB[Int32(1)+p+j*Int32($LDB2)] = (VecElement(B[g]),VecElement(B[g+1]))
+                    p,j = map(Int32, Mantle.splitidx(idx,Val($(BK÷2))))
+                    g = Int32(1)+k0+Int32(2)*p+(tn+j)*Int32(K)
+                    sB[Int32(1)+p+j*Int32($LDB2)] = (VecElement(B[g]),VecElement(B[g+Int32(1)]))
                 end
                 KI.barrier()
                 Base.Cartesian.@nexprs $(BK÷16) u -> begin

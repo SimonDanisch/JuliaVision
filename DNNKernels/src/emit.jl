@@ -1416,12 +1416,19 @@ convrotpass!(emitctx::EmitCtx, out, src, ::Val{S}, sets, G, n, ndrange, name) wh
                 ndrange; group = 256, name)
 
 # A SwiGLU is only ever the source of the FIRST pass, which is the stride-1 one.
-convrotpass!(emitctx::EmitCtx, out, src::SwiGLUHalves{H}, ::Val{1}, sets, G, n, ndrange,
-             name) where {H} =
+function convrotpass!(emitctx::EmitCtx, out, src::SwiGLUHalves{H}, ::Val{1}, sets, G, n, ndrange,
+                      name) where {H}
+    # The kernel indexes in Int32 (see `convrot_swiglu_kernel!`), so the last
+    # element either half reads has to be addressable in one.
+    K, N = size(src)
+    last = max(n, src.gb + (K - 1) + (N - 1) * src.gcol, src.ub + (K - 1) + (N - 1) * src.ucol)
+    last <= typemax(Int32) || throw(ArgumentError(
+        "ConvRot SwiGLU: index $last does not fit the kernel's Int32 addressing"))
     M.dispatch!(emitctx.g, convrot_swiglu_kernel!,
-                (out, src.gate, src.up, src.gb, src.ub, src.gcol, src.ucol,
-                 Val(H), Val(size(src, 1)), Val(sets), Val(Int(G)), n),
+                (out, src.gate, src.up, Int32(src.gb), Int32(src.ub), Int32(src.gcol),
+                 Int32(src.ucol), Val(H), Val(K), Val(sets), Val(Int(G)), Int32(n)),
                 ndrange; group = 256, name)
+end
 
 """
     swigluhalves(emitctx, op, H, K) -> SwiGLUHalves | nothing

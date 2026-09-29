@@ -78,12 +78,14 @@ function masked_batch_gemm!(C,A,B,
         k0=kb*Int32(32)
         @inbounds for r in Int32(0):Int32(7)
             idx=tid+r*Int32(256)
-            p,kk=Mantle.splitidx(idx,Val(64))
-            ai=Int32(1)+tm+2p+(k0+kk)*Int32(M)+batch*as
-            sa[Int32(1)+p+kk*Int32(72)]=(VecElement(A[ai]),VecElement(A[ai+1]))
-            p,j=Mantle.splitidx(idx,Val(16))
-            bi=Int32(1)+k0+2p+(tn+j)*Int32(K)+batch*bs
-            sb[Int32(1)+p+j*Int32(24)]=(VecElement(B[bi]),VecElement(B[bi+1]))
+            # Int32 indices (`splitidx` returns `Int`): an Int64 one loses
+            # the pair's second load on Lava, as in `q8gemm.jl`.
+            p,kk=map(Int32, Mantle.splitidx(idx,Val(64)))
+            ai=Int32(1)+tm+Int32(2)*p+(k0+kk)*Int32(M)+batch*as
+            sa[Int32(1)+p+kk*Int32(72)]=(VecElement(A[ai]),VecElement(A[ai+Int32(1)]))
+            p,j=map(Int32, Mantle.splitidx(idx,Val(16)))
+            bi=Int32(1)+k0+Int32(2)*p+(tn+j)*Int32(K)+batch*bs
+            sb[Int32(1)+p+j*Int32(24)]=(VecElement(B[bi]),VecElement(B[bi+Int32(1)]))
         end
         KI.barrier()
         Base.Cartesian.@nexprs 2 u -> begin
