@@ -3,6 +3,7 @@ uuid = "132bbc23-6b1f-4c4d-8a8f-ddd903457cf1"
 version = "0.1.0"
 
 [deps]
+AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
 ColorTypes = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"

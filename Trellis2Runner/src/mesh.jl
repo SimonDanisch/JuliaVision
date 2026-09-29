@@ -1,109 +1,116 @@
 """
-    dualgridmesh(level, out; margin = 0.5) -> (vertices, faces)
+    dualgridmesh(dev, level, out; margin = 0.5) -> (V, F)
 
 `FlexiDualGridVaeDecoder`'s mesh: `flexible_dual_grid_to_mesh` (o-voxel) on the
-shape decoder's output `out` `(7, N)` at the voxels of `level`.
+shape decoder's output `out` `(7, N)` at the voxels of `level`, as
+`Mantle.Buffer`s `(3, N)` and `(3, F)`.
 
 Every voxel carries one dual vertex, `(1 + 2 margin) sigmoid(out[1:3]) - margin`
 inside it; an axis whose intersection logit (`out[4:6]`) is positive has a quad
-through the four voxels around that edge, when all four exist; the quad is split
-along the diagonal whose `softplus(out[7])` weights multiply to more. Quads in
-voxel order, axis by axis, as upstream's boolean mask walks `(N, 3)`.
+through the four voxels around that edge, when all four exist (looked up in a
+[`HashMap`](@ref) of the voxels, as upstream); the quad is split along the
+diagonal whose `softplus(out[7])` weights multiply to more. Quads in voxel
+order, axis by axis, as upstream's boolean mask walks `(N, 3)`. Every voxel
+keeps its vertex whether a quad reaches it or not, as upstream.
 """
-function dualgridmesh(level::Level, out::AbstractMatrix{Float32}; margin = 0.5f0)
+function dualgridmesh(dev::Mantle.Device, level::Level, out::AbstractMatrix{Float32}; margin = 0.5f0)
     n = length(level)
     res = level.res
-    vs = 1f0 / res
-    vertices = Matrix{Float32}(undef, 3, n)
-    for j in 1:n, a in 1:3
-        d = (1 + 2margin) / (1 + exp(-out[a, j])) - margin
-        vertices[a, j] = (level.coords[a, j] + d) * vs - 0.5f0
-    end
-    lerp = [log1p(exp(out[7, j])) for j in 1:n]
-    key(x, y, z) = Int64(x) + res * (Int64(y) + res * Int64(z))
-    index = Dict{Int64,Int32}()
-    sizehint!(index, n)
-    for j in 1:n
-        index[key(level.coords[1, j], level.coords[2, j], level.coords[3, j])] = j
-    end
-    offsets = (((0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0)),   # x
-               ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1)),   # y
-               ((0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0, 0)))   # z
-    faces = Int32[]
-    q = zeros(Int32, 4)
-    for j in 1:n, a in 1:3
-        out[3 + a, j] > 0 || continue
-        found = true
-        for (k, (dx, dy, dz)) in enumerate(offsets[a])
-            i = get(index, key(level.coords[1, j] + dx, level.coords[2, j] + dy,
-                               level.coords[3, j] + dz), Int32(0))
-            i == 0 && (found = false; break)
-            q[k] = i
-        end
-        found || continue
-        if lerp[q[1]] * lerp[q[3]] > lerp[q[2]] * lerp[q[4]]
-            append!(faces, (q[1], q[2], q[3], q[1], q[3], q[4]))
-        else
-            append!(faces, (q[1], q[2], q[4], q[4], q[2], q[3]))
-        end
-    end
-    return vertices, reshape(faces, 3, :)
+    coords = Mantle.Buffer(dev, level.coords)
+    outd = Mantle.Buffer(dev, Matrix{Float32}(out))
+    V = Mantle.Buffer(dev, Float32, (3, n))
+    lerp = Mantle.Buffer(dev, Float32, n)
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, dualvertices!, (V, lerp, coords, outd, Float32(res), Float32(margin), n), n;
+                     name = "dualgrid/vertices")
+    runonce!(g)
+    vox = insert!(dev, HashMap(dev, n), coords, n, res)
+    ns = 3n
+    quads = Mantle.Buffer(dev, Int32, (4, ns))
+    qflag = Mantle.Buffer(dev, Int32, ns)
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, dualquads!, (quads, qflag, coords, outd, vox.keys, vox.vals, vox.capacity, Int32(res), n), ns;
+                     name = "dualgrid/quads")
+    runonce!(g)
+    foreach(Mantle.free!, (vox, coords, outd))
+    qpos = prefixsum(dev, qflag)
+    nq = lastentry(qpos)
+    F = Mantle.Buffer(dev, Int32, (3, 2 * max(nq, 1)))
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, dualtriangles!, (F, quads, qflag, qpos, lerp, ns), ns; name = "dualgrid/triangles")
+    runonce!(g)
+    foreach(Mantle.free!, (quads, qflag, qpos, lerp))
+    return V, F
 end
 
-"""
-    orientfaces(vertices, faces) -> faces
+function dualvertices!(V, lerp, coords, out, res, margin, n)
+    j = Int32(KI.get_global_id().x)
+    j <= n || return nothing
+    @inbounds begin
+        vs = 1f0 / res
+        for a in Int32(1):Int32(3)
+            d = (1f0 + 2f0 * margin) / (1f0 + exp(-out[a, j])) - margin
+            V[a, j] = (Float32(coords[a, j]) + d) * vs - 0.5f0
+        end
+        # softplus, with torch's threshold
+        x = out[7, j]
+        lerp[j] = x > 20f0 ? x : log1p(exp(x))
+    end
+    return nothing
+end
 
-Consistent winding, outward: cumesh's `unify_face_orientations`. The dual grid
-emits every quad in a fixed per-axis order, so neighbouring triangles disagree
-about which side is out. Across every edge two faces share, they have to walk
-the edge in opposite directions; a flood fill over each connected piece flips the
-ones that do not, and a piece whose signed volume comes out negative is turned
-over whole. Edges of more than two faces are not walked: a non-manifold edge
-does not say which way its faces should turn.
-"""
-function orientfaces(vertices::AbstractMatrix{Float32}, faces::AbstractMatrix{<:Integer})
-    F = Matrix{Int32}(faces)
-    nf = size(F, 2)
-    # Every undirected edge's faces.
-    owners = Dict{Tuple{Int32,Int32},Vector{Int32}}()
-    edgeof(a, b) = a < b ? (a, b) : (b, a)
-    for f in 1:nf, k in 1:3
-        push!(get!(Vector{Int32}, owners, edgeof(F[k, f], F[k % 3 + 1, f])), f)
+"""The `k`th of the four voxels around the edge along axis `a` from a voxel,
+as an offset; o-voxel's `edge_neighbor_voxel_offset`."""
+@inline function aroundoffset(a, k)
+    if a == Int32(1)
+        return k == Int32(1) ? (Int32(0), Int32(0), Int32(0)) : k == Int32(2) ? (Int32(0), Int32(0), Int32(1)) :
+               k == Int32(3) ? (Int32(0), Int32(1), Int32(1)) : (Int32(0), Int32(1), Int32(0))
+    elseif a == Int32(2)
+        return k == Int32(1) ? (Int32(0), Int32(0), Int32(0)) : k == Int32(2) ? (Int32(1), Int32(0), Int32(0)) :
+               k == Int32(3) ? (Int32(1), Int32(0), Int32(1)) : (Int32(0), Int32(0), Int32(1))
+    else
+        return k == Int32(1) ? (Int32(0), Int32(0), Int32(0)) : k == Int32(2) ? (Int32(0), Int32(1), Int32(0)) :
+               k == Int32(3) ? (Int32(1), Int32(1), Int32(0)) : (Int32(1), Int32(0), Int32(0))
     end
-    # Whether face `f` walks the edge `a -> b`.
-    walks(f, a, b) = any(k -> F[k, f] == a && F[k % 3 + 1, f] == b, 1:3)
-    function flip!(f)
-        F[2, f], F[3, f] = F[3, f], F[2, f]
-        return nothing
-    end
-    seen = falses(nf)
-    queue = Int32[]
-    piece = Int32[]
-    for start in 1:nf
-        seen[start] && continue
-        seen[start] = true
-        empty!(piece)
-        push!(queue, start)
-        while !isempty(queue)
-            f = popfirst!(queue)
-            push!(piece, f)
-            for k in 1:3
-                a, b = F[k, f], F[k % 3 + 1, f]
-                fs = owners[edgeof(a, b)]
-                length(fs) == 2 || continue
-                g = fs[1] == f ? fs[2] : fs[1]
-                seen[g] && continue
-                walks(g, a, b) && flip!(g)
-                seen[g] = true
-                push!(queue, g)
-            end
+end
+
+"""Slot `s` is voxel `(s - 1) ÷ 3 + 1`, axis `(s - 1) % 3 + 1`: its quad's four
+voxel ids when the axis intersects and all four exist."""
+function dualquads!(quads, qflag, coords, out, keys, vals, cap, res, n)
+    s = Int32(KI.get_global_id().x)
+    s <= Int32(3) * n || return nothing
+    @inbounds begin
+        j = (s - Int32(1)) ÷ Int32(3) + Int32(1)
+        a = (s - Int32(1)) % Int32(3) + Int32(1)
+        qflag[s] = Int32(0)
+        out[Int32(3) + a, j] > 0f0 || return nothing
+        x, y, z = coords[1, j], coords[2, j], coords[3, j]
+        for k in Int32(1):Int32(4)
+            o = aroundoffset(a, k)
+            id = lookupcoord(keys, vals, x + o[1], y + o[2], z + o[3], res, cap)
+            id == Int32(0) && return nothing
+            quads[k, s] = id
         end
-        volume = 0.0
-        for f in piece
-            a, b, c = (Vec3(Float64.(view(vertices, :, F[k, f]))...) for k in 1:3)
-            volume += dot(a, cross(b, c))
-        end
-        volume < 0 && foreach(flip!, piece)
+        qflag[s] = Int32(1)
     end
-    return F
+    return nothing
+end
+
+function dualtriangles!(F, quads, qflag, qpos, lerp, ns)
+    s = Int32(KI.get_global_id().x)
+    s <= ns || return nothing
+    @inbounds begin
+        qflag[s] == Int32(1) || return nothing
+        q = qpos[s]
+        i1, i2, i3, i4 = quads[1, s], quads[2, s], quads[3, s], quads[4, s]
+        t1, t2 = Int32(2) * q - Int32(1), Int32(2) * q
+        if lerp[i1] * lerp[i3] > lerp[i2] * lerp[i4]
+            F[1, t1] = i1; F[2, t1] = i2; F[3, t1] = i3
+            F[1, t2] = i1; F[2, t2] = i3; F[3, t2] = i4
+        else
+            F[1, t1] = i1; F[2, t1] = i2; F[3, t1] = i4
+            F[1, t2] = i4; F[2, t2] = i2; F[3, t2] = i3
+        end
+    end
+    return nothing
 end

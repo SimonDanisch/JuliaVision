@@ -117,17 +117,23 @@ function generate(p::Trellis2, rgba::AbstractArray{UInt8,3}; noise = Noise(42), 
     geometry = decode(p.shapedec, Array(Mantle.storage(shape))[:, :, 1], voxels; res)
     material = decode(p.texdec, Array(Mantle.storage(tex))[:, :, 1], voxels; res, guide = geometry)
     level = geometry.levels[end]
-    vertices, faces = dualgridmesh(level, geometry.out)
+    dev = p.shapedec.dev
+    V, F = dualgridmesh(dev, level, geometry.out)
     # Filled twice, as upstream does: in `decode_latent` and again at the start of
     # `to_glb`. The first pass's fans close off boundary chains that were not
     # holes yet; the second fills those (47 on the 1024 example).
-    surface = fillholes(fillholes(vertices, orientfaces(vertices, faces))...)
+    V, F = fillholes(dev, fillholes(dev, V, F)...)
+    # The filled mesh is what the remesh's distances and the bake's projection
+    # query; both bucket it on the host ([`SurfaceGrid`](@ref)).
+    surface = (download(V), download(F))
+    foreach(Mantle.free!, (V, F))
     # `to_glb(remesh = True, remesh_band = 1)`: a grid 3 voxels wider than the
     # cube, so the shell around the outermost voxels fits.
-    dev = p.shapedec.dev
-    vertices, faces = simplify(dev, remesh(dev, surface...; resolution = level.res, scale = (level.res + 3) / level.res)...,
-                               decimation)
-    faces = removedegenerate(vertices, faces)
+    V, F = simplify(dev, remesh(dev, surface...; resolution = level.res, scale = (level.res + 3) / level.res)...,
+                    decimation)
+    V, F = removedegenerate(dev, V, F)
+    vertices, faces = download(V), download(F)
+    foreach(Mantle.free!, (V, F))
     attrs = clamp.(material.out .* 0.5f0 .+ 0.5f0, 0f0, 1f0)
     return texturedmesh(dev, vertices, faces, level, attrs; surface, size = texture, doublesided = false)
 end

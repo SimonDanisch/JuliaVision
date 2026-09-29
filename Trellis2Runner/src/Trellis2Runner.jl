@@ -16,6 +16,7 @@ using Lava, DNNKernels
 import Mantle
 import JSON3
 import KernelInterface as KI
+import AcceleratedKernels as AK
 import Atomix
 import Random
 import DataStructures
@@ -29,7 +30,8 @@ export FlowSampler, tschedule, guidanceruns, sampleflow!
 export occupiedcoords, ropetable
 export Normalization, FlowStage, loadmodel, encodeimage
 export sparsestructure, shapeslat, texslat
-export SparseDecoder, decode, upsample, cascadecoords, dualgridmesh, remesh, orientfaces, fillholes, simplify, cleanmesh, texturedmesh
+export SparseDecoder, decode, upsample, cascadecoords, dualgridmesh, remesh, orientfaces, fillholes, simplify,
+       removedegenerate, cleanmesh, texturedmesh
 export cropobject, dinoinput
 export Trellis2, Cascade, Noise, generate
 
@@ -37,6 +39,8 @@ include("sampler.jl")
 include("structure.jl")
 include("pipeline.jl")
 include("decoder.jl")
+include("topology.jl")
+include("hashmap.jl")
 include("mesh.jl")
 include("image.jl")
 include("simplify.jl")

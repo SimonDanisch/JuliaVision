@@ -6,16 +6,14 @@ cumesh's `simplify`, on the device: [`simplifystep`](@ref)s until at most `targe
 faces are left, the cost threshold ten times higher whenever a step removes less
 than 1% of the faces. A step may overshoot `target`, as upstream's does.
 
-`(3, V)` Float32 vertices and `(3, F)` one-based faces in, the same out, with
-the vertices no collapse removed (an unreferenced one stays, as upstream).
+`(3, V)` Float32 vertices and `(3, F)` one-based faces in as `Mantle.Buffer`s
+(consumed) or host matrices, the same kind out, with the vertices no collapse
+removed (an unreferenced one stays, as upstream).
 """
-function simplify(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::AbstractMatrix{<:Integer},
-                  target::Int; thresh::Float64 = 1e-8, lambda_edge_length::Float32 = 1f-2,
-                  lambda_skinny::Float32 = 1f-3)
-    nf = size(faces, 2)
-    nf <= target && return Matrix{Float32}(vertices), Matrix{Int32}(faces)
-    V = Mantle.Buffer(dev, Matrix{Float32}(vertices))
-    F = Mantle.Buffer(dev, Matrix{Int32}(faces))
+function simplify(dev::Mantle.Device, V::Mantle.Buffer, F::Mantle.Buffer, target::Int;
+                  thresh::Float64 = 1e-8, lambda_edge_length::Float32 = 1f-2, lambda_skinny::Float32 = 1f-3)
+    nf = size(F, 2)
+    nf <= target && return V, F
     while true
         V, F = simplifystep(dev, V, F, Float32(thresh), lambda_edge_length, lambda_skinny)
         n = size(F, 2)
@@ -23,7 +21,13 @@ function simplify(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::
         (nf - n) / nf < 1e-2 && (thresh *= 10)
         nf = n
     end
-    return Array(Mantle.storage(V)), Array(Mantle.storage(F))
+    return V, F
+end
+
+function simplify(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::AbstractMatrix{<:Integer},
+                  target::Int; kw...)
+    V, F = simplify(dev, upload(dev, vertices), upload(dev, faces), target; kw...)
+    return download(V), download(F)
 end
 
 """
@@ -91,16 +95,6 @@ function simplifystep(dev::Mantle.Device, V::Mantle.Buffer, F::Mantle.Buffer, th
     end
     return V2, F2
 end
-
-"""The inclusive prefix sum of an Int32 buffer, on the device."""
-function prefixsum(dev::Mantle.Device, b::Mantle.Buffer)
-    out = Mantle.Buffer(dev, Int32, length(b))
-    accumulate!(+, Mantle.storage(out), Mantle.storage(b))
-    return out
-end
-
-"""A buffer's last entry, read back alone."""
-lastentry(b::Mantle.Buffer) = Int(only(Array(view(Mantle.storage(b), length(b):length(b)))))
 
 # ── kernels ──────────────────────────────────────────────────────────────────
 
