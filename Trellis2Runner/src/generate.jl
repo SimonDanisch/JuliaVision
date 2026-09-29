@@ -118,7 +118,10 @@ function generate(p::Trellis2, rgba::AbstractArray{UInt8,3}; noise = Noise(42), 
     material = decode(p.texdec, Array(Mantle.storage(tex))[:, :, 1], voxels; res, guide = geometry)
     level = geometry.levels[end]
     vertices, faces = dualgridmesh(level, geometry.out)
-    surface = fillholes(vertices, orientfaces(vertices, faces))
+    # Filled twice, as upstream does: in `decode_latent` and again at the start of
+    # `to_glb`. The first pass's fans close off boundary chains that were not
+    # holes yet; the second fills those (47 on the 1024 example).
+    surface = fillholes(fillholes(vertices, orientfaces(vertices, faces))...)
     # `to_glb(remesh = True, remesh_band = 1)`: a grid 3 voxels wider than the
     # cube, so the shell around the outermost voxels fits.
     dev = p.shapedec.dev
@@ -126,5 +129,5 @@ function generate(p::Trellis2, rgba::AbstractArray{UInt8,3}; noise = Noise(42), 
                                decimation)
     faces = removedegenerate(vertices, faces)
     attrs = clamp.(material.out .* 0.5f0 .+ 0.5f0, 0f0, 1f0)
-    return texturedmesh(dev, vertices, faces, level, attrs; surface, size = texture)
+    return texturedmesh(dev, vertices, faces, level, attrs; surface, size = texture, doublesided = false)
 end

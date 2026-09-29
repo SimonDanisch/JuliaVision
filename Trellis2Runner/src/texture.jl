@@ -392,7 +392,8 @@ function pushpull!(tex::Array{Float32,3})
 end
 
 """
-    texturedmesh(dev, vertices, faces, level, attrs; surface = (vertices, faces), size = 2048, cone = 85) -> MetaMesh
+    texturedmesh(dev, vertices, faces, level, attrs; surface = (vertices, faces), size = 2048, cone = 85,
+                 doublesided = true) -> MetaMesh
 
 `o_voxel.postprocess.to_glb`'s texturing: charts, the atlas, the attribute
 volume baked into it at the closest points of `surface` (the mesh before
@@ -403,11 +404,13 @@ MeshIO's form; `save("model.glb", mesh)` writes it.
 `(6, N)` over `level`'s voxels, laid out `base_color` (1:3), `metallic`,
 `roughness`, `alpha`. The base colour texture carries alpha; the
 metallic-roughness texture is glTF's (roughness in green, metallic in blue).
+`doublesided` is upstream's `not remesh`: a rebuilt mesh is a closed shell and
+is drawn single-sided.
 """
 function texturedmesh(dev::Mantle.Device, vertices::AbstractMatrix{Float32},
                       faces::AbstractMatrix{<:Integer}, level::Level, attrs::AbstractMatrix{Float32};
                       surface::Tuple{AbstractMatrix{Float32},AbstractMatrix{<:Integer}} = (vertices, faces),
-                      size::Int = 2048, cone::Real = 85)
+                      size::Int = 2048, cone::Real = 85, doublesided::Bool = true)
     normals, areas = facegeometry(vertices, faces)
     nbr = faceneighbours(faces, normals)
     charts = segmentcharts(normals, areas, nbr; cone)
@@ -433,7 +436,7 @@ function texturedmesh(dev::Mantle.Device, vertices::AbstractMatrix{Float32},
     material = Dict{String,Any}("diffuse map" => Dict{String,Any}("image" => basecolor),
                                 "metallic roughness map" => Dict{String,Any}("image" => metalrough),
                                 "metallic" => 1f0, "roughness" => 1f0,
-                                "alpha mode" => "OPAQUE", "double sided" => true)
+                                "alpha mode" => "OPAQUE", "double sided" => doublesided)
     return GeometryBasics.MetaMesh(mesh, Dict{Symbol,Any}(
         :materials => Dict{String,Any}("trellis2" => material), :material_names => ["trellis2"]))
 end

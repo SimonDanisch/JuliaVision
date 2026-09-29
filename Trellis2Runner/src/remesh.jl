@@ -14,10 +14,7 @@ shell two voxels thick.
 
 Each voxel gets one vertex, the mean of the points where the distance crosses
 `band` voxels on its edges; each crossed edge a quad of the four voxels around
-it, split along the diagonal whose two triangles agree best in their normals.
-(cumesh means to choose the split so, but its comparison takes the cross
-product of vertices 2-4 of the six instead of the second triangle's, which
-always picks the first split.)
+it, split as cumesh splits it (see the comment at the split).
 """
 function remesh(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::AbstractMatrix{<:Integer};
                 resolution::Int, scale::Real, center::Vec3f = Vec3f(0), band::Real = 1)
@@ -91,7 +88,6 @@ function remesh(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::Ab
               (Vec{3,Int}(0, 0, 0), Vec{3,Int}(0, 1, 0), Vec{3,Int}(1, 1, 0), Vec{3,Int}(1, 0, 0)))
     tris = Int32[]
     pos(q) = dual[q]
-    normal(a, b, c) = normalize(cross(pos(b) - pos(a), pos(c) - pos(a)))
     for i in 1:n, a in 1:3
         dir = crossed[a, i]
         dir == 0 && continue
@@ -104,8 +100,18 @@ function remesh(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::Ab
         # cumesh's two splits, each wound so the quad faces out.
         s1 = dir == 1 ? (q[1], q[3], q[2], q[1], q[4], q[3]) : (q[1], q[2], q[3], q[1], q[3], q[4])
         s2 = dir == 1 ? (q[1], q[4], q[2], q[4], q[3], q[2]) : (q[1], q[2], q[4], q[4], q[2], q[3])
-        align(s) = dot(normal(s[1], s[2], s[3]), normal(s[4], s[5], s[6]))
-        append!(tris, align(s1) >= align(s2) ? s1 : s2)
+        # cumesh's choice as it runs: `|n(v1, v2, v3) ⋅ n(v2, v3, v4)|` over each
+        # split's six indices, the first split where that is larger. Meant to
+        # compare a split's two triangles, the second cross product takes vertices
+        # 2-4, which for the first split is its first triangle again and for the
+        # second a zero vector: the first split unless its first triangle is
+        # degenerate. Choosing the flatter split instead changed 37% of the
+        # triangles on the 1024 example and nothing measurable after
+        # simplification (the final mesh's distance to the surface agreed to 0.004
+        # voxels at the 99th percentile), so this does what upstream does.
+        align(s) = abs(dot(cross(pos(s[2]) - pos(s[1]), pos(s[3]) - pos(s[1])),
+                           cross(pos(s[3]) - pos(s[2]), pos(s[4]) - pos(s[2]))))
+        append!(tris, align(s1) > align(s2) ? s1 : s2)
     end
     # Voxels no quad reaches drop out.
     used = zeros(Int32, n)
