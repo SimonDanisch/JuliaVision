@@ -33,21 +33,26 @@ misregistration rather than an error:
 
   * score against the **recentred** image (`Hunyuan3DRunner.recenter`), not the
     cut-out you started from. The model never saw your framing.
-  * scale the projection so the object fills `1 - BORDER_RATIO` of the square,
-    which is what `recenter` does. Filling the frame instead cost 0.25 of IoU
-    and left the ranking a four-way tie.
+  * place the projection where the object sits in that image
+    ([`objectframe`](@ref)). With a clean matte that is centred and filling
+    `1 - BORDER_RATIO` of the square, which is what `recenter` does; filling the
+    frame instead cost 0.25 of IoU and left the ranking a four-way tie. With a
+    matte that has a noise floor it is not: `recenter` frames on `alpha != 0`,
+    as upstream does, and Qwen-Image's alpha is 1..7 of 255 over the whole
+    background, so the box is the whole picture and the apple sits off centre at
+    80% of it. Assuming the clean framing scored the right view at IoU 0.35.
 """
 
 using FileIO, MeshIO, GeometryBasics, ImageCore, LinearAlgebra
 import Hunyuan3DRunner as H
 
 """
-    orientfit(P, alpha; n = 256, step = 2) -> (iou, R)
+    orientfit(P, faces, alpha; n = 256, step = 2) -> (iou, R)
 
 The direction the image looks at the mesh from, by silhouette overlap. `R` is a
 3x3 rotation whose rows are the image's x, its y (pointing down) and the depth,
-in mesh coordinates. `P` is `3 x N` vertex positions and `alpha` the `(S, S, 1)`
-placed alpha `recenter` returns.
+in mesh coordinates. `P` is `3 x N` vertex positions, `faces` the triangles as
+index triples, and `alpha` the `(S, S, 1)` placed alpha `recenter` returns.
 
 Every mesh axis is tried as up, and the view is turned about it in `step`
 degrees. Trying only the axis-aligned views is enough for a teapot, but the
@@ -55,16 +60,16 @@ image does not always look down a mesh axis: for a character in a
 three-quarter pose, the best axis-aligned view reached IoU 0.40, and it painted
 the texture on from the side.
 """
-function orientfit(P::AbstractMatrix, alpha::AbstractArray{UInt8,3}; n::Int = 256, step::Int = 2)
+function orientfit(P::AbstractMatrix, faces, alpha::AbstractArray{UInt8,3}; n::Int = 256, step::Int = 2)
     S = size(alpha, 1)
+    frame = objectframe(alpha)
     tgt = falses(n, n)
     for j in 1:n, i in 1:n
         x = clamp(round(Int, (j - 0.5) * S / n), 1, S)
         y = clamp(round(Int, (i - 0.5) * S / n), 1, S)
         tgt[i, j] = alpha[x, y, 1] > 0x7f
     end
-    # A silhouette needs far fewer points than a full-resolution mesh has.
-    Q = P[:, 1:max(1, size(P, 2) ÷ 50_000):end]
+    g = falses(n, n)
     best = (-1.0, Matrix{Float32}(I, 3, 3))
     for k in 1:3, su in (1f0, -1f0)
         u = zeros(Float32, 3); u[k] = su
@@ -75,7 +80,7 @@ function orientfit(P::AbstractMatrix, alpha::AbstractArray{UInt8,3}; n::Int = 25
             # Depth is `h x u`: with up = +axis2 and x = +axis1 that is +axis3,
             # the depth the axis-aligned search used, so `facing` means the same.
             R = Matrix{Float32}(vcat(h', -u', cross(h, u)'))
-            g = silhouette(Q, R, n)
+            silhouette!(g, P, faces, R, frame)
             s = count(g .& tgt) / count(g .| tgt)
             s > best[1] && (best = (s, R))
         end
@@ -83,19 +88,52 @@ function orientfit(P::AbstractMatrix, alpha::AbstractArray{UInt8,3}; n::Int = 25
     best
 end
 
-"""The point cloud's silhouette on an `n x n` grid, seen through the view `R`
-and framed as `recenter` frames the image: aspect preserved, object filling
-`1 - BORDER_RATIO` of the square."""
-function silhouette(P, R::AbstractMatrix, n; border = H.BORDER_RATIO)
+"""
+    objectframe(alpha) -> (cx, cy, extent)
+
+Where the opaque part (alpha > 127) of the recentred image sits: its centre and
+its longest side, as fractions of the image.
+"""
+function objectframe(alpha::AbstractArray{UInt8,3})
+    S = size(alpha, 1)
+    xs = findall(x -> any(>(0x7f), @view(alpha[x, :, 1])), 1:S)
+    ys = findall(y -> any(>(0x7f), @view(alpha[:, y, 1])), 1:S)
+    x0, x1 = (first(xs) - 1) / S, last(xs) / S
+    y0, y1 = (first(ys) - 1) / S, last(ys) / S
+    return (Float32((x0 + x1) / 2), Float32((y0 + y1) / 2), Float32(max(x1 - x0, y1 - y0)))
+end
+
+"""
+    silhouette!(g, P, faces, R, frame) -> g
+
+The mesh's silhouette on the `n x n` grid `g`, seen through the view `R`, aspect
+preserved and placed at `frame` (see [`objectframe`](@ref)). Triangles are
+rasterised, not vertices splatted: a decimated mesh has too few vertices on its
+flat parts to cover them, and splatting the 20k vertices of a 40k-face apple
+left enough holes at 256² to score the right view at IoU 0.47.
+"""
+function silhouette!(g::BitMatrix, P, faces, R::AbstractMatrix, frame)
+    n = size(g, 1)
+    fx, fy, fext = frame
     x = vec(R[1:1, :] * P); y = vec(R[2:2, :] * P)
     xlo, xhi = extrema(x); ylo, yhi = extrema(y)
-    s = max(xhi - xlo, yhi - ylo) / (1 - border)
+    s = max(xhi - xlo, yhi - ylo) / fext
     cx = (xhi + xlo) / 2; cy = (ylo + yhi) / 2
-    g = falses(n, n)
-    @inbounds for k in eachindex(x)
-        px = round(Int, (x[k] - cx) / s * n + n / 2)
-        py = round(Int, (y[k] - cy) / s * n + n / 2)
-        (1 <= px <= n && 1 <= py <= n) && (g[py, px] = true)
+    px = ((x .- cx) ./ s .+ fx) .* n     # grid cell `j` is centred at `j - 0.5`
+    py = ((y .- cy) ./ s .+ fy) .* n
+    fill!(g, false)
+    @inbounds for (a, b, c) in faces
+        xa, ya, xb, yb, xc, yc = px[a], py[a], px[b], py[b], px[c], py[c]
+        det = (xb - xa) * (yc - ya) - (xc - xa) * (yb - ya)
+        abs(det) < 1f-12 && continue
+        j0 = max(1, floor(Int, min(xa, xb, xc) + 0.5f0)); j1 = min(n, ceil(Int, max(xa, xb, xc) + 0.5f0))
+        i0 = max(1, floor(Int, min(ya, yb, yc) + 0.5f0)); i1 = min(n, ceil(Int, max(ya, yb, yc) + 0.5f0))
+        for i in i0:i1, j in j0:j1
+            qx = j - 0.5f0; qy = i - 0.5f0
+            wb = ((qx - xa) * (yc - ya) - (xc - xa) * (qy - ya)) / det
+            wc = ((xb - xa) * (qy - ya) - (qx - xa) * (yb - ya)) / det
+            (wb >= 0 && wc >= 0 && wb + wc <= 1) && (g[i, j] = true)
+        end
     end
     g
 end
@@ -184,7 +222,10 @@ function fillholes!(col, seen, ptr, adj; smooth::Int = 8, maxrounds::Int = 400)
             n > 0 ? (c2[1,k] = s[1]/n; c2[2,k] = s[2]/n; c2[3,k] = s[3]/n) : push!(still, k)
         end
         col .= c2
-        for k in front; k in still || (filled[k] = true); end
+        # `still` is a subset of `front`. Marking by `k in still` instead scanned
+        # the vector once per front vertex: 250k by 240k on the teapot, 350 s.
+        filled[front] .= true
+        filled[still] .= false
         front = still
     end
     for _ in 1:smooth
@@ -202,7 +243,7 @@ function fillholes!(col, seen, ptr, adj; smooth::Int = 8, maxrounds::Int = 400)
 end
 
 """
-    texturize(objpath, rgbapath; facing = -1, grazing = 0.02, occlusion = 3) -> (mesh, colours)
+    texturize(objpath, rgbapath; facing = -1, grazing = 0.02, occlusion = 3, opaque = 0xf8) -> (mesh, colours)
 
 The whole thing: read the mesh and the RGBA cut-out, recentre the image the way
 the model saw it, fit the orientation, project, fill.
@@ -215,12 +256,19 @@ like a smudge rather than the photograph), flip it.
 `grazing` is the smallest `|n . view|` that still takes colour. Lower catches
 more of the spout at the cost of stretching the texture along it.
 
+`opaque` is the least alpha a pixel needs to give its colour. `recenter` hands
+back the colour composited over white, as upstream does, so a pixel along the
+matte edge is part white; painted, it seeds the hole fill, and the apple's
+unseen back came out grey-pink from its rim. Vertices below it are filled from
+their neighbours like any other unseen one.
+
 `occlusion` is how far behind the nearest surface, in pixels of depth, a vertex
 may lie and still take colour. Surfaces closer together than that behind one
 another both get the front one's colour.
 """
 function texturize(objpath::AbstractString, rgbapath::AbstractString;
-                   facing::Int = -1, grazing::Float32 = 0.02f0, occlusion::Float32 = 3f0)
+                   facing::Int = -1, grazing::Float32 = 0.02f0, occlusion::Float32 = 3f0,
+                   opaque::UInt8 = 0xf8)
     msh = load(objpath)
     V = coordinates(msh)
     P = [Float32(V[i][c]) for c in 1:3, i in eachindex(V)]
@@ -236,16 +284,23 @@ function texturize(objpath::AbstractString, rgbapath::AbstractString;
         rgba[x,y,3] = reinterpret(UInt8, blue(c));  rgba[x,y,4] = reinterpret(UInt8, alpha(c))
     end
     rgb, alpha8 = H.recenter(rgba)
-    score, R = orientfit(P, alpha8)
+    # The fit rasterises the mesh once per candidate view, 1080 of them. At 256²
+    # a 40k-face decimation has the same silhouette: the 692k-face teapot fit in
+    # 382 s at full resolution, at the same IoU.
+    F = [faces[j][i] for i in 1:3, j in eachindex(faces)]
+    Pfit, Ffit = H.decimate(P, F; maxfaces = 40_000)
+    score, R = orientfit(Pfit, [(Int(Ffit[1, j]), Int(Ffit[2, j]), Int(Ffit[3, j])) for j in axes(Ffit, 2)],
+                         alpha8)
     @info "silhouette fit" iou=round(score; digits=3) x=round.(R[1, :]; digits=3) up=-R[2, :]
 
+    fx, fy, fext = objectframe(alpha8)
     xs = vec(R[1:1, :] * P); ys = vec(R[2:2, :] * P)
     xlo, xhi = extrema(xs); ylo, yhi = extrema(ys)
-    s = max(xhi - xlo, yhi - ylo) / (1 - H.BORDER_RATIO)
+    s = max(xhi - xlo, yhi - ylo) / fext
     cx = (xhi + xlo) / 2; cy = (ylo + yhi) / 2
     nrm = vec(R[3:3, :] * vertexnormals(P, faces))    # each normal along the depth
     S = size(rgb, 1)
-    us = (xs .- cx) ./ s .+ 0.5f0; vs = (ys .- cy) ./ s .+ 0.5f0
+    us = (xs .- cx) ./ s .+ fx; vs = (ys .- cy) ./ s .+ fy
     zs = facing .* vec(R[3:3, :] * P)
     zb = frontdepth(us, vs, zs, faces, S)
     # A vertex sits up to half a pixel off the centre its depth is compared at,
@@ -257,7 +312,7 @@ function texturize(objpath::AbstractString, rgbapath::AbstractString;
         u = us[k]; v = vs[k]
         (0 <= u <= 1 && 0 <= v <= 1) || continue
         xi = clamp(round(Int, u * S), 1, S); yi = clamp(round(Int, v * S), 1, S)
-        alpha8[xi, yi, 1] > 0x7f || continue
+        alpha8[xi, yi, 1] >= opaque || continue
         zs[k] >= zb[xi, yi] - tol || (hidden += 1; continue)
         for c in 1:3; col[c, k] = rgb[xi, yi, c] / 255f0; end
         seen[k] = true
