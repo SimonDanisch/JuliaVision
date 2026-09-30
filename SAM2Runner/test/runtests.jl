@@ -254,10 +254,20 @@ end
         # 0.95455 -> 0.97727, mask 2 0.99975 -> 0.99978, mask 1 unchanged at
         # 0.98750, and the three IoU scores equally close. An intermediate that
         # amplifies is not the thing the model is judged on.
+        #
+        # ── RE-BANDED 2026-09-29, 0.6–1.6 -> 0.3–0.9, bisected rather than
+        # guessed: 1.0107 with Lava at `d059fed`, 0.5510 at `a4d42c7` and at the
+        # branch head after it. `a4d42c7` decorates every `OpFConvert` with
+        # `NoContraction`, because Mesa's NIR folds an unmarked
+        # `f2f32(f2f16(x))` to `x` (see Lava's `test_fconvert_exact.jl`). Until
+        # then RADV skipped the fp16 roundings this autocast graph asks for, and
+        # which PyTorch performs; with them kept the node is nearer its reference
+        # by almost half. The rest of this file, the masks against their
+        # references included, passes on both sides of the change.
         f = first(diffse)
         @test !oke
         @test f.id == "add_129"
-        @test 0.6 < f.maxabs < 1.6
+        @test 0.3 < f.maxabs < 0.9
     end
 end
 
