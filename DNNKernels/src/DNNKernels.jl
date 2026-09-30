@@ -133,7 +133,11 @@ that is deliberate.
 # `randomfill_kernel!` draws its normal through `fastcospi` rather than `cospi`
 # (same distribution, different bits in the last place) and `scatter_kernel!`
 # decomposes its flat index inside the `@inbounds` its own guard had earned.
-const KERNELS_VERSION = "46"
+# "47": three more lose one. `topk_body` stores its index as an integer instead
+# of through the value dtype, and GPUFiltering's `warp_kernel!` and
+# `sampleregions_kernel!` clamp a sample position before converting it
+# (`sampleposition`) instead of calling `floor(Int32, x)`.
+const KERNELS_VERSION = "47"
 
 include("assets.jl")
 include("safetensors.jl")

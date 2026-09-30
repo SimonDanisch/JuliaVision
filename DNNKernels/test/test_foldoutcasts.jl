@@ -153,10 +153,12 @@ A graph that trips one of these is refused by name, which is right — what was
 wrong was having no way to know which they are without running a model that
 happens to hit one.
 
-  * `fused.maskedattention` — the prefill path, whose plan
-    (`maskedprefill.jl`) has its own launch shape to split.
+Empty since 2026-09-30. `fused.maskedattention` stood here for a week while
+`fusemaskedattention` kept building it by default, which made every fp16 graph
+with a masked attention unrunnable, Horizon 32B's among them: a pass must not
+create an op this list names. It is declared now, `test_masked_flash.jl` runs it.
 """
-const FUSION_UNPORTED = ("fused.maskedattention",)
+const FUSION_UNPORTED = ()
 
 """
 Attributes a pass SETS on an existing op, and the emit that has to read each.

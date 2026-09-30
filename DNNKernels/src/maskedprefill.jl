@@ -13,16 +13,14 @@
 # 0.0170 and 0.0249 through flash. Below `nq = 2048` that trade is not worth
 # taking; at and above it the same fidelity buys 3.9% of the 256-token bucket
 # and 4.6% of the 512-token one, so it is.
-function maskedprefill_applicable(ctx,q,k,v,mask)
-    ctx.dev.coopmat && ctx.dev.coopmatsubgroup == 32 && ctx.dev.tile == 16 || return false
-    ctx.dev.workgrouplimit >= 256 && ctx.dev.sharedbudget >= 21504 || return false
-    islavaarray(mask) && eltype(mask) === Float16 && ndims(mask) == 4 || return false
-    all(a->eltype(a)===Float16,(q,k,v,mask)) || return false
+function maskedprefill_applicable(caps::M.DeviceCaps,q,k,v,mask)
+    caps.coopmat && caps.coopmatsubgroup == 32 && caps.tile == 16 || return false
+    caps.workgrouplimit >= 256 && caps.sharedbudget >= 21504 || return false
+    all(a->eltype(a)===Float16,(q,k,v,mask)) && ndims(mask) == 4 || return false
     e,nq,h,b=size(q); nk=size(k,2)
     e==128 && b==1 && nq>=2048 && nq%128==0 && 128<=nk<=1024 && nk%128==0 || return false
     size(mask)==(nk,nq,1,1) || return false
-    max(e*nq*h*b,nk*nq*h*b) <= typemax(Int32) || return false
-    all(a->stridedroot(a)!==nothing && strides(a)[1:2]==(1,e),(q,k,v))
+    max(e*nq*h*b,nk*nq*h*b) <= typemax(Int32)
 end
 
 function masked_prefill_softmax!(p, s, mask,
@@ -109,19 +107,28 @@ function masked_batch_gemm!(C,A,B,
     return nothing
 end
 
-function maskedprefill!(ctx,out,q,k,v,mask,scale)
+"""
+    maskedprefill_dispatch!(emitctx, op, out, q, k, v, mask, scale) -> out
+
+Declare the staged masked attention: `k` transposed, the score product, the
+masked softmax and the value product, four passes over dense operands. The
+eager form this replaces took the value operand through its strided root; the
+declared operands are dense, so its batch stride is `e * nk`.
+"""
+function maskedprefill_dispatch!(emitctx,op,out,q,k,v,mask,scale)
     e,nq,h,b=size(q); nk=size(k,2)
-    kt=scratch!(ctx,Float16,nk,e,h,b)
-    s=scratch!(ctx,Float16,nk,nq,h,b)
-    p=scratch!(ctx,Float16,nk,nq,h,b)
-    kt .= PermutedDimsArray(k,(2,1,3,4))
-    harnesslaunch!(ctx.backend, masked_batch_gemm!, s,kt,q,Val(nk),Val(nq),Val(e),
-        Int32(nk*e),Int32(e*nq);ndrange=(nk÷128)*(nq÷128)*h*b*256, workgroupsize = 256)
-    harnesslaunch!(ctx.backend, masked_prefill_softmax!, p,s,mask,Float32(scale),Val(nk),Val(nq);
-        ndrange=nq*h*b*32, workgroupsize = 32)
-    vr=stridedroot(v)
-    vf=view(reshape(vr[1],length(vr[1])),vr[2]+1:length(vr[1]))
-    harnesslaunch!(ctx.backend, masked_batch_gemm!, out,vf,p,Val(e),Val(nq),Val(nk),
-        Int32(strides(v)[3]),Int32(nk*nq);ndrange=(e÷128)*(nq÷128)*h*b*256, workgroupsize = 256)
+    kt=scratch(emitctx,Float16,nk,e,h,b)
+    s=scratch(emitctx,Float16,nk,nq,h,b)
+    p=scratch(emitctx,Float16,nk,nq,h,b)
+    transposeLE_dispatch!(emitctx.g,kt,k;name="$(op.id).kt")
+    M.dispatch!(emitctx.g,masked_batch_gemm!,
+        (s,kt,q,Val(nk),Val(nq),Val(e),Int32(nk*e),Int32(e*nq)),
+        (nk÷128)*(nq÷128)*h*b*256;group=256,name="$(op.id).scores")
+    M.dispatch!(emitctx.g,masked_prefill_softmax!,
+        (p,s,mask,Float32(scale),Val(nk),Val(nq)),
+        nq*h*b*32;group=32,name="$(op.id).softmax")
+    M.dispatch!(emitctx.g,masked_batch_gemm!,
+        (out,v,p,Val(e),Val(nq),Val(nk),Int32(e*nk),Int32(nk*nq)),
+        (e÷128)*(nq÷128)*h*b*256;group=256,name="$(op.id).apply")
     out
 end

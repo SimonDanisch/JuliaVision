@@ -716,7 +716,12 @@ const TOPK_MAX_N = 256
             prev_v = best_v
             prev_i = best_i
         end
-        WANTIDX ? oftype(prev_v, prev_i - 1) : prev_v
+        # The index as an integer, as `maxdim_body` hands it back, and the store
+        # converts it to what the indices buffer holds. `oftype(prev_v, ...)` made
+        # Hunyuan3D's gate, whose export declares int64 indices, store a Float16
+        # through `Int64(::Float16)`: an `InexactError` path Lava lowered to an
+        # undefined pointer.
+        WANTIDX ? prev_i - 1 : prev_v
     end
 end
 

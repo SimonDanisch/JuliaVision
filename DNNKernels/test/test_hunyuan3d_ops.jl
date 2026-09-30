@@ -36,7 +36,7 @@ attention heads in fp16 and its activations do reach that range. The last case
 here is a direct probe of it: values at 300, whose squares are 90000.
 """
 
-using Test, DNNKernels, Mantle
+using Test, DNNKernels, Mantle, Logging
 const DK = DNNKernels
 
 # `shape` is in TORCH order, as `loadgraph` produces it.
@@ -134,6 +134,22 @@ end
     # Stated on its own, because a scan that happens to visit indices in order
     # passes the loop above by luck on every non-tied row.
     @test inds[:, 3] == Float32[0, 1]   # all-tied row -> the two lowest indices
+
+    @testset "int64 indices over fp16 values, as Hunyuan3D's gate declares" begin
+        # The index went through the value dtype, and `Int64(::Float16)` has an
+        # InexactError path: Lava compiled its allocation into the shader,
+        # lowered it to an undefined pointer and warned. The store is an integer
+        # now, so this specialisation compiles without a warning.
+        bufs16 = Dict{String,DK.Buffer}(
+            "x"  => tbuf("x", :external, (T, E), Float16),
+            "tk" => ttuple("tk", :transient, ((T, k), (T, k)), (Float16, Int64)),
+            "v"  => titem("v", "tk", 0, (T, k), Float16),
+            "i"  => titem("i", "tk", 1, (T, k), Int64))
+        out16 = @test_logs min_level = Logging.Warn run1(bufs16, ops, ("x" => Float16.(x),), ["v", "i"])
+        inds16 = Array(out16["i"])
+        @test eltype(inds16) == Int64
+        @test all(inds16[:, t] == topk_ref(view(torch, t, :), k)[2] for t in 1:T)
+    end
 
     @testset "largest=false is refused, not silently answered" begin
         ops2 = [DK.Op("tk", "topk.default", ["x"], "tk",

@@ -4283,6 +4283,85 @@ decided: the SCALE is already folded into `q`, so it defaults to 1 rather than
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.sdpa")}) =
     emitsdpa!(emitctx, op; dst = dest(emitctx), defaultscale = 1.0)
 
+"""
+`fused.maskedattention`, which [`fusemaskedattention`](@ref) builds from an fp16
+`bmm -> (scores * scale + mask) -> softmax -> bmm` chain: the masked attention of
+a decoder's prefill and decode.
+
+The plan choice is the eager arm's, which was deleted with the eager op library
+on 2026-09-23 without a declared form. The pass kept building this op, so every
+graph it fired on was refused by `emitop!` from then on: Horizon 32B could not
+prefill a prompt at all.
+
+  * [`maskedprefill_dispatch!`](@ref) where it applies: E = 128 and a long query
+    (`nq >= 2048`, see `maskedprefill.jl` for why that bound).
+  * Otherwise the cooperative-matrix flash kernel with the mask, at a tiling
+    measured per key length for E = 128, splitting the keys eight ways for a
+    short query over many of them.
+  * Otherwise the three passes, the mask as their bias.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.maskedattention")})
+    q = operand(emitctx, op, 1)
+    k = operand(emitctx, op, 2)
+    v = operand(emitctx, op, 3)
+    mask = operand(emitctx, op, 4)
+    scale = Float64(op.attrs["scale"])
+    caps = M.caps(emitctx.dev)
+    dst = dest(emitctx)
+    E, Lq, H, B = size(q)
+    out = M.viewof(dst, (size(v, 1), Lq, H, B))
+    if maskedprefill_applicable(caps, q, k, v, mask)
+        maskedprefill_dispatch!(emitctx, op, out, q, k, v, mask, scale)
+        return dst
+    end
+    plan = flashcm_plan(caps, q, k, v, nothing; clamp = true)
+    epad = plan isa FlashCMPlan ? flashepad(caps, plan.EP) : 0
+    rpad = plan isa FlashCMPlan ? flashrpad(caps, plan.BR) : 0
+    if caps.coopmatsubgroup == 32 && E == 128
+        short = Lq <= 16
+        nk = size(k, 2)
+        # A long query wants `(8, 8)` padding, not `(16, 0)`, and a key extent
+        # this kernel has to sweep in full wants a bigger tile with it. Measured
+        # per shape at lq = 4096 (`tools/bench_masked_flash.jl`, recorded), ms:
+        #
+        #     lk     (16,32,8,16,0)   this pick
+        #     512         3.17        2.86  (16,32,8,8,8)
+        #     1024        6.21        5.43  (16,32,8,8,8)
+        #     2048       12.46       10.54  (16,32,8,8,8)
+        #     4096       47.51       38.01  (32,64,8,8,8)
+        #
+        # `(16, 0)` was tuned at lk = 512 and then applied to every long query,
+        # which is how the 4096-slot chunks of a long prompt ended up paying 25%.
+        big = !short && nk >= 4096
+        tuned = flashcm_plan(caps, q, k, v, nothing; clamp = true,
+                             BR = big ? 32 : 16, BC = big ? 64 : 32,
+                             NW = short && nk < 512 ? 4 : 8,
+                             rego = short && nk < 512)
+        tepad, trpad = short ? (8, 0) : (8, 8)
+        if tuned isa FlashCMPlan &&
+           flashcmshared(tuned.EP, tuned.BR, tuned.BC, tepad, trpad) <= caps.sharedbudget
+            plan = tuned
+            epad, rpad = tepad, trpad
+            if short && nk >= 512
+                p = plan
+                plan = FlashCMPlan(p.BR, p.BC, p.NW, p.NT, p.E, p.EP, p.clamp,
+                                   p.rego, p.held, p.rescale, p.onepass, p.lazyrescale,
+                                   8, false, p.globalkv)
+            end
+        end
+    end
+    if plan isa FlashCMPlan
+        ns = plan.nsplit
+        partial = ns == 1 ? out : scratch(emitctx, Float32, size(v, 1), Lq, H, B, ns)
+        ml      = ns == 1 ? out : scratch(emitctx, Float32, Lq, H, B, ns, 2)
+        flash_dispatch!(emitctx.g, caps, out, plan, q, k, v, scale, partial, ml;
+                        name = op.id, mask, epad, rpad)
+    else
+        threepass!(emitctx, op, out, q, k, v, mask, scale)
+    end
+    return dst
+end
+
 # ── matrix products ──────────────────────────────────────────────────────────
 
 """

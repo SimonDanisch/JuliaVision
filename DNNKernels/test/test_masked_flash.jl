@@ -73,3 +73,56 @@ end
         @test_skip false
     end
 end
+
+# The op as a graph declares it. Its only implementation was the eager arm,
+# deleted with the eager op library on 2026-09-23; `fusemaskedattention` kept
+# building it, so every graph it fired on was refused with "no emit method",
+# Horizon 32B's prefill among them. One case per plan family `emitop!` picks.
+@testset "fused.maskedattention, declared" begin
+    dk = DNNKernels
+    backend = Mantle.LavaBackend()
+    dev = Mantle.todevice(backend)
+    caps = Mantle.caps(dev)
+    if caps.coopmat && caps.coopmatsubgroup == 32
+        buf(id, shape, kind = :external) =
+            dk.Buffer(id, kind, Any[shape...], Float16, "", (0, 0), "", "", Dict{String,Any}())
+        rng = MersenneTwister(7)
+        H, E = 2, 128
+        # (lq, lk): a short query over few keys (register tiling), over many (keys
+        # split eight ways), a long query (flash), a longer one (staged prefill).
+        for (lq, lk) in ((8, 128), (8, 512), (256, 512), (2048, 256))
+            qh = randn(rng, Float16, E, lq, H, 1) .* Float16(0.2)
+            kh = randn(rng, Float16, E, lk, H, 1) .* Float16(0.2)
+            vh = randn(rng, Float16, E, lk, H, 1)
+            # Causal, with the query block placed at the end of the keys.
+            maskh = [s <= lk - lq + r ? Float16(0) : -floatmax(Float16)
+                     for s in 1:lk, r in 1:lq, _ in 1:1, _ in 1:1]
+            scale = 1 / sqrt(E)
+            bufs = Dict("q" => buf("q", (1, H, lq, E)), "k" => buf("k", (1, H, lk, E)),
+                        "v" => buf("v", (1, H, lk, E)), "mask" => buf("mask", (1, 1, lq, lk)),
+                        "out" => buf("out", (H, lq, E), :transient))
+            op = dk.Op("out", "fused.maskedattention", ["q", "k", "v", "mask"], "out",
+                       Dict{String,Any}("scale" => scale))
+            g = dk.Graph("masked", String[], ["q", "k", "v", "mask"], ["out"], bufs,
+                         collect(keys(bufs)), [op], Vector{Vector{String}}())
+            args = map(a -> dk.toback(backend, a), (qh, kh, vh, maskh))
+            plan = dk.planfor(dev, g, Dict{String,Any}(), NamedTuple())
+            got = Float32.(Array(only(dk.replay!(plan, "masked", args))))
+            Mantle.free!(plan.plan)
+            want = zeros(Float32, E, lq, H)
+            for h in 1:H
+                scores = Float16.(Float16.(Float32.(kh[:, :, h, 1])' * Float32.(qh[:, :, h, 1])) .* Float16(scale))
+                scores = Float32.(Float16.(scores .+ maskh[:, :, 1, 1]))
+                p = exp.(scores .- maximum(scores; dims = 1))
+                p = Float16.(p ./ sum(p; dims = 1))
+                want[:, :, h] = Float32.(vh[:, :, h, 1]) * Float32.(p)
+            end
+            @test size(got) == (E, lq, H)
+            @test all(isfinite, got)
+            @test maximum(abs, got .- want) < 0.005
+            @test dk.maskedprefill_applicable(caps, qh, kh, vh, maskh) == (lq >= 2048)
+        end
+    else
+        @test_skip false
+    end
+end
