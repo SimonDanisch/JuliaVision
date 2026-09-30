@@ -204,6 +204,26 @@ end
     warp!(small, img, (0.5, 0.5, 0.5, 0.5))
     KA.synchronize(KA.get_backend(img))
     @test maxcomponentdiff(small, img[33:64, 33:64]) < 1.0f-5
+
+    # A sample far outside the source replicates the edge, and one through a
+    # homography whose w crosses zero is still a pixel. Both used to reach
+    # `floor(Int32, x)` with a value it cannot convert: an InexactError here, an
+    # allocation Lava lowered to undef in the GPU kernel.
+    img16 = rand(RGB{Float32}, 16, 16)
+    out16 = similar(img16)
+    warp!(out16, img16, translationmatrix(3.0f9, 0))
+    KA.synchronize(KA.get_backend(img16))
+    @test all(out16[i, j] ≈ img16[1, j] for i in 1:16, j in 1:16)
+    warp!(out16, img16, translationmatrix(0, -3.0f9))
+    KA.synchronize(KA.get_backend(img16))
+    @test all(out16[i, j] ≈ img16[i, 16] for i in 1:16, j in 1:16)
+    # w = 1 - x/16 is exactly zero in column 16: x/w is Inf there, and 0/w NaN
+    # when the first row is zero too.
+    for M in (Mat3f(1, 0, -0.0625, 0, 1, 0, 0, 0, 1), Mat3f(0, 0, -0.0625, 0, 1, 0, 0, 0, 1))
+        warp!(out16, img16, M)
+        KA.synchronize(KA.get_backend(img16))
+        @test all(c -> all(0 .<= (c.r, c.g, c.b) .<= 1), out16)
+    end
 end
 
 @testset "samplewindow! / nccpeak" begin
@@ -219,6 +239,11 @@ end
     # identity sampling reproduces the window
     samplewindow!(dst, img, Mat3f(1, 0, 0, 0, 1, 0, 0, 0, 1), 20:51, 30:61)
     @test dst ≈ img[20:51, 30:61]
+
+    # w = 1 - x/32 is exactly zero in the window's column x = 32, where the
+    # conversion to an index used to throw InexactError
+    samplewindow!(dst, img, Mat3f(1, 0, -0.03125, 0, 1, 0, 0, 0, 1), 20:51, 30:61)
+    @test all(isfinite, dst)
 
     # nccpeak: template cut at a known integer offset is recovered exactly,
     # with a perfect score

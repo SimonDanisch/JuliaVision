@@ -132,6 +132,26 @@ weighted sum.
 @inline premul(::Type{T}, r::Float32, g::Float32, b::Float32, a::Float32) where {T} =
     topixel(T, r * a, g * a, b * a, a)
 
+"""
+    sampleposition(x, lo, hi) -> (xc, i)
+
+A sample coordinate made safe to index with: `x` clamped to `[lo - 2, hi + 2]`
+and `i = floor(xc)` as Int32. Two pixels of slack is all a 4-tap filter needs
+to replicate the border, so a sample far outside the source (a layer moved off
+the canvas, a projective `w` near zero) reads the edge like any other outside
+sample, and a NaN reads `lo`.
+
+`floor(Int32, x)` has a throw path for exactly those inputs: an `InexactError`
+the CPU backend raised (`warp!` by a translation of 3e9, or through a
+homography whose `w` crosses zero) and a GPU kernel cannot raise, where Lava
+lowers its allocation to undef. Clamped first, the conversion cannot fail, so
+`unsafe_trunc` is exact.
+"""
+@inline function sampleposition(x::Float32, lo::Int32, hi::Int32)
+    xc = ifelse(isnan(x), Float32(lo), clamp(x, Float32(lo) - 2.0f0, Float32(hi) + 2.0f0))
+    return xc, unsafe_trunc(Int32, floor(xc))
+end
+
 "Upload a host vector to the same backend/device as `like`."
 function todevice(like::AbstractArray, host::Vector{Float32})
     dev = KA.allocate(KA.get_backend(like), Float32, length(host))

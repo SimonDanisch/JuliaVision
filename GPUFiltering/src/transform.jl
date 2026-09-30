@@ -76,10 +76,10 @@ end
     covered = (x >= Float32(x0) - 0.5f0) & (x <= Float32(x1) + 0.5f0) &
               (y >= Float32(y0) - 0.5f0) & (y <= Float32(y1) + 0.5f0)
     if covered | !skipoutside
-        xb = floor(Int32, x)
-        yb = floor(Int32, y)
-        wx = catmullrom(clamp(x - Float32(xb), 0.0f0, 1.0f0))
-        wy = catmullrom(clamp(y - Float32(yb), 0.0f0, 1.0f0))
+        xc, xb = sampleposition(x, x0, x1)
+        yc, yb = sampleposition(y, y0, y1)
+        wx = catmullrom(clamp(xc - Float32(xb), 0.0f0, 1.0f0))
+        wy = catmullrom(clamp(yc - Float32(yb), 0.0f0, 1.0f0))
         r = 0.0f0; g = 0.0f0; b = 0.0f0; a = 0.0f0
         @inbounds for j in Int32(0):Int32(3)
             yj = clamp(yb - Int32(1) + j, y0, y1)   # replicate the RECT's borders

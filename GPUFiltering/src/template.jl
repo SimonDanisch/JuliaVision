@@ -22,10 +22,12 @@ function samplewindow!(dst::AbstractMatrix{Float32}, img::AbstractMatrix{Float32
         den = M[3, 1] * x + M[3, 2] * y + M[3, 3]
         sx = (M[1, 1] * x + M[1, 2] * y + M[1, 3]) / den
         sy = (M[2, 1] * x + M[2, 2] * y + M[2, 3]) / den
-        x0 = clamp(floor(Int, sx), 1, W - 1)
-        y0 = clamp(floor(Int, sy), 1, H - 1)
-        fx = clamp(sx - x0, 0.0f0, 1.0f0)
-        fy = clamp(sy - y0, 0.0f0, 1.0f0)
+        sxc, xi = sampleposition(Float32(sx), Int32(1), Int32(W))
+        syc, yi = sampleposition(Float32(sy), Int32(1), Int32(H))
+        x0 = clamp(Int(xi), 1, W - 1)
+        y0 = clamp(Int(yi), 1, H - 1)
+        fx = clamp(sxc - x0, 0.0f0, 1.0f0)
+        fy = clamp(syc - y0, 0.0f0, 1.0f0)
         dst[a, b] = (1 - fx) * (1 - fy) * img[x0, y0] + fx * (1 - fy) * img[x0 + 1, y0] +
                     (1 - fx) * fy * img[x0, y0 + 1] + fx * fy * img[x0 + 1, y0 + 1]
     end
@@ -108,10 +110,12 @@ end
     sy = (M[2, 1] * x + M[2, 2] * y + M[2, 3]) / den
     W = Int32(size(gray, 1))
     H = Int32(size(gray, 2))
-    x0 = clamp(floor(Int32, sx), Int32(1), W - Int32(1))
-    y0 = clamp(floor(Int32, sy), Int32(1), H - Int32(1))
-    fx = clamp(sx - Float32(x0), 0.0f0, 1.0f0)
-    fy = clamp(sy - Float32(y0), 0.0f0, 1.0f0)
+    sxc, xi = sampleposition(sx, Int32(1), W)
+    syc, yi = sampleposition(sy, Int32(1), H)
+    x0 = clamp(xi, Int32(1), W - Int32(1))
+    y0 = clamp(yi, Int32(1), H - Int32(1))
+    fx = clamp(sxc - Float32(x0), 0.0f0, 1.0f0)
+    fy = clamp(syc - Float32(y0), 0.0f0, 1.0f0)
     @inbounds regions[a, b, k] =
         (1 - fx) * (1 - fy) * gray[x0, y0] + fx * (1 - fy) * gray[x0 + Int32(1), y0] +
         (1 - fx) * fy * gray[x0, y0 + Int32(1)] + fx * fy * gray[x0 + Int32(1), y0 + Int32(1)]
