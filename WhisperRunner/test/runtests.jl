@@ -122,6 +122,35 @@ const KA = KernelAbstractions
                                  "Pack my box with five dozen liquor jugs. " *
                                  "How vexingly quick daft zebras jump."
 
+            # Timestamps off: whisper.cpp makes the window's text one segment.
+            # `segments` split on timestamp pairs only, so this returned "".
+            nots, notssegs = transcribe(w, pcm; options = DecodeOptions(timestamps = false))
+            @test strip(nots) == strip(text)
+            @test length(notssegs) == 1 && notssegs[1].start == 0.0
+
+            @testset "window step rules (whisper.cpp)" begin
+                tk = WhisperRunner.tokenizer()
+                ts(s) = WhisperRunner.timestamptoken(tk, s)
+                words = encode_text(tk, " Hello there.")
+                span = 7 * 16000
+                # One closed segment and nothing after it: no speech follows, so
+                # the rest of the span is skipped. Stepping to 6.64 s instead
+                # decoded the 0.21 s behind the last word on its own, and it came
+                # back as "Yeah." or "考慮".
+                segs, step = WhisperRunner.windowresult(tk, [ts(0); words; ts(6.64)], 0, span, true)
+                @test step == span
+                @test length(segs) == 1 && segs[1].stop ≈ 6.64
+                # An open segment at the end: restart at the last closed one.
+                segs, step = WhisperRunner.windowresult(tk, [ts(0); words; ts(3); ts(3); words], 0, span, true)
+                @test step == 3 * 16000
+                @test length(segs) == 1
+                # No timestamps: one segment over the window's span.
+                segs, step = WhisperRunner.windowresult(tk, words, 16000, span, false)
+                @test step == span
+                @test length(segs) == 1 && segs[1].start == 1.0 && segs[1].stop == 8.0
+                @test segs[1].text == "Hello there."
+            end
+
             @testset "recorded multi-window transcription" begin
                 recorded = whisper(; backend, record=true)
                 # Three different windows, with the latter two containing

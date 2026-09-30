@@ -172,6 +172,44 @@ function segments(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::Floa
 end
 
 """
+    windowresult(tk, tokens, offset, span, timestamps) -> (Vector{Segment}, step)
+
+What one decoded window contributes and how far the next one starts, in samples.
+`span` is the audio this window covered: 30 s, or less at the end of the file.
+
+Three cases, each one of whisper.cpp's (`whisper_full_with_state`):
+
+  * **no timestamps** (`params.no_timestamps`): the window's text is one segment
+    over the whole span, and the next window starts after it. [`segments`](@ref)
+    splits on timestamp pairs, of which there are none, so this used to return
+    no segments at all and the transcript was empty.
+  * **a single timestamp at the end** (`single_timestamp_ending`): the last
+    segment closed and nothing followed it, so there is no speech after it and
+    the rest of the span is skipped. openai/whisper's `transcribe.py` has the
+    same rule. Advancing to that timestamp instead decoded the gap behind the
+    last word as a window of its own: 0.21 s of silence after a Kokoro sentence
+    came back as "Yeah.", "考慮" or "eliaanship.", depending on the temperature
+    fallback.
+  * otherwise, the next window starts at the end of the last closed segment, and
+    an open one is decoded again there.
+"""
+function windowresult(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::Integer,
+                      span::Integer, timestamps::Bool)
+    toffset = offset / SAMPLERATE
+    if !timestamps
+        text = strip(decode(tk, tokens))
+        segs = isempty(text) ? Segment[] :
+               [Segment(toffset, toffset + span / SAMPLERATE, text, collect(tokens))]
+        return segs, span
+    end
+    segs, advance = segments(tk, tokens, toffset)
+    single = length(tokens) > 1 && !istimestamp(tk, tokens[end - 1]) && istimestamp(tk, tokens[end])
+    step = single ? span :
+           advance > 0 ? max(1, round(Int, advance * SAMPLERATE)) : WINDOWSAMPLES
+    return segs, step
+end
+
+"""
     transcribechunk(w, tk, audio; language, task, options, context, rng) -> (text, tokens, avglogprob)
 
 **One** window, no loop, no timestamps by default — the streaming entry point.
@@ -222,7 +260,8 @@ The loop, per window:
  3. If `<|nospeech|>` beats 0.6 *and* the log-probability is still poor, the
     window is silence: emit nothing and skip a full 30 s. Both conditions,
     because a confident transcript over a low-energy passage is speech.
- 4. Split on timestamp pairs, advance to the last closed segment.
+ 4. Split on timestamp pairs and advance to the last closed segment, or past the
+    whole window when nothing follows it; see [`windowresult`](@ref).
  5. Carry this window's tokens into the next window's prompt.
 
 `language = nothing` detects it from the first window, once, and then holds it
@@ -278,13 +317,14 @@ function transcribe(w::Whisper, audio::AbstractVector{<:Real};
             continue
         end
 
-        segs, advance = segments(tk, toks, toffset)
+        segs, step = windowresult(tk, toks, offset, min(WINDOWSAMPLES, length(audio) - offset),
+                                  options.timestamps)
         append!(allsegs, segs)
         # Context is the *text* of this window, without timestamps: the prompt is
         # meant to carry wording, and feeding timestamps back makes the model
         # believe the new window starts where the old one did.
         context = isempty(segs) ? Int[] : reduce(vcat, s.tokens for s in segs)
-        offset += advance > 0 ? max(1, round(Int, advance * SAMPLERATE)) : WINDOWSAMPLES
+        offset += step
     end
     text = join((s.text for s in allsegs), " ")
     return text, allsegs
