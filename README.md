@@ -1,80 +1,123 @@
 # JuliaVision
 
-GPU vision on [Lava](https://github.com/SimonDanisch/Lava.jl): a graph runtime
-for exported PyTorch models, the image kernels around them, and one package per
-model whose job is to have no cold start.
+Neural networks and image kernels on the GPU, from Julia, through
+[Lava](https://github.com/SimonDanisch/Lava.jl) and Mantle: one SPIR-V module per
+kernel for every Vulkan driver, measured on NVIDIA and AMD. A graph runtime
+for models exported from PyTorch, the image kernels around them, and one package
+per model whose job is to have no cold start.
 
-| package | what it is |
-|---|---|
-| `DNNKernels` | ATen graph runtime — loads a `torch.export` graph, plans its memory, runs it on Lava (see [What DNNKernels is](#what-dnnkernels-is)) |
-| `GPUFiltering` | image kernels: colour, blur, warp, optical flow, patch tracking |
-| `SAM2Runner` | SAM 2.1, precompiled |
-| `MatAnyoneRunner` | MatAnyone2 video matting, precompiled |
+Every picture below was made by these packages on one Radeon 8060S, and the inputs
+too: Qwen-Image drew them, and the other models took it from there.
 
-Scaffolded, not ported — one editor feature each, see `models-to-port.md`:
+<table>
+<tr>
+<td><img src="media/qwenimage/fox.jpg" width="240"></td>
+<td><img src="media/sam2/fox.jpg" width="480"></td>
+</tr>
+<tr>
+<td>Qwen-Image 2.1, from a prompt</td>
+<td>SAM 2.1, one click</td>
+</tr>
+<tr>
+<td><img src="media/qwenimage/fox_cutout.jpg" width="240"></td>
+<td><img src="media/depthanything/harbor.jpg" width="480"></td>
+</tr>
+<tr>
+<td>Qwen-Image 2.1, background removed from a reference image</td>
+<td>Depth Anything V2</td>
+</tr>
+<tr>
+<td colspan="2"><img src="media/hunyuan3d/apple.jpg" width="720"></td>
+</tr>
+<tr>
+<td colspan="2">Hunyuan3D-2.1, a mesh from the Qwen-Image apple, path traced with RayMakie</td>
+</tr>
+<tr>
+<td colspan="2"><img src="media/matanyone/pushin.jpg" width="720"></td>
+</tr>
+<tr>
+<td colspan="2">SAM 2 marks the mechanic once, MatAnyone2 mattes him through the clip</td>
+</tr>
+</table>
 
-| package | feature | licence |
+## Packages
+
+| package | what it does | the model's licence |
 |---|---|---|
-| `WhisperRunner` | speech → text | MIT |
-| `DeepFilterRunner` | voice denoising | MIT / Apache-2.0 |
-| `DemucsRunner` | stem separation | MIT |
-| `KokoroRunner` | text → speech | Apache-2.0 |
-| `NeuralLUTRunner` | style / mood grading | Apache-2.0 |
-| `RIFERunner` | frame interpolation | MIT |
-| `DepthAnythingRunner` | monocular depth | Apache-2.0 |
-| `BasicVSRRunner` | video upscaling | Apache-2.0 |
-| `ProPainterRunner` | object removal | **S-Lab 1.0, non-commercial** |
+| [`DNNKernels`](DNNKernels/README.md) | the graph runtime: loads a `torch.export` graph, rewrites and fuses it, declares it to Mantle | (no model) |
+| [`GPUFiltering`](GPUFiltering/README.md) | image kernels: colour, blur, warp, optical flow, patch tracking, LUTs | (no model) |
+| [`QwenImageRunner`](QwenImageRunner/README.md) | Qwen-Image 2.1: text to image with real alpha, up to 12 reference images | **non-commercial** (Qwen Research License) |
+| [`SAM2Runner`](SAM2Runner/README.md) | SAM 2.1: click to segment | Apache-2.0 |
+| [`MatAnyoneRunner`](MatAnyoneRunner/README.md) | MatAnyone2: carries a mask through a clip as an alpha matte | **non-commercial** |
+| [`DepthAnythingRunner`](DepthAnythingRunner/README.md) | Depth Anything V2 Small: monocular depth | Apache-2.0 |
+| [`NeuralLUTRunner`](NeuralLUTRunner/README.md) | Image-Adaptive 3D LUT: a colour grade predicted per frame | Apache-2.0 |
+| [`RIFERunner`](RIFERunner/README.md) | RIFE 4.26: frame interpolation | MIT |
+| [`BasicVSRRunner`](BasicVSRRunner/README.md) | BasicVSR++: 4x video upscaling | Apache-2.0 |
+| [`Hunyuan3DRunner`](Hunyuan3DRunner/README.md) | Hunyuan3D-2.1 shape: a mesh from one picture | **non-commercial** |
+| [`WhisperRunner`](WhisperRunner/README.md) | Whisper large-v3-turbo: speech to text | MIT |
+| [`KokoroRunner`](KokoroRunner/README.md) | Kokoro-82M: text to speech, 54 voices | Apache-2.0 |
+| [`BonsaiRunner`](BonsaiRunner/README.md) | Ternary Bonsai 2 27B: a language model in 1.58 bits | see upstream |
+| [`HorizonRunner`](HorizonRunner/README.md) | K2 Horizon 32B: a language model, int8, local export only | Apache-2.0 |
+| [`Trellis2Runner`](Trellis2Runner/README.md) | TRELLIS.2: image to textured mesh; ported, no published assets yet | see upstream |
 
-Each of those loads and precompiles with no assets installed, so they cost
-nothing until their port lands. Only the two working runners are dev'd into the
-editor's own environment; the rest live here alone until they run.
+Not ported yet, each a package that loads and precompiles with nothing to run:
 
-A monorepo because these change together: an op added to `DNNKernels` is usually
-a model that needed it, and a kernel frozen by one model is a cache hit for the
-rest.
+| package | what it will do | what it waits for |
+|---|---|---|
+| `ProPainterRunner` | object removal in video (**non-commercial**) | flow-guided propagation, windowed temporal attention |
+| `DemucsRunner` | stem separation | an on-device STFT inside the graph |
+| `DeepFilterRunner` | voice denoising | the complex STFT front end, an ERB filterbank |
+| `FluxKleinRunner` | generative fill and edits, FLUX.2-klein 4B | `group_norm`, a VAE decoder, a sampler loop |
+| `ZImageRunner` | text to image, Z-Image-Turbo 6B | `group_norm`, a VAE decoder |
+| `QwenImageEditRunner` | instruction edits, Qwen-Image-Edit-2511 | 57 GB of weights; an int4 dequant in the GEMM epilogue |
 
-## What DNNKernels is
+Four of these are audio models, and `JuliaVision` is not where a speech
+recogniser belongs. Renaming is a separate job from porting.
 
-**A Lava kernel library that uses KernelAbstractions as its kernel-authoring
-syntax, not as a portability layer.** This is decision (a) of
-`plans/kernel-library-review.md` finding 8, settled 2026-08-02.
+The repository itself has no LICENSE file yet. The pictures on this page start
+from Qwen-Image 2.1, whose licence is for non-commercial research use.
 
-The package `using`s KernelAbstractions and writes `@kernel` bodies, which reads
-as backend-portable. It is not, and the deciding evidence is not the raw count of
-`Lava.*` references (181 occurrences, 33 distinct symbols) but *where* they sit:
+## Getting started
 
-- The fast paths gate on `A isa Lava.LavaArray{Float16,2}`, a type assertion on a
-  Lava-specific array type, so no other KernelAbstractions backend can reach them
-  by construction. That is not "a portable library with a Lava fast path"; the
-  fast path exists only on Lava.
-- `Lava.GEMM_TILE` is used as the literal 16 in 75 places, including pure shape
-  arithmetic, and `Lava.splitidx` / `Lava.FastDiv32` / `Lava.cart32` /
-  `Lava.staticgroup` appear inside the *generic* elementwise launcher.
-- Five `@kernel cpu=false` sites (`layernorm_kernel!`, `attn_softmax_rows!`,
-  `attn_flash!`, `attn_flash_cm!`, and the generated `toLE_tiled_*` layout
-  kernels in `attention.jl`) have no CPU form at all, in a package whose
-  verification story depends on running the same source on the CPU.
-- `Lava.VK_CONTEXT_REF`, `Lava.capture` / `replay!` and `Lava.with_dispatch_timing`
-  are Vulkan runtime concepts with no KernelAbstractions analogue at all.
+Clone this repository and [Lava](https://github.com/SimonDanisch/Lava.jl) and
+`Pkg.develop` the packages you want into one environment; `[sources]` in each
+`Project.toml` says where Lava lives, since it is not in the General registry.
 
-Some of that is unavoidable: cooperative-matrix intrinsics have no KA equivalent,
-and that is a legitimate reason for a backend-specific kernel. Some is
-incidental. Either way the facade was promising something the package does not
-deliver.
+```julia
+using SAM2Runner, FileIO
+img  = permutedims(load("fox.jpg"))                     # (W, H): x first
+mask = segment(img, [(0.5, 0.55)])                      # one click, normalized
+mask = segment(img, [(0.3, 0.4), (0.8, 0.9, false)])    # include, and exclude
+```
 
-**Saying (a) plainly costs nothing real, because the portability that matters
-here is a different axis and DNNKernels genuinely has it.** KA would buy
-portability across *Julia GPU backends* (CUDA, ROCm, oneAPI, CPU). Lava buys
-portability across *Vulkan devices* from one SPIR-V module. The second is the one
-in use, and it is verified rather than assumed: the same kernel sources run on an
-RTX 4000 Ada (subgroup 32, `VK_NV_cooperative_matrix2`) and on a Radeon 8060S
-(RDNA 3.5, subgroup 64, KHR cooperative matrix only, no coopmat2 at all), with
-the tile size and cooperative-matrix availability queried per device. See
-`plans/projects/portability/REPORT.md`.
+Weights download on first use and are shared by every environment on the
+machine; nothing is fetched at install time. Each package README has an example
+and what it produced, and [`docs/examples/`](docs/examples) is the code that made
+every picture here.
 
-CPU execution through KA remains available for the kernels that have a CPU form,
-and it is a verification tool (`verify.jl` compares against it), not a supported
-deployment backend.
+The whole thing as one site: `julia --project=<env> docs/make.jl` writes it to
+`docs/build/` with [Bonito](https://github.com/SimonDanisch/Bonito.jl).
+
+## On a Radeon 8060S, from the examples
+
+One warm run each, 2026-09-30, RADV. These are what the examples took, not
+benchmarks: no clock warming, no spread.
+
+| model | work | time |
+|---|---|---:|
+| SAM 2.1 | encode and decode one click, 640x640 frame | 0.16 s |
+| Depth Anything V2 S | one frame at 518² | 19 ms |
+| Neural 3D LUT | predict and apply at 640x640 | 3.7 ms |
+| GPUFiltering | optical flow at 640x357, four levels | 4.7 ms |
+| RIFE 4.26 | one frame, padded to 1920x1152 | 0.26 s |
+| MatAnyone2 | one frame at 640x368 | 113 ms |
+| BasicVSR++ | five 64x64 frames to 256x256 | 138 ms |
+| Hunyuan3D-2.1 | picture to mesh, 50 steps, 384³ octree | 422 s |
+| Qwen-Image 2.1 | 1024x1024, 40 steps | 221 s |
+| Kokoro-82M | 7.1 s of speech | 2.1 s |
+| Whisper large-v3-turbo | a 7 s file, decode included | 1.0 s |
+| Ternary Bonsai 2 27B | decode | 4.3 tokens/s |
+| K2 Horizon 32B | prompt and decode | 4.4 tokens/s |
 
 ## Why the `*Runner` packages exist
 
@@ -92,11 +135,15 @@ weights and cache nothing useful.
 
 Packages are plain subdirectories, [Makie](https://github.com/MakieOrg/Makie.jl)-style.
 History for `DNNKernels` and `GPUFiltering` was carried over with `git subtree`,
-so `git log --follow` still works through the move.
+so `git log --follow` still works through the move. A monorepo because these
+change together: an op added to `DNNKernels` is usually a model that needed it,
+and a kernel frozen by one model is a cache hit for the rest.
 
-## Speed, against PyTorch on the same card
+## Speed against PyTorch, 2026-08-05
 
-Measured 2026-08-05 on an **NVIDIA RTX 4000 Ada**, all in one sitting. Ours
+Measured 2026-08-05 on an **NVIDIA RTX 4000 Ada**, all in one sitting, before
+DNNKernels declared its graphs to Mantle (2026-09-15); the rules below are the
+lasting part. Ours
 through `tools/bench_all.jl` (SAM 2's decode through `tools/bench_sam2.jl`),
 PyTorch through `tools/baseline_*.py`. `±` is the sample spread the harness
 reports; a row is only worth quoting when it is small.
@@ -213,57 +260,30 @@ measurement, and that one is unchanged.
 
 Blanks are PyTorch baselines not yet written, not models that failed.
 
-## Not here yet
-
-The nine packages above are skeletons: asset lookup, graph loading and a guarded
-workload, with the workload body and the missing ops still to write.
-`BasicVSRRunner` is the furthest along — its graph is already exported to
-`gen/graphs/basicvsrpp-fp32` by `tools/export_basicvsrpp.py`, so it is the only
-one whose `ready()` is already true.
-
-The name is now wrong: two of these are audio models and `JuliaVision` is not
-where a speech recogniser belongs. Renaming is a separate job from porting.
-
-## Getting started
-
-```julia
-using Pkg
-Pkg.develop(url = "https://github.com/SimonDanisch/JuliaVision")   # or clone + activate
-using SAM2Runner
-
-mask = segment(img, [(0.5, 0.5)])                       # one click, normalized
-mask = segment(img, [(0.3, 0.4), (0.8, 0.9, false)])    # include, and exclude
-```
-
-The weights download on first use — `sam2-large` is 943 MB — and are shared
-between every environment on the machine. Nothing is fetched at install time.
-
-`Lava` is not in the General registry, so `[sources]` in each `Project.toml`
-says where to find it; `Pkg.instantiate` handles the rest.
-
 ## Assets
 
-Graphs and weights are Julia artifacts, not files in this repository:
+Graphs and weights are Julia artifacts on the `assets-v1` release, not files in
+this repository. Each package writes `assetdir() = @artifact_str("<name>")` and
+reads its assets from there and nowhere else: no environment variable, no
+fallback to a local export, because a fallback is what makes a broken download
+invisible on the one machine that has the export. The `*-refs` artifacts are
+PyTorch activations the parity tests compare against; nobody running a model
+downloads them.
 
-| artifact | size | what for |
-|---|---|---|
-| `sam2-large` | 943 MB | SAM 2.1 graphs + weights — needed to run the model |
-| `sam2-large-refs` | 1.2 GB | PyTorch reference activations, **tests only** |
-| `matanyone` | 142 MB | MatAnyone2 graphs + weights |
+| package | artifacts | on disk |
+|---|---|---:|
+| SAM2Runner | `sam2-large`, `sam2-large-refs` | 943 MB, 1.2 GB |
+| MatAnyoneRunner | `matanyone`, `matanyone-refs` | 136 MB, 1.2 GB |
+| DepthAnythingRunner | `depthanything` | 95 MB |
+| NeuralLUTRunner | `neurallut` | 2.3 MB |
+| RIFERunner | `rife` | 22 MB |
+| BasicVSRRunner | `basicvsrpp` | 30 MB |
+| QwenImageRunner | `qwenimage21` and 12 weight parts, `qwenimage21-refs` | 14.5 GB, 19 MB |
+| Hunyuan3DRunner | `hunyuan3d` and 7 weight artifacts | 6.9 GB |
+| WhisperRunner | `whisper`, `whisper-decoder`, `whisper-fp32` | 1.2 GB, 659 MB, 2.4 GB |
+| KokoroRunner | `kokoro`, `kokoro-refs` | 356 MB, 4.2 MB |
+| BonsaiRunner | `bonsai2-ptq1-p1` … `-p4` | 5.9 GB |
 
-The refs are separate on purpose: they are what the layer-by-layer verification
-compares against, and nobody segmenting a picture should download them.
-
-**There is no `DNNKernels.assetpath`, and this paragraph used to claim there
-was.** It described an env-var → local-`gen/`-tree → artifact resolution order
-that was deliberately DELETED (see the docstring at the top of
-`DNNKernels/src/assets.jl`): nothing ever set the environment variables, and the
-generated-tree branch made a broken download invisible, because on any machine
-with a `gen/` tree the fallback always answered. Tests had the same fallback and
-it meant the PyTorch parity gate ran only on the machine that produced the export.
-
-Each package writes `assetdir() = @artifact_str("<name>")` and reads its assets
-from that artifact and nowhere else. Changing a model's assets means re-binding
-its artifact: re-export, then `tools/make_artifacts.jl <name>` hashes the new
-tree and rewrites the `Artifacts.toml`; `tools/publish_artifacts.jl` uploads it
-so it reaches anyone else.
+Changing a model's assets means re-binding its artifact: re-export, then
+`tools/make_artifacts.jl <name>` hashes the tree and rewrites `Artifacts.toml`,
+and `tools/publish_artifacts.jl` uploads it.

@@ -12,6 +12,25 @@ Kernels are asynchronous — call `KernelAbstractions.synchronize(backend)`
 
 Images use `(width, height)` layout (x-contiguous), matching GLMakie.
 
+## Examples
+
+Every kernel below ran on the Vulkan device through Lava:
+[`docs/examples/gpufiltering.jl`](../docs/examples/gpufiltering.jl).
+
+<img src="../media/gpufiltering/filters.jpg" width="968">
+
+Top: the Qwen-Image harbor, `coloradjust!` (contrast 1.15, saturation 1.4,
+temperature 0.3), `gaussianblur!` at σ = 4. Bottom: a 1:1 crop before and after
+`unsharpmask!` (σ = 2, amount 1.5), and `warp!` through `fitmatrix` with a
+crop, a 1.2 zoom and a 12 degree turn.
+
+<img src="../media/gpufiltering/flow.jpg" width="968">
+
+The harbor turned 3 degrees and zoomed 6%, its dense `opticalflow!` against the
+original (hue is direction, saturation length), and the frame warped back by the
+affine `fitaffine` fits to that flow. The flow takes **4.7 ms** at 640x357 with
+four pyramid levels on a Radeon 8060S (RADV, 2026-09-30).
+
 ## Color
 
 ```julia
@@ -24,14 +43,18 @@ means, stds = channelstats(img)            # per-channel statistics
 ## Blur / sharpen
 
 ```julia
-gaussianblur!(out, img, tmp, σ)            # separable, replicate borders
-unsharpmask!(out, img, tmp1, tmp2, σ, amount)
+gaussianblur!(out, img, σ; tmp = similar(img))   # separable, replicate borders
+unsharpmask!(out, img, σ, amount; tmp = similar(img))
 ```
+
+Both take `weights`, a device vector of `gaussianweights(σ)` the caller owns:
+inside a render graph that saves the upload, and with it a `vkQueueSubmit`, per
+blur per frame.
 
 ## Geometry
 
 ```julia
-warp!(out, img, M::Mat3f)     # bilinear PROJECTIVE warp: out[p] = img[proj(M*(p,1))]
+warp!(out, img, M::Mat3f)     # bicubic (Catmull-Rom) PROJECTIVE warp: out[p] = img[proj(M*(p,1))]
 warp!(out, img, crop)         # normalized (x, y, w, h) crop + resize in one pass
 cropmatrix(crop, insize, outsize)
 translationmatrix(dx, dy)     # sampling matrix that shifts CONTENT by (dx, dy)
@@ -39,7 +62,11 @@ translationmatrix(dx, dy)     # sampling matrix that shifts CONTENT by (dx, dy)
 
 `M` is a **sampling** matrix: it maps output pixels to input positions,
 so shifting content right means sampling further left. `out` and `img`
-may differ in size; the bottom row enables perspective (divide by w).
+may differ in size; the bottom row enables perspective (divide by w). A sample
+outside the source replicates its edge, however far outside, and so does one
+where `w` reaches zero. `fitmatrix(crop, insize, outsize; scale, position,
+rotation)` places a crop without distorting it; `skipoutside = true` leaves the
+letterbox pixels alone.
 
 ## Optical flow & global motion (FOLKI-style dense pyramidal LK)
 
@@ -77,7 +104,7 @@ affine flow.
 
 ## Tests
 
-`]test GPUFiltering` — 35 tests: bit-comparisons against ImageFiltering,
-flow sign/subpixel accuracy, fit recovery/robustness/inverse-convention,
-end-to-end warp–flow–fit–restore roundtrips. CPU↔GPU parity and
-performance floors live in the parent project's `test_gpu.jl`/`bench.jl`.
+`]test GPUFiltering`: 70 tests, all on the CPU. Bit comparisons against
+ImageFiltering, flow sign and sub-pixel accuracy, fit recovery, robustness and
+the inverse convention, end-to-end warp, flow, fit and restore round trips, and
+warps whose sample positions leave the Int32 range or divide by zero.

@@ -14,6 +14,27 @@ prompt = chatprompt(["user" => "Explain Vulkan barriers."])
 print(generate(s, prompt; max_tokens=256))
 ```
 
+## Example
+
+[`docs/examples/bonsai.jl`](../docs/examples/bonsai.jl), `thinking = false`,
+greedy:
+
+> **In three sentences: why does a Vulkan compute shader need a pipeline barrier
+> between two dispatches that share a buffer?**
+>
+> Vulkan requires explicit synchronization because the driver does not guarantee
+> that the results of a previous compute dispatch are visible to subsequent
+> commands until a barrier is issued. Without a pipeline barrier, the second
+> dispatch may begin executing before the first has finished writing to the
+> shared buffer, leading to undefined behavior or data races. The barrier ensures
+> that all previous writes to the buffer are complete and visible before the next
+> dispatch reads from or writes to it.
+
+86 tokens at **4.3 tokens/s**, after a 35-token prompt at 8.1 tokens/s, on a
+Radeon 8060S (RADV, 2026-09-30).
+
+## Devices and checkpoints
+
 The device selector is optional and uses `Mantle.device()` by default. Another
 session can use another device in the same process because the backend and all
 state belong to the model:
