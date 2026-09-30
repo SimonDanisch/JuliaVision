@@ -357,10 +357,12 @@ end
 
 # ---------------------------------------------------------------- the workload
 #
-# Nothing to precompile yet: the workload has to drive the call the caller makes,
-# and the call the caller makes — an image to a mesh — does not exist. Writing
-# one against the denoiser alone would freeze a path nobody takes, which is the
-# mistake SAM2Runner made and paid 45 s of first-click latency for.
+# Nothing to precompile yet. The workload has to drive the call the caller makes,
+# `imagetomesh`, and it has not been written: at the defaults that call is minutes
+# long, so it needs settings small enough for a precompile that still take every
+# path the defaults do. Writing one against the denoiser alone would freeze a
+# path nobody takes, which is the mistake SAM2Runner made and paid 45 s of
+# first-click latency for.
 #
 # When it is written, the measurement that matters is
 # `Mantle.no_pipeline_compilation` reporting 0 refusals in a *fresh* process, NOT
@@ -368,7 +370,7 @@ end
 # from the driver's own shader cache having served everything. Pair it with a
 # negative control whose kernel body is novel per run.
 @setup_workload begin
-    @info "Hunyuan3DRunner: no artifact bound — nothing precompiled"
+    @info "Hunyuan3DRunner: no workload yet, nothing precompiled"
 end
 
 end # module

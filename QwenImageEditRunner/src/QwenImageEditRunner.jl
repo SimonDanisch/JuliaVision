@@ -137,7 +137,9 @@ end
             @warn "QwenImageEditRunner: workload skipped; first use will compile" exception = err
         end
     else
-        @info "QwenImageEditRunner: no export at $(assetdir()) — nothing precompiled"
+        # Not `assetdir()` in the message: with no artifact bound it throws, and
+        # the log record itself failed during every precompile.
+        @info "QwenImageEditRunner: not ported yet, nothing precompiled"
     end
 end
 

@@ -132,7 +132,9 @@ end
             @warn "ZImageRunner: workload skipped; first use will compile" exception = err
         end
     else
-        @info "ZImageRunner: no export at $(assetdir()) — nothing precompiled"
+        # Not `assetdir()` in the message: with no artifact bound it throws, and
+        # the log record itself failed during every precompile.
+        @info "ZImageRunner: not ported yet, nothing precompiled"
     end
 end
 
