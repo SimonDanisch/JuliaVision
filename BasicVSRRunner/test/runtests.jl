@@ -1,16 +1,13 @@
 """
-BasicVSR++ REDS4, 4x video upscaling — the graph is bound and it **runs**, but it
-is **not verified against PyTorch**.
+BasicVSR++ REDS4, 4x video upscaling: coverage, dispatch, and parity with PyTorch.
 
-That distinction is the whole point of this file. `coverage` reports none of its
-2290 ops missing, the model builds, and one 5-frame clip comes back the right
-shape and finite. What has never been measured is whether the numbers are
-*right*: there is no `tools/verify_basicvsrpp.jl`, and the artifact carries no
-references (they are in `gen/basicvsrpp/refs.safetensors`, developer-side). So
-every assertion below is about dispatch and coverage, and none of them is about
-accuracy — do not read a green run here as parity.
+Parity was first measured on 2026-09-30, against upstream's model files run
+with the artifact's own weights: **1.1e-5** max abs error over all five 256x256
+frames of a real clip (the fox in `docs/examples/basicvsr.jl`). The testset
+below pins it on a synthetic clip, sampled at 512 points written by
+`tools/verify_basicvsrpp.py`.
 
-The coverage assertion is the load-bearing one. An op that writes part of its
+The coverage assertions still matter on their own. An op that writes part of its
 output leaves the rest as whatever the scratch slab held; the model poisons the
 slab first, so a partial write reads as NaN rather than as a plausible number.
 """
@@ -18,6 +15,17 @@ slab first, so a partial write reads as NaN rather than as a plausible number.
 using Test, BasicVSRRunner, KernelAbstractions, Lava
 using Mantle: LavaBackend
 const KA = KernelAbstractions
+
+tri(x) = abs(mod(x, 64) - 32) * 4
+
+"The clip `tools/verify_basicvsrpp.py` ran: integer arithmetic, so both sides build it exactly."
+parityclip() = Float32[min(tri(2i + 3(t - 1) + 11(c - 1)) + tri(3j + 7(c - 1)), 255) / 255f0
+                       for i in 1:64, j in 1:64, c in 1:3, t in 1:5, _ in 1:1]
+
+function parityreference(path = joinpath(@__DIR__, "fixtures", "parity.txt"))
+    rows = [split(l) for l in eachline(path) if !startswith(l, "#")]
+    return [(parse.(Int, r[1:4])..., parse(Float32, r[5])) for r in rows]
+end
 
 @testset "BasicVSRRunner" begin
     @test BasicVSRRunner.ready()
@@ -48,5 +56,14 @@ const KA = KernelAbstractions
         @test count(isnan, got) == 0                # nothing left unwritten
         @test all(isfinite, got)
         @test any(!iszero, got)                     # and it is not a dead graph
+
+        @testset "parity with PyTorch" begin
+            ref = parityreference()
+            @test length(ref) == 512
+            hr = Array(BasicVSRRunner.upscale(m, parityclip()))
+            KA.synchronize(backend)
+            err = maximum(abs(hr[x, y, c, t, 1] - v) for (x, y, c, t, v) in ref)
+            @test err < 1f-4
+        end
     end
 end

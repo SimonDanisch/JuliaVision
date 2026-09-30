@@ -1,27 +1,30 @@
 """
 BasicVSR++ — video upscaling.
 
-Temporally consistent upscaling. 7.3M parameters, but the footprint is activations rather than weights — it is recurrent over a clip, so VRAM scales with sequence length.
+Temporally consistent 4x upscaling of a short clip: BasicVSR++ trained on REDS4,
+7.3M parameters. The footprint is activations rather than weights: it is
+recurrent over the clip, so VRAM scales with its length.
 
-The furthest along: `tools/export_basicvsrpp.py` already produces the graph into `gen/graphs/basicvsrpp-fp32`, and the runner package is what is missing.
+**Ported and verified.** [`basicvsrppmodel`](@ref) loads it and
+[`upscale`](@ref) runs it. Against upstream's own model files run with the same
+weights, the output matches to **1.1e-5** (max abs, five 256x256 frames of a real
+clip); `test/runtests.jl` pins that on a synthetic clip written by
+`tools/verify_basicvsrpp.py`. The export is static at five 64x64 frames.
 
-Engine-wise the interesting part is flow-guided deformable alignment — DCNv2 is an irregular per-pixel gather with no clean coopmat mapping, and it is the hardest kernel in this set.
+**The input degradation matters.** REDS4's low-resolution frames are MATLAB
+`imresize(x, 1/4, 'bicubic')`, and that is what the model is trained to invert.
+An area-averaged clip is a different degradation and comes back with ringing and
+vertical streaks; `docs/examples/basicvsr.jl` has a `bicubicdown` that matches
+the training data.
 
-**Not ported yet.** This package is the place the port lands, committed ahead of
-the work so the graph path, the asset lookup and the workload guard are settled
-and everything after this is model code. What exists: [`assetdir`](@ref) resolves
-the export, [`basicvsrppgraph`](@ref) loads it if it is there, and precompilation is
-inert until it is. What does not: the workload body, and whatever ops the export
-turns out to need.
+Flow-guided deformable alignment is the unusual part for the engine: DCNv2 is an
+irregular per-pixel gather with no clean cooperative-matrix mapping, and it runs
+as DNNKernels' `deform_conv2d`.
 
-Upstream: https://github.com/open-mmlab/mmagic
+Upstream: https://github.com/ckkelvinchan/BasicVSR_PlusPlus (via open-mmlab/mmagic)
 License: **Apache-2.0**
 
-Ops `DNNKernels` does not have yet:
-  * deformable_conv2d (DCNv2)
-
-See `models-to-port.md` for the state of this one, and `tools/export_basicvsrpp.py`
-for the export that feeds it.
+See `tools/export_basicvsrpp.py` for the export that feeds it.
 """
 module BasicVSRRunner
 
@@ -92,10 +95,6 @@ end
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
 """
-# The graph is bound and every op it uses is implemented (2290 ops, `coverage`
-# reports none missing). What has NOT been done is a numerical parity run — there
-# is no `tools/verify_basicvsrpp.jl`, so "it loads and dispatches" is the whole of
-# the claim here.
 ready() =
     isfile(joinpath(assetdir(), "basicvsrpp.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
@@ -112,12 +111,9 @@ end
 # Guarded on the assets and on a working device: precompilation must not fail on
 # a machine without either, it should just produce a package with nothing cached.
 #
-# TODO(port): drive the real call here once the graph runs. The measurement that
-# matters is `Lava.frozen_stats().misses == 0` on a *fresh* process — a workload
-# that runs a different path than the editor does leaves the editor compiling on
-# first use, which is the entire cost this package exists to remove. SAM2Runner
-# learned that the expensive way: its `runsam2` workload still left 45 s on the
-# first click because the editor goes through a closure `runsam2` never touches.
+# The workload drives `upscale`, the whole call tree a caller uses: a workload
+# that runs a different path leaves the first real call compiling, which is the
+# entire cost this package exists to remove.
 # ------------------------------------------------------------------- the model
 
 """
@@ -133,7 +129,7 @@ struct BasicVSRPP{B,M}
 end
 
 """
-    basicvsrppmodel(; backend = Mantle.defaultbackend(), dir = assetdir()) -> BasicVSRPP
+    basicvsrppmodel(; backend = Mantle.defaultbackend()) -> BasicVSRPP
 
 Load the upscaler. Downloads the 26 MiB artifact on first use.
 
@@ -160,10 +156,8 @@ on the device.
 is a re-export, not an argument; this is why `framesize`-style introspection
 belongs here rather than a resize.
 
-**Not verified against PyTorch.** There is no `tools/verify_basicvsrpp.jl`, so
-what is known is that all 2290 ops are implemented, it dispatches, and the output
-is the right shape and finite. Numerical parity is unmeasured — see
-`gen/basicvsrpp/refs.safetensors`, which is what a verifier would read.
+Frames are RGB in [0, 1]. The output is not clamped: the model overshoots at
+edges, to -0.08 and 1.04 on the fox in `docs/examples/basicvsr.jl`.
 """
 function upscale(m::BasicVSRPP, lqs)
     out, = call(m.model, "basicvsrpp", toback(m.backend, lqs); dims = (;))
