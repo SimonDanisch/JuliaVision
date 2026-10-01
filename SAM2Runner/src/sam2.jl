@@ -100,8 +100,7 @@ function SAM2(graphs::AbstractDict, weights::AbstractDict;
     # that reason.
     backend !== nothing && device !== nothing &&
         throw(ArgumentError("pass either `device` or `backend`, not both"))
-    target = device === nothing ?
-             (backend === nothing ? KernelAbstractions.CPU() : backend) : device
+    target = device === nothing ? (backend === nothing ? Mantle.Device() : backend) : device
     m = Model(graphs, weights; device = Mantle.todevice(target), record = true)
     enc, dec = m.graphs["sam2_encoder"], m.graphs["sam2_decoder"]
     # torch order, so the image is (n, c, y, x) and the point list (n, k, 2).

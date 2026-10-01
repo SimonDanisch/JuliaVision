@@ -149,8 +149,7 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
                      atol=1e-4, rtol=1e-3, rtol16=3e-2, amplify=4.0, verbose=true)
     backend !== nothing && device !== nothing &&
         throw(ArgumentError("pass either `device` or `backend`, not both"))
-    dev = M.todevice(device === nothing ?
-                     (backend === nothing ? KernelAbstractions.CPU() : backend) : device)
+    dev = M.todevice(device === nothing ? (backend === nothing ? M.Device() : backend) : device)
     inputs = Dict{String,Any}()
     for (i, name) in enumerate(g.inputs)
         k = "$(g.name)/in$(i-1)"

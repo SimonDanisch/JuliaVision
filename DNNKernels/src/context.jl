@@ -47,19 +47,6 @@ caps(d::M.Device) = M.caps(d)
 caps(b::KernelAbstractions.Backend) = caps(M.todevice(b))
 
 """
-Device facts for a backend that is not Lava's — the CPU verification path.
-
-Deliberately not "the RTX 4000 Ada's numbers minus the GPU bits": a CPU run must
-not take a tensor-core path, and the shared budget is a conservative fixed figure
-so that anything computed from it stays valid rather than merely plausible.
-
-This method is DNNKernels' and not Lava's on purpose. Lava answers for devices it
-owns; what a *non*-Vulkan backend should pretend to be is a question about this
-library's verification path, and only this library can answer it.
-"""
-caps(::M.HostDevice) = M.DeviceCaps(false, 16, 1, 1, 48 * 1024, 1024, 0, 0)
-
-"""
     NoiseSource
 
 Where a graph's `rand`/`randn_like` get their values.
