@@ -53,18 +53,20 @@ struct FlowStage{N,C}
 end
 
 """
-    loadmodel(dir, name; backend) -> Model
+    loadmodel(assets, part; backend) -> Model
 
-`name.json` and `weights.safetensors` in `dir` as one `Model`.
+`part`'s graph `trellis2_<part>.json` and its weights (see [`Assets`](@ref)) as
+one `Model`.
 
 DINOv3 at 1024 px in fp32 as ONE submission runs long enough that RADV cancels
 it, and the call returned whatever the output held (NaN) while only the next
 submission reported the lost device. Mantle cuts every recording by the
 device's submission budget now, so nothing is asked for here.
 """
-loadmodel(dir::AbstractString, name::AbstractString; backend) =
-    Model(Dict(name => loadgraph(graphfile(dir, name))), readsafetensors(joinpath(dir, "weights.safetensors"));
-          backend)
+function loadmodel(a::Assets, part::AbstractString; backend)
+    name = "trellis2_$part"
+    return Model(Dict(name => loadgraph(graphfile(graphdir(a, part), name))), readweights(a, part); backend)
+end
 
 """The exported graph `name.json` in `dir`."""
 function graphfile(dir::AbstractString, name::AbstractString)
@@ -75,31 +77,36 @@ function graphfile(dir::AbstractString, name::AbstractString)
 end
 
 """
-    conditioner(graphs; cascade, backend) -> Model
+    conditioner(assets; cascade, backend) -> Model
 
 DINOv3 as one `Model` with a graph per resolution the pipeline encodes at:
-`trellis2_cond` (512 px) and, for the cascade, `trellis2_cond_1024` (the
-`trellis2-cond-1024` export). One set of weights for both, 1.13 GB: the two
-exports' `weights.safetensors` are the same file. The 1024 px graph is renamed,
-since both exports call themselves `trellis2_cond` and a `Model`'s graphs need
-distinct names.
+`trellis2_cond` (512 px) and, for the cascade, `trellis2_cond_1024` (part
+`"cond-1024"`). One set of weights for both, 1.13 GB: the two exports'
+`weights.safetensors` are the same file, which is why only part `"cond"` has
+weights. The 1024 px graph is renamed, since both exports call themselves
+`trellis2_cond` and a `Model`'s graphs need distinct names.
 """
-function conditioner(graphs::AbstractString; cascade::Bool, backend)
-    dir = joinpath(graphs, "trellis2-cond")
-    gs = Dict("trellis2_cond" => loadgraph(graphfile(dir, "trellis2_cond")))
+function conditioner(a::Assets; cascade::Bool, backend)
+    gs = Dict("trellis2_cond" => loadgraph(graphfile(graphdir(a, "cond"), "trellis2_cond")))
     cascade && (gs["trellis2_cond_1024"] =
-                    DNNKernels.Graph(loadgraph(graphfile(joinpath(graphs, "trellis2-cond-1024"), "trellis2_cond")),
+                    DNNKernels.Graph(loadgraph(graphfile(graphdir(a, "cond-1024"), "trellis2_cond")),
                                      "trellis2_cond_1024"))
-    return Model(gs, readsafetensors(joinpath(dir, "weights.safetensors")); backend)
+    return Model(gs, readweights(a, "cond"); backend)
 end
 
-function FlowStage(dir::AbstractString, name::AbstractString; backend)
-    cfg = JSON3.read(read(joinpath(dir, "sampling.json"), String))
-    model = loadmodel(dir, name; backend)
+"""
+    FlowStage(assets, part; backend)
+
+The flow model `part` (one of [`FLOWS`](@ref)) with the sampler and the latent
+normalisation its `sampling.json` describes.
+"""
+function FlowStage(a::Assets, part::AbstractString; backend)
+    cfg = JSON3.read(read(joinpath(graphdir(a, part), "sampling.json"), String))
+    model = loadmodel(a, part; backend)
     norm = haskey(cfg, :normalization) ? Normalization(model.device, cfg.normalization) : nothing
     concat = haskey(cfg, :concat_normalization) ?
         Normalization(model.device, cfg.concat_normalization) : nothing
-    return FlowStage(model, String(name), FlowSampler(cfg.sampler), norm, concat)
+    return FlowStage(model, "trellis2_$part", FlowSampler(cfg.sampler), norm, concat)
 end
 
 """

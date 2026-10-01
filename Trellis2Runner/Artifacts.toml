@@ -1,0 +1,111 @@
+[trellis2]
+git-tree-sha1 = "e94d52b03dc0cbf5cc6cc9c775a7597f9dda78a1"
+lazy = true
+
+    [[trellis2.download]]
+    sha256 = "cf7885ab3036704228f4a12f3ab1b18ecb87a9f2c5152e89dd3d32c297343fca"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2.tar.gz"
+
+[trellis2-cond-w]
+git-tree-sha1 = "6a8af71f3bf4d7850696b9b0fac01419d140e844"
+lazy = true
+
+    [[trellis2-cond-w.download]]
+    sha256 = "d89ffa993900d9f26d4f30a596e0e8a0730b74cf63496eb7a127e35dc3e51082"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-cond-w.tar.gz"
+
+[trellis2-shape1024-w1]
+git-tree-sha1 = "0ac24f66f5f864aeb804bfc82b868d60c0fd9f28"
+lazy = true
+
+    [[trellis2-shape1024-w1.download]]
+    sha256 = "c0e1742b5605feff0e04b4715b07eee662289e1fe4d141daf9085820e4ab7122"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-shape1024-w1.tar.gz"
+
+[trellis2-shape1024-w2]
+git-tree-sha1 = "fbd5625f70f0e15f89b87b309b502a3d01b710e2"
+lazy = true
+
+    [[trellis2-shape1024-w2.download]]
+    sha256 = "05474e2ca0ff1d57f3dbdef4d646dcc17a1548eed1c165d625d3b663568eb66b"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-shape1024-w2.tar.gz"
+
+[trellis2-shape512-w1]
+git-tree-sha1 = "0cc86b64729849be76afd1db292dee93893ad856"
+lazy = true
+
+    [[trellis2-shape512-w1.download]]
+    sha256 = "45852e2669950643ff12a9681914ad4a77bc2f37522a3ca349bc4578e8eeffc8"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-shape512-w1.tar.gz"
+
+[trellis2-shape512-w2]
+git-tree-sha1 = "8c73f586049bccdc050e81b20c9110788d86c861"
+lazy = true
+
+    [[trellis2-shape512-w2.download]]
+    sha256 = "8d8521e0fbd1a4c45a79bcc14c66e8228538b78b8c395c8c0ed1821d6689bae1"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-shape512-w2.tar.gz"
+
+[trellis2-shapedec]
+git-tree-sha1 = "4be013b284b5f6bce33dd9bdcba369e84357336a"
+lazy = true
+
+    [[trellis2-shapedec.download]]
+    sha256 = "b94d347456f199a3cc2c0e144b90427b27614b523a2b56b41df5ae11a06f1ace"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-shapedec.tar.gz"
+
+[trellis2-ss-w1]
+git-tree-sha1 = "ab63a0f924ed31e141218096f0b88bf7405d9213"
+lazy = true
+
+    [[trellis2-ss-w1.download]]
+    sha256 = "060e9ff3d7904d26d08f3bb33fbbb9aecf83ba0ef9e6283926569efd5a65ea0a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-ss-w1.tar.gz"
+
+[trellis2-ss-w2]
+git-tree-sha1 = "3404f2dac9c8187b46e85304eb586f6b3834990d"
+lazy = true
+
+    [[trellis2-ss-w2.download]]
+    sha256 = "c9d29e7e2d7af5ca576ab9967d46985171c6f6329f9f441b58ea66121c660c41"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-ss-w2.tar.gz"
+
+[trellis2-tex1024-w1]
+git-tree-sha1 = "b47a61bac984e26598bf317b3ae5a40f09d416a9"
+lazy = true
+
+    [[trellis2-tex1024-w1.download]]
+    sha256 = "3f091be9190d9012992c3a287ed03182ef08f312f8fade901cdc1a46c93a98cd"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-tex1024-w1.tar.gz"
+
+[trellis2-tex1024-w2]
+git-tree-sha1 = "ab7afd21f587247b1ade0903305d9a17b2b85f6f"
+lazy = true
+
+    [[trellis2-tex1024-w2.download]]
+    sha256 = "28d702a8b478cfb3ab96288532ccc3b75fc43e8d7f2f1ac0ff585b7000c6be8d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-tex1024-w2.tar.gz"
+
+[trellis2-tex512-w1]
+git-tree-sha1 = "ef30103f11eedba14f1a8b9f329609f5ce512aa7"
+lazy = true
+
+    [[trellis2-tex512-w1.download]]
+    sha256 = "074a7bdfda07cb96c8abed735d682dfd080a56d7fd9b250254c1452cdd6c1425"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-tex512-w1.tar.gz"
+
+[trellis2-tex512-w2]
+git-tree-sha1 = "84a21f6e531536d1759c1d326b28a1c733132e2d"
+lazy = true
+
+    [[trellis2-tex512-w2.download]]
+    sha256 = "434a0c382165b80753384888dbe7c24fe9e22fda2f5247f54c25d118caf4da04"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-tex512-w2.tar.gz"
+
+[trellis2-texdec]
+git-tree-sha1 = "7f4724e96497f0f2e578c900fc800d3a8df8a29d"
+lazy = true
+
+    [[trellis2-texdec.download]]
+    sha256 = "a693b19367cc440908176dbcd32774dd3ea445defd3e00ebffaafc37f6904e1b"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/trellis2-texdec.tar.gz"

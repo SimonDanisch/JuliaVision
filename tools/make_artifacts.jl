@@ -150,6 +150,10 @@ const SHIPPED = ["op_histogram.json", "weights.safetensors"]   # + "<name>.json"
 # Models whose weights ship as shards, so the graph artifact carries no weights.
 const NOWEIGHTS = Set(["hunyuan3d"])
 
+# TRELLIS.2's five flow models, each an export directory `gen/graphs/trellis2-<flow>`
+# whose weights are sharded in two.
+const TRELLIS2_FLOWS = ("ss", "shape512", "shape1024", "tex512", "tex1024")
+
 # Weight shards. A Julia artifact is one tree and a GitHub release asset caps at
 # 2 GiB, so a 5.7 GiB tensor file cannot be published at all in one piece.
 # `tools/shard_safetensors.jl` splits it byte-for-byte into pieces that fit, each
@@ -184,6 +188,15 @@ const SHARDS = Dict(
                                "weights-$(i)of6.safetensors") for i in 1:6)...,
     ("qwenimage21-enc-w$i" => ("QwenImageRunner", "qwenimage21-enc",
                                "weights-$(i)of5.safetensors") for i in 1:5)...,
+    # TRELLIS.2: each flow model is 2.62 GB, two pieces apiece. DINOv3 (1.21 GB,
+    # one set for both resolutions) and the two sparse decoders (905 MB each,
+    # upstream's checkpoints as they are) fit whole, and are bound the same way
+    # so that every weight file of the pipeline is its own download.
+    ("trellis2-$p-w$i" => ("Trellis2Runner", "trellis2-$p", "weights-$(i)of2.safetensors")
+     for p in TRELLIS2_FLOWS for i in 1:2)...,
+    "trellis2-cond-w" => ("Trellis2Runner", "trellis2-cond", "weights-1of1.safetensors"),
+    "trellis2-shapedec" => ("Trellis2Runner", "trellis2-decoders", "shape_dec_next_dc_f16c32_fp16.safetensors"),
+    "trellis2-texdec" => ("Trellis2Runner", "trellis2-decoders", "tex_dec_next_dc_f16c32_fp16.safetensors"),
 )
 
 function packshard(name::AbstractString, tag::AbstractString)
@@ -212,20 +225,31 @@ end
 # licence goes into every tarball of the family rather than once into the small
 # one, which costs 15 KiB against 14 GiB.
 #
-# artifact name => directory under tools/licenses holding LICENSE and NOTICE
-const LICENSED = Dict{String,String}(
-    n => "qwenimage21" for n in vcat(
+# TRELLIS.2 is MIT, which also asks for its notice in every copy, and its
+# conditioner is Meta's DINOv3, whose agreement (section 1.b.i) permits
+# redistribution only with a copy of the agreement. The DINOv3 weights and the
+# tree holding the traced DINOv3 graph carry both.
+#
+# artifact name => directories under tools/licenses; every file in each ships
+const LICENSED = Dict{String,Vector{String}}(
+    (n => ["qwenimage21"] for n in vcat(
         ["qwenimage21", "qwenimage21-vae", "qwenimage21-refs"],
         ["qwenimage21-dit-w$i" for i in 1:6],
-        ["qwenimage21-enc-w$i" for i in 1:5]))
+        ["qwenimage21-enc-w$i" for i in 1:5]))...,
+    "trellis2" => ["trellis2", "dinov3"],
+    "trellis2-cond-w" => ["trellis2", "dinov3"],
+    (n => ["trellis2"] for n in vcat(["trellis2-shapedec", "trellis2-texdec"],
+        ["trellis2-$p-w$i" for p in TRELLIS2_FLOWS for i in 1:2]))...)
 
 function copylicense(name::AbstractString, dest::AbstractString)
     haskey(LICENSED, name) || return nothing
-    src = joinpath(JV, "tools", "licenses", LICENSED[name])
-    for f in ("LICENSE", "NOTICE")
-        path = joinpath(src, f)
-        isfile(path) || error("$name must ship $f and $path does not exist")
-        cp(path, joinpath(dest, f))
+    for d in LICENSED[name]
+        src = joinpath(JV, "tools", "licenses", d)
+        files = readdir(src)
+        isempty(files) && error("$name must ship the licence in $src, which is empty")
+        for f in files
+            cp(joinpath(src, f), joinpath(dest, f))
+        end
     end
     return nothing
 end
@@ -308,6 +332,18 @@ const TREES = Dict(
     "sam2-large" => ("SAM2Runner", "sam2-large",
         ["sam2_encoder.json", "sam2_decoder.json",
          "op_histogram.json", "weights.safetensors"]),
+    # TRELLIS.2: every graph of the pipeline, out of the eight export
+    # directories, keeping their names, so the tree is laid out like `gen/graphs`
+    # and `Trellis2Runner` reads either. The flows' weights are shards in
+    # `SHARDS`; only the 148 MB structure decoder travels here. Both DINOv3
+    # graphs (512 and 1024 px) read the one `trellis2-cond-w`. The references
+    # (`reference.safetensors`, 89 MB over the eight) stay out.
+    "trellis2" => ("Trellis2Runner", ".",
+        vcat(["trellis2-cond/trellis2_cond.json", "trellis2-cond/preprocess.json",
+              "trellis2-cond-1024/trellis2_cond.json", "trellis2-cond-1024/preprocess.json",
+              "trellis2-ssdec/trellis2_ssdec.json", "trellis2-ssdec/weights.safetensors"],
+             ["trellis2-$p/$f" for p in TRELLIS2_FLOWS
+              for f in ("trellis2_$p.json", "sampling.json")])),
 )
 
 """
@@ -326,6 +362,7 @@ function packtree(name::AbstractString, tag::AbstractString)
     end
     hash = create_artifact() do dir
         for f in want
+            mkpath(dirname(joinpath(dir, f)))
             cp(joinpath(src, f), joinpath(dir, f))
         end
         copylicense(name, dir)

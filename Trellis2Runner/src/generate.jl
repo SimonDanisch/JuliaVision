@@ -10,14 +10,18 @@ struct Cascade
 end
 
 """
+    Trellis2(assets = Published(); backend, cascade = true)
     Trellis2(graphs, ckpts; backend, cascade = true)
 
 TRELLIS.2 loaded, as upstream's default `1024_cascade` pipeline or, with
 `cascade = false`, the `512` one: the DINOv3 conditioner ([`conditioner`](@ref)),
 the sparse-structure flow and its decoder, the 512 shape flow, the texture flow
-of the output resolution (exported graphs under `graphs`, each in its
-`trellis2-<part>` directory), the two sparse decoders (the checkpoint's
-`.safetensors` under `ckpts`) and, for the cascade, its [`Cascade`](@ref) model.
+of the output resolution, the two sparse decoders and, for the cascade, its
+[`Cascade`](@ref) model.
+
+By default from the published artifacts, which download on first use (see
+[`Published`](@ref) and [`ready`](@ref)); `graphs` and `ckpts` load a local
+export instead ([`ExportTree`](@ref)).
 """
 struct Trellis2{C<:Union{Nothing,Cascade}}
     cond::Model
@@ -30,21 +34,18 @@ struct Trellis2{C<:Union{Nothing,Cascade}}
     cascade::C
 end
 
-function Trellis2(graphs::AbstractString, ckpts::AbstractString; backend, cascade::Bool = true)
-    part(p) = joinpath(graphs, "trellis2-$p")
-    ss = FlowStage(part("ss"), "trellis2_ss"; backend)
+function Trellis2(a::Assets = Published(); backend, cascade::Bool = true)
+    ss = FlowStage(a, "ss"; backend)
     dev = ss.model.device
     res = cascade ? 1024 : 512
-    return Trellis2(conditioner(graphs; cascade, backend), ss,
-                    loadmodel(part("ssdec"), "trellis2_ssdec"; backend),
-                    FlowStage(part("shape512"), "trellis2_shape512"; backend),
-                    FlowStage(part("tex$res"), "trellis2_tex$res"; backend),
-                    SparseDecoder(dev, joinpath(ckpts, "shape_dec_next_dc_f16c32_fp16.safetensors");
-                                  out = 7, subdiv = true),
-                    SparseDecoder(dev, joinpath(ckpts, "tex_dec_next_dc_f16c32_fp16.safetensors");
-                                  out = 6, subdiv = false),
-                    cascade ? Cascade(FlowStage(part("shape1024"), "trellis2_shape1024"; backend)) : nothing)
+    return Trellis2(conditioner(a; cascade, backend), ss, loadmodel(a, "ssdec"; backend),
+                    FlowStage(a, "shape512"; backend), FlowStage(a, "tex$res"; backend),
+                    SparseDecoder(dev, readweights(a, "shapedec"); out = 7, subdiv = true),
+                    SparseDecoder(dev, readweights(a, "texdec"); out = 6, subdiv = false),
+                    cascade ? Cascade(FlowStage(a, "shape1024"; backend)) : nothing)
 end
+
+Trellis2(graphs::AbstractString, ckpts::AbstractString; kw...) = Trellis2(ExportTree(graphs, ckpts); kw...)
 
 """The output grid: 512, or 1024 for the cascade."""
 resolution(p::Trellis2) = resolution(p.cascade)

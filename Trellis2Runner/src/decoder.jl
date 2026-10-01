@@ -1,12 +1,13 @@
 """
-    SparseDecoder(dev, path; out, subdiv)
+    SparseDecoder(dev, weights; out, subdiv)
 
 One of TRELLIS.2's two sparse structured-latent decoders, `SparseUnetVaeDecoder`
 with `SparseConvNeXtBlock3d` levels and `SparseResBlockC2S3d` upsamplers: the
 shape decoder (`out = 7`, predicts where to subdivide) or the texture decoder
 (`out = 6`, `subdiv = false`, guided by the shape decoder's subdivisions).
 
-`path` is the checkpoint's `.safetensors`. Every tensor goes to the device once,
+`weights` is the checkpoint's tensors as `readsafetensors` gives them, or the
+path of its `.safetensors`. Every tensor goes to the device once,
 in the layout the kernels read: a linear weight as `(out, in)`, a sparse
 convolution's `(co, kx, ky, kz, ci)` as the `(co, 27 ci)` matrix the implicit
 im2col multiplies, its reduction index `c + ci (kz + 3 ky + 9 kx)`.
@@ -23,9 +24,10 @@ struct SparseDecoder
     subdiv::Bool
 end
 
-function SparseDecoder(dev::Mantle.Device, path::AbstractString; out::Int, subdiv::Bool,
+SparseDecoder(dev::Mantle.Device, path::AbstractString; kw...) = SparseDecoder(dev, readsafetensors(path); kw...)
+
+function SparseDecoder(dev::Mantle.Device, raw::AbstractDict; out::Int, subdiv::Bool,
                        channels = [1024, 512, 256, 128, 64], nblocks = [4, 16, 8, 4, 0])
-    raw = readsafetensors(path)
     w = Dict{String,Mantle.Buffer}()
     for (k, a) in raw
         w[k] = Mantle.Buffer(dev, devicelayout(a))

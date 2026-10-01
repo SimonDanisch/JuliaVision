@@ -7,8 +7,9 @@ the voxels; SLat flow models sample a shape latent and a texture latent on those
 voxels, and two sparse decoders turn them into a mesh with PBR attributes.
 
 The flow models and the conditioner are graphs exported by
-`tools/export_trellis2.py`, each with its `sampling.json`; the sampler, the voxel
-bookkeeping and (to come) the sparse decoders are written here.
+`tools/export_trellis2.py`, each with its `sampling.json`, and published with
+their weights as artifacts (see [`Assets`](@ref)); the sampler, the voxel
+bookkeeping, the sparse decoders and the mesh post-processing are written here.
 """
 module Trellis2Runner
 
@@ -21,6 +22,8 @@ import Atomix
 import Random
 import DataStructures
 import SparseArrays
+using LazyArtifacts
+using Artifacts: artifact_hash, artifact_exists
 using GeometryBasics: GeometryBasics, Point3f, Vec, Vec2f, Vec3, Vec3f, GLTriangleFace
 using ColorTypes: RGB, RGBA, N0f8
 using LinearAlgebra: cross, dot, norm, normalize
@@ -34,9 +37,11 @@ export SparseDecoder, decode, upsample, cascadecoords, dualgridmesh, remesh, ori
        removedegenerate, cleanmesh, texturedmesh
 export cropobject, dinoinput
 export Trellis2, Cascade, Noise, generate
+export Assets, Published, ExportTree, ready
 
 include("sampler.jl")
 include("structure.jl")
+include("assets.jl")
 include("pipeline.jl")
 include("decoder.jl")
 include("topology.jl")
