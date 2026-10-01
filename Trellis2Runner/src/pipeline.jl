@@ -53,31 +53,31 @@ struct FlowStage{N,C}
 end
 
 """
-    loadmodel(assets, part; backend) -> Model
+    loadmodel(part; backend) -> Model
 
-`part`'s graph `trellis2_<part>.json` and its weights (see [`Assets`](@ref)) as
-one `Model`.
+`part`'s graph `trellis2_<part>.json` and its weights (see `assets.jl`) as one
+`Model`.
 
 DINOv3 at 1024 px in fp32 as ONE submission runs long enough that RADV cancels
 it, and the call returned whatever the output held (NaN) while only the next
 submission reported the lost device. Mantle cuts every recording by the
 device's submission budget now, so nothing is asked for here.
 """
-function loadmodel(a::Assets, part::AbstractString; backend)
+function loadmodel(part::AbstractString; backend)
     name = "trellis2_$part"
-    return Model(Dict(name => loadgraph(graphfile(graphdir(a, part), name))), readweights(a, part); backend)
+    return Model(Dict(name => loadgraph(graphfile(graphdir(part), name))), readweights(part); backend)
 end
 
 """The exported graph `name.json` in `dir`."""
 function graphfile(dir::AbstractString, name::AbstractString)
     p = joinpath(dir, "$name.json")
     isfile(p) || throw(ArgumentError(
-        "TRELLIS.2: no $name.json in $dir. Export it with tools/export_trellis2.py."))
+        "TRELLIS.2: no $name.json in $dir. Export it with tools/export_trellis2.py and bind it with tools/make_artifacts.jl."))
     return p
 end
 
 """
-    conditioner(assets; cascade, backend) -> Model
+    conditioner(; cascade, backend) -> Model
 
 DINOv3 as one `Model` with a graph per resolution the pipeline encodes at:
 `trellis2_cond` (512 px) and, for the cascade, `trellis2_cond_1024` (part
@@ -86,23 +86,23 @@ DINOv3 as one `Model` with a graph per resolution the pipeline encodes at:
 weights. The 1024 px graph is renamed, since both exports call themselves
 `trellis2_cond` and a `Model`'s graphs need distinct names.
 """
-function conditioner(a::Assets; cascade::Bool, backend)
-    gs = Dict("trellis2_cond" => loadgraph(graphfile(graphdir(a, "cond"), "trellis2_cond")))
+function conditioner(; cascade::Bool, backend)
+    gs = Dict("trellis2_cond" => loadgraph(graphfile(graphdir("cond"), "trellis2_cond")))
     cascade && (gs["trellis2_cond_1024"] =
-                    DNNKernels.Graph(loadgraph(graphfile(graphdir(a, "cond-1024"), "trellis2_cond")),
+                    DNNKernels.Graph(loadgraph(graphfile(graphdir("cond-1024"), "trellis2_cond")),
                                      "trellis2_cond_1024"))
-    return Model(gs, readweights(a, "cond"); backend)
+    return Model(gs, readweights("cond"); backend)
 end
 
 """
-    FlowStage(assets, part; backend)
+    FlowStage(part; backend)
 
 The flow model `part` (one of [`FLOWS`](@ref)) with the sampler and the latent
 normalisation its `sampling.json` describes.
 """
-function FlowStage(a::Assets, part::AbstractString; backend)
-    cfg = JSON3.read(read(joinpath(graphdir(a, part), "sampling.json"), String))
-    model = loadmodel(a, part; backend)
+function FlowStage(part::AbstractString; backend)
+    cfg = JSON3.read(read(joinpath(graphdir(part), "sampling.json"), String))
+    model = loadmodel(part; backend)
     norm = haskey(cfg, :normalization) ? Normalization(model.device, cfg.normalization) : nothing
     concat = haskey(cfg, :concat_normalization) ?
         Normalization(model.device, cfg.concat_normalization) : nothing

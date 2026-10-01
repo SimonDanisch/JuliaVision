@@ -8,7 +8,7 @@ voxels, and two sparse decoders turn them into a mesh with PBR attributes.
 
 The flow models and the conditioner are graphs exported by
 `tools/export_trellis2.py`, each with its `sampling.json`, and published with
-their weights as artifacts (see [`Assets`](@ref)); the sampler, the voxel
+their weights as artifacts (see `assets.jl`); the sampler, the voxel
 bookkeeping, the sparse decoders and the mesh post-processing are written here.
 """
 module Trellis2Runner
@@ -37,7 +37,7 @@ export SparseDecoder, decode, upsample, cascadecoords, dualgridmesh, remesh, ori
        removedegenerate, cleanmesh, texturedmesh
 export cropobject, dinoinput
 export Trellis2, Cascade, Noise, generate
-export Assets, Published, ExportTree, ready
+export ready
 
 include("sampler.jl")
 include("structure.jl")
