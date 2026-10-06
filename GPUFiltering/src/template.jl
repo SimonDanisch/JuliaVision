@@ -157,7 +157,13 @@ end
 # floats instead of the whole score volume (the GPU→CPU copy dominated).
 @kernel function peakmargin_kernel!(out, @Const(scores), R::Int32, excl::Int32)
     k = @index(Global)
-    S = 2R + 1
+    # Int32, not `2R + 1`: the literals are Int64, so that made `S` an Int64,
+    # the loops below Int64 ranges, and `bx`/`by` (Int32 until the first `bx = ox`)
+    # a `Union{Int32, Int64}`. The union's upper four bytes are undefined while
+    # it holds the Int32, and the index built from it read them: an
+    # out-of-bounds load in thread 0 (GPU-AV), a hung dispatch and a lost device
+    # on an RTX 3070 Laptop — every motion analysis there. The Ada read zeros.
+    S = Int32(2) * R + Int32(1)
     bx = Int32(1); by = Int32(1); best = -2.0f0
     @inbounds for oy in Int32(1):S, ox in Int32(1):S
         s = scores[ox, oy, k]
