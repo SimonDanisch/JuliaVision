@@ -137,7 +137,11 @@ that is deliberate.
 # of through the value dtype, and GPUFiltering's `warp_kernel!` and
 # `sampleregions_kernel!` clamp a sample position before converting it
 # (`sampleposition`) instead of calling `floor(Int32, x)`.
-const KERNELS_VERSION = "47"
+# "48": packed INT8 products for short batches and their fused reduction.
+# "49": fuse decode activations into the packed INT8 reduction.
+# "50": reduce stacked INT8 gate/up projections directly into SwiGLU.
+# "51": exclude padded keys before reading the attention mask.
+const KERNELS_VERSION = "51"
 
 include("assets.jl")
 include("safetensors.jl")

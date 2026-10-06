@@ -1,0 +1,26 @@
+{
+  "hardware": "AMD Radeon RX 7900 XTX (RADV NAVI31)",
+  "julia": "1.12.7",
+  "worker": "Desktop",
+  "method": "Recorded replay, 3 warmups, 12 alternating ABBA/BAAB blocks, 20 synchronized replays per sample; median milliseconds",
+  "scope": "Synthetic single-token matrix products, not end-to-end model timings",
+  "command": "bench_q8_small(; shapes=((1024,2048),(5120,8192),(5120,26624),(53248,5120)), widths=(1,), repeats=12, inner=20, epi=x->max(x,zero(x)))",
+  "relu_first": [
+    {"m":1024,"k":2048,"n":1,"old_ms":0.03002985,"new_ms":0.026344975,"speedup":1.139870127035611},
+    {"m":5120,"k":8192,"n":1,"old_ms":0.09865165,"new_ms":0.08829125,"speedup":1.117343451361262},
+    {"m":5120,"k":26624,"n":1,"old_ms":0.2728872,"new_ms":0.273034225,"speedup":0.9994615143943952},
+    {"m":53248,"k":5120,"n":1,"old_ms":0.4461494,"new_ms":0.442704725,"speedup":1.007780976360711}
+  ],
+  "relu_repeat": [
+    {"m":1024,"k":2048,"n":1,"old_ms":0.03065655,"new_ms":0.027561475,"speedup":1.1122971466512586},
+    {"m":5120,"k":8192,"n":1,"old_ms":0.094330825,"new_ms":0.0872375,"speedup":1.0813105029373837},
+    {"m":5120,"k":26624,"n":1,"old_ms":0.268890475,"new_ms":0.262377225,"speedup":1.024823991487828},
+    {"m":53248,"k":5120,"n":1,"old_ms":0.4248918,"new_ms":0.424025175,"speedup":1.0020438055358387}
+  ],
+  "silu": [
+    {"m":1024,"k":2048,"n":1,"old_ms":0.0443713,"new_ms":0.039582325,"speedup":1.1209877135817565},
+    {"m":5120,"k":8192,"n":1,"old_ms":0.091505025,"new_ms":0.082531925,"speedup":1.108722776065141},
+    {"m":5120,"k":26624,"n":1,"old_ms":0.26893455,"new_ms":0.262717125,"speedup":1.0236658535297232},
+    {"m":53248,"k":5120,"n":1,"old_ms":0.425028575,"new_ms":0.423266475,"speedup":1.004163098435802}
+  ]
+}

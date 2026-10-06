@@ -84,9 +84,15 @@ function and argument types, not the source.
 
 Quantised weights: int8 (`quantize = true`), ConvRot int8 and W4A8 for the
 Qwen-Image denoiser, and PTQ1 ternary with a GGUF reader for Bonsai.
+INT8 batches of 2–8 columns reuse packed weights directly for matrices with at
+least 1M weights and more input than output channels.
+Single-token INT8 gate/up pairs reduce directly into SwiGLU when neither half
+is otherwise consumed. Projection and SiLU rounding are preserved.
 
 ## Recent fixes worth knowing
 
+  * **Partial masked-attention tiles (2026-10-06).** Padded keys no longer read
+    beyond the mask, which could produce intermittent NaNs in Horizon prefill.
   * **`fused.maskedattention` (2026-09-30).** Its only implementation was the
     eager arm, deleted with the eager op library on 2026-09-23, while
     `fusemaskedattention` kept creating the op. Every fp16 graph with a masked

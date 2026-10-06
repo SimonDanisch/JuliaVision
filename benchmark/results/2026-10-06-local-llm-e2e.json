@@ -1,0 +1,51 @@
+{
+  "hardware": "AMD Radeon 8060S (RADV STRIX_HALO)",
+  "julia": "1.12.7",
+  "kernels_version": "51",
+  "scope": "Full checkpoints and focused regressions, not the entire JuliaVision test suite",
+  "focused_kernel_assertions": 4108,
+  "bonsai_package_assertions": 59,
+  "masked_attention_regression": {
+    "query_lengths": [8, 16, 24, 64],
+    "key_lengths": [16, 33],
+    "key_tile_width": 32,
+    "method": "NaN guard storage immediately after the mask; compare GPU output against CPU attention",
+    "before_fix": {"passed": 16, "failed": 8},
+    "after_fix": {"passed": 24, "failed": 0}
+  },
+  "bonsai": {
+    "checkpoint": "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+    "method": "Sequential decode versus chunked prefill; compare logits and eight generated tokens",
+    "prompt_tokens": [17, 18],
+    "chunks": [1, 2, 3, 8, 16],
+    "assertions": 132,
+    "maximum_relative_logit_difference": 0.0007410782,
+    "generated_tokens_identical": true,
+    "logits_finite": true
+  },
+  "horizon": {
+    "checkpoint": "Horizon 32B, INT8 projections",
+    "method": "Identical quantized weights, all three INT8 optimizations disabled versus enabled",
+    "prompt_tokens": [2, 3, 8],
+    "generated_tokens_per_prompt": 12,
+    "a_b_assertions": 46,
+    "fresh_plan_rounds": 8,
+    "fresh_plan_generations": 48,
+    "fresh_plan_assertions": 96,
+    "generated_tokens_identical": true,
+    "prefill_and_decode_logits_finite": true,
+    "recorded_passes": {"baseline": 7119, "optimized": 6991},
+    "timing_note": "Busy local machine; correctness run, no end-to-end speedup claim",
+    "timings": [
+      {"prompt_tokens": 2, "old_seconds": 2.4674063, "new_seconds": 2.461796822,
+       "old_samples": [2.476471554, 2.4674063, 2.465251984],
+       "new_samples": [2.473074672, 2.459074459, 2.461796822]},
+      {"prompt_tokens": 3, "old_seconds": 2.468594143, "new_seconds": 2.463955567,
+       "old_samples": [2.483185048, 2.468594143, 2.464283483],
+       "new_samples": [2.472782118, 2.456327873, 2.463955567]},
+      {"prompt_tokens": 8, "old_seconds": 2.494551524, "new_seconds": 2.562640403,
+       "old_samples": [2.543866875, 2.479899705, 2.494551524],
+       "new_samples": [2.577162145, 2.503779554, 2.562640403]}
+    ]
+  }
+}
