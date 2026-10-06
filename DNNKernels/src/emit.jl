@@ -4079,12 +4079,12 @@ Both spellings are the same computation — torch distinguishes which CUDA kerne
 it would have used, which says nothing about ours — so they share this body, as
 they shared `sdpa` before.
 
-The plan is chosen by the same `flashcm_plan` an immediate call asks, from
-`eltype` and `size` alone, which is all a declaration has. `FlashCM2Plan` and
-the two fallbacks are REFUSED by name rather than written untested: each has its
-own launch shape, and a declared form of one has to be split from its launcher
-the way `flash_launches` was. A refusal names the plan, which is what tells the
-next person which one to port.
+The plan is chosen in the order an immediate call (`sdpaplan`) chooses it, from
+`eltype` and `size` alone, which is all a declaration has: `FlashCM2Plan`,
+`FlashRowsPlan`, `FlashCMPlan`. Each of those has a declared form split from its
+launcher (`flash_launches`, `flashrows_launches`). `CoopMatSDPAPlan` has not, and
+is REFUSED by name rather than written untested; a refusal names the plan, which
+is what tells the next person which one to port.
 
 torch returns four results and only the first is read; the export declares the
 other three empty, and they are handed back so the tuple's shape is honest.
@@ -4159,12 +4159,14 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     k = sdpaoperand(emitctx, op, 2)
     v = sdpaoperand(emitctx, op, 3)
     outperm = sdpaoutputpermute(emitctx, op, (E, Lq, H, B))
+    # The coopmat2 kernel first, as `sdpaplan` takes it. It writes `out` through a
+    # tensor layout, so a destination it cannot address goes on to the next path,
+    # the same recovery `sdpa!(ctx, ::FlashCM2Plan, …)` makes.
     cm2 = flashcm2_plan(caps, q, k, v, bias)
-    cm2 isa Decline || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
-        "not split from `sdpaflashcm2!` yet, so it has no declared form. " *
-        "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
-        "shape a port takes.")
+    if cm2 isa FlashCM2Plan && cm2writable(out)
+        flash_dispatch!(emitctx.g, out, cm2, q, k, v, scale; name = op.id)
+        return sdparesults(emitctx, dst)
+    end
     # The same order the immediate path takes (`sdpaplan`). A following
     # `(0, 2, 1, 3)` permute is written by the kernel itself and registered as a
     # dense view, as the cooperative-matrix kernel below does.
