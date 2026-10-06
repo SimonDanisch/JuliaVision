@@ -645,11 +645,37 @@ function tokens(text::AbstractString)
     out
 end
 
+const STRESS_LINK = r"\[([^\[\]]+)\]\(([^)]*)\)"
+
+"""Tokenise `[word](+2)` style stress controls without speaking their markup.
+
+Signed integers and ±0.5 follow misaki's stress scale. A multiword label
+applies the control to each word; punctuation is retained. Unsupported
+targets fail explicitly instead of accidentally being spoken as narration.
+"""
+function stress_tokens(text::AbstractString)
+    out = Tuple{String,Union{Nothing,Float64}}[]
+    cursor = firstindex(text)
+    append_plain(s) = append!(out, [(w, nothing) for w in tokens(s)])
+    for m in eachmatch(STRESS_LINK, text)
+        m.offset > cursor && append_plain(SubString(text, cursor, prevind(text, m.offset)))
+        target = strip(m.captures[2])
+        occursin(r"^[+-]?(?:[0-9]+|0\.5)$", target) || throw(ArgumentError(
+            "Unsupported speech annotation $(repr(target)); use an integer stress level or ±0.5"))
+        stress = tryparse(Float64, target)
+        (stress !== nothing && isfinite(stress)) || throw(ArgumentError("Invalid stress level: $target"))
+        append!(out, [(w, stress) for w in tokens(m.captures[1])])
+        cursor = m.offset + ncodeunits(m.match)
+    end
+    cursor <= lastindex(text) && append_plain(SubString(text, cursor))
+    return out
+end
+
 """
     phonemize(k, text) -> String
     phonemize(lex, text) -> String
 
-Text -> misaki phonemes, the string Kokoro's vocabulary is keyed by.
+Text -> misaki phonemes, including inline `[word](+2)` stress controls.
 
 **Right to left**, because a token's pronunciation depends on what follows it:
 `the` before a vowel is `ði`, before a consonant `ðə`. Running left to right
@@ -661,12 +687,12 @@ there is no fallback G2P here (misaki uses espeak for that), and inventing a
 pronunciation is worse than a gap.
 """
 function phonemize(lex::Lexicon, text::AbstractString)
-    ts = tokens(text)
+    ts = stress_tokens(text)
     out = Vector{String}(undef, length(ts))
     ctx = Context(nothing)
     unknown = String[]
     for i in reverse(eachindex(ts))
-        w = ts[i]
+        w, explicit_stress = ts[i]
         # Punctuation FIRST. `SUBTOKEN_JUNKS` contains `.` and `,` — it is
         # misaki's set for debris *inside* a word group, where a full stop is an
         # abbreviation's rather than a sentence's. Testing it first here silently
@@ -691,6 +717,9 @@ function phonemize(lex::Lexicon, text::AbstractString)
             push!(unknown, w)
             ps = ""
         end
+        # Apply the annotation after lexical/capitalisation stress, including
+        # special-case words and numbers. Keep one right-to-left context pass.
+        ps = applystress(ps, explicit_stress)
         out[i] = ps
         ctx = context(ctx, ps)
     end
