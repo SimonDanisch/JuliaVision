@@ -21,6 +21,8 @@ using JSON3
 
 @testset "KokoroRunner" begin
 
+include("test_stress_annotations.jl")
+
 @testset "number readings" begin
     @test numwords(0) == "zero"
     @test numwords(42) == "forty two"

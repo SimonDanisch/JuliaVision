@@ -519,6 +519,7 @@ kernel would otherwise walk straight into — see `test_shared_index_division.jl
 """
 @inline flashscore(s, scale, ::Nothing, qi, ki, h, b) = s * scale
 @inline function flashscore(s, scale, mask, qi, ki, h, b)
+    ki > size(mask,1) && return -Inf32
     qi > size(mask,2) && return -65504.0f0
     @inbounds z = mask[ki,qi,size(mask,3)==1 ? 1 : h,size(mask,4)==1 ? 1 : b]
     Float32(Float16(Float16(Float16(s)*scale)+z))

@@ -647,7 +647,7 @@ end
 
 function q8reduce_kernel!(C, P, s, bias,
                                             M::Int32, MP::Int32, S::Int32,
-                                            ::Val{HASBIAS}) where {HASBIAS}
+                                            ::Val{HASBIAS}, epi = identity) where {HASBIAS}
     m = KI.get_global_id().x
     if m <= M
         @inbounds begin
@@ -657,10 +657,103 @@ function q8reduce_kernel!(C, P, s, bias,
             end
             acc *= s[m]
             HASBIAS && (acc += Float32(bias[m]))
-            C[m] = eltype(C)(acc)
+            # Preserve the rounding of the former separate activation pass.
+            C[m] = eltype(C)(epi(eltype(C)(acc)))
         end
     end
     return nothing
+end
+
+# Reduce a stacked gate/up projection without writing either activation.
+function q8gateup_reduce!(out, parts, scale, H::Int32, MP::Int32, S::Int32,
+                          gateoff::Int32, upoff::Int32, ::Val{T}) where {T}
+    i = Int32(KI.get_global_id().x)
+    if i <= H
+        gi, ui = gateoff + i, upoff + i
+        @inbounds begin
+            gv, uv = parts[gi], parts[ui]
+            for sp in Int32(1):(S - Int32(1))
+                gv += parts[gi + sp * MP]
+                uv += parts[ui + sp * MP]
+            end
+            gv = Float32(T(gv * scale[gi]))
+            uv = Float32(T(uv * scale[ui]))
+            # Keep both the projection and SiLU rounding points.
+            out[i] = eltype(out)(Float32(eltype(out)(gv / (1f0 + exp(-gv)))) * uv)
+        end
+    end
+    return nothing
+end
+
+# Reuse each packed weight across a short batch without padding its columns.
+const Q8SMALL_KERNELS = Dict{Int,Any}()
+# A/B switch for full-model validation against the wider INT8 path.
+const Q8SMALL = Ref(true)
+const Q8EPILOGUE = Ref(true)
+# Deep projections win once weight traffic offsets the second dispatch.
+# Measured by tools/bench_q8_small.jl with alternating recorded replays.
+q8small_applicable(m, k, n) = Q8SMALL[] && 2 <= n <= 8 && k > m && m * k >= 1_048_576
+for N in 2:8
+    name = Symbol("q8small_", N, "!")
+    @eval function $name(P, q32, x, MG::Int32, MP::Int32, K::Int32,
+                         KC::Int32, ntot::Int32)
+        lin = Int32(KI.get_global_id().x) - Int32(1)
+        if lin < ntot
+            g, sp = lin % MG, lin ÷ MG
+            Base.Cartesian.@nexprs $N j -> Base.Cartesian.@nexprs 4 r -> (acc_j_r = 0f0)
+            k = sp * KC
+            k1 = min(k + KC, K)
+            @inbounds while k < k1
+                w = q32[g + Int32(1) + k * MG]
+                Base.Cartesian.@nexprs 4 r -> (wr_r = q8byte(w, r - 1))
+                Base.Cartesian.@nexprs $N j -> begin
+                    xv_j = Float32(x[k + Int32(1) + Int32(j - 1) * K])
+                    Base.Cartesian.@nexprs 4 r -> (acc_j_r = muladd(wr_r, xv_j, acc_j_r))
+                end
+                k += Int32(1)
+            end
+            @inbounds Base.Cartesian.@nexprs $N j -> begin
+                o = g * Int32(4) + (Int32(j - 1) + sp * Int32($N)) * MP
+                Base.Cartesian.@nexprs 4 r -> (P[o + Int32(r)] = acc_j_r)
+            end
+        end
+        return nothing
+    end
+    Q8SMALL_KERNELS[N] = getfield(@__MODULE__, name)
+end
+
+function q8small_reduce!(out, parts, scale, bias, epi,
+                         M::Int32, MP::Int32, N::Int32, S::Int32,
+                         ::Val{HASBIAS}) where {HASBIAS}
+    i = Int32(KI.get_global_id().x) - Int32(1)
+    if i < M * N
+        row, col = i % M, i ÷ M
+        base = row + col * MP + Int32(1)
+        acc = 0f0
+        @inbounds begin
+            for sp in Int32(0):(S - Int32(1))
+                acc += parts[base + sp * MP * N]
+            end
+            acc *= scale[row + Int32(1)]
+            HASBIAS && (acc += Float32(bias[row + Int32(1)]))
+            out[i + Int32(1)] = eltype(out)(epi(acc))
+        end
+    end
+    return nothing
+end
+
+function q8small_dispatch!(g, out, A::QInt8Matrix, B, parts, bias, epi; name="q8small")
+    m, k = size(A); n = size(B, 2)
+    mg, mp, splits = size(A.q, 1), 4size(A.q, 1), size(parts, 3)
+    M.dispatch!(g, Q8SMALL_KERNELS[n],
+        (parts, A.q, B, Int32(mg), Int32(mp), Int32(k),
+         Int32(cld(k, splits)), Int32(mg * splits)), mg * splits;
+        group = 256, name)
+    M.dispatch!(g, q8small_reduce!,
+        (out, parts, A.scale, bias === nothing ? A.scale : bias, epi,
+         Int32(m), Int32(mp), Int32(n), Int32(splits), Val(bias !== nothing)),
+        m * n; group = 256, name = "$name.reduce")
+    out
 end
 
 function q8dequant_kernel!(W, q32, s,

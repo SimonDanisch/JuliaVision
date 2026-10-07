@@ -1,5 +1,6 @@
 using Test, BonsaiRunner, DNNKernels, Artifacts
 import Mantle
+include("test_state_boundaries.jl")
 
 @testset "checkpoint artifact bindings" begin
     toml = joinpath(pkgdir(BonsaiRunner), "Artifacts.toml")

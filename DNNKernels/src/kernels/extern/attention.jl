@@ -316,8 +316,13 @@ feeds: 9 MB for `q` against 512 MB of scores in SAM 2's global attention.
 `AbstractGPUArray <: DenseArray` — it admits both a device array and the host
 `Array` the verification path uses, and rejects exactly the wrapper stack.
 """
+@inline densify(ctx, a::DenseArray) = a
+# A pool `Buffer` is dense already, and its storage is the device array over it.
+# It is not an `AbstractArray` itself, so the copy below broadcast it as a value
+# and threw a `DimensionMismatch`: every operand `DK.toback` made took this path
+# through the three-pass `sdpa!`.
+@inline densify(ctx, a::M.Buffer) = M.storage(a)
 @inline function densify(ctx, a)
-    a isa DenseArray && return a
     d = scratch!(ctx, eltype(a), size(a)...)
     d .= a
     d

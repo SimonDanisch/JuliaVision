@@ -489,8 +489,8 @@ struct MMGemvPlan end
     MMInt8Plan
 
 The weight is a [`QInt8Matrix`](@ref). Carries nothing: `N == 1` goes to the
-int8 GEMV and anything wider dequantises into the workspace and reuses the
-fp16 GEMM, and both of those are decided from the operands.
+int8 GEMV; short batches with a deep reduction reuse packed weights across
+columns. Wider products use packed cooperative GEMM or dequantise for fp16 GEMM.
 """
 struct MMInt8Plan end
 

@@ -293,5 +293,76 @@ end
             @test maximum(abs, a2 .- a3) / maximum(abs, a3) < 5e-3
             q = k = v = o2 = o3 = nothing; GC.gc()
         end
+
+        # ── The declared form. A model call is one recorded Mantle graph, and
+        # `emitsdpa!` used to throw on a `FlashCM2Plan` because its launch had not
+        # been split from `sdpaflashcm2!`: SAM 2 could not run at all on a device
+        # with workgroup-scope matrices. Default tiling on purpose, so these are
+        # the plans a model gets, and a ragged `Lq` so the clamping store is in it.
+        gdev = MT.Device(back)
+        E, Lq, Lk, H, B = 72, 200, 200, 8, 4
+        qh = Float16.(randn(Float32, E, Lq, H, B) .* 0.2f0)
+        kh = Float16.(randn(Float32, E, Lk, H, B) .* 0.2f0)
+        vh = Float16.(randn(Float32, E, Lk, H, B) .* 0.2f0)
+        scale = Float32(1 / sqrt(E))
+        want = attnref_cm2(qh, kh, vh, scale)
+
+        @testset "declared into a graph and replayed" begin
+            # Declared operands are Mantle resources, addressed from their size,
+            # and the slot is fp16 as a planner reserves it for attention.
+            q, k, v = MT.Buffer(gdev, qh), MT.Buffer(gdev, kh), MT.Buffer(gdev, vh)
+            out = MT.Buffer(gdev, Float16, (E, Lq, H, B))
+            plan = DK.flashcm2_plan(MT.caps(gdev), q, k, v, nothing)
+            @test plan isa DK.FlashCM2Plan
+            graph = MT.Graph(gdev)
+            DK.flash_dispatch!(graph, out, plan, q, k, v, scale)
+            @test length(graph.passes) == 1
+            p = MT.Plan(graph)
+            MT.record!(p)
+            # The second replay of the same recording computes the same thing.
+            for _ in 1:2
+                MT.run!(p); MT.waitidle(gdev)
+                got = Float32.(Array(MT.storage(out)))
+                @test all(isfinite, got)
+                @test maximum(abs, got) > 1e-3
+                @test maximum(abs, got .- want) < 3e-3
+            end
+            MT.free!(p)
+        end
+
+        @testset "emitsdpa! declares it, and declines to cm1 without workgroup scope" begin
+            A(p...) = Dict{String,Any}(p...)
+            buf(id, kind, L) = DK.Buffer(id, kind, Any[B, H, L, E], Float16, "", (0, 0),
+                                         "", "", A())
+            bs = [buf("q", :external, Lq), buf("k", :external, Lk),
+                  buf("v", :external, Lk), buf("o", :transient, Lq)]
+            ops = [DK.Op("o", "fused.sdpa", ["q", "k", "v"], "o", A("scale" => scale))]
+            g = DK.Graph("attn", String[], ["q", "k", "v"], ["o"],
+                         Dict(b.id => b for b in bs), [b.id for b in bs], ops)
+            ins = (MT.Buffer(gdev, qh), MT.Buffer(gdev, kh), MT.Buffer(gdev, vh))
+            function run()
+                rp = DK.planfor(gdev, g, Dict{String,Any}(), (;))
+                got = Float32.(Array(first(DK.replay!(rp, "attn", ins))))
+                kernels = [d.kernel for pp in rp.plan.passes for d in MT.dispatches(pp.pass)]
+                MT.free!(rp.plan)
+                got, kernels
+            end
+            got, kernels = run()
+            @test DK.attn_flash_cm2! in kernels
+            @test maximum(abs, got .- want) < 3e-3
+            # The same graph on a device WITHOUT workgroup-scope matrices, which is
+            # every AMD card: the cm2 plan declines and the declared cm1 kernel
+            # runs as it did before the port.
+            caps0 = MT.caps(gdev)
+            gdev.ctx.caches.caps = MT.DeviceCaps(caps0; wggran = NTuple{4,Int}[])
+            got1, kernels1 = try
+                run()
+            finally
+                gdev.ctx.caches.caps = caps0
+            end
+            @test !(DK.attn_flash_cm2! in kernels1)
+            @test DK.attn_flash_cm_spatial4! in kernels1
+            @test maximum(abs, got1 .- want) < 3e-3
+        end
     end
 end

@@ -652,8 +652,10 @@ end
 
 function _dense_coop_batch!(g, out, weight, xhalf,
                             K::Int, M::Int, ntokens::Int, name::String)
+    # A 32-wide block cannot cover a 16-token prompt.
+    block = M % 32 == 0 && ntokens % 32 == 0 ? 2 : 1
     Mantle.coopmat_gemm_dispatch!(g, out, weight, xhalf, M, ntokens, K;
-                                  name, blk_split=(2, 1))
+                                  name, blk_split=(block, 1))
     out
 end
 

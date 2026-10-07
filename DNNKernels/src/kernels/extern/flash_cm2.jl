@@ -903,56 +903,88 @@ function flashcm2_plan(dev::M.DeviceCaps, q, k, v, bias;
     # (`mwe_tensor_stride.jl` strides the OUTER dimension); a non-unit innermost
     # stride is a shape nothing has verified, and the failure mode would be wrong
     # numbers rather than a refusal. The cm1 path stages by hand and does not care,
-    # so this declines to it rather than guessing.
-    (strides(q)[1] == 1 && strides(k)[1] == 1 && strides(v)[1] == 1) ||
+    # so this declines to it rather than guessing. `flashstrides` and not
+    # `strides`: a declared operand (`emitsdpa!`) answers from its size.
+    (flashstrides(q)[1] == 1 && flashstrides(k)[1] == 1 && flashstrides(v)[1] == 1) ||
         return Decline(:stridedE)
 
     FlashCM2Plan(BR, BC, NT, E, cm2pad(dev, E, NT))
 end
 
 """
-    sdpaflashcm2!(ctx, out, plan, q, k, v, scale) -> out
+    flash_launches(out, plan::FlashCM2Plan, q, k, v, scale; abl, fused, osum) -> Vector
 
-Launch [`attn_flash_cm2!`](@ref). Holding a plan means it runs: every refusal
-happened in [`flashcm2_plan`](@ref).
+What this attention IS: one launch of [`attn_flash_cm2!`](@ref). No side effects
+and no allocation. The same split [`flash_launches`](@ref) makes for a
+`FlashCMPlan`, and for the same reason: [`flash_dispatch!`](@ref) declares these
+into a graph and [`sdpaflashcm2!`](@ref) submits them now, so the argument list
+exists once and the two cannot drift.
+
+Every operand, `out` included, goes in as a root, an element offset and four
+strides. `stridedroot`, `flashstrides` and `flashflat` answer that for an array
+from its own strides and for a declared resource from its size (a declaration is
+dense, or it is a [`StridedOperand`](@ref) carrying its strides), which is how one
+argument list serves both callers.
+
+Holding a plan means it runs: every refusal happened in
+[`flashcm2_plan`](@ref). What is checked here is what the plan does not cover,
+the destination and the diagnostic keywords.
 """
-function sdpaflashcm2!(ctx, out, plan::FlashCM2Plan, q, k, v, scale;
-                       abl::Symbol = :all, fused::Bool = true, osum::Symbol = :fill)
+function flash_launches(out, plan::FlashCM2Plan, q, k, v, scale;
+                        abl::Symbol = :all, fused::Bool = true, osum::Symbol = :fill)
     # An unrecognised `osum` must not reach the kernel: there it would match
     # neither `:fill` nor `:pass`, so no ones column would be written and the
-    # denominator would come out zero — a silently wrong answer from a typo.
+    # denominator would come out zero, a silently wrong answer from a typo.
     osum in OSUM_MODES ||
         throw(ArgumentError("osum must be one of $(OSUM_MODES); got :$osum"))
     abl in ABL_MODES ||
         throw(ArgumentError("abl must be one of $(ABL_MODES); got :$abl"))
+    # The destination goes in as root + strides like the operands. It is not part
+    # of the plan (`sdpa` allocates it, or a caller supplies it, and a graph always
+    # does) and it is neither guaranteed dense nor guaranteed fp32.
+    cm2writable(out) || throw(ArgumentError(
+        "attn_flash_cm2! needs a strided Float32 or Float16 destination with a " *
+        "contiguous head dimension; got $(typeof(out))"))
     E, Lq, H, B = size(q)
     Lk = size(k, 2)
-    rq, rk, rv = stridedroot(q), stridedroot(k), stridedroot(v)
-    # The destination goes in as root + strides like the operands. A caller may
-    # pass one — a graph always does — and it is neither guaranteed dense nor
-    # guaranteed fp32.
-    ro = stridedroot(out)
-    ro === nothing &&
-        throw(ArgumentError("attn_flash_cm2! needs a strided destination; got $(typeof(out))"))
-    eltype(out) === Float32 || eltype(out) === Float16 ||
-        throw(ArgumentError("attn_flash_cm2! writes Float32 or Float16, not $(eltype(out))"))
-    strides(out)[1] == 1 ||
-        throw(ArgumentError("attn_flash_cm2! needs a contiguous head dimension in `out`"))
-    st(a) = map(Int32, strides(a))
-    sq, sk, sv, so = st(q), st(k), st(v), st(out)
-    flat(r) = reshape(r[1], length(r[1]))
+    rq, rk, rv, ro = stridedroot(q), stridedroot(k), stridedroot(v), stridedroot(out)
+    sq, sk, sv, so = flashstrides(q), flashstrides(k), flashstrides(v), flashstrides(out)
+    [(kern = attn_flash_cm2!,
+      args = (flashflat(ro[1]), flashflat(rq[1]), flashflat(rk[1]), flashflat(rv[1]),
+              Float32(scale),
+              Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
+              Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
+              Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
+              Int32(ro[2] + 1), so[1], so[2], so[3], so[4],
+              Int32(Lq), Int32(Lk),
+              Val(plan.BR), Val(plan.BC), Val(plan.E), Val(plan.EP), Val(abl),
+              Val(fused), Val(osum)),
+      ndrange = (plan.NT * cld(Lq, plan.BR), H, B), group = plan.NT)]
+end
 
-    harnesslaunch!(ctx.backend, attn_flash_cm2!,
-        flat(ro), flat(rq), flat(rk), flat(rv), Float32(scale),
-        Int32(rq[2] + 1), sq[1], sq[2], sq[3], sq[4],
-        Int32(rk[2] + 1), sk[1], sk[2], sk[3], sk[4],
-        Int32(rv[2] + 1), sv[1], sv[2], sv[3], sv[4],
-        Int32(ro[2] + 1), so[1], so[2], so[3], so[4],
-        Int32(Lq), Int32(Lk),
-        Val(plan.BR), Val(plan.BC), Val(plan.E), Val(plan.EP), Val(abl), Val(fused),
-        Val(osum);
-        ndrange = (plan.NT * cld(Lq, plan.BR), H, B), workgroupsize = plan.NT)
-    out
+"""
+    sdpaflashcm2!(ctx, out, plan, q, k, v, scale; abl, fused, osum) -> out
+
+Submit [`attn_flash_cm2!`](@ref) now. Holding a plan means it runs: every refusal
+happened in [`flashcm2_plan`](@ref).
+"""
+function sdpaflashcm2!(ctx, out, plan::FlashCM2Plan, q, k, v, scale; kw...)
+    M.runlaunches!(ctx.backend, flash_launches(out, plan, q, k, v, scale; kw...))
+    return out
+end
+
+"""
+    flash_dispatch!(g, out, plan::FlashCM2Plan, q, k, v, scale; name, …) -> out
+
+DECLARE this attention into a graph: one pass, the launch
+[`flash_launches`](@ref) describes. No scratch, because the kernel has no
+key-axis split (see [`flashcm2_tiling`](@ref)).
+"""
+function flash_dispatch!(g, out, plan::FlashCM2Plan, q, k, v, scale;
+                         name::AbstractString = "sdpa", kw...)
+    l = only(flash_launches(out, plan, q, k, v, scale; kw...))
+    M.dispatch!(g, l.kern, l.args, l.ndrange; group = l.group, name)
+    return out
 end
 
 """
@@ -972,10 +1004,11 @@ function sdpaflashcm2!(ctx, out, q, k, v, scale; BR::Int = 0, BC::Int = 0, NT::I
 end
 
 """Whether this kernel can address a destination: a strided root, a component
-type a cooperative matrix has, and the head dimension contiguous."""
+type a cooperative matrix has, and the head dimension contiguous. An array or a
+declared resource, the same as the operands (`flashstrides`)."""
 cm2writable(o) = stridedroot(o) !== nothing &&
                  (eltype(o) === Float32 || eltype(o) === Float16) &&
-                 strides(o)[1] == 1
+                 flashstrides(o)[1] == 1
 
 # One `sdpa!` method per plan type — a new attention path is a new plan type and
 # a new method, and nothing in `attention.jl` has to be edited to admit it.

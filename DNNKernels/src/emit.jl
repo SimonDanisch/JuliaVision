@@ -198,6 +198,17 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
     emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[],
                       Dict{String,Any}())
     shapes = resultshapes(aten)
+    gateups = Dict{String,Op}()
+    if Q8GATEUP[] && !Q8SINGLE[] && before === nothing && after === nothing
+        for i in 1:(length(aten.ops) - 1)
+            mm, sw = aten.ops[i], aten.ops[i + 1]
+            (mm.out in skip || sw.out in skip) && continue
+            q8gateupmatch(aten, mm, sw, weights, dims, esc, bound) || continue
+            gateups[mm.id] = sw
+        end
+    end
+    folded = Set(sw.id for sw in values(gateups))
+    live = setdiff(live, Set(mm.out for mm in aten.ops if haskey(gateups, mm.id)))
     # Which op makes each buffer, so `declare!` can ask what is about to be
     # emitted into one. Built once here rather than scanned per buffer.
     producers = Dict{String,Op}(op.out => op for op in aten.ops)
@@ -221,8 +232,11 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
         before === nothing || before(emitctx)
         for op in aten.ops
             op.out in skip && continue
+            op.id in folded && continue
             emitctx.outid[] = op.out
-            if op.aten in NOISEOPS
+            if haskey(gateups, op.id)
+                emitq8gateup!(emitctx, op, gateups[op.id])
+            elseif op.aten in NOISEOPS
                 # ZeroNoise is a deterministic fill. RandomNoise gets a small
                 # persistent device state whose advance dispatch is part of the
                 # recorded plan, so replay draws again instead of freezing the
@@ -420,6 +434,7 @@ function paddedcolumns(emitctx::EmitCtx, b::Buffer, dims::Dims,
     (w isa QInt8Matrix || w isa ConvRotQInt8Matrix) || return nothing
     Mm, K = size(w)
     Mm == dims[1] || return nothing
+    q8small_applicable(Mm, K, dims[2]) && return nothing
     np = q8gemm_columns(dims[2])
     np == dims[2] && return nothing
     q8gemm_tiling(M.caps(emitctx.dev), b.dtype, Mm, K, np) === nothing ? nothing : np
@@ -1468,7 +1483,8 @@ result; zeroing it was 128 more dispatches a step.
 function convrotinput(emitctx::EmitCtx, op::Op, caps, out, A::ConvRotQInt8Matrix, B, bias)
     K, N = size(B, 1), size(B, 2)
     NP = q8gemm_columns(N)
-    if N > 1 && NP != N && bias === nothing && eltype(B) === Float16 &&
+    if N > 1 && !q8small_applicable(size(A, 1), K, N) && NP != N &&
+       bias === nothing && eltype(B) === Float16 &&
        (q8gemm_pipelined_tile(caps, eltype(out), size(A, 1), K, NP) !== nothing ||
         q8gemm_tiling(caps, eltype(out), size(A, 1), K, NP) !== nothing)
         padded = scratch(emitctx, Float16, K, NP)
@@ -3323,6 +3339,71 @@ end
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglu")}) =
     swiglu!(emitctx, op, dest(emitctx))
 
+# Disable to compare against separate projection and SwiGLU passes.
+const Q8GATEUP = Ref(true)
+
+function q8gateuphalf(g, id, root, h, t, dims)
+    b = g.buffers[id]
+    # Exporters may reshape each slice without changing its linear order.
+    while b.kind === :view && b.viewop in ("view.default", "reshape.default")
+        b.dtype === t && prod(evalshape(b.shape,dims)) == h || return nothing
+        b = g.buffers[b.of]
+    end
+    b.kind === :view && b.of == root && b.viewop == "slice.Tensor" &&
+        evalshape(b.shape,dims) == (h,1) && b.dtype === t &&
+        get(b.attrs,"arg1",nothing) == 1 && get(b.attrs,"arg4",1) == 1 || return nothing
+    get(b.attrs,"arg2",-1)
+end
+
+# Only adjacent, private decode projections: moving a read across another op
+# could cross an in-place update, and escaping halves must still be written.
+function q8gateupmatch(g, mm, sw, weights, dims, esc, bound)
+    mm.aten == "mm.default" && length(mm.ins) == 2 || return false
+    sw.aten in ("fused.swiglu", "fused.swiglumm") || return false
+    wb = g.buffers[mm.ins[2]]
+    wb.kind === :weight || return false
+    a = weights[wb.key]
+    a isa QInt8Matrix || return false
+    m, k = size(a)
+    iseven(m) && m > 0 || return false
+    evalshape(g.buffers[mm.out].shape, dims) == (m, 1) || return false
+    evalshape(g.buffers[mm.ins[1]].shape, dims) == (k, 1) || return false
+    t = g.buffers[mm.out].dtype
+    t in (Float16, Float32) || return false
+    h = m ÷ 2
+    offsets = [q8gateuphalf(g,id,mm.out,h,t,dims) for id in sw.ins[1:2]]
+    (offsets == [0, h] || offsets == [h, 0]) || return false
+    any(id -> viewroot(g, id) == mm.out, union(esc, Set(keys(bound)))) && return false
+    any(op -> op.id != sw.id && any(id -> viewroot(g, id) == mm.out, op.ins), g.ops) && return false
+    if sw.aten == "fused.swiglumm"
+        dw = g.buffers[sw.ins[3]]
+        dw.kind === :weight && !(weights[dw.key] isa ConvRotQInt8Matrix) || return false
+    end
+    maximum((m, k, 4cld(m,4) * q8split(m,k))) <= typemax(Int32)
+end
+
+function emitq8gateup!(ctx, mm, sw)
+    a, b = operand(ctx, mm, 2), operand(ctx, mm, 1)
+    m, k = size(a)
+    mg, splits = size(a.q, 1), q8split(m,k)
+    parts = scratch(ctx, Float32, 4mg, 1, splits)
+    M.dispatch!(ctx.g, q8gemv_kernel!,
+        (parts, a.q, b, Int32(mg), Int32(4mg), Int32(k),
+         Int32(cld(k,splits)), Int32(mg*splits)), mg*splits;
+        group=256, name="$(mm.id).q8")
+    ctx.outid[] = sw.out
+    h = sw.aten == "fused.swiglu" ? dest(ctx) :
+        scratch(ctx, sw.attrs["dtype"], m÷2, 1)
+    gateoff, upoff = (q8gateuphalf(ctx.aten,id,mm.out,m÷2,
+        ctx.aten.buffers[mm.out].dtype,ctx.dims) for id in sw.ins[1:2])
+    M.dispatch!(ctx.g, q8gateup_reduce!,
+        (h, parts, a.scale, Int32(m÷2), Int32(4mg), Int32(splits),
+         Int32(gateoff), Int32(upoff), Val(ctx.aten.buffers[mm.out].dtype)), m÷2;
+        group=256, name="$(sw.id).gateup")
+    sw.aten == "fused.swiglu" && return h
+    gemm!(ctx, sw, dest(ctx), operand(ctx, sw, 3), h)
+end
+
 """`silu(gate) * up` of `op`'s first two inputs, into `out`, as one dispatch."""
 function swiglu!(emitctx::EmitCtx, op::Op, out; name::AbstractString = op.id)
     # In place off whatever the halves are views OF, which is what the
@@ -3998,12 +4079,12 @@ Both spellings are the same computation — torch distinguishes which CUDA kerne
 it would have used, which says nothing about ours — so they share this body, as
 they shared `sdpa` before.
 
-The plan is chosen by the same `flashcm_plan` an immediate call asks, from
-`eltype` and `size` alone, which is all a declaration has. `FlashCM2Plan` and
-the two fallbacks are REFUSED by name rather than written untested: each has its
-own launch shape, and a declared form of one has to be split from its launcher
-the way `flash_launches` was. A refusal names the plan, which is what tells the
-next person which one to port.
+The plan is chosen in the order an immediate call (`sdpaplan`) chooses it, from
+`eltype` and `size` alone, which is all a declaration has: `FlashCM2Plan`,
+`FlashRowsPlan`, `FlashCMPlan`. Each of those has a declared form split from its
+launcher (`flash_launches`, `flashrows_launches`). `CoopMatSDPAPlan` has not, and
+is REFUSED by name rather than written untested; a refusal names the plan, which
+is what tells the next person which one to port.
 
 torch returns four results and only the first is read; the export declares the
 other three empty, and they are handed back so the tuple's shape is honest.
@@ -4078,12 +4159,14 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     k = sdpaoperand(emitctx, op, 2)
     v = sdpaoperand(emitctx, op, 3)
     outperm = sdpaoutputpermute(emitctx, op, (E, Lq, H, B))
+    # The coopmat2 kernel first, as `sdpaplan` takes it. It writes `out` through a
+    # tensor layout, so a destination it cannot address goes on to the next path,
+    # the same recovery `sdpa!(ctx, ::FlashCM2Plan, …)` makes.
     cm2 = flashcm2_plan(caps, q, k, v, bias)
-    cm2 isa Decline || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
-        "not split from `sdpaflashcm2!` yet, so it has no declared form. " *
-        "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
-        "shape a port takes.")
+    if cm2 isa FlashCM2Plan && cm2writable(out)
+        flash_dispatch!(emitctx.g, out, cm2, q, k, v, scale; name = op.id)
+        return sdparesults(emitctx, dst)
+    end
     # The same order the immediate path takes (`sdpaplan`). A following
     # `(0, 2, 1, 3)` permute is written by the kernel itself and registered as a
     # dense view, as the cooperative-matrix kernel below does.
@@ -4370,6 +4453,7 @@ end
 `out = A * B` (+ bias, then `epi`) as declared dispatches, in Mantle's layout.
 `padded`, when given, is a `K x NP` buffer whose first columns ARE `B`; a packed
 int8 product that pads to `NP` reads it instead of copying `B` into a new one.
+`smallbatch=false` retains the wider INT8 path for benchmark comparisons.
 
 The operands are already swapped by the caller: torch's `a * b` is `b * a` in the
 reversed layout, which is what `runop!` passed `matmul!` too.
@@ -4382,7 +4466,7 @@ plan and the shape, which is what tells the next person which one to port and
 what to check it against.
 """
 function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity,
-               padded = nothing)
+               padded = nothing, smallbatch = true)
     dev = emitctx.dev
     caps = M.caps(dev)
     # A backend library with this exact fused epilogue wins before choosing a
@@ -4535,13 +4619,20 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                 M.dispatch!(emitctx.g, q8reduce_kernel!,
                     (out, parts, A.scale,
                      bias === nothing ? A.scale : bias,
-                     Int32(Mm), Int32(MP), Int32(S), Val(bias !== nothing)),
+                     Int32(Mm), Int32(MP), Int32(S), Val(bias !== nothing),
+                     Q8EPILOGUE[] ? epi : identity),
                     Mm; group = 256, name = "$(op.id).reduce")
             end
-            epi === identity || ewdispatch!(emitctx, out, size(out), (out,),
+            (Q8SINGLE[] || !Q8EPILOGUE[]) && epi !== identity && ewdispatch!(emitctx, out, size(out), (out,),
                 (bcstrides(size(out), size(out)),), epi;
                 name = "$(op.id).act")
             return out
+        end
+
+        if smallbatch && q8small_applicable(Mm, K, N) &&
+           (bias === nothing || biasfoldable(bias, Mm))
+            parts = scratch(emitctx, Float32, 4MG, N, q8split(Mm, K))
+            return q8small_dispatch!(emitctx.g, out, A, B, parts, bias, epi;name=op.id)
         end
 
         # The packed cooperative-matrix GEMM, which reads the int8 weight

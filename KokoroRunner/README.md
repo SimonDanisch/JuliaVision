@@ -25,6 +25,22 @@ it does not know is **dropped** with a warning rather than guessed, which is wha
 `pronounce!` is for. `speed` scales the predicted durations, so the pitch stays.
 `trim = true` cuts leading and trailing silence.
 
+### Word stress
+
+Inline controls use the Kokoro/Misaki demo syntax, e.g.
+`"A wider opening, [not](-1) just [better](+2) glass."`:
+
+- `[word](-1)` demotes primary stress to secondary.
+- `[word](-2)` removes stress marks.
+- `[word](+1)` promotes secondary stress; an unmarked word gains secondary stress.
+- `[word](+2)` can give an unmarked word primary stress.
+- `0`, `+0.5`, and `-0.5` are also accepted, following Misaki's stress rules.
+
+These are stress levels, not volume controls: raising a word already bearing
+primary stress need not change it. Labels can contain multiple words; the level
+then applies to each word. The markup is not spoken. Other link targets are
+rejected; phoneme overrides still use `pronounce!` or `phonemes =`.
+
 ## Examples
 
 [`docs/examples/speech.jl`](../docs/examples/speech.jl), written as MP3 through
