@@ -32,10 +32,13 @@ using Mantle: runonce!
 # whichever backend the graph is on.
 import KernelInterface as KI
 # `@private T (dims)` was KernelAbstractions' spelling for a per-workitem array,
-# and Lava lowers it to exactly this — see `Lava/src/device/ndrange.jl`. Taken
-# from Lava rather than added as a dependency of this package: the lowering and
-# the type have to agree, and there they are one line apart.
-import Lava: StaticArrays
+# and Lava lowers it to exactly this — see `Lava/src/device/ndrange.jl`. A
+# dependency of this package's own, not `import Lava: StaticArrays`: Lava's body is
+# gated on a Vulkan loader, so on a Mac `Lava.StaticArrays` does not exist, the
+# import bound nothing, and every kernel naming `StaticArrays.MArray` failed to
+# compile for Metal (Qwen-Image's softmax). One environment has one StaticArrays,
+# so the type is the one Lava lowers either way.
+import StaticArrays
 using LinearAlgebra: mul!, transpose
 using Random
 import AcceleratedKernels as AK
