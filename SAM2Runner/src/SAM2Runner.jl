@@ -11,15 +11,12 @@ The two halves are separate problems and need both mechanisms:
   * **Julia inference** — `execute!`, `runop!`, the broadcast machinery, the KA
     launch path. Measured at ~62 s for SAM 2's encoder, and the larger half.
     `PrecompileTools` keeps it in the package image.
-  * **SPIR-V** — 99 kernels. `Lava`'s frozen cache keys them on nothing but
-    their signature and `KERNELS_VERSION`, so they load without Julia inferring
-    anything to find them.
+  * **SPIR-V** — 99 kernels. Lava keeps each compiled kernel with its
+    `CodeInstance`, so the ones the workload compiles go into the package image
+    as well. An edited kernel recompiles on its own.
 
-`Lava.@compile_workload` runs both at once, which is why the workload is written
+`@compile_workload` covers both at once, which is why the workload is written
 once and not twice.
-
-**Bump [`KERNELS_VERSION`](@ref) after changing any kernel.** The frozen cache
-does not detect that for you — by design; see `Lava/src/runtime/frozen_cache.jl`.
 """
 module SAM2Runner
 
@@ -44,18 +41,10 @@ include("sam2.jl")
 
 export SAM2, encode, decode, prompt
 export segment, defaultmodel, unloadmodel!
-export SAM2Runner_VERSION, sam2model, runsam2, sam2segmenter
+export sam2model, runsam2, sam2segmenter
 export sam2graph, sam2weights, sam2refs, ready
 
 const KA = KernelAbstractions
-
-"""
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
     assetdir() -> String
@@ -247,7 +236,7 @@ A segmenter matching `VideoEditor.registersegmenter!`'s contract:
 `f(frame, points; key) -> Matrix{UInt8}`.
 
 Lives in this package rather than in a script so it can be *precompiled*. That
-is not tidiness: with the kernels frozen and this closure defined at the call
+is not tidiness: with the kernels compiled and this closure defined at the call
 site, the editor's first click still cost 41 s, 97% of it Julia inferring this
 function and everything it reaches. Code that is not in a package cannot be in a
 package image.
@@ -453,14 +442,6 @@ function maskatframe(lg::AbstractMatrix, w::Integer, h::Integer)
     return out
 end
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ---------------------------------------------------------------- the workload
 #
 # Guarded on the assets and on a working device: precompilation must not fail on
@@ -494,19 +475,14 @@ end
             frame = fill(RGB{N0f8}(0.4, 0.5, 0.6), 64, 48)
             points = [(0.5, 0.5, true), (0.25, 0.75, false)]
 
-            @compile_workload KERNELS_VERSION begin
-                # Building the model is INSIDE the recording, and that is the
+            @compile_workload begin
+                # Building the model is INSIDE the workload, and that is the
                 # point rather than an accident. Loading runs the graph's
                 # constant folding on the device — `arange`, `cumsum`, the
                 # `sin`/`cos` positional encodings, `repeatouter` — which is 46
-                # kernels. `frozen_store` only writes while recording, so
-                # building the model outside this block compiled all 46 in every
-                # process that ever loaded SAM 2 and stored none of them. That
-                # was 37 s of every cold start, and it read as "loading weights
-                # is slow" because nothing attributed it.
-                #
-                # Inside the workload, not outside it: the methods are not what
-                # is being cached, the kernels are.
+                # kernels. Left out of the package image they cost 37 s of every
+                # cold start, and it read as "loading weights is slow" because
+                # nothing attributed it.
                 model = sam2model(; backend)
                 image = toback(backend, zeros(Float32, res, res, 3, 1))
                 mask, score = runsam2(model, image)
@@ -518,16 +494,17 @@ end
                 # and a click actually calls, and which the two-argument one does
                 # NOT reach: its centre prompt is built without going through
                 # `prompt`'s point encoding. Leaving it out left 46 kernels
-                # missing from the frozen set — `arange_body`, `cumsum_body`,
+                # out of the package image — `arange_body`, `cumsum_body`,
                 # `repeatouter`, `safetrunc` and the scalar broadcasts around
                 # them — and they were recompiled in every process that ever ran
-                # this package, because a miss outside a recording is not stored.
+                # this package, because a kernel compiled after precompilation
+                # is kept only for its session.
                 m2, _ = runsam2(model, image, [(0.5, 0.5), (0.25, 0.75)], [true, false])
                 Array(m2)
                 # And the path the EDITOR takes, which is a different one: the
                 # closure `sam2segmenter` returns specialises on the frame type,
                 # and `runsam2` above never reaches it. Leaving it out was worth
-                # 45 s on the first click even with the kernels frozen and every
+                # 45 s on the first click even with the kernels compiled and every
                 # method already in this package — being precompilable is not the
                 # same as being precompiled.
                 seg = sam2segmenter(model)

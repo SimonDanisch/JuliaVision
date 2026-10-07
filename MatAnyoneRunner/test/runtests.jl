@@ -2,17 +2,9 @@
 Same claim as `SAM2Runner`'s test, same reason it runs in a subprocess: Julia's
 compile-time counter is per-process, so a call in *this* one has already paid
 whatever there was to pay.
-
-Additionally checks that the shared `KERNELS_VERSION` is doing its job — the
-kernels this model has in common with SAM 2 must be hits, not a second copy.
 """
 
-# `DNNKernels` explicitly: line 52 compares against `DNNKernels.KERNELS_VERSION`,
-# and `using MatAnyoneRunner` does not bring its dependencies into this scope. The
-# assertion has therefore thrown `UndefVarError` since the LavaDNN -> DNNKernels
-# rename (`1e7fc21`) — seven assertions passing and the eighth erroring, which
-# reads at a glance like the model failing rather than the test.
-using Test, MatAnyoneRunner, DNNKernels
+using Test, MatAnyoneRunner
 
 const SUBPROCESS = """
 using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
@@ -25,16 +17,16 @@ W, H = 128, 96
 image = toback(backend, fill(0.5f0, W, H, 3, 1))
 host = zeros(Float32, W, H); host[(W÷4):(3W÷4), (H÷4):(3H÷4)] .= 255.0f0
 mask = toback(backend, host)
-Lava.frozen_reset_stats!()
+Lava.reset_compile_stats!()
 c0 = Base.cumulative_compile_time_ns()
 t = @elapsed begin
     a = MatAnyoneRunner.runmatanyone(model, image, mask)
     ah = Array(a); KA.synchronize(backend)
 end
 c1 = Base.cumulative_compile_time_ns()
-s = Lava.frozen_stats()
+s = Lava.compile_stats()
 println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
-                     hits = s.hits, misses = s.misses, version = s.version,
+                     hits = s.hits, misses = s.misses,
                      finite = all(isfinite, ah), inrange = all(x -> 0 <= x <= 1, ah)))
 """
 
@@ -51,11 +43,10 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
         @info "MatAnyone2 first propagation in a fresh process" r
         @test r.finite
         @test r.inrange                             # an alpha matte, not garbage
-        @test r.misses == 0                         # every kernel came from disk
+        @test r.misses == 0                         # no kernel compiled
         @test r.hits > 0
         @test r.compile < 5.0
         @test r.wall < 20.0
-        @test r.version == DNNKernels.KERNELS_VERSION  # the shared generation
     end
 end
 

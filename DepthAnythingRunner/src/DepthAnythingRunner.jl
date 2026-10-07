@@ -62,14 +62,6 @@ export depthanything, depthmap!, DepthAnything
 const KA = KernelAbstractions
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     assetdir() -> String
 
 Where the model's graph and weights live: its artifact, downloaded on first use
@@ -118,14 +110,6 @@ because neither may fail on a machine that has not run the exporter.
 """
 ready() =
     isfile(joinpath(assetdir(), "depthanything.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
-
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
 
 # ------------------------------------------------------------------- the model
 
@@ -244,20 +228,19 @@ end
 # a machine without either, it should just produce a package with nothing cached.
 #
 # The workload drives `depthmap!`, which is the whole call tree the editor uses —
-# the measurement that matters is `Lava.frozen_stats().misses == 0` on a *fresh*
+# the measurement that matters is `Lava.compile_stats().misses == 0` on a *fresh*
 # process, and a workload that runs a different path than the editor does leaves
 # the editor compiling on first use, which is the entire cost this package exists
 # to remove. SAM2Runner learned that the expensive way: its `runsam2` workload
 # still left 45 s on the first click because the editor goes through a closure
 # `runsam2` never touches.
 #
-# NOT `frozen_stats().misses == 0` alone, which reads stronger than it is: it
-# cannot distinguish the frozen cache working from the driver's own shader cache
-# having served everything, and its miss report identifies modules by the
-# *sampling* hash, so two differing in one byte count as one (`STATUS.md`,
-# cross-project). The claim this package makes is `Mantle.no_pipeline_compilation`
-# reporting **0 refusals** — it empties `PIPELINE_CACHE` first, so a Julia-side
-# hit cannot mask a cold `VkPipelineCache`. Pair it with a control whose kernel
+# NOT `compile_stats().misses == 0` alone, which reads stronger than it is: it
+# counts SPIR-V compiles only, and says nothing about the driver building
+# pipelines from that SPIR-V. The claim this package makes is
+# `Mantle.no_pipeline_compilation` reporting **0 refusals** — it empties
+# `PIPELINE_CACHE` first, so a Julia-side hit cannot mask a cold
+# `VkPipelineCache`. Pair it with a control whose kernel
 # body is novel per RUN (a `Val{K}` from `RandomDevice`) or a green means
 # nothing; verified firing here at refused = 1.
 #
@@ -270,11 +253,11 @@ end
             backend = Mantle.defaultbackend()
             # Model construction inside the workload, not in front of it:
             # `Model`'s last pass folds constant subgraphs by *running* them on
-            # the device, so building it outside leaves those dispatches
-            # unfrozen. RIFE showed this as a hard `misses == 9`; this graph has
+            # the device, which compiles kernels the workload should cover. RIFE
+            # showed building it outside as a hard `misses == 9`; this graph has
             # no constant subgraph today, and the placement is what keeps that
             # from silently mattering after a re-export.
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 model = depthanything(; backend)
                 img = KA.allocate(backend, RGB{Float32}, 256, 256)
                 fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))

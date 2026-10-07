@@ -286,7 +286,7 @@ end
 
 An anonymous function gets a fresh type per definition site, so the one in this
 table and the one a fusion pass would build are different types naming the same
-arithmetic — two kernels, two frozen entries, for one operation. Named once, they
+arithmetic — two kernels, two compiles, for one operation. Named once, they
 are the same singleton everywhere."""
 rsqrt_(x) = inv(sqrt(x))
 
@@ -306,8 +306,8 @@ the RESULT dtype, which is what converting first does.
 
 A named callable and not `x -> f(T(x))`, for the reason [`rsqrt_`](@ref) is
 named: an anonymous function gets a fresh type per definition site, so the same
-arithmetic would compile and freeze as many kernels as there are places that
-wrote it. `InFloat{Float32}(sqrt)` is one type everywhere.
+arithmetic would compile as many kernels as there are places that wrote it.
+`InFloat{Float32}(sqrt)` is one type everywhere.
 """
 # `T` FIRST, so that `InFloat{Float32}` names the target type and not the function:
 # with the parameters the other way round, `InFloat{Float32}(rsqrt_)` binds `Float32`

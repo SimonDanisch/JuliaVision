@@ -5,12 +5,6 @@ The same treatment as `SAM2Runner`, for the propagator half of the matte: run a
 real propagation during precompilation so both the Julia specialisation and the
 SPIR-V are paid once, at `Pkg.precompile`.
 
-Deliberately sharing `DNNKernels.KERNELS_VERSION` with every other model on this
-runtime. The two networks overlap heavily — every elementwise op is the same
-`Lava` broadcast kernel, every reduction the same AcceleratedKernels one — so a
-kernel frozen by whichever workload runs first is a hit for the other. Versioned
-per package they would each freeze their own copy of the same bytes.
-
 The workload drives `step!` rather than `matte`, and drives it in the order the
 editor does: a mask-ingest step, then the re-runs that settle the memory bank,
 then a plain propagation step. Those are three *different* graphs
@@ -36,13 +30,6 @@ const KA = KernelAbstractions
 # Through DNNKernels rather than as a direct dependency, the same way the
 # parity test reaches it: one JSON3 on the runtime, not two.
 const JSON3 = DNNKernels.JSON3
-
-"""
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model. Bump it there.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
     artifactdir() -> String
@@ -281,7 +268,7 @@ end
 
 Seed on `image` with `mask`, settle, then propagate one more frame — the exact
 sequence the editor's matte tool performs, and therefore the one whose kernels
-have to be frozen.
+have to be precompiled.
 
 `image` is `(W, H, 3, 1)` in 0..1 on the model's backend and `W`, `H` must be
 multiples of 16 (the encoder downsamples by 16 and `initstate` sizes the memory
@@ -421,7 +408,7 @@ A propagator matching `VideoEditor.registermatte!`'s contract:
 **Lives in this package rather than in `examples/matanyone.jl` so it can be
 precompiled.** Measured through the editor's seam, the first propagation cost
 94.3 s, 74.4 s of it Julia inferring this function and everything it reaches —
-with every kernel already frozen. Code in a script cannot be in a package image.
+with every kernel already compiled. Code in a script cannot be in a package image.
 `VideoEditor`'s own precompile workload drives it, which is the level that
 matters: the inference has to be cached on the far side of `VideoEditor` being
 loaded, or loading the editor invalidates it again — and since the editor
@@ -458,12 +445,6 @@ function matanyonepropagator(;
     end
 end
 
-
-function __init__()
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 @setup_workload begin
     dir, w = assetdir(), weightpath()
     ready = isdir(dir) && isfile(w) && isfile(joinpath(dir, "encode_image.json"))
@@ -479,7 +460,7 @@ end
             host[(W ÷ 4):(3W ÷ 4), (H ÷ 4):(3H ÷ 4)] .= 255.0f0
             mask = toback(backend, host)
 
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 alpha = runmatanyone(model, image, mask)
                 Array(alpha)
                 KA.synchronize(backend)

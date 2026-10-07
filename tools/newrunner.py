@@ -38,6 +38,7 @@ uuid = "{uuid}"
 version = "0.1.0"
 
 [deps]
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
@@ -83,20 +84,13 @@ for the export that feeds it.
 module {package}
 
 using Lava, DNNKernels, KernelAbstractions
-using Lava: @setup_workload, @compile_workload
-using DNNKernels: loadgraph, execute!, readsafetensors
+import Mantle
+using Mantle: @setup_workload, @compile_workload
+using DNNKernels: loadgraph, readsafetensors
 
 export {lower}graph, {lower}weights, assetdir
 
 const KA = KernelAbstractions
-
-"""
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
     assetdir() -> String
@@ -148,42 +142,36 @@ because neither may fail on a machine that has not run the exporter.
 """
 ready() = false        # not ported: see `assetdir`
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Lava.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ---------------------------------------------------------------- the workload
 #
 # Guarded on the assets and on a working device: precompilation must not fail on
 # a machine without either, it should just produce a package with nothing cached.
 #
-# TODO(port): drive the real call here once the graph runs. The measurement that
-# matters is `Lava.no_pipeline_compilation` reporting **0 refusals** on a *fresh*
-# process — a workload
-# that runs a different path than the editor does leaves the editor compiling on
-# first use, which is the entire cost this package exists to remove. SAM2Runner
-# learned that the expensive way: its `runsam2` workload still left 45 s on the
-# first click because the editor goes through a closure `runsam2` never touches.
+# TODO(port): drive the real call here once the graph runs. A workload that runs
+# a different path than the editor does leaves the editor compiling on first use,
+# which is the entire cost this package exists to remove. SAM2Runner learned that
+# the expensive way: its `runsam2` workload still left 45 s on the first click
+# because the editor goes through a closure `runsam2` never touches.
 #
-# NOT `frozen_stats().misses == 0`, which reads stronger than it is: it cannot
-# distinguish the frozen cache working from the driver's own shader cache having
-# served everything, and its miss report identifies modules by the *sampling*
-# hash, so two modules differing in one byte count as one (`STATUS.md`,
-# cross-project). `no_pipeline_compilation` empties `PIPELINE_CACHE` first and
-# refuses anything needing a compile. Pair it with a negative control whose
-# kernel body is novel per RUN — a `Val{{K}}` with `K` from `RandomDevice` — or a
-# green means nothing; verified firing here at refused = 1.
+# Two measurements on a *fresh* process, because there are two compilers:
+#
+#   * `Lava.compile_stats().misses == 0`: no kernel compiled from Julia to
+#     SPIR-V. A miss is a kernel this workload did not put in the package image.
+#   * `Mantle.no_pipeline_compilation` with `Mantle.PIPELINE_COMPILES_REFUSED[]
+#     == 0`: the driver built no pipeline from that SPIR-V. The wrapper empties
+#     the in-memory pipeline caches first, so only the on-disk `VkPipelineCache`
+#     can answer. Pair it with a negative control whose kernel body is novel per
+#     RUN, a `Val{{K}}` with `K` from `RandomDevice`, or a green means nothing.
 @setup_workload begin
     if ready()
         try
-            backend = LavaBackend()
+            # `Device()` is Mantle's platform-selected device. It works while the
+            # package image is built, before dependency `__init__`s have
+            # registered their probes, and names neither Vulkan nor Metal.
+            backend = Mantle.backend(Mantle.Device())
             graph = {lower}graph()
             weights = {lower}weights()
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 # Inputs: {inputs}
                 nothing
             end
@@ -191,7 +179,9 @@ end
             @warn "{package}: workload skipped; first use will compile" exception = err
         end
     else
-        @info "{package}: no export at $(assetdir()) — nothing precompiled"
+        # Not `assetdir()` in the message: with no artifact bound it throws, and
+        # the log record itself failed during every precompile.
+        @info "{package}: not ported yet, nothing precompiled"
     end
 end
 
@@ -204,7 +194,7 @@ Until the port runs, this asserts the two things that are true now and must stay
 true: the package loads on a machine with no assets, and the asset lookup names
 a real place rather than throwing something unreadable.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
+The latency test that matters — `compile_stats().misses == 0` in a fresh process
 — belongs here once the workload drives the real call. See SAM2Runner/test for
 the shape it should take; it has to run in a subprocess because Julia's
 compile-time counter is per-process.

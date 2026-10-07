@@ -3,7 +3,7 @@ Until the port runs, this asserts the two things that are true now and must stay
 true: the package loads on a machine with no assets, and the asset lookup names
 a real place rather than throwing something unreadable.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
+The latency test that matters — `compile_stats().misses == 0` in a fresh process
 — belongs here once the workload drives the real call. See SAM2Runner/test for
 the shape it should take; it has to run in a subprocess because Julia's
 compile-time counter is per-process.
@@ -43,8 +43,8 @@ NeuralLUTRunner.ready() && include(joinpath(@__DIR__, "test_declared.jl"))
 #
 # It asserts `no_pipeline_compilation` — which empties `PIPELINE_CACHE` first, so
 # a Julia-side hit cannot mask a cold `VkPipelineCache` — rather than
-# `frozen_stats().misses`, which cannot tell the frozen cache working from the
-# driver's own shader cache having served everything (`STATUS.md`, cross-project).
+# `compile_stats().misses`, which counts SPIR-V compiles only and says nothing
+# about the driver building pipelines from that SPIR-V.
 #
 # And it asserts a **negative control** in the same process, because a green from
 # an instrument that cannot fire is worth nothing: this repo has hit that class

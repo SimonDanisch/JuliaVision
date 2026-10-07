@@ -11,7 +11,7 @@ that can catch a wrong op: a grouped RMSNorm reducing over the wrong axis, an
 with `tools/export_horizon_tiny.py`; skipped when it is absent, because it needs
 torch.
 
-The latency test that matters — `frozen_stats().misses == 0` in a fresh process
+The latency test that matters — `compile_stats().misses == 0` in a fresh process
 — belongs here once the 32B weights are bound. See SAM2Runner/test for the shape
 it should take; it has to run in a subprocess because Julia's compile-time
 counter is per-process.

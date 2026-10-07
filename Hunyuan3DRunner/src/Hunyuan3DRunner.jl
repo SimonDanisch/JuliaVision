@@ -175,14 +175,6 @@ const KA = KernelAbstractions
 const KI = DNNKernels.KI
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     LATENTS, LATENT_CHANNELS, COND_TOKENS, COND_DIM
 
 The shapes the exported graph is fixed at, from the checkpoint's own
@@ -347,27 +339,19 @@ function writeobj(path::AbstractString, verts::AbstractArray{<:Real,2},
     return path
 end
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ---------------------------------------------------------------- the workload
 #
 # Nothing to precompile yet. The workload has to drive the call the caller makes,
 # `imagetomesh`, and it has not been written: at the defaults that call is minutes
 # long, so it needs settings small enough for a precompile that still take every
-# path the defaults do. Writing one against the denoiser alone would freeze a
-# path nobody takes, which is the mistake SAM2Runner made and paid 45 s of
+# path the defaults do. Writing one against the denoiser alone would precompile
+# a path nobody takes, which is the mistake SAM2Runner made and paid 45 s of
 # first-click latency for.
 #
 # When it is written, the measurement that matters is
 # `Mantle.no_pipeline_compilation` reporting 0 refusals in a *fresh* process, NOT
-# `frozen_stats().misses == 0` — that cannot distinguish the frozen cache working
-# from the driver's own shader cache having served everything. Pair it with a
+# `compile_stats().misses == 0` alone, which counts SPIR-V compiles only and says
+# nothing about the driver building pipelines from that SPIR-V. Pair it with a
 # negative control whose kernel body is novel per run.
 @setup_workload begin
     @info "Hunyuan3DRunner: no workload yet, nothing precompiled"

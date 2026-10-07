@@ -49,14 +49,6 @@ const KA = KernelAbstractions
 const KI = DNNKernels.KI
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     assetdir() -> String
 
 Where the model's graph and weights live: its artifact, downloaded on first use
@@ -105,14 +97,6 @@ because neither may fail on a machine that has not run the exporter.
 """
 ready() =
     isfile(joinpath(assetdir(), "rife.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
-
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
 
 # ------------------------------------------------------------------- the model
 
@@ -306,8 +290,8 @@ Recorded HERE and not at load, because none of the four is a property of the
 export: the caller's frame may be any size up to [`framesize`](@ref) and any
 `AbstractRGB`, and a plan is recorded against the buffers, the geometry and the
 types it will run with. The workload interpolates one frame, so a stream that
-matches it finds every pipeline in the frozen cache and this records without
-compiling anything — which is what the latency test asserts.
+matches it finds every kernel compiled in the package image and this records
+without compiling anything — which is what the latency test asserts.
 """
 function frameio!(model::RIFE, w::Int, h::Int, ::Type{Pin}, ::Type{Pout}) where {Pin,Pout}
     get!(model.frameio, (w, h, Pin, Pout)) do
@@ -401,20 +385,19 @@ end
 # a machine without either, it should just produce a package with nothing cached.
 #
 # The workload drives `interpolate!`, which is the whole call tree the editor
-# uses — the measurement that matters is `Lava.frozen_stats().misses == 0` on a
+# uses — the measurement that matters is `Lava.compile_stats().misses == 0` on a
 # *fresh* process, and a workload that runs a different path than the editor does
 # leaves the editor compiling on first use, which is the entire cost this package
 # exists to remove. SAM2Runner learned that the expensive way: its `runsam2`
 # workload still left 45 s on the first click because the editor goes through a
 # closure `runsam2` never touches.
 #
-# NOT `frozen_stats().misses == 0` alone, which reads stronger than it is: it
-# cannot distinguish the frozen cache working from the driver's own shader cache
-# having served everything, and its miss report identifies modules by the
-# *sampling* hash, so two differing in one byte count as one (`STATUS.md`,
-# cross-project). The claim this package makes is `Mantle.no_pipeline_compilation`
-# reporting **0 refusals** — it empties `PIPELINE_CACHE` first, so a Julia-side
-# hit cannot mask a cold `VkPipelineCache`. Pair it with a control whose kernel
+# NOT `compile_stats().misses == 0` alone, which reads stronger than it is: it
+# counts SPIR-V compiles only, and says nothing about the driver building
+# pipelines from that SPIR-V. The claim this package makes is
+# `Mantle.no_pipeline_compilation` reporting **0 refusals** — it empties
+# `PIPELINE_CACHE` first, so a Julia-side hit cannot mask a cold
+# `VkPipelineCache`. Pair it with a control whose kernel
 # body is novel per RUN (a `Val{K}` from `RandomDevice`) or a green means
 # nothing; verified firing here at refused = 1.
 #
@@ -430,14 +413,14 @@ end
             # backend)`, which folds constant *subgraphs* by running them on the
             # device — and RIFE has two, the `arange` pair that builds the warp
             # sampling grid. Building the model outside `@compile_workload` left
-            # those dispatches unfrozen: `frozen_stats().misses == 9` on a fresh
+            # those dispatches out of the kernel cache: `misses == 9` on a fresh
             # process, every time, no matter what the frame size was.
             #
             # The frame is deliberately *smaller* than the padded size too, so
             # the zero-fill branch of `frames_kernel!` and the crop in
             # `unpack_kernel!` are both on the compiled path. That is what every
             # real frame takes — 1080p is padded to 1152.
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 model = rife(; backend)
                 w, h = framesize(model)
                 a = KA.allocate(backend, RGB{Float32}, w, max(h - 72, 1))

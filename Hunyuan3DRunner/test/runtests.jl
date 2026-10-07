@@ -39,7 +39,6 @@ const H = Hunyuan3DRunner
         # `@setup_workload` branches on, and `@artifact_str` downloads. A guard
         # that fetched 6.8 GB to answer "do we have it" would be worse than none.
         @test Hunyuan3DRunner.ready() isa Bool
-        @test Hunyuan3DRunner.KERNELS_VERSION == DNNKernels.KERNELS_VERSION
     end
 
     @testset "each part resolves to its own artifact" begin

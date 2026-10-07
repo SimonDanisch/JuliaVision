@@ -136,8 +136,7 @@ weights and cache nothing useful.
 Packages are plain subdirectories, [Makie](https://github.com/MakieOrg/Makie.jl)-style.
 History for `DNNKernels` and `GPUFiltering` was carried over with `git subtree`,
 so `git log --follow` still works through the move. A monorepo because these
-change together: an op added to `DNNKernels` is usually a model that needed it,
-and a kernel frozen by one model is a cache hit for the rest.
+change together: an op added to `DNNKernels` is usually a model that needed it.
 
 ## Speed against PyTorch, 2026-08-05
 

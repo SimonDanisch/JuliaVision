@@ -21,7 +21,8 @@ The type of a nested `Broadcasted` encodes the whole tree, so each distinct
 expression is a distinct type, a distinct specialisation and a distinct kernel to
 compile — and because the nesting only happens while *executing*, that set cannot
 be enumerated ahead of time. It has to be discovered by running, which is why the
-frozen kernel cache is populated by a workload rather than derived.
+kernels a package image holds come from running a workload rather than being
+derived.
 
 And it is Base's broadcasting, which means Base's dispatch: the `BroadcastStyle`
 methods that route it here are type piracy over `SubArray` and `PermutedDimsArray`,

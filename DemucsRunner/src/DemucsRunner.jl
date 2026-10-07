@@ -37,14 +37,6 @@ export demucsgraph, demucsweights
 const KA = KernelAbstractions
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     assetdir() -> String
 
 The **upstream Demucs v4 (htdemucs) checkpoint**, as an artifact — downloaded on first use and
@@ -116,21 +108,13 @@ The upstream checkpoint files the artifact carries, absolute. What
 checkpoints() =
     [joinpath(assetdir(), f) for f in sort(readdir(assetdir())) if isfile(joinpath(assetdir(), f))]
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ---------------------------------------------------------------- the workload
 #
 # Guarded on the assets and on a working device: precompilation must not fail on
 # a machine without either, it should just produce a package with nothing cached.
 #
 # TODO(port): drive the real call here once the graph runs. The measurement that
-# matters is `Lava.frozen_stats().misses == 0` on a *fresh* process — a workload
+# matters is `Lava.compile_stats().misses == 0` on a *fresh* process — a workload
 # that runs a different path than the editor does leaves the editor compiling on
 # first use, which is the entire cost this package exists to remove. SAM2Runner
 # learned that the expensive way: its `runsam2` workload still left 45 s on the
@@ -141,7 +125,7 @@ end
             backend = Mantle.defaultbackend()
             graph = demucsgraph()
             weights = demucsweights()
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 # Inputs: waveform (1, 2, 343980) at 44.1 kHz
                 nothing
             end

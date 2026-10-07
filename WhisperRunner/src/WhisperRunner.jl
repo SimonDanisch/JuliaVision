@@ -84,14 +84,6 @@ export DecodeOptions, Segment, detectlanguage, readaudio, transcribechunk
 const KA = KernelAbstractions
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     assetdir(precision = :fp16) -> String
 
 Where the encoder's graph and weights live: its artifact, downloaded on first use
@@ -218,14 +210,6 @@ because neither may fail on a machine that has not run the exporter.
 ready() =
     isfile(joinpath(assetdir(), "whisper.json")) && isfile(joinpath(assetdir(), "weights.safetensors"))
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ------------------------------------------------------------------- the model
 
 """
@@ -332,14 +316,14 @@ const decode_tokens = decode
             backend = Mantle.defaultbackend()
             # `whispermodel` INSIDE `@compile_workload`, not in front of it —
             # `Model`'s last pass folds constant subgraphs by running them on the
-            # device, and building it outside leaves those dispatches unfrozen.
-            # RIFERunner measured exactly that: `frozen_stats().misses == 9` on a
-            # fresh process, every time, no matter the frame size.
+            # device, which compiles kernels the workload should cover.
+            # RIFERunner measured building it outside: `misses == 9` on a fresh
+            # process, every time, no matter the frame size.
             #
             # One real window, not a token shape: the encoder's extents are baked
-            # (3000 frames in, 1500 out), so there is only one shape to freeze and
-            # a smaller one would freeze the wrong kernels.
-            @compile_workload KERNELS_VERSION begin
+            # (3000 frames in, 1500 out), so there is only one shape to precompile
+            # and a smaller one would precompile the wrong kernels.
+            @compile_workload begin
                 w = whispermodel(; backend)
                 mel = KA.allocate(backend, Float32, 3000, 128, 1)
                 fill!(mel, 0.0f0)

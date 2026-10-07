@@ -33,7 +33,7 @@ mel = rand(Float32, 3000, 128, 1)
 
 encode1() = (WhisperRunner.encode(w, mel); KA.synchronize(backend))
 
-# warm: compile, build plans, fill the frozen-kernel cache
+# warm: compile kernels, build plans
 encode1(); encode1(); encode1()
 
 """Median and spread of `n` timed steps under a given diagnostics setting."""

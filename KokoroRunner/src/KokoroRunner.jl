@@ -59,14 +59,6 @@ audio at the wrong pitch, which sounds like a bad voice rather than a bug.
 const SAMPLERATE = 24000
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     assetdir() -> String
 
 The exported graphs, weights, voice packs, phoneme vocabulary and G2P lexicon.
@@ -387,14 +379,6 @@ function trimsilence(x::AbstractVector{Float32}; thresh::Real = 1e-3)
     x[a:b]
 end
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ---------------------------------------------------------------- the workload
 #
 # Guarded on the assets and on a working device: precompilation must not fail on
@@ -403,13 +387,13 @@ end
 # The workload drives `speak` rather than the graphs directly, and that is the
 # whole point — SAM2Runner learned the expensive way that a workload running a
 # different path than the caller leaves the caller compiling on first use. The
-# measurement that matters is `Lava.frozen_stats().misses == 0` on a fresh
+# measurement that matters is `Lava.compile_stats().misses == 0` on a fresh
 # process, through this entry point.
 @setup_workload begin
     if ready()
         try
             k = Kokoro()
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 speak(k; phonemes = "hˈEllO", voice = "af_heart")
             end
         catch err

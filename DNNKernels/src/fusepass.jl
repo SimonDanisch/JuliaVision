@@ -18,9 +18,9 @@ and the intermediates simply are not there to need special-casing. Mantle's
 
 It also makes the kernel set knowable. A nested `Broadcasted`'s type encodes the
 whole tree and only exists once execution has nested it, so it cannot be
-enumerated ahead of time — which is why the frozen kernel cache has to be filled
-by running a workload. A `FusedOp` is built by this pass, at load, from the
-graph; the set of kernels is a property of the model.
+enumerated ahead of time — which is why the kernels a package image holds have
+to come from running a workload. A `FusedOp` is built by this pass, at load,
+from the graph; the set of kernels is a property of the model.
 
 ## What it buys in dispatches, measured
 

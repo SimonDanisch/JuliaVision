@@ -15,7 +15,7 @@ checked for NaN, which is what a partially-written result looks like when the
 scratch slab is poisoned (GUARDRAILS 3). A graph that silently skips part of its
 output passes a shape check and fails this one.
 
-Still to write: `frozen_stats().misses == 0` in a fresh process, which is the
+Still to write: `compile_stats().misses == 0` in a fresh process, which is the
 latency claim the package exists for. It has to run in a subprocess because
 Julia's compile-time counter is per-process; see SAM2Runner/test for the shape.
 """

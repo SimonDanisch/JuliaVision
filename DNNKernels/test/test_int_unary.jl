@@ -41,7 +41,7 @@ end
 @testset "InFloat is one type per (T, f)" begin
     # The reason it is a named callable and not `x -> f(T(x))`: an anonymous
     # function gets a fresh type per definition site, so the same arithmetic
-    # would compile and freeze as many kernels as there are places that wrote it.
+    # would compile as many kernels as there are places that wrote it.
     @test typeof(DKU.InFloat{Float32}(sqrt)) === typeof(DKU.InFloat{Float32}(sqrt))
     @test typeof(DKU.InFloat{Float32}(sqrt)) !== typeof(DKU.InFloat{Float16}(sqrt))
     @test typeof(DKU.InFloat{Float32}(sqrt)) !== typeof(DKU.InFloat{Float32}(log))

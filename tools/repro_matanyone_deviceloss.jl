@@ -10,8 +10,9 @@
 # 128x96 is the only size tested whose deepest encoder feature map is 8x6, and
 # therefore the only one that feeds `M = 48` to the 1x1-convolution -> `matmul!`
 # route. Gating that route off, or skipping it for `M < 192`, removes the fault;
-# eight other hypotheses did not (frozen cache, padgemm, the 1-D lift, the slab,
-# the workspace rewind, the retired-buffer drop, split-K, the submit threshold).
+# eight other hypotheses did not (the old on-disk kernel cache, padgemm, the 1-D
+# lift, the slab, the workspace rewind, the retired-buffer drop, split-K, the
+# submit threshold).
 #
 # Per-op synchronisation also removes it, so it needs dispatches in flight — but
 # submitting more often does not help, only waiting does.

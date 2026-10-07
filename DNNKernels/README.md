@@ -78,9 +78,9 @@ a Radeon 8060S (RDNA 3.5, subgroup 64, KHR cooperative matrix only), with the
 tile size and cooperative-matrix support asked per device. There is no
 vendor-conditional code.
 
-Compiled kernels are frozen to disk per `KERNELS_VERSION`, shared by every model:
-**bump it after editing a kernel body**, because the cache is keyed on the
-function and argument types, not the source.
+Compiled kernels are kept with their Julia `CodeInstance` (`Lava.compile_or_lookup`):
+an edited kernel compiles again by itself, and the kernels a runner's precompile
+workload compiles go into that runner's package image.
 
 Quantised weights: int8 (`quantize = true`), ConvRot int8 and W4A8 for the
 Qwen-Image denoiser, and PTQ1 ternary with a GGUF reader for Bonsai.

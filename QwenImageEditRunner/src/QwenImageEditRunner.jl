@@ -37,14 +37,6 @@ export qwenimageeditgraph, qwenimageeditweights, assetdir
 const KA = KernelAbstractions
 
 """
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
-
-"""
     assetdir() -> String
 
 Throws. Qwen-Image-Edit-2511 is **not ported yet**, so there is no artifact to read from and
@@ -94,14 +86,6 @@ because neither may fail on a machine that has not run the exporter.
 """
 ready() = false        # not ported: see `assetdir`
 
-function __init__()
-    # Read the entries the workload froze. Recording stays off: a session that
-    # hits a kernel the workload missed should compile it and carry on, not
-    # quietly rewrite the frozen set under a version it was not built for.
-    Mantle.use_frozen_kernels(KERNELS_VERSION)
-    return nothing
-end
-
 # ---------------------------------------------------------------- the workload
 #
 # Guarded on the assets and on a working device: precompilation must not fail on
@@ -115,11 +99,9 @@ end
 # learned that the expensive way: its `runsam2` workload still left 45 s on the
 # first click because the editor goes through a closure `runsam2` never touches.
 #
-# NOT `frozen_stats().misses == 0`, which reads stronger than it is: it cannot
-# distinguish the frozen cache working from the driver's own shader cache having
-# served everything, and its miss report identifies modules by the *sampling*
-# hash, so two modules differing in one byte count as one (`STATUS.md`,
-# cross-project). `no_pipeline_compilation` empties `PIPELINE_CACHE` first and
+# NOT `compile_stats().misses == 0`, which reads stronger than it is: it counts
+# SPIR-V compiles only, and says nothing about the driver building pipelines from
+# that SPIR-V. `no_pipeline_compilation` empties `PIPELINE_CACHE` first and
 # refuses anything needing a compile. Pair it with a negative control whose
 # kernel body is novel per RUN — a `Val{K}` with `K` from `RandomDevice` — or a
 # green means nothing; verified firing here at refused = 1.
@@ -129,7 +111,7 @@ end
             backend = Mantle.defaultbackend()
             graph = qwenimageeditgraph()
             weights = qwenimageeditweights()
-            @compile_workload KERNELS_VERSION begin
+            @compile_workload begin
                 # Inputs: prompt + image -> edited image
                 nothing
             end

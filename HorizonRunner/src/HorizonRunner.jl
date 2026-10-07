@@ -22,20 +22,11 @@ module HorizonRunner
 
 using Lava, DNNKernels, KernelAbstractions
 import Mantle
-using Mantle: @setup_workload, @compile_workload
 using DNNKernels: loadgraph, readsafetensors, Model, call, toback
 
 export horizon32bgraphs, horizon32bweights, horizon32b, generate, Horizon32B, newcache, causalmask
 
 const KA = KernelAbstractions
-
-"""
-    KERNELS_VERSION
-
-`DNNKernels.KERNELS_VERSION`, shared with every other model on this runtime so a
-kernel frozen by one is a hit for the rest. Bump it there, not here.
-"""
-const KERNELS_VERSION = DNNKernels.KERNELS_VERSION
 
 """
     GRAPHS

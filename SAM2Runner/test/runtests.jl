@@ -6,9 +6,9 @@ is per-process and every earlier call in this one has already paid it.
 So the measurement runs in a **fresh subprocess** and reports back. What it
 asserts:
 
-  * `Lava.frozen_stats().misses == 0` — every kernel the run touches came from
-    the frozen cache. A miss is a kernel the workload does not cover, and it is
-    the thing that silently reintroduces a multi-second stall.
+  * `Lava.compile_stats().misses == 0` — the run compiles no kernel. A miss is
+    a kernel the workload does not cover, and it is the thing that silently
+    reintroduces a multi-second stall.
   * Julia's own compile time over the first `runsam2` is a small fraction of it.
     Without the workload this was ~62 s of ~63 s.
   * The result still matches the reference, because a cache that returns the
@@ -51,7 +51,7 @@ model = SAM2Runner.sam2model(; backend)
 refs = SAM2Runner.sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])
 
-Lava.frozen_reset_stats!()
+Lava.reset_compile_stats!()
 c0 = Base.cumulative_compile_time_ns()
 t = @elapsed begin
     mask, score = SAM2Runner.runsam2(model, image)
@@ -59,10 +59,9 @@ t = @elapsed begin
 end
 c1 = Base.cumulative_compile_time_ns()
 
-s = Lava.frozen_stats()
+s = Lava.compile_stats()
 println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
-                     hits = s.hits, misses = s.misses, stores = s.stores,
-                     version = s.version, finite = all(isfinite, m)))
+                     hits = s.hits, misses = s.misses, finite = all(isfinite, m)))
 """
 
 @testset "SAM2Runner: first call does not compile" begin
@@ -78,7 +77,7 @@ println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
 
         @info "SAM 2.1 first call in a fresh process" r
         @test r.finite                              # the answer is still real
-        @test r.misses == 0                         # every kernel came from disk
+        @test r.misses == 0                         # no kernel compiled
         @test r.hits > 0                            # …and there were kernels
         # Without the workload this was ~62 s of compilation. Anything close to
         # that means the package image is not being used.
