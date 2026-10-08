@@ -1,0 +1,24 @@
+name = "GPUMeshing"
+uuid = "df37d806-2c47-48da-b0c3-16f66acdb262"
+authors = ["Simon Danisch <sdanisch@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
+GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
+KernelInterface = "4ee993da-d684-4d17-a7dd-4e58e78d92bf"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
+
+# Not in the General registry; the same sources as the monorepo's Project.toml.
+[sources]
+KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}
+Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
+
+[extras]
+Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Lava", "Test"]

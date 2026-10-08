@@ -46,6 +46,7 @@ too: Qwen-Image drew them, and the other models took it from there.
 |---|---|---|
 | [`DNNKernels`](DNNKernels/README.md) | the graph runtime: loads a `torch.export` graph, rewrites and fuses it, declares it to Mantle | (no model) |
 | [`GPUFiltering`](GPUFiltering/README.md) | image kernels: colour, blur, warp, optical flow, patch tracking, LUTs | (no model) |
+| [`GPUMeshing`](GPUMeshing/README.md) | volume to mesh: marching cubes and sparse dual contouring | (no model) |
 | [`QwenImageRunner`](QwenImageRunner/README.md) | Qwen-Image 2.1: text to image with real alpha, up to 12 reference images | **non-commercial** (Qwen Research License) |
 | [`SAM2Runner`](SAM2Runner/README.md) | SAM 2.1: click to segment | Apache-2.0 |
 | [`MatAnyoneRunner`](MatAnyoneRunner/README.md) | MatAnyone2: carries a mask through a clip as an alpha matte | **non-commercial** |
