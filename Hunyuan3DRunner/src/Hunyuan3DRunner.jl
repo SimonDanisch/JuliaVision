@@ -20,7 +20,8 @@ grid, and marching cubes turns that into a mesh.
 RTX 4000 Ada, `assets/demo.png` at the pipeline's defaults — 50 steps, guidance
 5.0, `octree_resolution = 384` — is **188.6 s** to a 346 474-vertex, 692 956-face
 watertight mesh, spent 100 s in the denoiser, 88 s in the 7134 geometry-decoder
-calls and 0.5 s in the surface extraction.
+calls and 0.5 s in the surface extraction, which ran on the host then and runs on
+the device now ([`GPUMeshing.marchingcubes`](@ref)).
 
 Measured against `tools/dump_hunyuan3d_pipeline.py`, which runs upstream's own
 pipeline on the same image and dumps every intermediate:
@@ -36,7 +37,7 @@ pipeline on the same image and dumps every intermediate:
 | 50 steps with the model in the loop | 0.26% of range | corr 0.9963 |
 | `shapelatents` | 0.0003% of range | corr 0.9999932 |
 | `occupancy`, 65³ | 0.0054% of range | corr 0.99999994 |
-| `marchingcubes` vs `skimage` | 2.4e-7 | every vertex this produces |
+| `marchingcubes` vs `skimage` | 2.4e-7 | every vertex, on the host; the device agrees to one rounding |
 
 Two rows deserve reading together. **The sampler is bit-exact** — fed upstream's
 own per-step predictions it walks upstream's trajectory with zero differing
@@ -125,11 +126,11 @@ faces, all around one point where three grid edges crossed the level at the same
 grid vertex; welding before dropping them is what keeps the mesh closed, and
 skipping the weld tears six edges.
 
-**Marching cubes is built here rather than taken from a package**, from face
-contours instead of a 256-entry case table — see `mesh.jl`. That keeps the
-package's dependencies to the runtime, and it is the version that can move to the
-GPU later. `Meshing.jl` was the alternative and would have been a different
-algorithm from upstream's anyway (Lorensen against `skimage`'s Lewiner).
+**Marching cubes is `GPUMeshing.marchingcubes`**, built from face contours instead
+of a transcribed 256-entry case table, and run on the device where the field
+already is, so the 228 MB field never crosses the bus. `Meshing.jl` was the
+alternative and would have been a different algorithm from upstream's anyway
+(Lorensen against `skimage`'s Lewiner).
 
 **The mixture of experts is dense, and that is deliberate.** Upstream's
 `moe_infer` cannot be exported: it calls `.cpu().numpy()` on the expert
@@ -154,6 +155,8 @@ module Hunyuan3DRunner
 using Lava, DNNKernels, KernelAbstractions
 import Mantle
 using Mantle: @setup_workload, @compile_workload
+using GPUMeshing: marchingcubes
+using GeometryBasics: coordinates, faces
 using DNNKernels: loadgraph, readsafetensors, toback, Model, call
 using DNNKernels: linspace, flowschedule, NoShift, eulerstep, cfg
 using LazyArtifacts
@@ -166,7 +169,7 @@ const ARTIFACTS_TOML = normpath(joinpath(@__DIR__, "..", "Artifacts.toml"))
 export hunyuan3dgraph, hunyuan3dweights, conddir, ditdir, vaedir, geodir
 export hunyuan3d, Hunyuan3D, imagetomesh
 export prepareimage, normalizeimage, encodeimage, denoise, shapelatents, occupancy
-export latents2mesh, marchingcubes
+export latents2mesh
 export removefloaters, removedegenerate, decimate, weld, writeobj
 
 const KA = KernelAbstractions

@@ -334,9 +334,9 @@ The implicit field over a dense `(octree + 1)^3` grid, as `VanillaVolumeDecoder`
 computes it: chunk the query points, run the geometry decoder on each, and
 concatenate.
 
-Returns a `(G, G, G)` **device** array of fp32 logits in the runtime's reversed
-layout — `field[k, j, i]` is upstream's `grid_logits[i, j, k]`, the same
-convention every other array here uses. fp32 because upstream's `.float()` is,
+Returns a `(G, G, G)` `Mantle.Buffer` of fp32 logits, the caller's to free, in
+the runtime's reversed layout — `field[k, j, i]` is upstream's
+`grid_logits[i, j, k]`, the same convention every other array here uses. fp32 because upstream's `.float()` is,
 and because the level set is read off these values.
 
 This is the expensive call in the pipeline and it is not close: at the default
@@ -353,7 +353,8 @@ function occupancy(m::Hunyuan3D, latents; box_v::Real = 1.01, octree::Integer = 
     step = (hi - lo) / (G - 1)
     nchunks = cld(N, m.chunk)
 
-    field = KA.allocate(m.backend, Float32, N)
+    field = Mantle.Buffer(Mantle.todevice(m.backend), Float32, (G, G, G))
+    flat = reshape(field, N)                          # the same bytes, as a vector
     # The queries are DECLARED INTO the decoder's own graph, so a chunk is one
     # submission of one plan: the pass that writes `queries` and the twenty that
     # read it, ordered by Mantle rather than by the queue. As a graph of its own
@@ -378,8 +379,8 @@ function occupancy(m::Hunyuan3D, latents; box_v::Real = 1.01, octree::Integer = 
         m.querychunk[] = GridChunk(first0, G, lo, step, N)
         Mantle.run!(mp.plan)
         len = min(m.chunk, N - first0)
-        view(field, (first0 + 1):(first0 + len)) .= Float32.(view(logits, 1:len))
+        view(flat, (first0 + 1):(first0 + len)) .= Float32.(view(logits, 1:len))
         progress === nothing || progress(c, nchunks)
     end
-    return reshape(field, G, G, G)
+    return field
 end

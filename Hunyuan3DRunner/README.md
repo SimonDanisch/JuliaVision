@@ -25,7 +25,7 @@ Int32, 1-based and wound outward. `latents` makes a run reproducible;
 by default they are drawn from the global RNG.
 
 The stages are public too: `prepareimage`, `encodeimage`, `denoise`,
-`shapelatents`, `occupancy`, `marchingcubes`.
+`shapelatents`, `occupancy`; the extraction is `GPUMeshing.marchingcubes`.
 
 This is the shape only. The texture branch (`hunyuan3d-paintpbr-v2-1`) is not
 ported; `tools/project_texture.jl` is the stopgap, projecting the picture the

@@ -11,9 +11,8 @@ cases below are the specific values that discriminate: each asserts the referenc
 semantics *and* names what the wrong one would give, so a regression reports the
 answer it produced rather than "not equal".
 
-**The surface extractor.** `marchingcubes` is built from face contours instead of
-a case table, so the property to check is that it closes — every one of the 256
-sign patterns, then a sphere against its analytic area and volume.
+**The mesh clean-up**, against what MeshLab does with the same flags. The surface
+extractor is `GPUMeshing.marchingcubes` and is tested there.
 
 There is deliberately no parity check against the local `gen/` tree.
 `DNNKernels/src/assets.jl` removed that fallback on the grounds that a test whose
@@ -29,6 +28,8 @@ suite for the shape.
 """
 
 using Test, Hunyuan3DRunner, DNNKernels
+using GPUMeshing: marchingcubes
+using GeometryBasics: coordinates, faces
 import Mantle
 import Artifacts
 const H = Hunyuan3DRunner
@@ -212,68 +213,6 @@ const H = Hunyuan3DRunner
         @test_throws ArgumentError H.normalizeimage(fill(0.0f0, 8, 4, 3, 1))
     end
 
-    # -------------------------------------------------------- surface extraction
-
-    @testset "every one of the 256 sign patterns closes" begin
-        bad = Int[]
-        for pat in 0:255
-            f = Array{Float32}(undef, 2, 2, 2)
-            for c in 1:8
-                dx, dy, dz = H.CORNER[c]
-                f[dx + 1, dy + 1, dz + 1] = ((pat >> (c - 1)) & 1) == 1 ? 1.0f0 : -1.0f0
-            end
-            v, t = H.marchingcubes(f; level = 0.0)
-            used = zeros(Int, size(v, 2))
-            for j in 1:size(t, 2), r in 1:3
-                used[t[r, j]] += 1
-            end
-            # no vertex may be produced and then left unreferenced: that is a
-            # loop that failed to close.
-            (size(v, 2) == count(!=(0), used)) || push!(bad, pat)
-            # empty only for the two uniform patterns
-            (pat == 0 || pat == 255) && (size(t, 2) == 0 || push!(bad, pat))
-        end
-        @test isempty(bad)
-    end
-
-    @testset "a sphere comes out watertight and the right size" begin
-        n, R = 48, 0.7
-        xs = range(-1, 1; length = n)
-        sph = Float32[R^2 - (x^2 + y^2 + z^2) for x in xs, y in xs, z in xs]
-        v, t = H.marchingcubes(sph; level = 0.0)
-        @test size(v, 1) == 3 && size(t, 1) == 3
-        @test size(t, 2) > 1000
-
-        edges = Dict{Tuple{Int32,Int32},Int}()
-        for j in 1:size(t, 2), r in 1:3
-            edges[minmax(t[r, j], t[mod1(r + 1, 3), j])] = 1 +
-                get(edges, minmax(t[r, j], t[mod1(r + 1, 3), j]), 0)
-        end
-        # watertight: every edge belongs to exactly two triangles
-        @test all(==(2), values(edges))
-        # and it is a single sphere, not a sphere plus debris
-        @test size(v, 2) - length(edges) + size(t, 2) == 2
-
-        h = Float32(2 / (n - 1))
-        vw = @. Float32(v) * h - 1.0f0
-        area = 0.0
-        vol = 0.0
-        for j in 1:size(t, 2)
-            p1 = @view vw[:, t[1, j]]
-            p2 = @view vw[:, t[2, j]]
-            p3 = @view vw[:, t[3, j]]
-            a, b = p2 .- p1, p3 .- p1
-            cr = (a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1])
-            area += 0.5 * sqrt(sum(abs2, cr))
-            vol += sum(p1 .* cr) / 6
-        end
-        @test isapprox(area, 4π * R^2; rtol = 0.01)
-        @test isapprox(vol, 4 / 3 * π * R^3; rtol = 0.01)
-        # positive signed volume: normals point outward, i.e. toward decreasing
-        # field, which is `skimage`'s `gradient_direction = "descent"`.
-        @test vol > 0
-    end
-
     # -------------------------------------------------------- mesh clean-up
 
     # A triangle strip: face `i` is `(i, i+1, i+2)`, so it shares an edge with
@@ -337,8 +276,9 @@ const H = Hunyuan3DRunner
         n, R = 32, 0.7
         xs = range(-1, 1; length = n)
         sph = Float32[R^2 - (x^2 + y^2 + z^2) for x in xs, y in xs, z in xs]
-        v, f = H.marchingcubes(sph; level = 0.0)
-        v = Float32.(v) .* Float32(2 / (n - 1)) .- 1.0f0
+        surface = marchingcubes(sph; level = 0.0)
+        v = reinterpret(reshape, Float32, coordinates(surface)) .* Float32(2 / (n - 1)) .- 1.0f0
+        f = Int32.(reinterpret(reshape, UInt32, faces(surface))) .+ Int32(1)
         nf = size(f, 2)
         @test nf > 2000
 

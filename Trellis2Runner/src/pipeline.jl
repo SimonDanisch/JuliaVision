@@ -134,18 +134,6 @@ function outputbuffer(model::Model, name::AbstractString, id::AbstractString;
 end
 
 """
-Record `g`, run it once and free the plan. Every resource the caller reads
-afterwards is a `Buffer` it bound, so nothing of the plan is needed after it.
-"""
-function runonce!(g::Mantle.Graph)
-    plan = Mantle.record!(Mantle.Plan(g))
-    Mantle.run!(plan)
-    Mantle.waitfor!(plan)
-    Mantle.free!(plan)
-    return nothing
-end
-
-"""
     sparsestructure(ss, ssdec, cond, noise; resolution) -> coords
 
 `sample_sparse_structure`: the dense flow over the `(16, 16, 16, 8, 1)` latent

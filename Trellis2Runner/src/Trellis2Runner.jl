@@ -15,6 +15,8 @@ module Trellis2Runner
 
 using Lava, DNNKernels
 import Mantle
+using GPUMeshing: GPUMeshing, runonce!, prefixsum, lastentry, select, compactcolumns, compactcols!, vertex,
+                  SparseGrid, voxelcorners, edgequads, dualcontour
 import JSON3
 import KernelInterface as KI
 import AcceleratedKernels as AK
@@ -45,7 +47,6 @@ include("assets.jl")
 include("pipeline.jl")
 include("decoder.jl")
 include("topology.jl")
-include("hashmap.jl")
 include("mesh.jl")
 include("image.jl")
 include("simplify.jl")

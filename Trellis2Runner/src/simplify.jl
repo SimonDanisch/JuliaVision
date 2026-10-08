@@ -138,8 +138,6 @@ end
 @inline quadric(Q, v) = @inbounds Quadric(Q[1, v], Q[2, v], Q[3, v], Q[4, v], Q[5, v], Q[6, v], Q[7, v],
                                           Q[8, v], Q[9, v], Q[10, v])
 
-@inline vertex(V, v) = @inbounds Vec3f(V[1, v], V[2, v], V[3, v])
-
 @inline hasvertex(F, f, v) = @inbounds(F[1, f] == v || F[2, f] == v || F[3, f] == v)
 
 """Whether a face among `v2f[lo:i - 1]` has `v`: a neighbour met before."""

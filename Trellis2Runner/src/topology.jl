@@ -6,68 +6,8 @@ adjacent loads miscompiles on RADV, see DNNKernels' `q8gemm.jl`).
 """
 
 # ── device helpers ────────────────────────────────────────────────────────────
-
-"""The inclusive prefix sum of an Int32 buffer, on the device."""
-function prefixsum(dev::Mantle.Device, b::Mantle.Buffer)
-    out = Mantle.Buffer(dev, Int32, length(b))
-    accumulate!(+, Mantle.storage(out), Mantle.storage(b))
-    return out
-end
-
-"""A buffer's last entry, read back alone."""
-lastentry(b::Mantle.Buffer) = Int(only(Array(view(Mantle.storage(b), length(b):length(b)))))
-
-"""
-    select(dev, flags, n) -> (indices, count)
-
-The one-based indices of the set entries of `flags` (Int32, 0 or 1), in order:
-cub's `DeviceSelect` as a scan and a scatter.
-"""
-function select(dev::Mantle.Device, flags::Mantle.Buffer, n::Int)
-    pos = prefixsum(dev, flags)
-    m = lastentry(pos)
-    idx = Mantle.Buffer(dev, Int32, max(m, 1))
-    g = Mantle.Graph(dev)
-    Mantle.dispatch!(g, compactindex!, (idx, flags, pos, n), n; name = "select")
-    runonce!(g)
-    Mantle.free!(pos)
-    return idx, m
-end
-
-"""
-    compactcolumns(dev, src, flags, n) -> (dst, count)
-
-The columns of `src` `(3, n)` whose flag is set, in order.
-"""
-function compactcolumns(dev::Mantle.Device, src::Mantle.Buffer{T}, flags::Mantle.Buffer, n::Int) where {T}
-    pos = prefixsum(dev, flags)
-    m = lastentry(pos)
-    dst = Mantle.Buffer(dev, T, (3, max(m, 1)))
-    g = Mantle.Graph(dev)
-    Mantle.dispatch!(g, compactcols!, (dst, src, flags, pos, n), n; name = "compact columns")
-    runonce!(g)
-    Mantle.free!(pos)
-    return dst, m
-end
-
-function compactindex!(idx, flags, pos, n)
-    i = Int32(KI.get_global_id().x)
-    i <= n || return nothing
-    @inbounds flags[i] == Int32(1) && (idx[pos[i]] = i)
-    return nothing
-end
-
-function compactcols!(dst, src, flags, pos, n)
-    i = Int32(KI.get_global_id().x)
-    i <= n || return nothing
-    @inbounds if flags[i] == Int32(1)
-        j = pos[i]
-        dst[1, j] = src[1, i]
-        dst[2, j] = src[2, i]
-        dst[3, j] = src[3, i]
-    end
-    return nothing
-end
+#
+# `prefixsum`, `lastentry`, `select` and `compactcolumns` are GPUMeshing's.
 
 """`dst[:, i] = src[:, i]` for the first `n` columns."""
 function copycols!(dst, src, n)
@@ -120,7 +60,7 @@ function Edges(dev::Mantle.Device, F::Mantle.Buffer, nf::Int)
     Mantle.dispatch!(g, expandedges!, (keys, F, nf), nf; name = "edges/expand")
     Mantle.dispatch!(g, iota!, (perm, n, 1), n; name = "edges/iota")
     runonce!(g)
-    AK.merge_sort_by_key!(Mantle.storage(keys), Mantle.storage(perm))
+    AK.sort_by_key!(Mantle.storage(keys), Mantle.storage(perm))
     flags = Mantle.Buffer(dev, Int32, n)
     g = Mantle.Graph(dev)
     Mantle.dispatch!(g, runstarts!, (flags, keys, n), n; name = "edges/runs")
