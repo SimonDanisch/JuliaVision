@@ -18,19 +18,10 @@ function runonce!(g::Mantle.Graph)
     return nothing
 end
 
-"""
-The inclusive prefix sum of an Int32 buffer, on the device.
-
-Copied, then scanned in place. Two `Mantle.Buffer`s carved from one pool block
-report the same `dataids`, so a scan from one into the other is refused as
-overlapping although the regions are disjoint; a scan onto its own source is
-allowed.
-"""
+"""The inclusive prefix sum of an Int32 buffer, on the device."""
 function prefixsum(dev::Mantle.Device, b::Mantle.Buffer)
     out = Mantle.Buffer(dev, Int32, length(b))
-    sums = Mantle.storage(out)
-    copyto!(sums, Mantle.storage(b))
-    accumulate!(+, sums, sums)
+    accumulate!(+, Mantle.storage(out), Mantle.storage(b))
     return out
 end
 
