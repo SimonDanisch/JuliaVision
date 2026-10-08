@@ -117,7 +117,7 @@ _upload16(backend, host::AbstractArray) =
     Mantle.Buffer(Mantle.todevice(backend), Float16.(host))
 
 """
-    Bonsai2(path; device=Mantle.device(), context=nothing, loadweights=true)
+    Bonsai2(path; device=Mantle.Device(), context=nothing, loadweights=true)
 
 Open a PTQ1 Bonsai GGUF on `device`. `context=nothing` selects the checkpoint's
 native context length (262144 for Ternary Bonsai 2); KV storage is allocated
@@ -126,7 +126,7 @@ Metadata parsing is immediate; packed and dense tensors are uploaded when
 `loadweights` is true. `loadweights=false` is useful for inspecting/tokenizing
 a checkpoint without allocating model memory.
 """
-function Bonsai2(path::AbstractString; device=Mantle.device(), context=nothing,
+function Bonsai2(path::AbstractString; device=Mantle.Device(), context=nothing,
                  loadweights::Bool=true, progress::Bool=true)
     file = readgguf(path)
     md = file.metadata

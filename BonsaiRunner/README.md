@@ -8,7 +8,7 @@ expanded into a dense 27B matrix set.
 ```julia
 using BonsaiRunner, Mantle
 
-model = Bonsai2(device=Mantle.device("nvidia"))
+model = Bonsai2(device=Mantle.Device("nvidia"))
 s = session(model)
 prompt = chatprompt(["user" => "Explain Vulkan barriers."])
 print(generate(s, prompt; max_tokens=256))
@@ -35,13 +35,13 @@ Radeon 8060S (RADV, 2026-09-30).
 
 ## Devices and checkpoints
 
-The device selector is optional and uses `Mantle.device()` by default. Another
+The device selector is optional and uses `Mantle.Device()` by default. Another
 session can use another device in the same process because the backend and all
 state belong to the model:
 
 ```julia
-amd = Bonsai2(device=Mantle.device("radeon"), context=4096)
-cpu = Bonsai2(device=Mantle.device("lavapipe"), context=256)
+amd = Bonsai2(device=Mantle.Device("radeon"), context=4096)
+cpu = Bonsai2(device=Mantle.Device("lavapipe"), context=256)
 ```
 
 The no-path constructor resolves the official PTQ1 GGUF from four lazy Julia

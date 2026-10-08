@@ -3,7 +3,7 @@ using BonsaiRunner, KernelAbstractions, LinearAlgebra, Mantle
 path = get(ENV, "BONSAI_GGUF", "")
 path = isempty(path) ? checkpointpath() : path
 selector = get(ENV, "BONSAI_DEVICE", "")
-dev = isempty(selector) ? Mantle.device() : Mantle.device(selector)
+dev = isempty(selector) ? Mantle.Device() : Mantle.Device(selector)
 chunk = parse(Int, get(ENV, "BONSAI_PREFILL_CHUNK", "512"))
 ntokens = parse(Int, get(ENV, "BONSAI_PREFILL_TOKENS", "512"))
 

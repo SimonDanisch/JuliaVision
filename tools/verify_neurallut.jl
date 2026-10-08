@@ -39,11 +39,10 @@ const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "neurallut"))
 
 # `cpu` is lavapipe, not `KA.CPU()`. The interpreted runner is gone and the
 # declared path is the only one, so a CPU run is a Vulkan device that happens to
-# be software — one API rather than a second implementation. The variable is
-# read once, lazily, on the first device, so it has to be set before the
-# backend is built.
+# be software — one API rather than a second implementation. Installed as the
+# default before the backend is built, which takes the default's channel.
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
-mode == "cpu" && (ENV["MANTLE_DEVICE"] = "llvmpipe")
+mode == "cpu" && Mantle.defaultdevice!("llvmpipe")
 backend = LavaBackend()
 
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_neurallut.py`")
