@@ -16,7 +16,9 @@ import Mantle
     end
 
     @testset "16-token cooperative gate projection" begin
-        if Mantle.caps(dev).coopmat
+        # The gate `_recurrent_batch!` takes this path under. `caps.coopmat` alone
+        # is true on Metal, whose 8x8 matrices the staged GEMM is not written at.
+        if DNNKernels.coopmatkernels(Mantle.caps(dev))
             for nt in (16,32)
                 weight = randn(rng,Float16,96,64) .* Float16(0.1)
                 x = randn(rng,Float16,64,nt)
@@ -98,7 +100,6 @@ import Mantle
             y .*= DNNKernels._sigmoid_f32(1f0) / sqrt(sum(abs2,y)/128f0+1f-6)
         end
         subgroup = Mantle.caps(dev).subgroup
-        groups = 128 ÷ (256 ÷ subgroup)
         for lengths in ((17,), (7,1,1,7,1), ntuple(_->1,nt))
             s, db, ab = Mantle.Buffer(dev,initial), Mantle.Buffer(dev,dt), Mantle.Buffer(dev,a)
             nw = Mantle.Buffer(dev,ones(Float32,128))
@@ -116,8 +117,8 @@ import Mantle
                         (out,s,inputs...,db,ab,z,nw,1f-6,Int32(48),Int32(16)),48*128;group=128)
                 else
                     runpass(BonsaiRunner.gated_delta_state_batch_kernel!,
-                        (out,s,inputs...,db,ab,Int32(n),Int32(groups),Val(subgroup)),
-                        48groups*256;group=256)
+                        (out,s,inputs...,db,ab,Int32(n),Val(subgroup)),
+                        48*(128 ÷ BonsaiRunner.GDN_COLS)*subgroup;group=256)
                     runpass(BonsaiRunner.gdn_norm_gate_batch_kernel!,
                         (out,z,nw,1f-6),48n*128;group=128)
                 end

@@ -180,8 +180,11 @@ function loadweights!(model::Bonsai2; progress::Bool=true)
         t = model.file[name]
         if t.typeid == DNNKernels.GGML_TYPE_PTQ1_0
             model.weights[name] = ptq1matrix(model.backend, model.file, t)
-        elseif t.typeid in (DNNKernels.GGML_TYPE_F32, DNNKernels.GGML_TYPE_F16,
-                            DNNKernels.GGML_TYPE_BF16)
+        elseif t.typeid == DNNKernels.GGML_TYPE_BF16
+            # Raw words, read through `_weightf32`: exact, and half of Float32.
+            model.weights[name] = Mantle.Buffer(Mantle.todevice(model.backend),
+                                                DNNKernels.gguftensor(model.file, t))
+        elseif t.typeid in (DNNKernels.GGML_TYPE_F32, DNNKernels.GGML_TYPE_F16)
             host = DNNKernels.gguffloat(model.file, t)
             model.weights[name] = _upload(model.backend, host)
         else
@@ -190,13 +193,17 @@ function loadweights!(model::Bonsai2; progress::Bool=true)
         progress && (i == 1 || i % 32 == 0 || i == length(names)) &&
             println("BonsaiRunner: loaded $i/$(length(names)) tensors")
     end
-    for il in 0:NLAYERS-1
-        (il + 1) % 4 == 0 && continue
-        prefix = "blk.$il."
-        ah = DNNKernels.gguffloat(model.file, model.file[prefix * "ssm_alpha.weight"])
-        bh = DNNKernels.gguffloat(model.file, model.file[prefix * "ssm_beta.weight"])
-        model.weights[prefix * "ssm_ab.weight.coop"] =
-            _upload16(model.backend, permutedims(hcat(ah, bh)))
+    # The fused alpha/beta prefill weights, only where the cooperative-matrix GEMM
+    # that reads them runs. Their presence is what `_recurrent_batch!` asks.
+    if DNNKernels.coopmatkernels(model.caps)
+        for il in 0:NLAYERS-1
+            (il + 1) % 4 == 0 && continue
+            prefix = "blk.$il."
+            ah = DNNKernels.gguffloat(model.file, model.file[prefix * "ssm_alpha.weight"])
+            bh = DNNKernels.gguffloat(model.file, model.file[prefix * "ssm_beta.weight"])
+            model.weights[prefix * "ssm_ab.weight.coop"] =
+                _upload16(model.backend, permutedims(hcat(ah, bh)))
+        end
     end
     KernelAbstractions.synchronize(model.backend)
     model
@@ -208,6 +215,7 @@ mutable struct BonsaiSession{M}
     recurrent::Dict{Int,Tuple{Any,Any}}
     kv::Dict{Int,Any}
     logits::Any                # session-owned; survives a plan rebuild
+    best::Any                  # the logits' argmax, zero-based, written beside them
     scratch::Any               # GraphScratch over the current step graph
     tokenref::Any
     positionref::Any
@@ -275,7 +283,8 @@ function session(model::Bonsai2; kv_page::Integer=4096)
     # plan when the cache grows, and a `:logits` declared into the graph would be
     # replaced on every rebuild with nothing freeing the old one.
     logits = _zeros(model, Float32, 248320)
-    s = BonsaiSession(model, 0, recurrent, kv, logits, nothing,
+    best = Mantle.Buffer(dev, Int32, (1,))
+    s = BonsaiSession(model, 0, recurrent, kv, logits, best, nothing,
                       Mantle.GPURef(dev, Int32(0)),
                       Mantle.GPURef(dev, Int32(0)), nothing, Int(kv_page),
                       Dict{Int,Any}())
@@ -284,7 +293,7 @@ function session(model::Bonsai2; kv_page::Integer=4096)
 end
 
 """
-    _stepscratch(g, logits) -> GraphScratch
+    _stepscratch(g, logits, capacity) -> GraphScratch
 
 One token's working set, declared into the step graph. Same story as
 [`_batchscratch`](@ref): these were 25 permanent `_zeros` and the step plan
@@ -292,18 +301,20 @@ reported `naive = peak = 0` because nothing in it was declared.
 
 `ntokens = 1`, so the widths are absolute. The Hadamard activations are Float32
 here and Float16 in the batch path, which is why the precision set is per
-scratch and not global.
+scratch and not global. The attention partials are per chunk of the KV
+cache's `capacity`, which is why the step plan is recorded again when it grows.
 """
-_stepscratch(g, logits) = GraphScratch(
+_stepscratch(g, logits, capacity::Int) = GraphScratch(
     g, 1,
-    Dict(:x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
-         :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
-         :qkv=>10240, :z=>6144, :conv=>10240, :rq=>2048, :rk=>2048,
-         :rv=>6144, :gdn=>6144, :had6144=>6144,
+    Dict(:x=>WIDTH, :xalt=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
+         :gate=>FFN, :up=>FFN, :had17408=>FFN,
+         :qkv=>10240, :z=>6144, :conv=>10240, :gdn=>6144, :had6144=>6144,
          :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
          :qgate=>6144, :attn=>6144, :alpha=>48, :beta=>48),
-    Dict{Symbol,Int}(), Set{Symbol}(),
-    Dict{Symbol,Any}(:logits => logits), Dict{Symbol,Any}())
+    Dict{Symbol,Int}(:attnmax => 24 * cld(capacity, ATTN_CHUNK),
+                     :attnsum => 24 * cld(capacity, ATTN_CHUNK),
+                     :attnacc => 24 * cld(capacity, ATTN_CHUNK) * 256),
+    Set{Symbol}(), Dict{Symbol,Any}(:logits => logits), Dict{Symbol,Any}())
 
 """Current token capacity of a session's lazily allocated KV cache."""
 kv_capacity(s::BonsaiSession) = first(values(s.kv)).capacity
@@ -397,6 +408,7 @@ function release!(s::BonsaiSession)
     end
     empty!(s.recurrent)
     Mantle.free!(s.logits)
+    Mantle.free!(s.best)
     Mantle.free!(s.tokenref)
     Mantle.free!(s.positionref)
     return nothing
@@ -418,16 +430,11 @@ function _hadamard!(s::BonsaiSession, g, x, signs; inverse::Bool=false)
     x
 end
 
-function _transform!(s::BonsaiSession, g, dest, x; permute::Bool=false)
-    if permute
-        _dispatch!(g, gdn_permute_kernel!, (dest, x), 6144;
-                   group=256, name="gdn_permute")
-    else
-        _dispatch!(g, copy_kernel!, (dest, x, Int32(length(x))), length(x);
-                   group=256, name="copy")
-    end
-    _hadamard!(s, g, dest, s.model.signs[length(dest)])
-end
+# One token of `_transform_batch!`. Its kernels read `x` straight into shared
+# memory, where decode used to copy (or permute) into `dest` and transform that in
+# place: two passes, and 209 of a token's dispatches.
+_transform!(s::BonsaiSession, g, dest, x; permute::Bool=false) =
+    _transform_batch!(s, g, dest, x, length(dest), 1; permute)
 
 function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
                workspace=nothing)
@@ -439,8 +446,7 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
               M % DNNKernels.PTQ1_COOP_BM == 0 &&
               K % DNNKernels.PTQ1_COOP_BK == 0 &&
               eltype(transformed) === Float16 &&
-              g.dev isa Mantle.LavaDevice &&
-              Mantle.coopmat_gemm_available(g.dev.ctx)
+              DNNKernels.coopmatkernels(s.model.caps)
     if coopmat
         blocks = (M ÷ DNNKernels.PTQ1_COOP_BM) *
                  (N ÷ DNNKernels.PTQ1_COOP_BN)
@@ -448,52 +454,66 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
             (out, A.data, transformed, Val(M), Val(N), Val(K)),
             blocks * DNNKernels.PTQ1_COOP_WG;
             group=DNNKernels.PTQ1_COOP_WG, name)
-    elseif N >= 8
-        mtiles = cld(M, DNNKernels.PTQ1_MM_BM)
-        ntiles = cld(N, DNNKernels.PTQ1_MM_BN)
-        _dispatch!(g, DNNKernels.ptq1_mul_mm_kernel!,
-            (out, A.data, transformed, Int32(M), Int32(K), Int32(N),
-             Int32(mtiles)),
-            mtiles * ntiles * DNNKernels.PTQ1_WG;
-            group=DNNKernels.PTQ1_WG, name=name)
+    elseif N == 1
+        _dispatch!(g, DNNKernels.ptq1_mul_rows_kernel!,
+            (out, A.data, transformed, A.data, Int32(M), Int32(K), Val(false)),
+            M * DNNKernels.PTQ1_DECODE_LANES;
+            group=DNNKernels.PTQ1_DECODE_WG, name=name)
     else
-        rows = cld(M, DNNKernels.PTQ1_ROWS_PER_WG)
-        kernel = N == 1 ? DNNKernels.ptq1_mul_w32_kernel! : DNNKernels.ptq1_mul4_kernel!
-        columns = N == 1 ? N : cld(N, DNNKernels.PTQ1_COLS_PER_WG)
-        _dispatch!(g, kernel,
-            (out, A.data, transformed, A.data, Int32(M), Int32(K), Int32(N),
-             Int32(rows), Val(false), Val(s.model.caps.subgroup)),
-            rows * columns * DNNKernels.PTQ1_WG;
-            group=DNNKernels.PTQ1_WG, name=name)
+        # From PTQ1_GEMM_COLS columns, the device's GEMM over a Float16 expansion
+        # takes the multiples of 32; the rest go a few columns at a time, sharing
+        # each decoded weight. The expansion and one pass over it are ~1.3 s a
+        # prompt on an M5, and a product whose columns are no multiple of 8 is not
+        # tiled at all (an 18-token prompt took 6 s); four columns a launch cost
+        # ~28 ms a token.
+        done = if N < PTQ1_GEMM_COLS
+            0
+        else
+            covered = DNNKernels.ptq1_native_gemm!(g, out, A, transformed, N; name)
+            if covered == 0
+                # No native GEMM: the scalar tile kernel, which reuses each weight
+                # across its 32-column tile.
+                mtiles = cld(M, DNNKernels.PTQ1_MM_BM)
+                ntiles = cld(N, DNNKernels.PTQ1_MM_BN)
+                _dispatch!(g, DNNKernels.ptq1_mul_mm_kernel!,
+                    (out, A.data, transformed, Int32(M), Int32(K), Int32(N),
+                     Int32(mtiles)),
+                    mtiles * ntiles * DNNKernels.PTQ1_WG;
+                    group=DNNKernels.PTQ1_WG, name=name)
+                N
+            else
+                covered
+            end
+        end
+        done < N && DNNKernels.ptq1_cols!(g, out, A, transformed, done, N; name)
     end
     out
 end
 
 function _recurrent!(s::BonsaiSession, g, q, il::Int, xnorm)
     prefix = "blk.$il."
-    _transform!(s, g, q[:had5120], xnorm)
     _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120])
     _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120])
-    _dispatch!(g, dense_gemv_kernel!,
-        (q[:alpha], _w(s, prefix * "ssm_alpha.weight"), xnorm,
-         Int32(length(xnorm)), Int32(48), Val(s.model.caps.subgroup)),
-        cld(48, DENSE_ROWS_PER_WG) * 256;
-        group=256, name=prefix * "ssm_alpha")
-    _dispatch!(g, dense_gemv_kernel!,
-        (q[:beta], _w(s, prefix * "ssm_beta.weight"), xnorm,
-         Int32(length(xnorm)), Int32(48), Val(s.model.caps.subgroup)),
-        cld(48, DENSE_ROWS_PER_WG) * 256;
-        group=256, name=prefix * "ssm_beta")
+    _dispatch!(g, dense2_gemv_kernel!,
+        (q[:alpha], q[:beta], _w(s, prefix * "ssm_alpha.weight"),
+         _w(s, prefix * "ssm_beta.weight"), xnorm, Int32(length(xnorm)), Int32(48),
+         Val(s.model.caps.subgroup)), 96 * 256;
+        group=256, name=prefix * "ssm_alpha_beta")
     convstate, state = s.recurrent[il]
     _dispatch!(g, DNNKernels.depthwise_conv4_kernel!,
         (q[:conv], convstate, q[:qkv], _w(s, prefix * "ssm_conv1d.weight"),
          Int32(length(q[:qkv]))), length(q[:qkv]);
         group=256, name=prefix * "ssm_conv1d")
-    _dispatch!(g, recurrent_split_kernel!,
-        (q[:rq], q[:rk], q[:rv], q[:conv]), 6144;
-        group=256, name=prefix * "recurrent_split")
+    # q, k and v are three runs of the convolution's output, so the kernel reads
+    # them through views where a split pass used to copy them out: one dependent
+    # pass fewer per recurrent layer. The batch layout interleaves tokens and
+    # keeps its split.
+    conv = q[:conv]
+    rq = Mantle.viewof(conv, (2048,))
+    rk = Mantle.viewof(conv, (2048,); offset = 2048)
+    rv = Mantle.viewof(conv, (6144,); offset = 4096)
     _dispatch!(g, DNNKernels.gated_delta_net_kernel!,
-        (q[:gdn], state, q[:rq], q[:rk], q[:rv], q[:alpha], q[:beta],
+        (q[:gdn], state, rq, rk, rv, q[:alpha], q[:beta],
          _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"), q[:z],
          _w(s, prefix * "ssm_norm.weight"), s.model.eps, Int32(48), Int32(16)),
         48 * 128; group=128, name=prefix * "gated_delta_net")
@@ -504,7 +524,6 @@ end
 
 function _attention!(s::BonsaiSession, g, q, il::Int, xnorm)
     prefix = "blk.$il."
-    _transform!(s, g, q[:had5120], xnorm)
     _ptq!(s, g, q[:qfull], prefix * "attn_q.weight", q[:had5120])
     _ptq!(s, g, q[:kproj], prefix * "attn_k.weight", q[:had5120])
     _ptq!(s, g, q[:vproj], prefix * "attn_v.weight", q[:had5120])
@@ -518,10 +537,16 @@ function _attention!(s::BonsaiSession, g, q, il::Int, xnorm)
          q[:kproj], q[:vproj], _w(s, prefix * "attn_k_norm.weight"),
          s.positionref, s.model.theta, s.model.eps), 4 * 256;
         group=256, name=prefix * "prepare_kv")
-    _dispatch!(g, decode_attention_kernel!,
-        (q[:attn], q[:aq], q[:qgate], cache.k, cache.v,
-         cache.kscale, cache.vscale, s.positionref), 24 * 256;
-        group=256, name=prefix * "decode_attention")
+    nchunks = cld(cache.capacity, ATTN_CHUNK)
+    _dispatch!(g, attention_partial_kernel!,
+        (q[:attnmax], q[:attnsum], q[:attnacc], q[:aq], cache.k, cache.v,
+         cache.kscale, cache.vscale, s.positionref, Int32(nchunks),
+         Val(s.model.caps.subgroup)), 4 * nchunks * 256;
+        group=256, name=prefix * "attention_partial")
+    _dispatch!(g, attention_combine_kernel!,
+        (q[:attn], q[:attnmax], q[:attnsum], q[:attnacc], q[:qgate],
+         s.positionref, Int32(nchunks)), 24 * 256;
+        group=256, name=prefix * "attention_combine")
     _transform!(s, g, q[:had6144], q[:attn])
     _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144])
     q[:branch]
@@ -529,13 +554,12 @@ end
 
 function _ffn!(s::BonsaiSession, g, q, il::Int, xnorm)
     prefix = "blk.$il."
-    _transform!(s, g, q[:had5120], xnorm)
     _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
     _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120])
-    _dispatch!(g, swiglu_kernel!,
-        (q[:ff], q[:gate], q[:up], Int32(FFN)), FFN;
-        group=256, name=prefix * "swiglu")
-    _transform!(s, g, q[:had17408], q[:ff])
+    _dispatch!(g, swiglu_hadamard1024_batch_kernel!,
+        (q[:had17408], q[:gate], q[:up], s.model.signs[FFN],
+         Int32(FFN), Int32(FFN ÷ 1024)),
+        (FFN ÷ 1024) * 256; group=256, name=prefix * "swiglu_hadamard")
     _ptq!(s, g, q[:branch], prefix * "ffn_down.weight", q[:had17408])
     q[:branch]
 end
@@ -556,10 +580,8 @@ buffer with no uses.
 
 It is also the thing the eager table was hiding. `_zeros` asks nothing and
 allocates everything, so an entry this path never reads costs its full size on
-every prefill and never complains; `:ff` is 34 MiB of exactly that, used by the
-decode `_ffn!` and not by `_ffn_batch!`. Declared lazily it simply never
-appears, which is better than deleting it from the table and risking a
-`KeyError` on a path that was not exercised.
+every prefill and never complains; `:ff`, 34 MiB that only decode read, was
+exactly that. Declared lazily an unread entry simply never appears.
 
 `:logits` stays a real buffer: `prefill!` hands it to the host after `run!`, so
 it has to outlive the plan's arena.
@@ -589,7 +611,7 @@ end
 function _batchscratch(g, logits, ntokens::Int)
     widths = Dict(
         :x=>WIDTH, :norm=>WIDTH, :branch=>WIDTH, :had5120=>WIDTH,
-        :gate=>FFN, :up=>FFN, :ff=>FFN, :had17408=>FFN,
+        :gate=>FFN, :up=>FFN, :had17408=>FFN,
         :qkv=>10240, :z=>6144, :conv=>10240, :rq=>2048, :rk=>2048,
         :rv=>6144, :gdn=>6144, :had6144=>6144,
         :qfull=>12288, :kproj=>1024, :vproj=>1024, :aq=>6144,
@@ -634,7 +656,22 @@ end
 
 function _dense_batch!(s::BonsaiSession, g, out, weight, x, K::Int, M::Int,
                        ntokens::Int, name::String)
-    if ntokens >= 8
+    # The device's own GEMM where it has one for single precision: the weight
+    # expanded once to a Float32 M x K transient (it is BF16 words, stored K-major),
+    # then `out = W * x`. On an M5, 96x5120 by 2048 tokens: 0.86 ms through Metal's
+    # tensor product against 6.8 through `dense_mul_mm_kernel!`, and closer to a
+    # Float64 reference (4.5e-7 against 2.4e-6).
+    if ntokens >= 8 && Mantle.native_gemm_available(g.dev, Float32, Float32, eltype(out)) &&
+       eltype(x) === Float32
+        W = Mantle.Transient.Buffer(g, Float32, (M, K))
+        _dispatch!(g, weight_transpose_kernel!, (W, weight, Int32(K), Int32(M)), K * M;
+                   group=256, name=name * ".expand")
+        fused = Mantle.native_gemm_dispatch!(g.dev, g, Mantle.viewof(out, (M, ntokens)), W,
+                                             Mantle.viewof(x, (K, ntokens)); name)
+        fused === nothing && error(
+            "_dense_batch!: `native_gemm_available` admitted Float32 on $(typeof(g.dev)) " *
+            "and `native_gemm_dispatch!` then declined $(M)x$(ntokens)x$(K) for `$name`.")
+    elseif ntokens >= 8
         mtiles = cld(M, DENSE_MM_BM)
         ntiles = cld(ntokens, DENSE_MM_BN)
         _dispatch!(g, dense_mul_mm_kernel!,
@@ -665,8 +702,7 @@ function _recurrent_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
                       halfcopy=q[:densehalf])
     _ptq!(s, g, q[:qkv], prefix * "attn_qkv.weight", q[:had5120], q)
     _ptq!(s, g, q[:z], prefix * "attn_gate.weight", q[:had5120], q)
-    densecoop = ntokens % 16 == 0 && g.dev isa Mantle.LavaDevice &&
-                Mantle.coopmat_gemm_available(g.dev.ctx) &&
+    densecoop = ntokens % 16 == 0 &&
                 haskey(s.model.weights, prefix * "ssm_ab.weight.coop")
     if densecoop
         _dense_coop_batch!(g, q[:alphabeta],
@@ -693,13 +729,11 @@ function _recurrent_batch!(s::BonsaiSession, g, q, il::Int, xnorm, ntokens::Int)
         (q[:rq], q[:rk], s.model.eps), ntokens * 16 * 128;
         group=128, name=prefix * "gdn_normalize_qk")
     subgroup = s.model.caps.subgroup
-    nsubgroups = 256 ÷ subgroup
-    groupsperhead = cld(128, nsubgroups)
     _dispatch!(g, gated_delta_state_batch_kernel!,
         (q[:gdn], state, q[:rq], q[:rk], q[:rv], q[:alpha], q[:beta],
          _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"),
-         Int32(ntokens), Int32(groupsperhead), Val(subgroup)),
-        48 * groupsperhead * 256; group=256,
+         Int32(ntokens), Val(subgroup)),
+        48 * (128 ÷ GDN_COLS) * subgroup; group=256,
         name=prefix * "gated_delta_state_batch")
     _dispatch!(g, gdn_norm_gate_batch_kernel!,
         (q[:gdn], q[:z], _w(s, prefix * "ssm_norm.weight"), s.model.eps),
@@ -726,11 +760,11 @@ function _attention_batch!(s::BonsaiSession, g, q, il::Int, xnorm,
          _w(s, prefix * "attn_k_norm.weight"), position,
          s.model.theta, s.model.eps), ntokens * 4 * 256;
         group=256, name=prefix * "prepare_kv_batch")
-    _dispatch!(g, decode_attention_batch_fast_kernel!,
+    _dispatch!(g, attention_prefill_kernel!,
         (q[:attn], q[:aq], q[:qgate], cache.k, cache.v,
-         cache.kscale, cache.vscale, position, Val(s.model.caps.subgroup)),
-        ntokens * 24 * 256;
-        group=256, name=prefix * "decode_attention_batch")
+         cache.kscale, cache.vscale, position, Int32(ntokens)),
+        cld(ntokens, ATTN_TOKENS) * 4 * 256;
+        group=256, name=prefix * "attention_prefill")
     _transform_batch!(s, g, q[:had6144], q[:attn], 6144, ntokens)
     _ptq!(s, g, q[:branch], prefix * "attn_output.weight", q[:had6144], q)
     q[:branch]
@@ -792,11 +826,21 @@ function _declareprefill_stage!(s::BonsaiSession, g, q, tokens, position,
             group=256, name="copy_last")
         _hadamard!(s, g, q[:lasthad], s.model.signs[WIDTH])
         _ptq!(s, g, q[:logits], "output.weight", q[:lasthad])
+        _declaregreedy!(s, g, q[:logits])
     end
     q[:logits]
 end
 
-const PREFILL_CHUNK = 512
+# A device without the staged cooperative-matrix kernels expands every projection
+# to Float16 once per chunk (`DNNKernels.ptq1_native_gemm!`), so the chunk is what
+# that cost is spread over. On an M5 a 2048-token prompt took 15.7 s in four
+# chunks of 512 and 13.7 in one; the scratch is ~600 KiB a token.
+const PREFILL_CHUNK = 2048
+
+# Where the expansion and GEMM start to beat four columns a launch, measured on an
+# M5: 64 tokens took 1.29 s through the GEMM and 63 took 1.83 four at a time, while
+# 48 took 1.64 as 32 through the GEMM plus 16, against 1.32 for 47 four at a time.
+const PTQ1_GEMM_COLS = 64
 
 # A recording of all 64 layers outruns what the driver allows in ONE submission
 # and is cancelled, which presents as a device loss with nothing naming the
@@ -818,40 +862,50 @@ function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
     PrefillExec(tokens, position, q, Any[plan])
 end
 
+# One layer boundary of the decode step: `xout = xin + branch`, its RMS norm into
+# `q[:norm]` and the norm's signed transform into `q[:had5120]`, which is what
+# every projection of the next layer reads. Without a branch, the norm and
+# transform of `xin` alone.
+function _boundary!(s::BonsaiSession, g, q, xin, xout, branch, weight::String, name::String)
+    _dispatch!(g, add_rmsnorm_hadamard_kernel!,
+        (something(xout, xin), q[:norm], q[:had5120], xin, something(branch, xin),
+         _w(s, weight), s.model.signs[WIDTH], Int32(WIDTH), s.model.eps,
+         Val(branch !== nothing), Val(s.model.caps.subgroup)),
+        (WIDTH ÷ 1024) * 256; group=256, name)
+end
+
 function _declarestep!(s::BonsaiSession, g, q)
     embedding = _w(s, "token_embd.weight")
     _dispatch!(g, DNNKernels.ptq1_getrows_kernel!,
         (q[:x], embedding.data, s.tokenref, Int32(embedding.m), Int32(embedding.k), Int32(1)),
         embedding.k; group=256, name="token_embedding")
     _hadamard!(s, g, q[:x], s.model.signs[WIDTH]; inverse=true)
+    # The residual stream alternates between two buffers, because a boundary's
+    # workgroups each read all of it while writing their own part.
+    xs = (q[:x], q[:xalt])
+    cur = 1
+    _boundary!(s, g, q, xs[cur], nothing, nothing, "blk.0.attn_norm.weight", "blk.0.attn_norm")
     for il in 0:NLAYERS-1
         prefix = "blk.$il."
-        _dispatch!(g, rmsnorm_kernel!,
-            (q[:norm], q[:x], _w(s, prefix * "attn_norm.weight"), Int32(WIDTH), s.model.eps),
-            256; group=256, name=prefix * "attn_norm")
         branch = (il + 1) % 4 == 0 ? _attention!(s, g, q, il, q[:norm]) :
                                      _recurrent!(s, g, q, il, q[:norm])
-        _dispatch!(g, add_kernel!, (q[:x], q[:x], branch, Int32(WIDTH)), WIDTH;
-                   group=256, name=prefix * "attn_residual")
-        _dispatch!(g, rmsnorm_kernel!,
-            (q[:norm], q[:x], _w(s, prefix * "post_attention_norm.weight"),
-             Int32(WIDTH), s.model.eps),
-            256; group=256, name=prefix * "post_attention_norm")
+        _boundary!(s, g, q, xs[cur], xs[3 - cur], branch,
+                   prefix * "post_attention_norm.weight", prefix * "attn_residual_norm")
+        cur = 3 - cur
         branch = _ffn!(s, g, q, il, q[:norm])
-        _dispatch!(g, add_kernel!, (q[:x], q[:x], branch, Int32(WIDTH)), WIDTH;
-                   group=256, name=prefix * "ffn_residual")
+        nextnorm = il == NLAYERS - 1 ? "output_norm.weight" :
+                   "blk.$(il + 1).attn_norm.weight"
+        _boundary!(s, g, q, xs[cur], xs[3 - cur], branch, nextnorm, prefix * "ffn_residual_norm")
+        cur = 3 - cur
     end
-    _dispatch!(g, rmsnorm_kernel!,
-        (q[:norm], q[:x], _w(s, "output_norm.weight"), Int32(WIDTH), s.model.eps),
-        256; group=256, name="output_norm")
-    _transform!(s, g, q[:had5120], q[:norm])
     _ptq!(s, g, q[:logits], "output.weight", q[:had5120])
+    _declaregreedy!(s, g, q[:logits])
     q[:logits]
 end
 
 function _recordstep(s::BonsaiSession, dev)
     g = Mantle.Graph(dev)
-    q = _stepscratch(g, s.logits)
+    q = _stepscratch(g, s.logits, kv_capacity(s))
     _declarestep!(s, g, q)
     (Mantle.record!(Mantle.Plan(g)), q)
 end
@@ -874,7 +928,7 @@ function step!(s::BonsaiSession, token::Integer)
 end
 
 """
-    prefill!(session, ids; chunk=512) -> device logits
+    prefill!(session, ids; chunk=2048) -> device logits
 
 Advance `session` through a prompt with recorded chunk graphs. A graph is built
 once for each encountered chunk length and reused by later calls. Recurrent
@@ -908,10 +962,18 @@ function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
     logits
 end
 
+# Every graph that writes the session's logits writes their argmax beside them
+# (`_declaregreedy!`), so a pick from those is four bytes rather than a megabyte
+# and a host scan. Logits from anywhere else are scanned on the host.
 function _greedy(s::BonsaiSession, logits)
     KernelAbstractions.synchronize(s.model.backend)
-    argmax(Array(logits)) - 1
+    logits === s.logits || return argmax(Array(logits)) - 1
+    Int(only(Array(Mantle.storage(s.best))))
 end
+
+_declaregreedy!(s::BonsaiSession, g, logits) =
+    _dispatch!(g, argmax_kernel!, (s.best, logits, Int32(length(logits))), 256;
+               group=256, name="greedy")
 
 """Greedy token generation with chunked prompt prefill."""
 function generate(s::BonsaiSession, ids::AbstractVector{<:Integer}; max_tokens::Integer=32,

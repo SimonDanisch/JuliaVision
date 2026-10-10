@@ -1,6 +1,8 @@
 using Test, BonsaiRunner, DNNKernels, Artifacts
 import Mantle
 include("test_state_boundaries.jl")
+include("test_attention.jl")
+include("test_decode_boundary.jl")
 
 @testset "checkpoint artifact bindings" begin
     toml = joinpath(pkgdir(BonsaiRunner), "Artifacts.toml")
@@ -81,6 +83,25 @@ end
         release!(s)
         Mantle.reclaim!(Mantle.pool(dev), dev; wait = true)
         @test onloan() <= before                    # and gave all of it back
+
+        # Decode across a KV growth. The step plan is recorded again at the new
+        # capacity, and the split attention's grid and partials are sized from
+        # it, so tokens decoded one at a time past the first page must agree with
+        # the same tokens taken as one prompt by the prefill.
+        ids = encode(model.tokenizer, repeat("Barriers order memory accesses. ", 20))[1:80]
+        stepped = session(model; kv_page = 64)
+        local last
+        for id in ids
+            last = BonsaiRunner.step!(stepped, id)
+        end
+        @test BonsaiRunner.kv_capacity(stepped) == 128
+        a = Array(Mantle.storage(last))
+        release!(stepped)
+        whole = session(model)
+        b = Array(Mantle.storage(prefill!(whole, ids)))
+        release!(whole)
+        @test argmax(a) == argmax(b)
+        @test sum(a .* b) / sqrt(sum(abs2, a) * sum(abs2, b)) > 0.9999
         DNNKernels.releaseweights!(model.weights)
     end
 end

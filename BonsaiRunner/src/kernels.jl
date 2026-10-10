@@ -1,3 +1,10 @@
+# A weight element in single precision. The checkpoint's BF16 tensors stay on the
+# device as their raw 16-bit words, which is exact (BF16 is the top half of a
+# Float32) and half the bytes a decode token reads for them; a raw UInt16 is those
+# bits, never an integer value.
+@inline _weightf32(w::UInt16) = reinterpret(Float32, UInt32(w) << 16)
+@inline _weightf32(w::Real) = Float32(w)
+
 import KernelInterface as KI
 
 function copy_kernel!(out, x, n::Int32)
@@ -27,12 +34,16 @@ function hadamard1024_out_batch_kernel!(
         sh[i + Int32(1)] = v * Float32(signs[block * Int32(1024) + i + Int32(1)])
     end
     KI.barrier()
+    # A shift and a mask, as in `DNNKernels.hadamard1024_kernel!`: `÷` and `%`
+    # by the runtime `stride` were two integer divisions per pair per stage, on a
+    # device with no integer divide.
     stride = Int32(1)
+    lg = Int32(0)
     while stride < Int32(1024)
         @inbounds for pass in Int32(0):Int32(1)
             p = t + pass * Int32(256)
-            group = p ÷ stride
-            j = p % stride
+            group = p >> lg
+            j = p & (stride - Int32(1))
             aidx = group * (stride << 1) + j
             bidx = aidx + stride
             a = sh[aidx + Int32(1)]
@@ -42,6 +53,7 @@ function hadamard1024_out_batch_kernel!(
         end
         KI.barrier()
         stride <<= 1
+        lg += Int32(1)
     end
     scale = inv(sqrt(Float32(1024)))
     @inbounds for j in Int32(0):Int32(3)
@@ -71,12 +83,16 @@ function gdn_permute_hadamard1024_batch_kernel!(
                            Float32(signs[block * Int32(1024) + i + Int32(1)])
     end
     KI.barrier()
+    # A shift and a mask, as in `DNNKernels.hadamard1024_kernel!`: `÷` and `%`
+    # by the runtime `stride` were two integer divisions per pair per stage, on a
+    # device with no integer divide.
     stride = Int32(1)
+    lg = Int32(0)
     while stride < Int32(1024)
         @inbounds for pass in Int32(0):Int32(1)
             p = t + pass * Int32(256)
-            group = p ÷ stride
-            j = p % stride
+            group = p >> lg
+            j = p & (stride - Int32(1))
             aidx = group * (stride << 1) + j
             bidx = aidx + stride
             a = sh[aidx + Int32(1)]
@@ -86,18 +102,13 @@ function gdn_permute_hadamard1024_batch_kernel!(
         end
         KI.barrier()
         stride <<= 1
+        lg += Int32(1)
     end
     scale = inv(sqrt(Float32(1024)))
     @inbounds for j in Int32(0):Int32(3)
         i = t + j * Int32(256)
         out[base + i + Int32(1)] = eltype(out)(sh[i + Int32(1)] * scale)
     end
-    return nothing
-end
-
-function add_kernel!(out, a, b, n::Int32)
-    i = Int32(KI.get_global_id().x)
-    i <= n && (@inbounds out[i] = eltype(out)(Float32(a[i]) + Float32(b[i])))
     return nothing
 end
 
@@ -111,33 +122,6 @@ function dense_ab_split_kernel!(alpha, beta, ab,
             alpha[i + Int32(1)] = ab[token * Int32(96) + head + Int32(1)]
             beta[i + Int32(1)] = ab[token * Int32(96) + Int32(48) + head + Int32(1)]
         end
-    end
-    return nothing
-end
-
-function rmsnorm_kernel!(out, x, weight, n::Int32, eps::Float32)
-    sh = KI.localmemory(Float32, Val((256,)), Val(1))
-    t = Int32(KI.get_local_id().x - 1)
-    sum = 0f0
-    i = t
-    while i < n
-        @inbounds v = Float32(x[i + Int32(1)])
-        sum = muladd(v, v, sum)
-        i += Int32(256)
-    end
-    sh[t + Int32(1)] = sum
-    KI.barrier()
-    step = Int32(128)
-    while step > Int32(0)
-        t < step && (sh[t + Int32(1)] += sh[t + step + Int32(1)])
-        KI.barrier()
-        step >>= 1
-    end
-    scale = inv(sqrt(sh[Int32(1)] / Float32(n) + eps))
-    i = t
-    while i < n
-        @inbounds out[i + Int32(1)] = eltype(out)(Float32(x[i + Int32(1)]) * scale * Float32(weight[i + Int32(1)]))
-        i += Int32(256)
     end
     return nothing
 end
@@ -169,8 +153,78 @@ function rmsnorm_batch_kernel!(out, x, weight,
     i = t
     while i < n
         @inbounds out[base + i + Int32(1)] = eltype(out)(
-            Float32(x[base + i + Int32(1)]) * scale * Float32(weight[i + Int32(1)]))
+            Float32(x[base + i + Int32(1)]) * scale * _weightf32(weight[i + Int32(1)]))
         i += Int32(256)
+    end
+    return nothing
+end
+
+# Decode's layer boundary as one pass: the residual add, the RMS norm and the
+# signed Hadamard transform the next projections read. Each of the transform's
+# 1024-wide workgroups computes the norm over the whole row itself, which is a
+# 20 KiB read, rather than waiting a pass for one workgroup to. The residual is
+# written to `xout`, never in place, because every workgroup reads all of `xin`.
+# Without a branch (`HASBRANCH = false`) it is the norm and transform alone and
+# `xout` is not written.
+function add_rmsnorm_hadamard_kernel!(xout, norm, had, xin, branch, weight, signs,
+                                      n::Int32, eps::Float32,
+                                      ::Val{HASBRANCH}, ::Val{SUBGROUP}) where {HASBRANCH,SUBGROUP}
+    sh = KI.localmemory(Float32, Val((1024,)), Val(1))
+    red = KI.localmemory(Float32, Val((256 ÷ SUBGROUP,)), Val(2))
+    t = Int32(KI.get_local_id().x - 1)
+    block = Int32(KI.get_group_id().x - 1)
+    sum = 0f0
+    i = t
+    while i < n
+        @inbounds v = Float32(xin[i + Int32(1)])
+        HASBRANCH && (@inbounds v += Float32(branch[i + Int32(1)]))
+        sum = muladd(v, v, sum)
+        i += Int32(256)
+    end
+    lane = t % Int32(SUBGROUP)
+    subgroup = t ÷ Int32(SUBGROUP)
+    reduced = KI.sub_group_reduce_add(sum)
+    lane == Int32(0) && (@inbounds red[subgroup + Int32(1)] = reduced)
+    KI.barrier()
+    total = 0f0
+    for k in Int32(1):Int32(256 ÷ SUBGROUP)
+        total += @inbounds red[k]
+    end
+    scale = inv(sqrt(total / Float32(n) + eps))
+    base = block * Int32(1024)
+    @inbounds for j in Int32(0):Int32(3)
+        e = base + t + j * Int32(256) + Int32(1)
+        v = Float32(xin[e])
+        if HASBRANCH
+            v += Float32(branch[e])
+            xout[e] = eltype(xout)(v)
+        end
+        nv = v * scale * _weightf32(weight[e])
+        norm[e] = eltype(norm)(nv)
+        sh[t + j * Int32(256) + Int32(1)] = nv * Float32(signs[e])
+    end
+    KI.barrier()
+    stride = Int32(1)
+    lg = Int32(0)
+    while stride < Int32(1024)
+        @inbounds for pass in Int32(0):Int32(1)
+            p = t + pass * Int32(256)
+            group = p >> lg
+            jj = p & (stride - Int32(1))
+            aidx = group * (stride << 1) + jj
+            bidx = aidx + stride
+            a = sh[aidx + Int32(1)]
+            b = sh[bidx + Int32(1)]
+            sh[aidx + Int32(1)] = a + b
+            sh[bidx + Int32(1)] = a - b
+        end
+        KI.barrier()
+        stride <<= 1
+        lg += Int32(1)
+    end
+    @inbounds for j in Int32(0):Int32(3)
+        k = t + j * Int32(256)
+        had[base + k + Int32(1)] = eltype(had)(sh[k + Int32(1)] * inv(sqrt(1024f0)))
     end
     return nothing
 end
@@ -213,7 +267,7 @@ function add_rmsnorm_batch_kernel!(out, x, branch,
     i = t
     while i < n
         @inbounds out[base + i + Int32(1)] = eltype(out)(
-            Float32(x[base + i + Int32(1)]) * scale * Float32(weight[i + Int32(1)]))
+            Float32(x[base + i + Int32(1)]) * scale * _weightf32(weight[i + Int32(1)]))
         i += Int32(256)
     end
     return nothing
@@ -226,41 +280,36 @@ const DENSE_ROWS_PER_WG = 4
 # projections therefore launched only 48 threads, each with a 5120-FMA serial
 # dependency chain and each lane reading a different, distant row. Here lanes
 # walk adjacent K values and the hardware reduction closes the dot product.
-function dense_gemv_kernel!(out, weight, x,
-                                              K::Int32, M::Int32,
-                                              ::Val{SUBGROUP}) where {SUBGROUP}
-    partial = KI.localmemory(Float32, Val((DENSE_ROWS_PER_WG * (64 ÷ SUBGROUP),)), Val(1))
+# The decode step's two small projections that share an input, alpha and beta
+# (48 rows each), in one launch with one workgroup per row. Four rows to a
+# workgroup was twelve workgroups a projection, each row a serial 80-step loop over
+# 64 lanes: 9.7 us apiece on an M5, at 50 GB/s.
+function dense2_gemv_kernel!(out1, out2, w1, w2, x, K::Int32, M1::Int32,
+                             ::Val{SUBGROUP}) where {SUBGROUP}
+    red = KI.localmemory(Float32, Val((256 ÷ SUBGROUP,)), Val(1))
     t = Int32(KI.get_local_id().x - 1)
-    lane = t & Int32(63)
-    sublane = t % Int32(SUBGROUP)
-    rowin = t >> 6
-    row = Int32(KI.get_group_id().x - 1) * Int32(DENSE_ROWS_PER_WG) + rowin
+    r = Int32(KI.get_group_id().x - 1)
+    second = r >= M1
+    row = second ? r - M1 : r
+    w = second ? w2 : w1
     acc = 0f0
-    if row < M
-        base = row * K
-        k = lane
-        @inbounds while k < K
-            acc = muladd(Float32(weight[base + k + Int32(1)]),
-                         Float32(x[k + Int32(1)]), acc)
-            k += Int32(64)
-        end
+    k = t
+    @inbounds while k < K
+        acc = muladd(_weightf32(w[row * K + k + Int32(1)]), Float32(x[k + Int32(1)]), acc)
+        k += Int32(256)
     end
-    reduced = DNNKernels.KI.sub_group_reduce_add(acc)
-    if SUBGROUP == 64
-        if lane == Int32(0) && row < M
-            @inbounds out[row + Int32(1)] = eltype(out)(reduced)
+    s = KI.sub_group_reduce_add(acc)
+    t % Int32(SUBGROUP) == Int32(0) && (@inbounds red[t ÷ Int32(SUBGROUP) + Int32(1)] = s)
+    KI.barrier()
+    if t == Int32(0)
+        v = 0f0
+        for i in Int32(1):Int32(256 ÷ SUBGROUP)
+            v += @inbounds red[i]
         end
-    else
-        nsub = Int32(64 ÷ SUBGROUP)
-        subinrow = lane ÷ Int32(SUBGROUP)
-        if sublane == Int32(0)
-            partial[rowin * nsub + subinrow + Int32(1)] = reduced
-        end
-        KI.barrier()
-        if lane == Int32(0) && row < M
-            @inbounds out[row + Int32(1)] = eltype(out)(
-                partial[rowin * nsub + Int32(1)] +
-                partial[rowin * nsub + Int32(2)])
+        if second
+            @inbounds out2[row + Int32(1)] = eltype(out2)(v)
+        else
+            @inbounds out1[row + Int32(1)] = eltype(out1)(v)
         end
     end
     return nothing
@@ -285,7 +334,7 @@ function dense_gemv_batch_kernel!(out, weight, x,
         xbase = col * K
         k = lane
         @inbounds while k < K
-            acc = muladd(Float32(weight[wbase + k + Int32(1)]),
+            acc = muladd(_weightf32(weight[wbase + k + Int32(1)]),
                          Float32(x[xbase + k + Int32(1)]), acc)
             k += Int32(64)
         end
@@ -303,6 +352,18 @@ function dense_gemv_batch_kernel!(out, weight, x,
         lane == Int32(0) && row < M &&
             (@inbounds out[col * M + row + Int32(1)] = eltype(out)(
                 partial[rowin * nsub + Int32(1)] + partial[rowin * nsub + Int32(2)]))
+    end
+    return nothing
+end
+
+# A K-major dense weight, as the checkpoint stores it, to an M x K Float32 matrix,
+# for a GEMM that reads `A` column-major.
+function weight_transpose_kernel!(W, weight, K::Int32, M::Int32)
+    i = Int32(KI.get_global_id().x - 1)
+    if i < K * M
+        m = i % M
+        k = i ÷ M
+        @inbounds W[i + Int32(1)] = _weightf32(weight[k + m * K + Int32(1)])
     end
     return nothing
 end
@@ -333,7 +394,7 @@ function dense_mul_mm_kernel!(out, weight, x,
             lk = ai % Int32(DENSE_MM_BK)
             row = m0 + lr
             @inbounds atile[ai + Int32(1)] = row < M && k0 + lk < K ?
-                Float32(weight[row * K + k0 + lk + Int32(1)]) : 0f0
+                _weightf32(weight[row * K + k0 + lk + Int32(1)]) : 0f0
             ai += Int32(256)
         end
         bi = t
@@ -369,17 +430,6 @@ function dense_mul_mm_kernel!(out, weight, x,
     return nothing
 end
 
-function swiglu_kernel!(out, gate, up, n::Int32)
-    i = Int32(KI.get_global_id().x)
-    if i <= n
-        @inbounds begin
-            g = Float32(gate[i])
-            out[i] = eltype(out)((g / (1f0 + exp(-g))) * Float32(up[i]))
-        end
-    end
-    return nothing
-end
-
 # SwiGLU's only consumer is the signed Hadamard transform before ffn_down.
 # Produce that transformed fp16 operand directly and avoid materialising and
 # copying a 17408xN Float32 intermediate.
@@ -399,12 +449,16 @@ function swiglu_hadamard1024_batch_kernel!(
         sh[i + Int32(1)] = v * Float32(signs[block * Int32(1024) + i + Int32(1)])
     end
     KI.barrier()
+    # A shift and a mask, as in `DNNKernels.hadamard1024_kernel!`: `÷` and `%`
+    # by the runtime `stride` were two integer divisions per pair per stage, on a
+    # device with no integer divide.
     stride = Int32(1)
+    lg = Int32(0)
     while stride < Int32(1024)
         @inbounds for pass in Int32(0):Int32(1)
             p = t + pass * Int32(256)
-            group = p ÷ stride
-            j = p % stride
+            group = p >> lg
+            j = p & (stride - Int32(1))
             aidx = group * (stride << 1) + j
             bidx = aidx + stride
             a = sh[aidx + Int32(1)]
@@ -414,6 +468,7 @@ function swiglu_hadamard1024_batch_kernel!(
         end
         KI.barrier()
         stride <<= 1
+        lg += Int32(1)
     end
     scale = inv(sqrt(Float32(1024)))
     @inbounds for j in Int32(0):Int32(3)
@@ -436,20 +491,6 @@ function recurrent_split_batch_kernel!(q, k, v, qkv)
     end
     @inbounds v[token * Int32(6144) + inner + Int32(1)] =
         qkv[qkvbase + Int32(4096) + inner + Int32(1)]
-    return nothing
-end
-
-function recurrent_split_kernel!(q, k, v, qkv)
-    i = Int32(KI.get_global_id().x - 1)
-    if i < Int32(6144)
-        if i < Int32(2048)
-            @inbounds begin
-                q[i + Int32(1)] = qkv[i + Int32(1)]
-                k[i + Int32(1)] = qkv[Int32(2048) + i + Int32(1)]
-            end
-        end
-        @inbounds v[i + Int32(1)] = qkv[Int32(4096) + i + Int32(1)]
-    end
     return nothing
 end
 
@@ -479,10 +520,10 @@ function depthwise_conv4_batch_kernel!(out, state, x,
             x2 = Float32(state[si + Int32(2)])
             for token in Int32(0):(ntokens - Int32(1))
                 x3 = Float32(x[token * channels + c + Int32(1)])
-                y = muladd(Float32(weight[wi]), x0,
-                    muladd(Float32(weight[wi + Int32(1)]), x1,
-                    muladd(Float32(weight[wi + Int32(2)]), x2,
-                           Float32(weight[wi + Int32(3)]) * x3)))
+                y = muladd(_weightf32(weight[wi]), x0,
+                    muladd(_weightf32(weight[wi + Int32(1)]), x1,
+                    muladd(_weightf32(weight[wi + Int32(2)]), x2,
+                           _weightf32(weight[wi + Int32(3)]) * x3)))
                 out[token * channels + c + Int32(1)] = eltype(out)(
                     y / (1f0 + exp(-y)))
                 x0, x1, x2 = x1, x2, x3
@@ -614,72 +655,59 @@ end
 # One subgroup owns one state column.  Each lane keeps its 2 or 4 rows in
 # registers while the complete prompt chunk advances, so the 128x128 recurrent
 # state is read and written once per chunk instead of once per token.
+# The prefill's DeltaNet recurrence: GDN_COLS state columns of one head per
+# subgroup, each lane holding 128 ÷ SUBGROUP rows of every column. One column per
+# subgroup was 6144 subgroups, more than the device keeps resident, so the 512-step
+# token loop ran in waves: 10.7 ms a layer on an M5 at 512 tokens. Eight columns
+# share each token's q, k, decay and beta loads, every subgroup is resident at once,
+# and it takes 3.1 ms.
+const GDN_COLS = 8
+
+@inline function _gdn_step(s::NTuple{C,NTuple{R,Float32}}, qv::NTuple{R,Float32},
+                           kv::NTuple{R,Float32}, v, vb::Int32, decay::Float32,
+                           b::Float32) where {C,R}
+    sk = ntuple(c -> KI.sub_group_reduce_add(decay * sum(s[c] .* kv)), Val(C))
+    delta = ntuple(c -> (@inbounds(Float32(v[vb + Int32(c)])) - sk[c]) * b, Val(C))
+    s2 = ntuple(c -> ntuple(r -> muladd(decay, s[c][r], kv[r] * delta[c]), Val(R)), Val(C))
+    ys = ntuple(c -> KI.sub_group_reduce_add(sum(s2[c] .* qv)), Val(C))
+    return s2, ys
+end
+
+@inline _gdn_rows(x, base::Int32, lane::Int32, ::Val{R}, ::Val{SUBGROUP}) where {R,SUBGROUP} =
+    ntuple(r -> @inbounds(Float32(x[base + lane + Int32(SUBGROUP * (r - 1)) + Int32(1)])), Val(R))
+
 function gated_delta_state_batch_kernel!(out, state,
         q, k, v, alpha, beta,
-        dt_bias, a, ntokens::Int32,
-        groupsperhead::Int32, ::Val{SUBGROUP}) where {SUBGROUP}
+        dt_bias, a, ntokens::Int32, ::Val{SUBGROUP}) where {SUBGROUP}
+    rows = Val(128 ÷ SUBGROUP)
     t = Int32(KI.get_local_id().x - 1)
     lane = t % Int32(SUBGROUP)
-    sub = t ÷ Int32(SUBGROUP)
-    wg = Int32(KI.get_group_id().x - 1)
-    head = wg ÷ groupsperhead
-    colgroup = wg % groupsperhead
-    nsubgroups = Int32(256 ÷ SUBGROUP)
-    col = colgroup * nsubgroups + sub
+    gsub = Int32(KI.get_group_id().x - 1) * Int32(256 ÷ SUBGROUP) + t ÷ Int32(SUBGROUP)
+    head = gsub ÷ Int32(128 ÷ GDN_COLS)
+    col0 = (gsub % Int32(128 ÷ GDN_COLS)) * Int32(GDN_COLS)
     keyhead = head % Int32(16)
-    sbase = head * Int32(16384) + col * Int32(128)
-
-    s0 = @inbounds Float32(state[sbase + lane + Int32(1)])
-    s1 = @inbounds Float32(state[sbase + lane + Int32(SUBGROUP) + Int32(1)])
-    s2 = 0f0; s3 = 0f0
-    if SUBGROUP == 32
-        s2 = @inbounds Float32(state[sbase + lane + Int32(65)])
-        s3 = @inbounds Float32(state[sbase + lane + Int32(97)])
-    end
-
+    sbase = head * Int32(16384) + col0 * Int32(128)
+    s = ntuple(c -> _gdn_rows(state, sbase + Int32((c - 1) * 128), lane, rows, Val(SUBGROUP)),
+               Val(GDN_COLS))
+    dtb = Float32(dt_bias[head + Int32(1)])
+    av = Float32(a[head + Int32(1)])
     for token in Int32(0):(ntokens - Int32(1))
         qoff = token * Int32(2048) + keyhead * Int32(128)
-        voff = token * Int32(6144) + head * Int32(128)
+        voff = token * Int32(6144) + head * Int32(128) + col0
         gatei = token * Int32(48) + head + Int32(1)
-        raw_alpha = Float32(alpha[gatei]) + Float32(dt_bias[head + Int32(1)])
-        decay = exp((max(raw_alpha, 0f0) + log1p(exp(-abs(raw_alpha)))) *
-                    Float32(a[head + Int32(1)]))
+        raw_alpha = Float32(alpha[gatei]) + dtb
+        decay = exp((max(raw_alpha, 0f0) + log1p(exp(-abs(raw_alpha)))) * av)
         b = 1f0 / (1f0 + exp(-Float32(beta[gatei])))
-        q0 = @inbounds Float32(q[qoff + lane + Int32(1)])
-        q1 = @inbounds Float32(q[qoff + lane + Int32(SUBGROUP) + Int32(1)])
-        k0 = @inbounds Float32(k[qoff + lane + Int32(1)])
-        k1 = @inbounds Float32(k[qoff + lane + Int32(SUBGROUP) + Int32(1)])
-        partial = decay * (s0 * k0 + s1 * k1)
-        q2 = 0f0; q3 = 0f0; k2 = 0f0; k3 = 0f0
-        if SUBGROUP == 32
-            q2 = @inbounds Float32(q[qoff + lane + Int32(65)])
-            q3 = @inbounds Float32(q[qoff + lane + Int32(97)])
-            k2 = @inbounds Float32(k[qoff + lane + Int32(65)])
-            k3 = @inbounds Float32(k[qoff + lane + Int32(97)])
-            partial += decay * (s2 * k2 + s3 * k3)
-        end
-        sk = DNNKernels.KI.sub_group_reduce_add(partial)
-        delta = (@inbounds Float32(v[voff + col + Int32(1)]) - sk) * b
-        s0 = muladd(decay, s0, k0 * delta)
-        s1 = muladd(decay, s1, k1 * delta)
-        yp = s0 * q0 + s1 * q1
-        if SUBGROUP == 32
-            s2 = muladd(decay, s2, k2 * delta)
-            s3 = muladd(decay, s3, k3 * delta)
-            yp += s2 * q2 + s3 * q3
-        end
-        y = DNNKernels.KI.sub_group_reduce_add(yp)
-        lane == Int32(0) &&
-            (@inbounds out[voff + col + Int32(1)] = eltype(out)(y * 0.08838834764831845f0))
+        qv = _gdn_rows(q, qoff, lane, rows, Val(SUBGROUP))
+        kv = _gdn_rows(k, qoff, lane, rows, Val(SUBGROUP))
+        s, ys = _gdn_step(s, qv, kv, v, voff, decay, b)
+        # Every lane holds all GDN_COLS sums; the first few write one each.
+        lane < Int32(GDN_COLS) &&
+            (@inbounds out[voff + lane + Int32(1)] = eltype(out)(ys[lane + 1] * 0.08838834764831845f0))
     end
-
-    @inbounds begin
-        state[sbase + lane + Int32(1)] = eltype(state)(s0)
-        state[sbase + lane + Int32(SUBGROUP) + Int32(1)] = eltype(state)(s1)
-        if SUBGROUP == 32
-            state[sbase + lane + Int32(65)] = eltype(state)(s2)
-            state[sbase + lane + Int32(97)] = eltype(state)(s3)
-        end
+    @inbounds for c in 1:GDN_COLS, r in 1:(128 ÷ SUBGROUP)
+        state[sbase + Int32((c - 1) * 128) + lane + Int32(SUBGROUP * (r - 1)) + Int32(1)] =
+            eltype(state)(s[c][r])
     end
     return nothing
 end
@@ -711,19 +739,6 @@ end
 
 # GDN emits value heads in tiled `[hd,nk,rep]` order. Prism folded ssm_out
 # against `[hd,rep,nk]`, so this permutation is part of that projection.
-function gdn_permute_kernel!(out, x)
-    i = Int32(KI.get_global_id().x - 1)
-    if i < Int32(6144)
-        hd = i % Int32(128)
-        rest = i ÷ Int32(128)
-        rep = rest % Int32(3)
-        nk = rest ÷ Int32(3)
-        src = hd + nk * Int32(128) + rep * Int32(2048)
-        @inbounds out[i + Int32(1)] = x[src + Int32(1)]
-    end
-    return nothing
-end
-
 # Q projection is `[q(256), gate(256)]` per head, rather than two contiguous
 # 6144-vectors. Normalize q per head, rotate its first 64 dimensions, and
 # extract the sigmoid gate in one pass.
@@ -979,133 +994,322 @@ end
 # 8K context. One workgroup owns a query head and each lane owns one value
 # dimension. Scores are reduced over the 256 lanes, then all lanes update their
 # own weighted-value accumulator.
-function decode_attention_kernel!(out, q, gate,
-                                                    kcache, vcache,
-                                                    kscale, vscale,
-                                                    position)
-    sh = KI.localmemory(Float32, Val((256,)), Val(1))
-    d = Int32(KI.get_local_id().x - 1)
-    h = Int32(KI.get_group_id().x - 1)
-    pos = Int32(position[1])
-    kvh = h ÷ Int32(6)
-    qv = Float32(q[h * Int32(256) + d + Int32(1)])
-    high = -floatmax(Float32)
-    denom = 0f0
-    acc = 0f0
-    for p in Int32(0):pos
-        cachei = p * Int32(1024) + kvh * Int32(256) + d + Int32(1)
-        scalei = p * Int32(4) + kvh + Int32(1)
-        @inbounds sh[d + Int32(1)] = qv * Float32(kcache[cachei]) * kscale[scalei]
-        KI.barrier()
-        step = Int32(128)
-        while step > Int32(0)
-            d < step && (sh[d + Int32(1)] += sh[d + step + Int32(1)])
-            KI.barrier()
-            step >>= 1
-        end
-        score = sh[Int32(1)] * 0.0625f0
-        newhigh = max(high, score)
-        oldscale = exp(high - newhigh)
-        newscale = exp(score - newhigh)
-        denom = denom * oldscale + newscale
-        @inbounds acc = acc * oldscale + newscale * Float32(vcache[cachei]) * vscale[scalei]
-        high = newhigh
-        KI.barrier()
+# Decode attention as two passes, the first split over the context.
+#
+# The kernel this replaced gave each of the 24 query heads one workgroup and
+# walked every cached position in order, with a tree reduction and three
+# barriers per position. At 2048 positions that was 2.2 ms a layer and 35 of a
+# 104 ms token on an M5, for 4 MB of int8 K/V a layer that streams in ~35 us.
+#
+# Here a workgroup owns one KV head and ATTN_CHUNK positions, and all six query
+# heads that share the KV head, so each cached row is read once rather than six
+# times. It writes each head's running max, sum and weighted V for its chunk;
+# `attention_combine_kernel!` merges the chunks. The grid is sized for the
+# cache's capacity and a chunk wholly past `position` returns at once, so the
+# recorded plan serves every position up to it.
+const ATTN_CHUNK = 64
+
+# Max and sum over a 32-lane segment, landing on the segment's first lane. A
+# segment boundary is a multiple of 32 in any subgroup this runs on, and lane
+# `l`'s value only ever reaches lanes below it, so the leaders are exact.
+@inline function _segmax32(v::Float32)
+    v = max(v, KI.shfl_down(v, Int32(16))); v = max(v, KI.shfl_down(v, Int32(8)))
+    v = max(v, KI.shfl_down(v, Int32(4))); v = max(v, KI.shfl_down(v, Int32(2)))
+    max(v, KI.shfl_down(v, Int32(1)))
+end
+@inline function _segsum32(v::Float32)
+    v += KI.shfl_down(v, Int32(16)); v += KI.shfl_down(v, Int32(8))
+    v += KI.shfl_down(v, Int32(4)); v += KI.shfl_down(v, Int32(2))
+    v + KI.shfl_down(v, Int32(1))
+end
+
+# Helpers rather than closures in the kernel: a closure over a variable the loop
+# reassigns is boxed, and a boxed value is a dynamic call on the device.
+@inline _qrow(q, base::Int32, ::Val{DL}) where {DL} =
+    ntuple(e -> @inbounds(Float32(q[base + Int32(e)])), Val(DL))
+@inline _scores6(qr::NTuple{6}, kv) = ntuple(j -> KI.sub_group_reduce_add(sum(qr[j] .* kv)), Val(6))
+@inline _accum6(acc::NTuple{6,Float32}, w, pl::Int32, v::Float32) = ntuple(Val(6)) do j
+    muladd(@inbounds(w[Int32(j - 1) * Int32(ATTN_CHUNK) + pl + Int32(1)]), v, acc[j])
+end
+
+# Loads first, then the arithmetic. A loop that loads and uses one position at a
+# time stalls each work-item on every load in turn, and with a few hundred
+# workgroups that latency was the kernels' cost: the split decode pass took 412
+# us at 8192 positions on an M5, against ~130 for its K/V to stream. Issuing a
+# subgroup's K rows, and eight positions of V, before any is used took it to 229.
+@inline _kwords(k32, kb::Int32, ::Val{NW}) where {NW} =
+    ntuple(u -> @inbounds(k32[kb + Int32(u)]), Val(NW))
+@inline _kbytes(w::NTuple{NW,UInt32}) where {NW} = ntuple(Val(4 * NW)) do e  # signed bytes, one shift pair each
+    word = w[((e - 1) >> 2) + 1]
+    Float32(reinterpret(Int32, word << (24 - 8 * ((e - 1) & 3))) >> 24)
+end
+@inline function _pv8(acc::NTuple{6,Float32}, w, vcache, vscale, p0::Int32, pl0::Int32,
+                      np::Int32, kvh::Int32, t::Int32)
+    Base.Cartesian.@nexprs 8 u -> begin
+        plu_u = pl0 + Int32(u - 1)
+        pu_u = p0 + min(plu_u, np - Int32(1))
+        v_u = @inbounds Float32(vcache[pu_u * Int32(1024) + kvh * Int32(256) + t + Int32(1)]) *
+              vscale[pu_u * Int32(4) + kvh + Int32(1)]
     end
-    o = h * Int32(256) + d + Int32(1)
-    @inbounds out[o] = eltype(out)((acc / denom) * Float32(gate[o]))
+    Base.Cartesian.@nexprs 8 u -> (plu_u < np && (acc = _accum6(acc, w, plu_u, v_u)))
+    acc
+end
+
+# The scores of one chunk: subgroup `sg` takes positions sg, sg + nsg, ..., each
+# lane DL dims of all six heads, and every K row it needs is loaded up front.
+@inline function _scorechunk!(w, qr, k32, kscale, p0::Int32, np::Int32, kvh::Int32,
+                              lane::Int32, sg::Int32, ::Val{SUBGROUP}) where {SUBGROUP}
+    nsg = Int32(256 ÷ SUBGROUP)
+    d0 = lane * Int32(256 ÷ SUBGROUP)
+    nw = Val(256 ÷ SUBGROUP ÷ 4)
+    Base.Cartesian.@nexprs 16 i -> if i <= ATTN_CHUNK ÷ (256 ÷ SUBGROUP)
+        pl_i = sg + nsg * Int32(i - 1)
+        p_i = p0 + min(pl_i, np - Int32(1))
+        kw_i = _kwords(k32, (p_i * Int32(1024) + kvh * Int32(256) + d0) >> 2, nw)
+        ks_i = @inbounds kscale[p_i * Int32(4) + kvh + Int32(1)] * 0.0625f0
+    end
+    Base.Cartesian.@nexprs 16 i -> if i <= ATTN_CHUNK ÷ (256 ÷ SUBGROUP)
+        sc_i = _scores6(qr, _kbytes(kw_i))
+        if lane == Int32(0)
+            Base.Cartesian.@nexprs 6 j -> (@inbounds w[Int32((j - 1) * ATTN_CHUNK) + pl_i + Int32(1)] =
+                pl_i < np ? sc_i[j] * ks_i : -Inf32)
+        end
+    end
     return nothing
 end
 
-function decode_attention_batch_kernel!(out, q, gate,
-        kcache, vcache, kscale, vscale,
-        position)
-    sh = KI.localmemory(Float32, Val((256,)), Val(1))
-    d = Int32(KI.get_local_id().x - 1)
-    group = Int32(KI.get_group_id().x - 1)
-    token = group ÷ Int32(24)
-    h = group % Int32(24)
-    pos = Int32(position[1]) + token
-    kvh = h ÷ Int32(6)
-    querybase = token * Int32(6144) + h * Int32(256)
-    qv = Float32(q[querybase + d + Int32(1)])
-    high = -floatmax(Float32)
-    denom = 0f0
-    acc = 0f0
-    for p in Int32(0):pos
-        cachei = p * Int32(1024) + kvh * Int32(256) + d + Int32(1)
-        scalei = p * Int32(4) + kvh + Int32(1)
-        @inbounds sh[d + Int32(1)] = qv * Float32(kcache[cachei]) * kscale[scalei]
-        KI.barrier()
-        step = Int32(128)
-        while step > Int32(0)
-            d < step && (sh[d + Int32(1)] += sh[d + step + Int32(1)])
-            KI.barrier()
-            step >>= 1
+function attention_partial_kernel!(pmax, psum, pacc, q, kcache, vcache,
+                                   kscale, vscale, position, nchunks::Int32,
+                                   ::Val{SUBGROUP}) where {SUBGROUP}
+    # scores, then the softmax weights in place: six heads x ATTN_CHUNK
+    w = KI.localmemory(Float32, Val((6 * ATTN_CHUNK,)), Val(1))
+    stat = KI.localmemory(Float32, Val((12,)), Val(2))
+    t = Int32(KI.get_local_id().x - 1)
+    lane = t % Int32(SUBGROUP)
+    sg = t ÷ Int32(SUBGROUP)
+    wg = Int32(KI.get_group_id().x - 1)
+    kvh = wg & Int32(3)
+    c = wg >> 2
+    pos = Int32(position[1])
+    p0 = c * Int32(ATTN_CHUNK)
+    # Uniform across the workgroup, so returning before the barriers is safe.
+    p0 > pos && return nothing
+    np = min(Int32(ATTN_CHUNK), pos - p0 + Int32(1))
+    # Scores: one subgroup per position, each lane DL contiguous dims of all six
+    # heads' queries, held in registers for the whole chunk.
+    dl = Val(256 ÷ SUBGROUP)
+    d0 = lane * Int32(256 ÷ SUBGROUP)
+    qr = ntuple(j -> _qrow(q, (kvh * Int32(6) + Int32(j - 1)) * Int32(256) + d0, dl), Val(6))
+    k32 = reinterpret(UInt32, kcache)
+    _scorechunk!(w, qr, k32, kscale, p0, np, kvh, lane, sg, Val(SUBGROUP))
+    KI.barrier()
+    # Softmax over the chunk: 32 work-items per head, two positions each.
+    if t < Int32(6 * 32)
+        j = t >> 5
+        r = t & Int32(31)
+        a = @inbounds w[j * Int32(ATTN_CHUNK) + r + Int32(1)]
+        b = @inbounds w[j * Int32(ATTN_CHUNK) + r + Int32(33)]
+        m = _segmax32(max(a, b))
+        r == Int32(0) && (@inbounds stat[j + Int32(1)] = m)
+    end
+    KI.barrier()
+    if t < Int32(6 * 32)
+        j = t >> 5
+        r = t & Int32(31)
+        m = @inbounds stat[j + Int32(1)]
+        ea = exp(@inbounds(w[j * Int32(ATTN_CHUNK) + r + Int32(1)]) - m)
+        eb = exp(@inbounds(w[j * Int32(ATTN_CHUNK) + r + Int32(33)]) - m)
+        @inbounds w[j * Int32(ATTN_CHUNK) + r + Int32(1)] = ea
+        @inbounds w[j * Int32(ATTN_CHUNK) + r + Int32(33)] = eb
+        l = _segsum32(ea + eb)
+        r == Int32(0) && (@inbounds stat[Int32(6) + j + Int32(1)] = l)
+    end
+    KI.barrier()
+    # Weighted V: one work-item per dimension, six heads at once.
+    acc = (0f0, 0f0, 0f0, 0f0, 0f0, 0f0)
+    pl = Int32(0)
+    while pl < np
+        acc = _pv8(acc, w, vcache, vscale, p0, pl, np, kvh, t)
+        pl += Int32(8)
+    end
+    Base.Cartesian.@nexprs 6 j -> begin
+        slot = (kvh * Int32(6) + Int32(j - 1)) * nchunks + c
+        @inbounds pacc[slot * Int32(256) + t + Int32(1)] = acc[j]
+        if t == Int32(0)
+            @inbounds pmax[slot + Int32(1)] = stat[j]
+            @inbounds psum[slot + Int32(1)] = stat[6 + j]
         end
-        score = sh[Int32(1)] * 0.0625f0
-        newhigh = max(high, score)
-        oldscale = exp(high - newhigh)
-        newscale = exp(score - newhigh)
-        denom = denom * oldscale + newscale
-        @inbounds acc = acc * oldscale + newscale * Float32(vcache[cachei]) * vscale[scalei]
-        high = newhigh
+    end
+    return nothing
+end
+
+function attention_combine_kernel!(out, pmax, psum, pacc, gate, position,
+                                   nchunks::Int32)
+    d = Int32(KI.get_local_id().x - 1)
+    h = Int32(KI.get_group_id().x - 1)
+    used = (Int32(position[1]) + Int32(ATTN_CHUNK)) ÷ Int32(ATTN_CHUNK)
+    base = h * nchunks
+    m = -Inf32
+    for c in Int32(0):(used - Int32(1))
+        m = max(m, @inbounds pmax[base + c + Int32(1)])
+    end
+    l = 0f0
+    o = 0f0
+    for c in Int32(0):(used - Int32(1))
+        f = exp(@inbounds(pmax[base + c + Int32(1)]) - m)
+        l = muladd(f, @inbounds(psum[base + c + Int32(1)]), l)
+        o = muladd(f, @inbounds(pacc[(base + c) * Int32(256) + d + Int32(1)]), o)
+    end
+    i = h * Int32(256) + d + Int32(1)
+    @inbounds out[i] = eltype(out)((o / l) * Float32(gate[i]))
+    return nothing
+end
+
+
+# Prefill attention: one workgroup per ATTN_TOKENS consecutive tokens and one KV
+# head, walking the context in 64 positions with an online softmax for the
+# 6 x ATTN_TOKENS queries that share it. A prompt has enough tokens to fill the
+# device this way, so there is no split over the context.
+#
+# Each work-item scores one (position, token) pair for all six heads, a whole
+# 256-wide dot product each against queries staged in shared memory, so no
+# subgroup reduction is needed and each K row is read once for every token in the
+# group; each V value is then read once for all 24 queries. One token per
+# workgroup, with a six-way subgroup reduction per position, took 416 ms a layer
+# for 2048 tokens at positions 6144-8191 on an M5; this takes 252, which made
+# attention the second-largest pass of a long prompt instead of a match for the
+# GEMM. The kernel before that walked one position at a time with two barriers
+# each: 21 s for a 2048-token prompt.
+const ATTN_TOKENS = 4
+
+@inline _segmax8(v::Float32) =
+    (v = max(v, KI.shfl_down(v, Int32(4))); v = max(v, KI.shfl_down(v, Int32(2))); max(v, KI.shfl_down(v, Int32(1))))
+@inline _segsum8(v::Float32) =
+    (v += KI.shfl_down(v, Int32(4)); v += KI.shfl_down(v, Int32(2)); v + KI.shfl_down(v, Int32(1)))
+@inline _acc24(acc::NTuple{24,Float32}, w, pl::Int32, v::Float32) = ntuple(Val(24)) do qi
+    muladd(@inbounds(w[Int32((qi - 1) * 64) + pl + Int32(1)]), v, acc[qi])
+end
+@inline _resc24(acc::NTuple{24,Float32}, stat) = ntuple(qi -> acc[qi] * @inbounds(stat[72 + qi]), Val(24))
+@inline _bytes4(word::UInt32) =
+    (Float32(reinterpret(Int32, word << 24) >> 24), Float32(reinterpret(Int32, word << 16) >> 24),
+     Float32(reinterpret(Int32, word << 8) >> 24), Float32(reinterpret(Int32, word) >> 24))
+@inline _fma6x4(a::NTuple{6,Float32}, q4, i0::Int32, kf::NTuple{4,Float32}) = ntuple(Val(6)) do j
+    qv = @inbounds q4[i0 + Int32((j - 1) * 64)]
+    muladd(qv[1].value, kf[1], muladd(qv[2].value, kf[2],
+        muladd(qv[3].value, kf[3], muladd(qv[4].value, kf[4], a[j]))))
+end
+# Six heads' dot products of one K row against queries starting at `qb` in `qs`.
+@inline function _dots6(qs, qb::Int32, k4, kb4::Int32)
+    a = (0f0, 0f0, 0f0, 0f0, 0f0, 0f0)
+    q4 = reinterpret(NTuple{4,VecElement{Float32}}, qs)
+    for wv in Int32(0):Int32(15)
+        kw = @inbounds k4[kb4 + wv + Int32(1)]
+        i0 = (qb >> 2) + wv * Int32(4) + Int32(1)
+        a = _fma6x4(a, q4, i0, _bytes4(kw[1].value))
+        a = _fma6x4(a, q4, i0 + Int32(1), _bytes4(kw[2].value))
+        a = _fma6x4(a, q4, i0 + Int32(2), _bytes4(kw[3].value))
+        a = _fma6x4(a, q4, i0 + Int32(3), _bytes4(kw[4].value))
+    end
+    a
+end
+
+function attention_prefill_kernel!(out, q, gate, kcache, vcache, kscale, vscale,
+                                   position, ntokens::Int32)
+    qs = KI.localmemory(Float32, Val((ATTN_TOKENS * 6 * 256,)), Val(1))
+    w = KI.localmemory(Float32, Val((ATTN_TOKENS * 6 * 64,)), Val(2))
+    # per query: running max | running sum | this chunk's max | rescale factor
+    stat = KI.localmemory(Float32, Val((96,)), Val(3))
+    t = Int32(KI.get_local_id().x - 1)
+    wg = Int32(KI.get_group_id().x - 1)
+    kvh = wg & Int32(3)
+    t0 = (wg >> 2) * Int32(ATTN_TOKENS)
+    nt = min(Int32(ATTN_TOKENS), ntokens - t0)
+    base = Int32(position[1]) + t0          # the first token's position
+    i = t
+    while i < Int32(ATTN_TOKENS * 6 * 256)
+        u = i ÷ Int32(1536)
+        r = i - u * Int32(1536)
+        @inbounds qs[i + Int32(1)] = u < nt ?
+            Float32(q[(t0 + u) * Int32(6144) + kvh * Int32(1536) + r + Int32(1)]) : 0f0
+        i += Int32(256)
+    end
+    if t < Int32(6 * ATTN_TOKENS)
+        @inbounds stat[t + Int32(1)] = -Inf32
+        @inbounds stat[Int32(24) + t + Int32(1)] = 0f0
+    end
+    KI.barrier()
+    k4 = reinterpret(NTuple{4,VecElement{UInt32}}, kcache)
+    maxpos = base + nt - Int32(1)
+    acc = ntuple(_ -> 0f0, Val(24))
+    pl = t & Int32(63)
+    u = t >> 6
+    for p0 in Int32(0):Int32(64):maxpos
+        np = min(Int32(64), maxpos - p0 + Int32(1))
+        p = p0 + pl
+        # Token u sees positions up to its own: causal within the group too.
+        if u < nt && p <= base + u
+            sc = _dots6(qs, u * Int32(1536), k4, (p * Int32(1024) + kvh * Int32(256)) >> 4)
+            ks = @inbounds kscale[p * Int32(4) + kvh + Int32(1)] * 0.0625f0
+            Base.Cartesian.@nexprs 6 j -> (@inbounds w[(u * Int32(6) + Int32(j - 1)) * Int32(64) + pl + Int32(1)] = sc[j] * ks)
+        else
+            Base.Cartesian.@nexprs 6 j -> (@inbounds w[(u * Int32(6) + Int32(j - 1)) * Int32(64) + pl + Int32(1)] = -Inf32)
+        end
+        KI.barrier()
+        # Online softmax, eight work-items to a query. The chunk's max lands on
+        # each segment's first lane, so it goes through shared memory first.
+        if t < Int32(8 * 6 * ATTN_TOKENS)
+            qi = t >> 3
+            wb = qi * Int32(64) + (t & Int32(7)) * Int32(8)
+            cm = -Inf32
+            for e in Int32(0):Int32(7)
+                cm = max(cm, @inbounds w[wb + e + Int32(1)])
+            end
+            cm = _segmax8(cm)
+            (t & Int32(7)) == Int32(0) && (@inbounds stat[Int32(48) + qi + Int32(1)] = max(stat[qi + Int32(1)], cm))
+        end
+        KI.barrier()
+        if t < Int32(8 * 6 * ATTN_TOKENS)
+            qi = t >> 3
+            wb = qi * Int32(64) + (t & Int32(7)) * Int32(8)
+            m = @inbounds stat[Int32(48) + qi + Int32(1)]
+            l = 0f0
+            for e in Int32(0):Int32(7)
+                # A query past the prompt's end has seen nothing, and stays at -Inf.
+                ex = m == -Inf32 ? 0f0 : exp(@inbounds(w[wb + e + Int32(1)]) - m)
+                @inbounds w[wb + e + Int32(1)] = ex
+                l += ex
+            end
+            l = _segsum8(l)
+            if (t & Int32(7)) == Int32(0)
+                f = m == -Inf32 ? 0f0 : exp(@inbounds(stat[qi + Int32(1)]) - m)
+                @inbounds stat[Int32(72) + qi + Int32(1)] = f
+                @inbounds stat[Int32(24) + qi + Int32(1)] = muladd(@inbounds(stat[Int32(24) + qi + Int32(1)]), f, l)
+                @inbounds stat[qi + Int32(1)] = m
+            end
+        end
+        KI.barrier()
+        acc = _resc24(acc, stat)
+        for e in Int32(0):(np - Int32(1))
+            pp = p0 + e
+            v = @inbounds Float32(vcache[pp * Int32(1024) + kvh * Int32(256) + t + Int32(1)]) *
+                vscale[pp * Int32(4) + kvh + Int32(1)]
+            acc = _acc24(acc, w, e, v)
+        end
         KI.barrier()
     end
-    o = querybase + d + Int32(1)
-    @inbounds out[o] = eltype(out)((acc / denom) * Float32(gate[o]))
+    Base.Cartesian.@nexprs 24 qi -> begin
+        uq = Int32((qi - 1) ÷ 6)
+        if uq < nt
+            o = (t0 + uq) * Int32(6144) + (kvh * Int32(6) + Int32((qi - 1) % 6)) * Int32(256) + t + Int32(1)
+            @inbounds out[o] = eltype(out)((acc[qi] / stat[Int32(24 + qi)]) * Float32(gate[o]))
+        end
+    end
     return nothing
 end
 
 # Batched attention keeps the 256 value dimensions mapped one-per-thread, but
 # reduces each QK dot with subgroup instructions.  The original batch kernel
 # used eight full-workgroup barriers for every cached token; this needs two.
-function decode_attention_batch_fast_kernel!(out, q,
-        gate, kcache, vcache, kscale,
-        vscale, position, ::Val{SUBGROUP}) where {SUBGROUP}
-    sh = KI.localmemory(Float32, Val((9,)), Val(1))
-    d = Int32(KI.get_local_id().x - 1)
-    lane = d % Int32(SUBGROUP)
-    sub = d ÷ Int32(SUBGROUP)
-    nsub = Int32(256 ÷ SUBGROUP)
-    group = Int32(KI.get_group_id().x - 1)
-    token = group ÷ Int32(24)
-    h = group % Int32(24)
-    pos = Int32(position[1]) + token
-    kvh = h ÷ Int32(6)
-    querybase = token * Int32(6144) + h * Int32(256)
-    qv = @inbounds Float32(q[querybase + d + Int32(1)])
-    high = -floatmax(Float32)
-    denom = 0f0
-    acc = 0f0
-    for p in Int32(0):pos
-        cachei = p * Int32(1024) + kvh * Int32(256) + d + Int32(1)
-        scalei = p * Int32(4) + kvh + Int32(1)
-        partial = @inbounds qv * Float32(kcache[cachei]) * kscale[scalei]
-        reduced = DNNKernels.KI.sub_group_reduce_add(partial)
-        lane == Int32(0) && (sh[sub + Int32(1)] = reduced)
-        KI.barrier()
-        if d == Int32(0)
-            score = 0f0
-            for i in Int32(1):nsub
-                score += sh[i]
-            end
-            sh[Int32(9)] = score * 0.0625f0
-        end
-        KI.barrier()
-        score = sh[Int32(9)]
-        newhigh = max(high, score)
-        oldscale = exp(high - newhigh)
-        newscale = exp(score - newhigh)
-        denom = denom * oldscale + newscale
-        @inbounds acc = acc * oldscale + newscale * Float32(vcache[cachei]) * vscale[scalei]
-        high = newhigh
-    end
-    o = querybase + d + Int32(1)
-    @inbounds out[o] = eltype(out)((acc / denom) * Float32(gate[o]))
-    return nothing
-end
-
 function select_last_kernel!(out, x, width::Int32, ntokens::Int32)
     i = Int32(KI.get_global_id().x - 1)
     i < width && (@inbounds out[i + Int32(1)] =
@@ -1113,3 +1317,45 @@ function select_last_kernel!(out, x, width::Int32, ntokens::Int32)
     return nothing
 end
 
+
+# The greedy pick on the device, written beside the logits it reads. Taking it on
+# the host meant downloading all 248320 logits and scanning them between every
+# two steps: 2.4 ms of a 64 ms token on an M5, with the device idle throughout.
+# Julia's `argmax` order: the first maximum under `isless`, so NaN outranks
+# every number, as it does on the host.
+@inline _better(va, ia, vb, ib) = isless(va, vb) || (isequal(va, vb) && ib < ia)
+
+function argmax_kernel!(best, x, n::Int32)
+    vals = KI.localmemory(Float32, Val((256,)), Val(1))
+    idxs = KI.localmemory(Int32, Val((256,)), Val(2))
+    t = Int32(KI.get_local_id().x - 1)
+    bv = -Inf32
+    bi = typemax(Int32)
+    i = t
+    while i < n
+        v = @inbounds Float32(x[i + Int32(1)])
+        if _better(bv, bi, v, i)
+            bv = v
+            bi = i
+        end
+        i += Int32(256)
+    end
+    @inbounds vals[t + Int32(1)] = bv
+    @inbounds idxs[t + Int32(1)] = bi
+    KI.barrier()
+    step = Int32(128)
+    while step > Int32(0)
+        if t < step
+            vb = @inbounds vals[t + step + Int32(1)]
+            ib = @inbounds idxs[t + step + Int32(1)]
+            if _better(@inbounds(vals[t + Int32(1)]), @inbounds(idxs[t + Int32(1)]), vb, ib)
+                @inbounds vals[t + Int32(1)] = vb
+                @inbounds idxs[t + Int32(1)] = ib
+            end
+        end
+        KI.barrier()
+        step >>= 1
+    end
+    t == Int32(0) && (@inbounds best[1] = idxs[1])
+    return nothing
+end
