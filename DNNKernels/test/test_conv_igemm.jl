@@ -130,6 +130,12 @@ end
 # convolution's tiling, so it needs no device.
 @testset "the implicit GEMM's FMA loop reaches SPIR-V as DontUnroll" begin
     LV = DK.Lava
+    # Lava compiles its SPIR-V emitter only where Vulkan has a loader, so a Mac
+    # without one has no module to read. Where the emitter exists this runs, with
+    # or without a device.
+    if !isdefined(LV, :lava_compile_gpu)
+        @test_skip isdefined(LV, :lava_compile_gpu)
+    else
     A4 = LV.LavaDeviceArray{Float32,4}
     tt = Tuple{A4, A4, A4, LV.LavaDeviceArray{Float32,1}, Val{Float32}, Val{1}, Val{:none},
                Val{128}, Val{16}, Val{128}, Val{8}, Val{8}, Val{3}, Val{3},
@@ -144,4 +150,5 @@ end
     @test endswith(strip(lines[fmaloop]), "DontUnroll")
     # Only that one: the staging loop is left to the driver.
     @test count(m -> endswith(strip(lines[m]), "DontUnroll"), merges) == 1
+    end
 end
