@@ -130,6 +130,26 @@ end
     ptq1mul!(ctx,out,A,x); KernelAbstractions.synchronize(backend)
     @test maximum(abs,Array(out).-W*xh) < 2f-4
     @test maximum(abs,Array(ptq1_dequant(ctx,A)).-W) < 1f-6
+    # The decode column, `ptq1_mul_rows_kernel!`, which is most of a Bonsai token
+    # and which five columns never reach; and eight, the tiled prefill. K = 5120
+    # is Bonsai's hidden width, forty blocks over a subgroup's lanes, so some
+    # lanes take two blocks and the rest one. Seven rows leave a partial row group.
+    for (MK, KK) in ((7, 256), (9, 5120)), NN in (1, 8)
+        bk, Wk = pack_ptq1(randn(rng, Float32, MK, KK))
+        dbk = KernelAbstractions.allocate(backend, UInt8, length(bk)); copyto!(dbk, bk)
+        Ak = PTQ1Matrix(dbk, MK, KK)
+        xk = randn(rng, Float32, KK, NN)
+        outk = KernelAbstractions.allocate(backend, Float32, MK, NN)
+        ptq1mul!(ctx, outk, Ak, DNNKernels.toback(backend, xk))
+        KernelAbstractions.synchronize(backend)
+        @test maximum(abs, Array(outk) .- Wk * xk) < 2f-4 * sqrt(KK / 256)
+        if NN == 1
+            bias = randn(rng, Float32, MK)
+            ptq1mul!(ctx, outk, Ak, DNNKernels.toback(backend, xk), DNNKernels.toback(backend, bias))
+            KernelAbstractions.synchronize(backend)
+            @test maximum(abs, Array(outk) .- (Wk * xk .+ bias)) < 2f-4 * sqrt(KK / 256)
+        end
+    end
     rows = DNNKernels.toback(backend,Int32[0,6,2]); emb = KernelAbstractions.allocate(backend,Float32,K,3)
     ptq1_getrows!(ctx,emb,A,rows); KernelAbstractions.synchronize(backend)
     @test Array(emb) ≈ permutedims(W[[1,7,3],:]) atol=1f-6
@@ -161,4 +181,32 @@ end
     dh = DNNKernels.toback(backend,h); ds = DNNKernels.toback(backend,signs)
     hadamard!(ctx,dh,ds); KernelAbstractions.synchronize(backend)
     @test Array(dh) ≈ fwht_reference(h,signs) atol=2f-5
+end
+
+# The prefill route on a device without the staged cooperative-matrix kernels: a
+# Float16 expansion and the device's own GEMM for the multiples of 32 columns, and
+# the shared-decode column kernel for the rest. On Metal the GEMM half replaced
+# `ptq1_mul_mm_kernel!`, which made a 512-token Bonsai prefill take 94 s. 45
+# columns is 32 through the GEMM and 13 through `ptq1_cols!` (four launches, the
+# last of one column). Both operands are flat resources, as Bonsai's
+# batch scratch is, so the views taken over them are part of what is pinned.
+@testset "PTQ1 product through the device's native GEMM and the column kernel" begin
+    backend = Mantle.defaultbackend(); dev = Mantle.todevice(backend)
+    rng = MersenneTwister(23); M, K, N = 96, 384, 45
+    bytes, W = pack_ptq1(randn(rng, Float32, M, K))
+    A = PTQ1Matrix(Mantle.Buffer(dev, bytes), M, K)
+    xh = Float16.(randn(rng, Float32, K, N))
+    x = Mantle.Buffer(dev, vec(xh))
+    out = Mantle.Buffer(dev, fill(NaN32, M * N))
+    g = Mantle.Graph(dev)
+    covered = DNNKernels.ptq1_native_gemm!(g, out, A, x, N; name = "ptq1_native")
+    @test covered == (Mantle.native_gemm_available(dev, Float16, Float16, Float32) ? 32 : 0)
+    DNNKernels.ptq1_cols!(g, out, A, x, covered, N; name = "ptq1_cols")
+    Mantle.runonce!(g)
+    want = W * Float32.(xh)
+    got = reshape(Array(Mantle.storage(out)), M, N)
+    @test !any(isnan, got)
+    @test maximum(abs, got .- want) / maximum(abs, want) < 1f-5
+    # The expansion alone, which `ptq1_dequant` shares, against the packing.
+    @test Array(ptq1_dequant(DNNKernels.Ctx(backend), A)) == W
 end
