@@ -52,11 +52,13 @@ end
     tie = randn(rng, Float32, n); tie[1000] = 50f0; tie[200000] = 50f0; push!(cases, tie)
     nan = randn(rng, Float32, n); nan[777] = NaN32; nan[5] = 1f6; push!(cases, nan)
     odd = randn(rng, Float32, 1001); odd[end] = 99f0; push!(cases, odd)
+    # Fewer values than the first pass has parts: most parts are empty.
+    short = randn(rng, Float32, 100); short[3] = -Inf32; push!(cases, short)
+    push!(cases, fill(-Inf32, 300))    # all equal: the first
     for x in cases
         xb = Mantle.Buffer(dev, x); best = Mantle.Buffer(dev, Int32, (1,))
         g = Mantle.Graph(dev)
-        Mantle.dispatch!(g, BonsaiRunner.argmax_kernel!, (best, xb, Int32(length(x))), 256;
-                         group = 256, name = "greedy")
+        BonsaiRunner.declare_argmax!(g, best, xb; name = "greedy")
         Mantle.runonce!(g)
         @test only(Array(Mantle.storage(best))) == argmax(x) - 1
         foreach(Mantle.free!, (xb, best))

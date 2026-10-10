@@ -1,10 +1,12 @@
 """
     PTQ1Matrix
 
-Prism PTQ1_0 weights in their checkpoint representation. Each consecutive
-128-value block occupies 28 bytes: 26 bytes of base-3 digits followed by an
-FP16 scale. Rows stay packed on the device, so the model never expands its
-ternary weights.
+Prism PTQ1_0 weights, still packed. Each 128-value block is 28 bytes: 26 bytes of
+base-3 digits and an FP16 scale, seven 32-bit words. The checkpoint stores a row's
+blocks one after another; on the device the rows are in tiles of `PTQ1_TILE`, and
+word `q` of block `b` of a tile's 64 rows is 64 consecutive words (see
+[`ptq1_word0`](@ref)). Rows are padded to a whole tile with zeros, and `m` is the
+logical row count.
 """
 struct PTQ1Matrix{A}
     data::A
@@ -20,43 +22,100 @@ Base.ndims(::PTQ1Matrix) = 2
 const PTQ1_QK = 128
 const PTQ1_BLOCK_BYTES = 28
 const PTQ1_WG = 256
-const PTQ1_ROWS_PER_WG = 4
 
-"""Upload one packed GGUF matrix without dequantising or transposing it."""
+# Rows per tile of the device layout. A decode work-item is one row of a tile, so
+# the 64 work-items reading word q of a block read 256 consecutive bytes, while all
+# of them read the same `x`. In the checkpoint's order the rows sit a whole row
+# apart, which is why the decode column used to give a row eight work-items on
+# eight different blocks, and eight different `x` addresses per load: on a Radeon
+# 8060S, whose loads retire in order, every wait for `x` then waited for weight
+# words still coming from memory, and a 17408x5120 projection took 157 us where its
+# loads alone take 91.
+const PTQ1_TILE = 64
+
+"""
+    ptq1_word0(row, block, blocks) -> Int32
+
+The one-based index, in 32-bit words, of word 0 of `block` of `row` in the tiled
+layout. The block's word `q` is `64q` words further on.
+"""
+@inline ptq1_word0(row::Int32, b::Int32, blocks::Int32) =
+    ((row >> Int32(6)) * blocks + b) * Int32(7 * PTQ1_TILE) + (row & Int32(PTQ1_TILE - 1)) + Int32(1)
+
+# The checkpoint's order into tiles, one word per work-item; rows past M are zero.
+function ptq1_tile_kernel!(tiled, raw, M::Int32, K::Int32, n::Int32)
+    i = Int32(KI.get_global_id().x - 1)
+    if i < n
+        raw32 = reinterpret(UInt32, raw)
+        tiled32 = reinterpret(UInt32, tiled)
+        blocks = K >> Int32(7)
+        r = i & Int32(PTQ1_TILE - 1)
+        rest = i >> Int32(6)
+        q = rest % Int32(7)
+        rest = rest ÷ Int32(7)
+        b = rest % blocks
+        row = (rest ÷ blocks) * Int32(PTQ1_TILE) + r
+        @inbounds tiled32[i + Int32(1)] =
+            row < M ? raw32[(row * blocks + b) * Int32(7) + q + Int32(1)] : UInt32(0)
+    end
+    return nothing
+end
+
+"""
+    ptq1matrix(backend, file, tensor) -> PTQ1Matrix
+    ptq1matrix(backend, bytes, m, k) -> PTQ1Matrix
+
+Upload one packed matrix, in the checkpoint's order (a row's blocks contiguous),
+and tile it on the device. Nothing is dequantised.
+"""
 function ptq1matrix(backend, file::GGUFFile, tensor::Union{GGUFTensor,AbstractString})
     t = tensor isa GGUFTensor ? tensor : file[tensor]
     t.typeid == GGML_TYPE_PTQ1_0 || throw(ArgumentError("$(t.name) is GGML type $(t.typeid), not PTQ1_0"))
     length(t.dims) == 2 || throw(ArgumentError("$(t.name) is rank $(length(t.dims)), expected a matrix"))
     k, m = t.dims
+    ptq1matrix(backend, ggufbytes(file, t), m, k)
+end
+
+function ptq1matrix(backend, bytes::AbstractVector{UInt8}, m::Integer, k::Integer)
     k % PTQ1_QK == 0 || throw(ArgumentError("PTQ1 input width $k is not divisible by $PTQ1_QK"))
-    host = ggufbytes(file, t)
-    # An upload and nothing else — `Buffer(dev, data)` IS the upload, so there
-    # is no kernel here and no graph to declare one into.
-    PTQ1Matrix(Mantle.Buffer(Mantle.todevice(backend), host), m, k)
+    blocks = k ÷ PTQ1_QK
+    length(bytes) == m * blocks * PTQ1_BLOCK_BYTES || throw(DimensionMismatch(
+        "$(length(bytes)) bytes are not $m rows of $blocks PTQ1 blocks"))
+    words = cld(m, PTQ1_TILE) * PTQ1_TILE * blocks * 7
+    words <= typemax(Int32) || throw(ArgumentError("a $(m)x$(k) PTQ1 matrix exceeds Int32 word indexing"))
+    dev = Mantle.todevice(backend)
+    raw = Mantle.Buffer(dev, bytes)
+    tiled = Mantle.Buffer(dev, UInt8, (4 * words,))
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, ptq1_tile_kernel!, (tiled, raw, Int32(m), Int32(k), Int32(words)),
+                     words; group = 256, name = "ptq1_tile")
+    runonce!(g)
+    Mantle.free!(raw)
+    PTQ1Matrix(tiled, Int(m), Int(k))
 end
 
-@inline function ptq1_scale(data, base::Int32)
-    bits = UInt16(data[base + Int32(26)]) | (UInt16(data[base + Int32(27)]) << 8)
-    Float32(reinterpret(Float16, bits))
-end
+@inline ptq1_scale(data32, wb::Int32) =
+    Float32(reinterpret(Float16, UInt16(data32[wb + Int32(6 * PTQ1_TILE)] >> 16)))
 
-@inline function ptq1_value(data, base::Int32, e::Int32)
-    b = UInt32(0)
+# Element `e` of the block whose word 0 is `wb`, as a trit in -1:1.
+@inline function ptq1_value(data32, wb::Int32, e::Int32)
+    j = Int32(0)
     n = Int32(0)
     if e < Int32(80)
-        b = UInt32(data[base + (e & Int32(15))])
+        j = e & Int32(15)
         n = e >> 4
     elseif e < Int32(120)
         t = e - Int32(80)
-        b = UInt32(data[base + Int32(16) + (t & Int32(7))])
+        j = Int32(16) + (t & Int32(7))
         n = t >> 3
     else
         t = e - Int32(120)
-        b = UInt32(data[base + Int32(24) + (t & Int32(1))])
+        j = Int32(24) + (t & Int32(1))
         n = t >> 1
     end
-    # n is in 0:4.  Multiplication by 3^n modulo 256 is exactly the recurrence
-    # above, without a runtime loop per decoded trit.
+    b = (data32[wb + Int32(PTQ1_TILE) * (j >> 2)] >> (UInt32(8) * UInt32(j & Int32(3)))) & UInt32(0xff)
+    # n is in 0:4. Multiplying by 3^n modulo 256 drops the n leading trits: the
+    # recurrence `b = (3b) & 0xff`, n times, without a loop.
     p = n == Int32(0) ? UInt32(1) :
         n == Int32(1) ? UInt32(3) :
         n == Int32(2) ? UInt32(9) :
@@ -65,9 +124,17 @@ end
     Int32((b * UInt32(3)) >> 8) - Int32(1)
 end
 
-# The decode column's launch: eight work-items to a row, 64 to a workgroup.
-const PTQ1_DECODE_LANES = 8
-const PTQ1_DECODE_WG = 64
+# K-parts per workgroup of the column kernel, which reads `x` from device memory: a
+# tile's 64 rows are S parts of 64 work-items, part s taking blocks s, s + S, ...
+# Enough parts that a projection has some 768 parts in flight, between 4 and 16;
+# measured unstaged on a Radeon 8060S and an M5 for every Bonsai shape: fewer
+# starves the narrow ones (5120 rows want 8), more costs the reduction.
+ptq1_parts(M::Integer) = clamp(prevpow(2, max(1, 768 ÷ cld(M, PTQ1_TILE))), 4, 16)
+
+# The work-item's place in its workgroup through the sub-group ids, so that a part
+# is whole sub-groups whatever order KI gives them, and its `x` address is uniform.
+@inline _ptq1_slot() = Int32(KI.get_sub_group_id() - 1) * Int32(KI.get_sub_group_size()) +
+                       Int32(KI.get_sub_group_local_id() - 1)
 
 # One trit of a PTQ1 byte, decoded and multiplied in. `f` is the byte's remaining
 # digits as a fraction of 256, so `3f - 1` has the leading trit minus one as its
@@ -84,107 +151,226 @@ const PTQ1_DECODE_WG = 64
     return y - t, muladd(Float32(t), x, acc)
 end
 
-"""
-    ptq1_mul_rows_kernel!(out, data, x, bias, M, K, Val(HASBIAS))
+# The decode column's parts, and from how many blocks it double-buffers: see
+# `ptq1_mul_rows_kernel!`.
+const PTQ1_DECODE_PARTS = 4
+const PTQ1_DECODE_DB_BLOCKS = 64
 
-The decode column, `N == 1`: `out = A * x (+ bias)` for packed PTQ1 `A` and a
-Float32 `x`. Most of a Bonsai token is this kernel.
+@inline _ptq1_x4(x4, i::Int32, n::Int32) = i < n ? @inbounds(x4[i + Int32(1)]) :
+    (VecElement(0f0), VecElement(0f0), VecElement(0f0), VecElement(0f0))
 
-Eight consecutive work-items own one row and stride over its blocks. A 32-wide
-subgroup then covers four rows, so its weight loads are four runs of adjacent
-blocks and its `x` loads go to eight addresses, not 32. The row's sum reaches its
-first work-item in three shuffles, with no shared memory and no barrier, at any
-subgroup width that is a multiple of eight.
+# A block's seven words, the last apart since it holds the scale. A block past the
+# end reads block 0 instead, so a part with nothing left still loads in bounds.
+@inline function _ptq1_words(data32, row::Int32, blk::Int32, blocks::Int32)
+    w0 = ptq1_word0(row, blk < blocks ? blk : Int32(0), blocks)
+    @inbounds ((data32[w0], data32[w0 + Int32(PTQ1_TILE)], data32[w0 + Int32(2 * PTQ1_TILE)],
+                data32[w0 + Int32(3 * PTQ1_TILE)], data32[w0 + Int32(4 * PTQ1_TILE)],
+                data32[w0 + Int32(5 * PTQ1_TILE)]), data32[w0 + Int32(6 * PTQ1_TILE)])
+end
 
-Measured on an M5, against the kernel this replaced (one 128-value block per lane,
-64 lanes to a row, integer trit decode), µs per launch:
-
-    shape (M x K)      before    after
-    17408 x  5120       838       220    3.8x
-     5120 x 17408       828       238    3.5x
-    10240 x  5120       497       132    3.8x
-     5120 x  6144       290        84    3.5x
-     1024 x  5120        59        24    2.5x
-
-The old kernel was bound by instruction issue, not memory. With weight loads alone
-the same launch took 147 µs, and dropping either its 128 scalar `x` gathers per
-block or its integer decode halved it. Those are the two changes: `x` read as
-float4 at a few shared addresses instead of 32 scattered ones, and `ptq1_trit`'s
-three exact float operations per trit instead of a multiply, shift, subtract,
-mask, convert and an extra multiply by the scale, which is now applied once per
-block. Four rows to a subgroup beat one (lane per block, scattered `x`: 622 µs)
-and 32 (lane per row, scattered weights: 251 µs).
-
-`x` is read as float4 and float2, so it must be 16-byte aligned. Every buffer and
-transient Mantle places is.
-"""
-function ptq1_mul_rows_kernel!(out, data, x, bias, M::Int32, K::Int32,
-                               ::Val{HASBIAS}) where {HASBIAS}
-    # The packed bytes as words: a 28-byte block is seven of them, 4-byte aligned.
-    data32 = reinterpret(UInt32, data)
-    x4 = reinterpret(NTuple{4,VecElement{Float32}}, x)
-    x2 = reinterpret(NTuple{2,VecElement{Float32}}, x)
-    g = Int32(KI.get_global_id().x - 1)
-    # Shifts, not `÷` and `%`: the id is never negative, and the signed division
-    # stayed an `sdiv` in the module.
-    row = g >> Int32(trailing_zeros(PTQ1_DECODE_LANES))
-    lane = g & Int32(PTQ1_DECODE_LANES - 1)
-    blocks = K >> Int32(trailing_zeros(PTQ1_QK))
-    acc = 0f0
-    if row < M
-        blk = lane
-        @inbounds while blk < blocks
-            w0 = (row * blocks + blk) * Int32(7) + Int32(1)
-            last = data32[w0 + Int32(6)]
-            scale = Float32(reinterpret(Float16, UInt16(last >> 16)))
-            a0 = 0f0; a1 = 0f0; a2 = 0f0; a3 = 0f0
-            # Words 0-3 hold bytes 0-15, whose five trits are e = j + 16n; words 4-5
-            # hold bytes 16-23, e = 80 + j + 8n. Either way the word's four bytes
-            # at one n are four consecutive elements: one float4.
-            #
-            # Unrolled by hand, so every `x` load is a constant offset from `x4b`.
-            # As loops, Apple's compiler kept both, with a select for each word's
-            # first index and stride and a variable shift per load: 11-19% of the
-            # launch on an M5, the most on the 17408-wide down projection.
-            x4b = blk * Int32(PTQ1_QK ÷ 4) + Int32(1)
-            Base.Cartesian.@nexprs 6 q -> begin
-                word = data32[w0 + Int32(q - 1)]
-                f0 = Float16(word & 0xff) * Float16(1 / 256)
-                f1 = Float16((word >> 8) & 0xff) * Float16(1 / 256)
-                f2 = Float16((word >> 16) & 0xff) * Float16(1 / 256)
-                f3 = Float16(word >> 24) * Float16(1 / 256)
-                Base.Cartesian.@nexprs 5 n -> begin
-                    # float4 index: q - 1 + 4(n - 1) for words 0-3, 16 + q - 1 + 2(n - 1) for 4-5
-                    v = x4[x4b + Int32(q <= 4 ? q - 1 + 4 * (n - 1) : 15 + q + 2 * (n - 1))]
-                    f0, a0 = ptq1_trit(f0, a0, v[1].value)
-                    f1, a1 = ptq1_trit(f1, a1, v[2].value)
-                    f2, a2 = ptq1_trit(f2, a2, v[3].value)
-                    f3, a3 = ptq1_trit(f3, a3, v[4].value)
-                end
-            end
-            # Word 6: bytes 24-25 hold four trits each, e = 120 + j + 2n, and the
-            # scale is its high half.
-            g0 = Float16(last & 0xff) * Float16(1 / 256)
-            g1 = Float16((last >> 8) & 0xff) * Float16(1 / 256)
-            x2b = blk * Int32(PTQ1_QK ÷ 2) + Int32(60 + 1)
-            Base.Cartesian.@nexprs 4 n -> begin
-                v = x2[x2b + Int32(n - 1)]
-                g0, a0 = ptq1_trit(g0, a0, v[1].value)
-                g1, a1 = ptq1_trit(g1, a1, v[2].value)
-            end
-            acc = muladd(scale, (a0 + a1) + (a2 + a3), acc)
-            blk += Int32(PTQ1_DECODE_LANES)
+# One block of one row against the block's `x` in shared memory from float4 `xb`.
+# Words 0-3 hold bytes 0-15, whose five trits are e = j + 16n; words 4-5 hold bytes
+# 16-23, e = 80 + j + 8n. Either way a word's four bytes at one n are four
+# consecutive elements: one float4. Word 6's two bytes hold four trits each, e = 120
+# + j + 2n, and the scale is its high half. Unrolled, so every `x` read is a
+# constant offset from `xb`.
+@inline function _ptq1_block(acc::Float32, ws, last::UInt32, xs, xb::Int32)
+    scale = Float32(reinterpret(Float16, UInt16(last >> 16)))
+    a0 = 0f0; a1 = 0f0; a2 = 0f0; a3 = 0f0
+    Base.Cartesian.@nexprs 6 q -> begin
+        word = ws[q]
+        f0 = Float16(word & 0xff) * Float16(1 / 256)
+        f1 = Float16((word >> 8) & 0xff) * Float16(1 / 256)
+        f2 = Float16((word >> 16) & 0xff) * Float16(1 / 256)
+        f3 = Float16(word >> 24) * Float16(1 / 256)
+        Base.Cartesian.@nexprs 5 n -> begin
+            # float4 q - 1 + 4(n - 1) for words 0-3, 16 + q - 1 + 2(n - 1) for 4-5
+            v = @inbounds xs[xb + Int32(q <= 4 ? q - 1 + 4 * (n - 1) : 15 + q + 2 * (n - 1))]
+            f0, a0 = ptq1_trit(f0, a0, v[1].value)
+            f1, a1 = ptq1_trit(f1, a1, v[2].value)
+            f2, a2 = ptq1_trit(f2, a2, v[3].value)
+            f3, a3 = ptq1_trit(f3, a3, v[4].value)
         end
     end
-    # Every work-item shuffles, the tail rows' included: a shuffle is the whole
-    # subgroup's. Eight-lane segments are aligned, so lane 0 of each sums its own.
-    acc += KI.shfl_down(acc, Int32(4))
-    acc += KI.shfl_down(acc, Int32(2))
-    acc += KI.shfl_down(acc, Int32(1))
-    if lane == Int32(0) && row < M
-        HASBIAS && (acc += Float32(bias[row + Int32(1)]))
-        @inbounds out[row + Int32(1)] = eltype(out)(acc)
+    g0 = Float16(last & 0xff) * Float16(1 / 256)
+    g1 = Float16((last >> 8) & 0xff) * Float16(1 / 256)
+    va = @inbounds xs[xb + Int32(30)]
+    vb = @inbounds xs[xb + Int32(31)]
+    g0, a0 = ptq1_trit(g0, a0, va[1].value); g1, a1 = ptq1_trit(g1, a1, va[2].value)
+    g0, a0 = ptq1_trit(g0, a0, va[3].value); g1, a1 = ptq1_trit(g1, a1, va[4].value)
+    g0, a0 = ptq1_trit(g0, a0, vb[1].value); g1, a1 = ptq1_trit(g1, a1, vb[2].value)
+    g0, a0 = ptq1_trit(g0, a0, vb[3].value); g1, a1 = ptq1_trit(g1, a1, vb[4].value)
+    return muladd(scale, (a0 + a1) + (a2 + a3), acc)
+end
+
+"""
+    ptq1_mul_rows_kernel!(out, data, x, bias, M, K, Val(HASBIAS), Val(S), Val(DB))
+
+The decode column, `N == 1`: `out = A * x (+ bias)` for tiled PTQ1 `A` and a
+Float32 `x`. Most of a Bonsai token is this kernel.
+
+A workgroup is one 64-row tile in `S` parts of 64 work-items; a work-item is a row
+of the tile. The blocks go in rounds of `S`, part `s` taking the round's `s`-th, so
+the 64 loads of a block's word are 256 consecutive bytes and the parts' sums meet
+in shared memory at the end. A round's `x`, `S` blocks of it, is staged in shared
+memory first, and each part reads it there at one address. With `DB` the staging
+is double-buffered: the next round's `x` and words load while this one decodes,
+one barrier a round instead of two.
+
+µs per launch, each of the 64 matrices read once per run (the 8060S's cache holds
+one of them):
+
+    shape (M x K)      Radeon 8060S                M5
+                       checkpoint  tiled  staged   checkpoint  tiled  staged
+    17408 x  5120         157       114     97        178      174    174
+     5120 x 17408         149       100     95 (DB)   184      175    176 (DB)
+    10240 x  5120          89        72     56        108      106    105
+     5120 x  6144          63        46     36         68       65     67
+     1024 x  5120          10        11     13         16       16     16
+
+"Checkpoint" read the checkpoint's order, eight work-items to a row on eight
+consecutive blocks, so the eight read eight different `x`. Its decode was free on
+the 8060S (without the `x` loads it ran at the speed of its weight loads, 91 us),
+its `x` loads were not: the Radeon retires loads in order, and a wait for `x` waited
+for the weight words issued before it. "Tiled" read `x` from device memory at one
+address per part; the same wait remained, for 24 us of the 114. Staged, `x` comes
+through shared memory, which has its own counter. On an M5 each costs about the
+same; there the old kernel was issue-bound, and `x` as float4 at a few addresses,
+`ptq1_trit`'s three exact float operations per trit, the scale applied once per
+block and the loops unrolled by hand took it from 838 to 180 us. Two barriers a
+round cost the M5 5% at 136 blocks, which `DB` takes back, and double-buffering
+costs it 4% at 40, hence `PTQ1_DECODE_DB_BLOCKS`. More parts than four was
+slower staged on the M5 at every shape.
+
+`x` is read as float4, so it must be 16-byte aligned. Every buffer and transient
+Mantle places is.
+"""
+function ptq1_mul_rows_kernel!(out, data, x, bias, M::Int32, K::Int32,
+                               ::Val{HASBIAS}, ::Val{S}, ::Val{DB}) where {HASBIAS,S,DB}
+    V4 = NTuple{4,VecElement{Float32}}
+    xs = KI.localmemory(V4, Val((32 * S * (DB ? 2 : 1),)), Val(1))
+    sh = KI.localmemory(Float32, Val((PTQ1_TILE * S,)), Val(2))
+    _ptq1_rows_tile!(out, reinterpret(UInt32, data), reinterpret(V4, x), xs, sh, bias, M, K,
+                     Int32(KI.get_group_id().x - 1), Val(HASBIAS), Val(S), Val(DB))
+    return nothing
+end
+
+"""
+    ptq1_mul_rows2_kernel!(out1, data1, out2, data2, x, M1, M2, K, Val(S), Val(DB))
+
+Two decode columns over the same `x` in one launch, `A1`'s tiles and then `A2`'s.
+Bonsai's FFN gate and up as one launch instead of two: 196 to 184 us on a Radeon
+8060S, 348 to 340 on an M5.
+"""
+function ptq1_mul_rows2_kernel!(out1, data1, out2, data2, x, M1::Int32, M2::Int32, K::Int32,
+                                ::Val{S}, ::Val{DB}) where {S,DB}
+    V4 = NTuple{4,VecElement{Float32}}
+    xs = KI.localmemory(V4, Val((32 * S * (DB ? 2 : 1),)), Val(1))
+    sh = KI.localmemory(Float32, Val((PTQ1_TILE * S,)), Val(2))
+    x4 = reinterpret(V4, x)
+    tile = Int32(KI.get_group_id().x - 1)
+    tiles1 = (M1 + Int32(PTQ1_TILE - 1)) >> Int32(6)
+    # Uniform across the workgroup, so each branch's barriers are too.
+    if tile < tiles1
+        _ptq1_rows_tile!(out1, reinterpret(UInt32, data1), x4, xs, sh, out1, M1, K, tile,
+                         Val(false), Val(S), Val(DB))
+    else
+        _ptq1_rows_tile!(out2, reinterpret(UInt32, data2), x4, xs, sh, out2, M2, K, tile - tiles1,
+                         Val(false), Val(S), Val(DB))
     end
+    return nothing
+end
+
+# One workgroup's tile of the decode column; see `ptq1_mul_rows_kernel!`.
+@inline function _ptq1_rows_tile!(out, data32, x4, xs, sh, bias, M::Int32, K::Int32, tile::Int32,
+                                  ::Val{HASBIAS}, ::Val{S}, ::Val{DB}) where {HASBIAS,S,DB}
+    slot = _ptq1_slot()
+    part = slot >> Int32(6)
+    r = slot & Int32(PTQ1_TILE - 1)
+    row = tile * Int32(PTQ1_TILE) + r
+    blocks = K >> Int32(trailing_zeros(PTQ1_QK))
+    nx4 = K >> Int32(2)
+    # A round's x is 32 S float4: one each for the first half of the work-items.
+    stager = slot < Int32(32 * S)
+    acc = 0f0
+    b0 = Int32(0)
+    if DB
+        stager && (@inbounds xs[slot + Int32(1)] = _ptq1_x4(x4, slot, nx4))
+        ws, last = _ptq1_words(data32, row, part, blocks)
+        KI.barrier()
+        buf = Int32(0)
+        while b0 < blocks
+            nb = b0 + Int32(S)
+            xn = _ptq1_x4(x4, nb * Int32(32) + slot, nx4)
+            wsn, lastn = _ptq1_words(data32, row, nb + part, blocks)
+            b0 + part < blocks &&
+                (acc = _ptq1_block(acc, ws, last, xs, (buf * Int32(S) + part) * Int32(32) + Int32(1)))
+            buf = Int32(1) - buf
+            stager && (@inbounds xs[buf * Int32(32 * S) + slot + Int32(1)] = xn)
+            KI.barrier()
+            ws, last = wsn, lastn
+            b0 = nb
+        end
+    else
+        while b0 < blocks
+            stager && (@inbounds xs[slot + Int32(1)] = _ptq1_x4(x4, b0 * Int32(32) + slot, nx4))
+            # The words before the barrier, so they are in flight while it waits.
+            ws, last = _ptq1_words(data32, row, b0 + part, blocks)
+            KI.barrier()
+            b0 + part < blocks && (acc = _ptq1_block(acc, ws, last, xs, part * Int32(32) + Int32(1)))
+            KI.barrier()
+            b0 += Int32(S)
+        end
+    end
+    @inbounds sh[slot + Int32(1)] = acc
+    KI.barrier()
+    if part == Int32(0) && row < M
+        @inbounds begin
+            t = sh[r + Int32(1)]
+            for j in Int32(1):Int32(S - 1)
+                t += sh[j * Int32(PTQ1_TILE) + r + Int32(1)]
+            end
+            HASBIAS && (t += Float32(bias[row + Int32(1)]))
+            out[row + Int32(1)] = eltype(out)(t)
+        end
+    end
+    return nothing
+end
+
+# The decode column's launch: (ndrange, group, Val(S), Val(DB)).
+function ptq1_rows_launch(M::Integer, K::Integer)
+    S = PTQ1_DECODE_PARTS
+    (cld(M, PTQ1_TILE) * PTQ1_TILE * S, PTQ1_TILE * S, Val(S),
+     Val(K ÷ PTQ1_QK >= PTQ1_DECODE_DB_BLOCKS))
+end
+
+"""
+    ptq1_rows2!(g, out1, A1::PTQ1Matrix, out2, A2::PTQ1Matrix, x; name)
+
+Declare `out1 = A1 * x` and `out2 = A2 * x` into graph `g` as one launch of
+`ptq1_mul_rows2_kernel!`. The two have the same width.
+"""
+function ptq1_rows2!(g, out1, A1::PTQ1Matrix, out2, A2::PTQ1Matrix, x; name::AbstractString)
+    (M1, K), (M2, K2) = size(A1), size(A2)
+    K == K2 || throw(DimensionMismatch("ptq1_rows2!: widths $K and $K2 differ"))
+    nd1, group, S, DB = ptq1_rows_launch(M1, K)
+    nd2, _, _, _ = ptq1_rows_launch(M2, K)
+    Mantle.dispatch!(g, ptq1_mul_rows2_kernel!,
+        (out1, A1.data, out2, A2.data, x, Int32(M1), Int32(M2), Int32(K), S, DB), nd1 + nd2; group, name)
+    return nothing
+end
+
+"""
+    ptq1_rows!(g, out, A::PTQ1Matrix, x; name)
+
+Declare the decode column `out = A * x` into graph `g` through
+`ptq1_mul_rows_kernel!`.
+"""
+function ptq1_rows!(g, out, A::PTQ1Matrix, x; name::AbstractString)
+    M, K = size(A)
+    nd, group, S, DB = ptq1_rows_launch(M, K)
+    Mantle.dispatch!(g, ptq1_mul_rows_kernel!,
+        (out, A.data, x, A.data, Int32(M), Int32(K), Val(false), S, DB), nd; group, name)
     return nothing
 end
 
@@ -197,8 +383,8 @@ const PTQ1_MM_BM = 64
 const PTQ1_MM_BN = 32
 const PTQ1_MM_BK = 32
 
-# A few activation columns at once: `ptq1_mul_rows_kernel!`'s layout, each decoded
-# trit applied to NC columns. Decoding is most of a column's cost, so sharing it
+# A few activation columns at once: `ptq1_mul_rows_kernel!`'s tile and parts, each
+# decoded trit applied to NC columns. Decoding is most of a column's cost, so sharing it
 # is worth more than any reuse of the weights: one 17408x5120 projection on an M5
 # costs 177 us for one column, 127 a column for two and 112 for four. Past four
 # the accumulators spill (145 for eight, 260 for sixteen), so wider batches are
@@ -221,68 +407,75 @@ end
 @inline _ptq1_lane(v::NTuple{N}, l::Int) where {N} = ntuple(c -> Float32(v[c][l].value), Val(N))
 @inline _ptq1_scaled(acc::NTuple{N,Float32}, scale::Float32, a::NTuple{N,Float32}) where {N} =
     ntuple(c -> muladd(scale, a[c], acc[c]), Val(N))
-@inline _ptq1_shfl(acc::NTuple{N,Float32}, off::Int32) where {N} =
-    ntuple(c -> acc[c] + KI.shfl_down(acc[c], off), Val(N))
 
 function ptq1_mul_cols_kernel!(out, data, x, bias, M::Int32, K::Int32,
-                               ::Val{NC}, ::Val{HASBIAS}) where {NC,HASBIAS}
+                               ::Val{NC}, ::Val{HASBIAS}, ::Val{S}) where {NC,HASBIAS,S}
     data32 = reinterpret(UInt32, data)
     T = eltype(x)
     x4 = reinterpret(NTuple{4,VecElement{T}}, x)
     x2 = reinterpret(NTuple{2,VecElement{T}}, x)
-    g = Int32(KI.get_global_id().x - 1)
-    row = g >> Int32(trailing_zeros(PTQ1_DECODE_LANES))
-    lane = g & Int32(PTQ1_DECODE_LANES - 1)
+    sh = KI.localmemory(Float32, Val((PTQ1_TILE * S * NC,)), Val(1))
+    slot = _ptq1_slot()
+    part = slot >> Int32(6)
+    r = slot & Int32(PTQ1_TILE - 1)
+    row = Int32(KI.get_group_id().x - 1) * Int32(PTQ1_TILE) + r
     blocks = K >> Int32(trailing_zeros(PTQ1_QK))
     acc = ntuple(_ -> 0f0, Val(NC))
-    if row < M
-        blk = lane
-        @inbounds while blk < blocks
-            w0 = (row * blocks + blk) * Int32(7) + Int32(1)
-            last = data32[w0 + Int32(6)]
-            scale = Float32(reinterpret(Float16, UInt16(last >> 16)))
-            a = ntuple(_ -> 0f0, Val(NC))
-            x4b = blk * Int32(PTQ1_QK ÷ 4) + Int32(1)
-            Base.Cartesian.@nexprs 6 q -> begin
-                word = data32[w0 + Int32(q - 1)]
-                f0 = Float16(word & 0xff) * Float16(1 / 256)
-                f1 = Float16((word >> 8) & 0xff) * Float16(1 / 256)
-                f2 = Float16((word >> 16) & 0xff) * Float16(1 / 256)
-                f3 = Float16(word >> 24) * Float16(1 / 256)
-                Base.Cartesian.@nexprs 5 n -> begin
-                    v = _ptq1_cols(x4, x4b + Int32(q <= 4 ? q - 1 + 4 * (n - 1) : 15 + q + 2 * (n - 1)),
-                                   K >> Int32(2), Val(NC))
-                    f0, a = _ptq1_tritn(f0, a, _ptq1_lane(v, 1))
-                    f1, a = _ptq1_tritn(f1, a, _ptq1_lane(v, 2))
-                    f2, a = _ptq1_tritn(f2, a, _ptq1_lane(v, 3))
-                    f3, a = _ptq1_tritn(f3, a, _ptq1_lane(v, 4))
-                end
+    blk = part
+    @inbounds while blk < blocks
+        w0 = ptq1_word0(row, blk, blocks)
+        last = data32[w0 + Int32(6 * PTQ1_TILE)]
+        scale = Float32(reinterpret(Float16, UInt16(last >> 16)))
+        a = ntuple(_ -> 0f0, Val(NC))
+        x4b = blk * Int32(PTQ1_QK ÷ 4) + Int32(1)
+        Base.Cartesian.@nexprs 6 q -> begin
+            word = data32[w0 + Int32((q - 1) * PTQ1_TILE)]
+            f0 = Float16(word & 0xff) * Float16(1 / 256)
+            f1 = Float16((word >> 8) & 0xff) * Float16(1 / 256)
+            f2 = Float16((word >> 16) & 0xff) * Float16(1 / 256)
+            f3 = Float16(word >> 24) * Float16(1 / 256)
+            Base.Cartesian.@nexprs 5 n -> begin
+                v = _ptq1_cols(x4, x4b + Int32(q <= 4 ? q - 1 + 4 * (n - 1) : 15 + q + 2 * (n - 1)),
+                               K >> Int32(2), Val(NC))
+                f0, a = _ptq1_tritn(f0, a, _ptq1_lane(v, 1))
+                f1, a = _ptq1_tritn(f1, a, _ptq1_lane(v, 2))
+                f2, a = _ptq1_tritn(f2, a, _ptq1_lane(v, 3))
+                f3, a = _ptq1_tritn(f3, a, _ptq1_lane(v, 4))
             end
-            g0 = Float16(last & 0xff) * Float16(1 / 256)
-            g1 = Float16((last >> 8) & 0xff) * Float16(1 / 256)
-            x2b = blk * Int32(PTQ1_QK ÷ 2) + Int32(60 + 1)
-            Base.Cartesian.@nexprs 4 n -> begin
-                v = _ptq1_cols(x2, x2b + Int32(n - 1), K >> Int32(1), Val(NC))
-                g0, a = _ptq1_tritn(g0, a, _ptq1_lane(v, 1))
-                g1, a = _ptq1_tritn(g1, a, _ptq1_lane(v, 2))
-            end
-            acc = _ptq1_scaled(acc, scale, a)
-            blk += Int32(PTQ1_DECODE_LANES)
         end
+        g0 = Float16(last & 0xff) * Float16(1 / 256)
+        g1 = Float16((last >> 8) & 0xff) * Float16(1 / 256)
+        x2b = blk * Int32(PTQ1_QK ÷ 2) + Int32(60 + 1)
+        Base.Cartesian.@nexprs 4 n -> begin
+            v = _ptq1_cols(x2, x2b + Int32(n - 1), K >> Int32(1), Val(NC))
+            g0, a = _ptq1_tritn(g0, a, _ptq1_lane(v, 1))
+            g1, a = _ptq1_tritn(g1, a, _ptq1_lane(v, 2))
+        end
+        acc = _ptq1_scaled(acc, scale, a)
+        blk += Int32(S)
     end
-    acc = _ptq1_shfl(acc, Int32(4))
-    acc = _ptq1_shfl(acc, Int32(2))
-    acc = _ptq1_shfl(acc, Int32(1))
-    if lane == Int32(0) && row < M
+    Base.Cartesian.@nexprs 4 c -> (c <= NC &&
+        (@inbounds sh[(c - 1) * PTQ1_TILE * S + slot + Int32(1)] = acc[c]))
+    KI.barrier()
+    if part == Int32(0) && row < M
         b = HASBIAS ? Float32(@inbounds bias[row + Int32(1)]) : 0f0
-        Base.Cartesian.@nexprs 4 c -> (c <= NC &&
-            (@inbounds out[row + Int32(1) + Int32(c - 1) * M] = eltype(out)(acc[c] + b)))
+        Base.Cartesian.@nexprs 4 c -> if c <= NC
+            @inbounds begin
+                base = Int32((c - 1) * PTQ1_TILE * S) + r + Int32(1)
+                t = sh[base]
+                for j in Int32(1):Int32(S - 1)
+                    t += sh[base + j * Int32(PTQ1_TILE)]
+                end
+                out[row + Int32(1) + Int32(c - 1) * M] = eltype(out)(t + b)
+            end
+        end
     end
     return nothing
 end
 function ptq1_mul_mm_kernel!(out, data, x,
                                                 M::Int32, K::Int32, N::Int32,
                                                 mtiles::Int32)
+    data32 = reinterpret(UInt32, data)
     atile = KI.localmemory(Float32, Val((PTQ1_MM_BM * PTQ1_MM_BK,)), Val(1))
     btile = KI.localmemory(Float32, Val((PTQ1_MM_BN * PTQ1_MM_BK,)), Val(2))
 
@@ -310,10 +503,8 @@ function ptq1_mul_mm_kernel!(out, data, x,
             k = k0 + lk
             av = 0f0
             if row < M && k < K
-                block = k ÷ Int32(PTQ1_QK)
-                e = k % Int32(PTQ1_QK)
-                base = (row * blocks + block) * Int32(PTQ1_BLOCK_BYTES) + Int32(1)
-                av = ptq1_scale(data, base) * Float32(ptq1_value(data, base, e))
+                wb = ptq1_word0(row, k ÷ Int32(PTQ1_QK), blocks)
+                av = ptq1_scale(data32, wb) * Float32(ptq1_value(data32, wb, k % Int32(PTQ1_QK)))
             end
             @inbounds atile[ai + Int32(1)] = av
             ai += Int32(PTQ1_WG)
@@ -379,10 +570,8 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
     length(x) % K == 0 || throw(DimensionMismatch("activation length $(length(x)) is not divisible by $K"))
     N = length(x) ÷ K
     length(out) == M * N || throw(DimensionMismatch("output has $(length(out)) values, expected $(M*N)"))
-    rows = cld(M, PTQ1_ROWS_PER_WG)
-    subgroup = ctx.dev.subgroup
-    subgroup in (32, 64) || throw(ArgumentError(
-        "PTQ1 requires a 32- or 64-lane subgroup, got $subgroup"))
+    S = ptq1_parts(M)
+    tiles = cld(M, PTQ1_TILE) * PTQ1_TILE * S
     if N >= 8 && bias === nothing
         mtiles = cld(M, PTQ1_MM_BM)
         ntiles = cld(N, PTQ1_MM_BN)
@@ -392,11 +581,12 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
     elseif N == 1
         eltype(x) === Float32 || throw(ArgumentError(
             "the PTQ1 decode column reads Float32 activations, got $(eltype(x))"))
+        nd, group, SD, DB = ptq1_rows_launch(M, K)
         harnesslaunch!(ctx.backend, ptq1_mul_rows_kernel!,
             out, Mantle.storage(A.data), x,
             bias === nothing ? Mantle.storage(A.data) : bias,
-            Int32(M), Int32(K), Val(bias !== nothing);
-            ndrange = M * PTQ1_DECODE_LANES, workgroupsize = PTQ1_DECODE_WG)
+            Int32(M), Int32(K), Val(bias !== nothing), SD, DB;
+            ndrange = nd, workgroupsize = group)
     else
         xs, os = Mantle.storage(x), Mantle.storage(out)
         for j in 0:PTQ1_COLS:N-1
@@ -405,8 +595,8 @@ function ptq1mul!(ctx, out, A::PTQ1Matrix, x, bias=nothing)
                 view(os, M * j + 1:M * (j + nc)), Mantle.storage(A.data),
                 view(xs, K * j + 1:K * (j + nc)),
                 bias === nothing ? Mantle.storage(A.data) : bias,
-                Int32(M), Int32(K), Val(nc), Val(bias !== nothing);
-                ndrange = M * PTQ1_DECODE_LANES, workgroupsize = PTQ1_DECODE_WG)
+                Int32(M), Int32(K), Val(nc), Val(bias !== nothing), Val(S);
+                ndrange = tiles, workgroupsize = PTQ1_TILE * S)
         end
     end
     out
@@ -421,14 +611,16 @@ launch through `ptq1_mul_cols_kernel!`. `out` and `x` are the flat `M×N` and
 """
 function ptq1_cols!(g, out, A::PTQ1Matrix, x, first::Integer, N::Integer; name::AbstractString)
     M, K = size(A)
+    S = ptq1_parts(M)
     j = Int(first)
     while j < N
         nc = min(PTQ1_COLS, N - j)
         Mantle.dispatch!(g, ptq1_mul_cols_kernel!,
             (Mantle.viewof(out, (M * nc,); offset = M * j), A.data,
              Mantle.viewof(x, (K * nc,); offset = K * j), A.data,
-             Int32(M), Int32(K), Val(nc), Val(false)),
-            M * PTQ1_DECODE_LANES; group = PTQ1_DECODE_WG, name = string(name, ".cols", j))
+             Int32(M), Int32(K), Val(nc), Val(false), Val(S)),
+            cld(M, PTQ1_TILE) * PTQ1_TILE * S; group = PTQ1_TILE * S,
+            name = string(name, ".cols", j))
         j += nc
     end
     return nothing
@@ -436,17 +628,16 @@ end
 
 function ptq1_getrows_kernel!(out, data, rows,
                                                 M::Int32, K::Int32, N::Int32)
+    data32 = reinterpret(UInt32, data)
     i = Int32(KI.get_global_id().x - 1)
     if i < K * N
         k = i % K
         n = i ÷ K
         row = Int32(rows[n + Int32(1)])
         if row >= Int32(0) && row < M
-            block = k ÷ Int32(PTQ1_QK)
-            e = k % Int32(PTQ1_QK)
-            blocks = K ÷ Int32(PTQ1_QK)
-            base = (row * blocks + block) * Int32(PTQ1_BLOCK_BYTES) + Int32(1)
-            @inbounds out[i + Int32(1)] = eltype(out)(ptq1_scale(data, base) * Float32(ptq1_value(data, base, e)))
+            wb = ptq1_word0(row, k ÷ Int32(PTQ1_QK), K ÷ Int32(PTQ1_QK))
+            @inbounds out[i + Int32(1)] = eltype(out)(
+                ptq1_scale(data32, wb) * Float32(ptq1_value(data32, wb, k % Int32(PTQ1_QK))))
         end
     end
     return nothing
@@ -468,7 +659,7 @@ end
 
 # One work-item per (row, block), consecutive work-items on consecutive rows, so
 # each of a block's 128 stores lands beside its neighbours' in the column-major
-# `out`. One element per work-item, each decoding its own trit through
+# `out`, and in the tiled layout its word loads too. One element per work-item, each decoding its own trit through
 # `ptq1_value`'s byte loads, was 4.4x slower: 10.2 ms against 2.3 to expand
 # Bonsai's 17408x5120 FFN gate to Float16 on an M5.
 function ptq1_dequant_kernel!(out, data, M::Int32, K::Int32)
@@ -478,14 +669,14 @@ function ptq1_dequant_kernel!(out, data, M::Int32, K::Int32)
     if i < M * blocks
         m = i % M
         blk = i ÷ M
-        w0 = (m * blocks + blk) * Int32(7) + Int32(1)
-        last = data32[w0 + Int32(6)]
+        w0 = ptq1_word0(m, blk, blocks)
+        last = data32[w0 + Int32(6 * PTQ1_TILE)]
         scale = Float32(reinterpret(Float16, UInt16(last >> 16)))
         col = blk * Int32(PTQ1_QK)
         # Byte j's trits: e = j + 16n for bytes 0-15, 80 + (j - 16) + 8n for 16-23,
         # and four of them at 120 + (j - 24) + 2n for 24-25.
         @inbounds for j in Int32(0):Int32(25)
-            word = j < Int32(24) ? data32[w0 + (j >> 2)] : last
+            word = j < Int32(24) ? data32[w0 + Int32(PTQ1_TILE) * (j >> 2)] : last
             bp = (word >> (8 * (j & Int32(3)))) & UInt32(0xff)
             e = j < Int32(16) ? j : j < Int32(24) ? Int32(64) + j : Int32(96) + j
             stride = j < Int32(16) ? Int32(16) : j < Int32(24) ? Int32(8) : Int32(2)
@@ -568,6 +759,7 @@ function ptq1_coopmat_kernel!(
     sA = KI.localmemory(Float16, Val(((PTQ1_COOP_BM + PTQ1_COOP_PAD) * PTQ1_COOP_BK,)), Val(1))
     sB = KI.localmemory(Float16, Val(((PTQ1_COOP_BK + PTQ1_COOP_PAD) * PTQ1_COOP_BN,)), Val(2))
 
+    data32 = reinterpret(UInt32, data)
     tid = Int32(KI.get_local_id().x - 1)
     blk = Int32(KI.get_group_id().x - 1)
     nblocks_m = Int32(M ÷ PTQ1_COOP_BM)
@@ -593,14 +785,13 @@ function ptq1_coopmat_kernel!(
             row = idx ÷ Int32(4)
             e0 = (idx & Int32(3)) * Int32(8)
             k = k0 + e0
-            qblock = k ÷ Int32(PTQ1_QK)
             qe = k % Int32(PTQ1_QK)
-            base = ((tm + row) * blocks + qblock) * Int32(PTQ1_BLOCK_BYTES) + Int32(1)
-            scale = ptq1_scale(data, base)
+            wb = ptq1_word0(tm + row, k ÷ Int32(PTQ1_QK), blocks)
+            scale = ptq1_scale(data32, wb)
             Base.Cartesian.@nexprs 8 l -> begin
                 sA[row + (e0 + Int32(l - 1)) * lda + Int32(1)] =
                     Float16(scale * Float32(ptq1_value(
-                        data, base, qe + Int32(l - 1))))
+                        data32, wb, qe + Int32(l - 1))))
             end
         end
 

@@ -104,6 +104,18 @@ function pack_ptq1(x::AbstractMatrix{Float32})
     out, quant
 end
 
+# The device layout of `PTQ1Matrix`, on the host: word q of block b of the 64 rows of
+# a tile together, rows past M zero.
+function tile_ptq1(bytes::Vector{UInt8}, M, K)
+    blocks = K ÷ 128
+    w = reinterpret(UInt32, bytes)
+    out = zeros(UInt32, cld(M, 64) * 64 * blocks * 7)
+    for row in 0:M-1, b in 0:blocks-1, q in 0:6
+        out[((row ÷ 64 * blocks + b) * 7 + q) * 64 + row % 64 + 1] = w[(row * blocks + b) * 7 + q + 1]
+    end
+    out
+end
+
 function fwht_reference(x, signs; inverse=false)
     y = Float32.(x)
     inverse || (y .*= signs)
@@ -123,21 +135,31 @@ end
     # Five columns exercises one full four-column PTQ prefill tile and its tail.
     rng = MersenneTwister(91); M,K,N = 7,256,5
     bytes, W = pack_ptq1(randn(rng,Float32,M,K))
-    db = KernelAbstractions.allocate(backend,UInt8,length(bytes)); copyto!(db,bytes)
-    A = PTQ1Matrix(db,M,K)
+    A = ptq1matrix(backend,bytes,M,K)
     xh = randn(rng,Float32,K,N); x = DNNKernels.toback(backend,xh)
     out = KernelAbstractions.allocate(backend,Float32,M,N)
     ptq1mul!(ctx,out,A,x); KernelAbstractions.synchronize(backend)
     @test maximum(abs,Array(out).-W*xh) < 2f-4
     @test maximum(abs,Array(ptq1_dequant(ctx,A)).-W) < 1f-6
+    # The layout every kernel reads, pinned: a tile of 64 rows, word-major, padded.
+    for (MT, KT) in ((7, 256), (130, 384))
+        bt, _ = pack_ptq1(randn(rng, Float32, MT, KT))
+        At = ptq1matrix(backend, bt, MT, KT)
+        @test collect(reinterpret(UInt32, Array(Mantle.storage(At.data)))) == tile_ptq1(bt, MT, KT)
+    end
     # The decode column, `ptq1_mul_rows_kernel!`, which is most of a Bonsai token
     # and which five columns never reach; and eight, the tiled prefill. K = 5120
-    # is Bonsai's hidden width, forty blocks over a subgroup's lanes, so some
-    # lanes take two blocks and the rest one. Seven rows leave a partial row group.
-    for (MK, KK) in ((7, 256), (9, 5120)), NN in (1, 8)
+    # is Bonsai's hidden width, forty blocks over a tile's parts, so some parts
+    # take one block more than the rest. Seven and 3201 rows leave a partial tile,
+    # and 7, 3201 and 12800 rows are 16, 8 and 4 parts of the column kernel
+    # (`ptq1_parts`). 65 blocks double-buffer the decode column's staged `x`, in
+    # rounds that do not divide them.
+    @test DNNKernels.ptq1_parts.((7, 3201, 12800)) == (16, 8, 4)
+    @test DNNKernels.ptq1_rows_launch(5, 8320)[4] === Val(true)
+    @test DNNKernels.ptq1_rows_launch(5, 5120)[4] === Val(false)
+    for (MK, KK) in ((7, 256), (9, 5120), (3201, 512), (12800, 256), (5, 8320)), NN in (1, 8)
         bk, Wk = pack_ptq1(randn(rng, Float32, MK, KK))
-        dbk = KernelAbstractions.allocate(backend, UInt8, length(bk)); copyto!(dbk, bk)
-        Ak = PTQ1Matrix(dbk, MK, KK)
+        Ak = ptq1matrix(backend, bk, MK, KK)
         xk = randn(rng, Float32, KK, NN)
         outk = KernelAbstractions.allocate(backend, Float32, MK, NN)
         ptq1mul!(ctx, outk, Ak, DNNKernels.toback(backend, xk))
@@ -149,6 +171,24 @@ end
             KernelAbstractions.synchronize(backend)
             @test maximum(abs, Array(outk) .- (Wk * xk .+ bias)) < 2f-4 * sqrt(KK / 256)
         end
+    end
+    # Two decode columns over one `x` in one launch (Bonsai's FFN gate and up): the
+    # first matrix's tiles, then the second's, both ending in a partial tile, at a
+    # width that double-buffers and one that does not.
+    dev = Mantle.todevice(backend)
+    for KK in (512, 8320)
+        b1, W1 = pack_ptq1(randn(rng, Float32, 70, KK)); b2, W2 = pack_ptq1(randn(rng, Float32, 130, KK))
+        A1, A2 = ptq1matrix(backend, b1, 70, KK), ptq1matrix(backend, b2, 130, KK)
+        xk = randn(rng, Float32, KK)
+        xd = Mantle.Buffer(dev, xk)
+        o1, o2 = Mantle.Buffer(dev, fill(NaN32, 70)), Mantle.Buffer(dev, fill(NaN32, 130))
+        g = Mantle.Graph(dev)
+        DNNKernels.ptq1_rows2!(g, o1, A1, o2, A2, xd; name = "rows2")
+        Mantle.runonce!(g)
+        tol = 2f-4 * sqrt(KK / 256)
+        @test maximum(abs, Array(Mantle.storage(o1)) .- W1 * xk) < tol
+        @test maximum(abs, Array(Mantle.storage(o2)) .- W2 * xk) < tol
+        foreach(Mantle.free!, (o1, o2, xd, A1.data, A2.data))
     end
     rows = DNNKernels.toback(backend,Int32[0,6,2]); emb = KernelAbstractions.allocate(backend,Float32,K,3)
     ptq1_getrows!(ctx,emb,A,rows); KernelAbstractions.synchronize(backend)
@@ -164,9 +204,7 @@ end
         # every byte/trit layout in two consecutive 128-value weight blocks.
         MW, KW, NW = 128, 256, 128
         widebytes, wideW = pack_ptq1(randn(rng, Float32, MW, KW))
-        wdb = KernelAbstractions.allocate(backend, UInt8, length(widebytes))
-        copyto!(wdb, widebytes)
-        wideA = PTQ1Matrix(wdb, MW, KW)
+        wideA = ptq1matrix(backend, widebytes, MW, KW)
         wideXh = Float16.(randn(rng, Float32, KW, NW))
         wideX = DNNKernels.toback(backend, wideXh)
         wideout = KernelAbstractions.allocate(backend, Float32, MW, NW)
@@ -194,7 +232,7 @@ end
     backend = Mantle.defaultbackend(); dev = Mantle.todevice(backend)
     rng = MersenneTwister(23); M, K, N = 96, 384, 45
     bytes, W = pack_ptq1(randn(rng, Float32, M, K))
-    A = PTQ1Matrix(Mantle.Buffer(dev, bytes), M, K)
+    A = ptq1matrix(backend, bytes, M, K)
     xh = Float16.(randn(rng, Float32, K, N))
     x = Mantle.Buffer(dev, vec(xh))
     out = Mantle.Buffer(dev, fill(NaN32, M * N))

@@ -113,8 +113,10 @@ import Mantle
                 out = Mantle.Buffer(dev,Float32,(128,48,n))
                 z = Mantle.Buffer(dev,ones(Float32,128,48,n))
                 if n == 1
+                    L = DNNKernels.GDN_LANES
                     runpass(DNNKernels.gated_delta_net_kernel!,
-                        (out,s,inputs...,db,ab,z,nw,1f-6,Int32(48),Int32(16)),48*128;group=128)
+                        (out,s,inputs...,db,ab,z,nw,1f-6,Int32(48),Int32(16),Val(L)),
+                        48*128*L;group=128*L)
                 else
                     runpass(BonsaiRunner.gated_delta_state_batch_kernel!,
                         (out,s,inputs...,db,ab,Int32(n),Val(subgroup)),

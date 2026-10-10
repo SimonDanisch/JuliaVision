@@ -15,17 +15,20 @@ function bonsai_examples(; max_tokens = 200)
     release!(s)
 
     s = session(model)
-    tprefill = @elapsed logits = prefill!(s, ids)
-    out = Int[]
-    tdecode = @elapsed for _ in 1:max_tokens
-        id = BonsaiRunner._greedy(s, logits)
-        push!(out, id)
-        id == tk.eos && break
-        logits = step!(s, id)
+    # Up to the first token: `prefill!` returns once the prompt is queued, and the
+    # pick is what waits for it. Timing `prefill!` alone put the prompt's GPU time
+    # into the first decode step, a second of it on an M5.
+    tprefill = @elapsed begin
+        logits = prefill!(s, ids)
+        out = [BonsaiRunner._greedy(s, logits)]
+    end
+    tdecode = @elapsed while length(out) < max_tokens && out[end] != tk.eos
+        logits = step!(s, out[end])
+        push!(out, BonsaiRunner._greedy(s, logits))
     end
     release!(s)
     return (; answer = BonsaiRunner.decode(tk, out), prompt_tokens = length(ids), tokens = length(out),
-            prefill_tok_s = length(ids) / tprefill, decode_tok_s = length(out) / tdecode)
+            prefill_tok_s = length(ids) / tprefill, decode_tok_s = (length(out) - 1) / tdecode)
 end
 
 abspath(PROGRAM_FILE) == (@__FILE__) && bonsai_examples()

@@ -455,10 +455,7 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
             blocks * DNNKernels.PTQ1_COOP_WG;
             group=DNNKernels.PTQ1_COOP_WG, name)
     elseif N == 1
-        _dispatch!(g, DNNKernels.ptq1_mul_rows_kernel!,
-            (out, A.data, transformed, A.data, Int32(M), Int32(K), Val(false)),
-            M * DNNKernels.PTQ1_DECODE_LANES;
-            group=DNNKernels.PTQ1_DECODE_WG, name=name)
+        DNNKernels.ptq1_rows!(g, out, A, transformed; name)
     else
         # From PTQ1_GEMM_COLS columns, the device's GEMM over a Float16 expansion
         # takes the multiples of 32; the rest go a few columns at a time, sharing
@@ -515,8 +512,10 @@ function _recurrent!(s::BonsaiSession, g, q, il::Int, xnorm)
     _dispatch!(g, DNNKernels.gated_delta_net_kernel!,
         (q[:gdn], state, rq, rk, rv, q[:alpha], q[:beta],
          _w(s, prefix * "ssm_dt.bias"), _w(s, prefix * "ssm_a"), q[:z],
-         _w(s, prefix * "ssm_norm.weight"), s.model.eps, Int32(48), Int32(16)),
-        48 * 128; group=128, name=prefix * "gated_delta_net")
+         _w(s, prefix * "ssm_norm.weight"), s.model.eps, Int32(48), Int32(16),
+         Val(DNNKernels.GDN_LANES)),
+        48 * 128 * DNNKernels.GDN_LANES; group=128 * DNNKernels.GDN_LANES,
+        name=prefix * "gated_delta_net")
     _transform!(s, g, q[:had6144], q[:gdn]; permute=true)
     _ptq!(s, g, q[:branch], prefix * "ssm_out.weight", q[:had6144])
     q[:branch]
@@ -554,8 +553,11 @@ end
 
 function _ffn!(s::BonsaiSession, g, q, il::Int, xnorm)
     prefix = "blk.$il."
-    _ptq!(s, g, q[:gate], prefix * "ffn_gate.weight", q[:had5120])
-    _ptq!(s, g, q[:up], prefix * "ffn_up.weight", q[:had5120])
+    gate, up = prefix * "ffn_gate.weight", prefix * "ffn_up.weight"
+    (gate in s.model.folded && up in s.model.folded) ||
+        error("$gate and $up are PTQ1 but have no Hadamard declaration")
+    DNNKernels.ptq1_rows2!(g, q[:gate], _w(s, gate), q[:up], _w(s, up), q[:had5120];
+                           name = prefix * "ffn_gate_up")
     _dispatch!(g, swiglu_hadamard1024_batch_kernel!,
         (q[:had17408], q[:gate], q[:up], s.model.signs[FFN],
          Int32(FFN), Int32(FFN ÷ 1024)),
@@ -971,9 +973,7 @@ function _greedy(s::BonsaiSession, logits)
     Int(only(Array(Mantle.storage(s.best))))
 end
 
-_declaregreedy!(s::BonsaiSession, g, logits) =
-    _dispatch!(g, argmax_kernel!, (s.best, logits, Int32(length(logits))), 256;
-               group=256, name="greedy")
+_declaregreedy!(s::BonsaiSession, g, logits) = declare_argmax!(g, s.best, logits; name="greedy")
 
 """Greedy token generation with chunked prompt prefill."""
 function generate(s::BonsaiSession, ids::AbstractVector{<:Integer}; max_tokens::Integer=32,

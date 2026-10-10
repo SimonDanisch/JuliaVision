@@ -30,8 +30,11 @@ greedy:
 > that all previous writes to the buffer are complete and visible before the next
 > dispatch reads from or writes to it.
 
-86 tokens at **4.3 tokens/s**, after a 35-token prompt at 8.1 tokens/s, on a
-Radeon 8060S (RADV, 2026-09-30).
+86 tokens at **29.3 tokens/s**, after a 35-token prompt at 29.2 tokens/s (to
+the first token), on a Radeon 8060S (RADV, 2026-10-10). An M5 (Metal) answers in
+90 tokens, its last sentence worded differently, at 14.3 tokens/s after the
+prompt at 22.0 tokens/s; it throttles within seconds, and cool it decodes at
+about 17 tokens/s.
 
 ## Devices and checkpoints
 

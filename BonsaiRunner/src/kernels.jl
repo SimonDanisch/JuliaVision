@@ -1325,21 +1325,13 @@ end
 # every number, as it does on the host.
 @inline _better(va, ia, vb, ib) = isless(va, vb) || (isequal(va, vb) && ib < ia)
 
-function argmax_kernel!(best, x, n::Int32)
-    vals = KI.localmemory(Float32, Val((256,)), Val(1))
-    idxs = KI.localmemory(Int32, Val((256,)), Val(2))
-    t = Int32(KI.get_local_id().x - 1)
-    bv = -Inf32
-    bi = typemax(Int32)
-    i = t
-    while i < n
-        v = @inbounds Float32(x[i + Int32(1)])
-        if _better(bv, bi, v, i)
-            bv = v
-            bi = i
-        end
-        i += Int32(256)
-    end
+# In two passes: ARGMAX_PARTS workgroups each pick from a contiguous run of `x`,
+# then one picks among their winners. One workgroup walking all 248320 logits was
+# latency-bound, 355 us of a 34 ms token on a Radeon 8060S and 105 on an M5.
+const ARGMAX_PARTS = 256
+
+# The workgroup's best of the 256 candidates its work-items hold, in all of them.
+@inline function _argmax_group(vals, idxs, t::Int32, bv::Float32, bi::Int32)
     @inbounds vals[t + Int32(1)] = bv
     @inbounds idxs[t + Int32(1)] = bi
     KI.barrier()
@@ -1356,6 +1348,55 @@ function argmax_kernel!(best, x, n::Int32)
         KI.barrier()
         step >>= 1
     end
-    t == Int32(0) && (@inbounds best[1] = idxs[1])
+    return @inbounds(vals[1]), @inbounds(idxs[1])
+end
+
+function argmax_partial_kernel!(pv, pidx, x, n::Int32)
+    vals = KI.localmemory(Float32, Val((256,)), Val(1))
+    idxs = KI.localmemory(Int32, Val((256,)), Val(2))
+    t = Int32(KI.get_local_id().x - 1)
+    wg = Int32(KI.get_group_id().x - 1)
+    per = (n + Int32(ARGMAX_PARTS - 1)) >> Int32(trailing_zeros(ARGMAX_PARTS))
+    hi = min(wg * per + per, n)
+    bv = -Inf32
+    bi = typemax(Int32)
+    i = wg * per + t
+    while i < hi
+        v = @inbounds Float32(x[i + Int32(1)])
+        if _better(bv, bi, v, i)
+            bv = v
+            bi = i
+        end
+        i += Int32(256)
+    end
+    v, j = _argmax_group(vals, idxs, t, bv, bi)
+    if t == Int32(0)
+        @inbounds pv[wg + Int32(1)] = v
+        @inbounds pidx[wg + Int32(1)] = j
+    end
+    return nothing
+end
+
+function argmax_final_kernel!(best, pv, pidx)
+    vals = KI.localmemory(Float32, Val((256,)), Val(1))
+    idxs = KI.localmemory(Int32, Val((256,)), Val(2))
+    t = Int32(KI.get_local_id().x - 1)
+    _, j = _argmax_group(vals, idxs, t, @inbounds(pv[t + Int32(1)]), @inbounds(pidx[t + Int32(1)]))
+    t == Int32(0) && (@inbounds best[1] = j)
+    return nothing
+end
+
+"""
+    declare_argmax!(g, best, x; name)
+
+Declare into `g` the zero-based index of `x`'s maximum, written to `best[1]`:
+Julia's `argmax` order, see `_better`.
+"""
+function declare_argmax!(g, best, x; name::AbstractString)
+    pv = Mantle.Transient.Buffer(g, Float32, (ARGMAX_PARTS,))
+    pidx = Mantle.Transient.Buffer(g, Int32, (ARGMAX_PARTS,))
+    Mantle.dispatch!(g, argmax_partial_kernel!, (pv, pidx, x, Int32(length(x))),
+                     ARGMAX_PARTS * 256; group = 256, name = string(name, ".parts"))
+    Mantle.dispatch!(g, argmax_final_kernel!, (best, pv, pidx), 256; group = 256, name)
     return nothing
 end
