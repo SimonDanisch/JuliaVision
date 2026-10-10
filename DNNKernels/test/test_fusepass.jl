@@ -32,7 +32,7 @@ rewrote it FROM, so this is called twice per case and the comparison is between
 two graphs rather than between two runners.
 """
 function declaredrun(g, inp)
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     args = Tuple(DK.toback(backend, inp[id]) for id in g.inputs)
     plan = DK.planfor(Mantle.todevice(backend), g, Dict{String,Any}(), NamedTuple())
     out = Array(first(DK.replay!(plan, g.name, args)))

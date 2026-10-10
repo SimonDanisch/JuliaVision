@@ -87,7 +87,7 @@ end
 # Horizon 32B's prefill among them. One case per plan family `emitop!` picks.
 @testset "fused.maskedattention, declared" begin
     dk = DNNKernels
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     dev = Mantle.todevice(backend)
     caps = Mantle.caps(dev)
     if caps.coopmat && caps.coopmatsubgroup == 32

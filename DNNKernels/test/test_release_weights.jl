@@ -30,7 +30,7 @@ using DNNKernels: releaseweights!, releasedevice!
 using Mantle
 using KernelAbstractions
 
-const BACKEND = Mantle.LavaBackend()
+const BACKEND = Mantle.defaultbackend()
 const DEV = Mantle.todevice(BACKEND)
 
 """How many allocations the pool still has on loan."""

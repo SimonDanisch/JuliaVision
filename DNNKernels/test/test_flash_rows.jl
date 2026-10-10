@@ -7,7 +7,6 @@ says so.
 
 using Test, DNNKernels, Lava, KernelAbstractions
 import Mantle
-using Mantle: LavaBackend
 
 """fp32 attention of fp16 operands, per head, as `(E, Lq, H, B)`."""
 function rowsref(qh, kh, vh, scale)
@@ -23,7 +22,7 @@ function rowsref(qh, kh, vh, scale)
 end
 
 @testset "flash attention with subgroup-owned rows" begin
-    back = LavaBackend()
+    back = Mantle.defaultbackend()
     ctx = DNNKernels.Ctx(back)
     dev = ctx.dev
 

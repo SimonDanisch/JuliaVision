@@ -96,9 +96,9 @@ end
         @test !all(DKA.gelutanh.(x) .≈ DKA.geluexact.(x))
 
         function run(attrs)
-            dev = Mantle.todevice(Mantle.LavaBackend())
+            dev = Mantle.todevice(Mantle.defaultbackend())
             plan = DKA.planfor(dev, gelugraph(attrs), Dict{String,Any}(), NamedTuple())
-            out = Array(first(DKA.replay!(plan, "g", (DKA.toback(Mantle.LavaBackend(), x),))))
+            out = Array(first(DKA.replay!(plan, "g", (DKA.toback(Mantle.defaultbackend(), x),))))
             Mantle.free!(plan.plan)
             out
         end

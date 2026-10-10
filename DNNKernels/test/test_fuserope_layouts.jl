@@ -64,7 +64,7 @@ torchorder(a) = permutedims(a, ndims(a):-1:1)
         ("an HF language model's layout", (1, 2, 5, 8), (1, 1, 5, 8)),
         ("a vision tower's layout", (6, 3, 8), (6, 1, 8)),
         ("a batch with tables per sample", (2, 2, 3, 8), (2, 1, 3, 8)))
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     chain = ropegraph(xshape, cshape)
     fused, n = DKR.fuserope(chain)
     @test n == 1
@@ -89,7 +89,7 @@ torchorder(a) = permutedims(a, ndims(a):-1:1)
 end
 
 @testset "tables that do not broadcast are refused, not guessed" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     # Torch would refuse this multiply; a graph that says it is one is wrong.
     fused, n = DKR.fuserope(ropegraph((4, 2, 8), (2, 4, 8)))
     @test n == 1

@@ -76,7 +76,7 @@ end
 end
 
 @testset "pipelined int8 GEMM for wide products" begin
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     dev = DNNKernels.caps(backend)
     # Which products take it: wide ones, measured at Qwen-Image 2.1's four.
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == (2, 4, 2, 2, 32)

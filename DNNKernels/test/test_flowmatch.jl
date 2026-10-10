@@ -15,7 +15,6 @@
 
 using Test, Lava, DNNKernels, KernelAbstractions
 import Mantle
-using Mantle: LavaBackend
 using DNNKernels: linspace, flowschedule, NoShift, StaticShift, ExponentialShift,
                   calculate_shift, eulerstep, eulerstep!, cfg
 
@@ -113,7 +112,7 @@ end
 end
 
 @testset "flow matching: device" begin
-    dev = LavaBackend()
+    dev = Mantle.defaultbackend()
     function todev(a)
         d = KernelAbstractions.allocate(dev, eltype(a), size(a))
         copyto!(d, a)
@@ -124,7 +123,7 @@ end
 
 # What the runners actually hold: `toback` returns a `Mantle.Buffer`, not an array.
 @testset "flow matching: a Mantle.Buffer, as toback returns it" begin
-    dev = LavaBackend()
+    dev = Mantle.defaultbackend()
     xb, vb = DNNKernels.toback(dev, copy(X)), DNNKernels.toback(dev, V)
     @test xb isa Mantle.Buffer
     @test bitsum(Array(eulerstep(xb, vb, 0.8f0, 0.5f0))) == 250442992316

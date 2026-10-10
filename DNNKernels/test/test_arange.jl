@@ -41,7 +41,7 @@ function runarange(; start = nothing, stop, step = nothing, n, T = Float32)
     g = DKR.Graph("t", String[], String[], ["out"], bufs, ["out"],
                   [DKR.Op("a", "arange.start_step", String[], "out", attrs)],
                   Vector{Vector{String}}())
-    dev = Mantle.todevice(Mantle.LavaBackend())
+    dev = Mantle.todevice(Mantle.defaultbackend())
     plan = DKR.planfor(dev, g, Dict{String,Any}(), NamedTuple())
     out = Array(first(DKR.replay!(plan, "t", ())))
     Mantle.free!(plan.plan)

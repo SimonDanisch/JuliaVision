@@ -82,7 +82,7 @@ function run1(bufs, ops, inputs, outputs, weights = Dict{String,Any}())
     inids = collect(keys(ins))
     g = DK.Graph("t", String[], inids, outputs,
                  bufs, collect(keys(bufs)), ops, Vector{Vector{String}}())
-    backend = Mantle.LavaBackend()
+    backend = Mantle.defaultbackend()
     args = Tuple(DK.toback(backend, ins[id]) for id in inids)
     plan = DK.planfor(Mantle.todevice(backend), g, weights, NamedTuple())
     res = Dict{String,Any}(o => Array(v)
