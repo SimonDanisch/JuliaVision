@@ -460,8 +460,9 @@ function transposeLE(ctx, a)
     # Workgroup in the kernel's TYPE, not as a keyword: it is the literal
     # `(32, 4, 1)` every time, so this costs exactly one extra SPIR-V module and
     # the index arithmetic folds to constants — 3.34 -> 2.01 ms in SAM 2's
-    # encoder. Safe because `(32, 4, 1)`'s only unit extent is trailing; see
-    # `Mantle.interior_unit_workgroup`.
+    # encoder. (A typed workgroup with an interior unit extent used to lose
+    # writes on NVIDIA; it was the driver's 64-bit division, which Lava no longer
+    # emits. Mantle's `test_static_workgroup.jl`.)
     harnesslaunch!(backend, k, d, flashflat(root), Int32(off + 1),
                            st[1], st[2], st[3], st[4], Int32(E), Int32(L), Int32(H);
                            ndrange = toLErange(E, L, H, B), workgroupsize = (32, 4, 1))
