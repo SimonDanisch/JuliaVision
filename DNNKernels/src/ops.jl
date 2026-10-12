@@ -468,8 +468,10 @@ function pairrope_kernel!(out, x, cs, sn,
             b = Float32(x[o + Int32(2)])
             cv = Float32(cs[c + Int32(1)])
             sv = Float32(sn[c + Int32(1)])
-            out[o + Int32(1)] = eltype(out)(a * cv - b * sv)
-            out[o + Int32(2)] = eltype(out)(a * sv + b * cv)
+            # Explicit `fma`, so every driver rounds the same way and
+            # `rmsrope_kernel!`, which spells it identically, matches to the bit.
+            out[o + Int32(1)] = eltype(out)(fma(a, cv, -(b * sv)))
+            out[o + Int32(2)] = eltype(out)(fma(a, sv, b * cv))
         end
     end
     return nothing

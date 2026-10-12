@@ -657,8 +657,12 @@ function rmsrope_kernel!(out, a, γ, cs, sn, abase::Int32, hs::Int32, ts::Int32,
         c = p + Int32(C ÷ 2) * s
         cv = Float32(cs[c + Int32(1)])
         sv = Float32(sn[c + Int32(1)])
-        out[ob + e + Int32(1)] = eltype(out)(h1 * cv - h2 * sv)
-        out[ob + e + Int32(2)] = eltype(out)(h1 * sv + h2 * cv)
+        # The rotation as `pairrope_kernel!` spells it, `fma` included: written
+        # as plain multiplies and adds, a driver may contract either one into an
+        # fma, and NVIDIA did so in one kernel and not the other (1 element in
+        # 18944 of `test_fusermsrope.jl`, where the products nearly cancel).
+        out[ob + e + Int32(1)] = eltype(out)(fma(h1, cv, -(h2 * sv)))
+        out[ob + e + Int32(2)] = eltype(out)(fma(h1, sv, h2 * cv))
         p += Int32(WG)
     end
     return nothing
