@@ -1,0 +1,21 @@
+name = "OIDNRunner"
+uuid = "c0681f9f-e3ab-4ed5-8bbd-529d2383fb4f"
+version = "0.1.0"
+
+[deps]
+ColorTypes = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
+DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
+
+[weakdeps]
+VideoEditor = "416681b5-7ab7-4a69-a1bd-52421eb96239"
+
+[extensions]
+OIDNRunnerVideoEditorExt = "VideoEditor"

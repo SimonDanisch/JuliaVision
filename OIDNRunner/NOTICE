@@ -1,0 +1,9 @@
+OIDNRunner includes a Julia port of Intel Open Image Denoise v2.5.1 network
+processing, and uses its unmodified trained weights.
+Copyright 2018-2022 Intel Corporation. Licensed under Apache-2.0.
+Modified: Julia/DNNKernels/Mantle inference, packaging and editor integration.
+Upstream code: https://github.com/RenderKit/oidn
+Code commit: 6602ee2ca38a1a2a02135beed8f6e68eed630180
+Weights: https://github.com/RenderKit/oidn-weights
+Weights commit: 28883d1769d5930e13cf7f1676dd852bd81ed9e7
+This is an independent port; no Intel endorsement is implied.
