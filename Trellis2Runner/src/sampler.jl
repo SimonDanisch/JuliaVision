@@ -144,44 +144,67 @@ end
 """
 The CFG-rescale ratio `std(x0_pos) / std(x0_cfg)`, unbiased over every element,
 as torch computes it (upstream reduces over all but the batch axis, and the
-batch is 1). One workgroup: each item sums a strided share in Float64, and a
-tree over workgroup memory adds the shares.
+batch is 1). One workgroup, in Float32 (Metal has no Float64): each item runs
+Welford over a strided share, and a tree over workgroup memory merges the
+shares with Chan's update ([`chanmerge!`](@ref)), the algorithm of torch's
+`std` on the GPU. No sum of squares is differenced, so nothing cancels.
 """
 function cfgratio!(ratio, x, pos, neg, a::Float32, b, w::Float32, wneg::Float32,
                    index, ::Val{G}) where {G}
     l = KI.get_local_id().x
     bk = @inbounds b[index[1]]
     n = length(x)
-    s1 = s2 = s3 = s4 = 0.0
+    k = Int32(0)
+    mu = m2u = mv = m2v = 0f0
     i = l
     while i <= n
         @inbounds xi, p = x[i], pos[i]
         pred = w * p + wneg * neg[i]
         # `_pred_to_xstart` for both predictions.
-        u = Float64(a * xi - bk * p)
-        v = Float64(a * xi - bk * pred)
-        s1 += u; s2 += u * u
-        s3 += v; s4 += v * v
+        u = a * xi - bk * p
+        v = a * xi - bk * pred
+        k += Int32(1)
+        du, dv = u - mu, v - mv
+        mu += du / k
+        mv += dv / k
+        m2u += du * (u - mu)
+        m2v += dv * (v - mv)
         i += G
     end
-    sums = KI.localmemory(Float64, Val((4, G)), Val(1))
-    @inbounds sums[1, l], sums[2, l], sums[3, l], sums[4, l] = s1, s2, s3, s4
+    stats = KI.localmemory(Float32, Val((4, G)), Val(1))
+    counts = KI.localmemory(Int32, Val((G,)), Val(2))
+    @inbounds stats[1, l], stats[2, l], stats[3, l], stats[4, l] = mu, m2u, mv, m2v
+    @inbounds counts[l] = k
     KI.barrier()
     half = G ÷ 2
     while half >= 1
-        if l <= half
-            @inbounds for c in 1:4
-                sums[c, l] += sums[c, l + half]
-            end
-        end
+        l <= half && chanmerge!(stats, counts, l, l + half)
         KI.barrier()
         half ÷= 2
     end
     if l == 1
-        m = Float64(n)
-        @inbounds varpos = (sums[2, 1] - sums[1, 1]^2 / m) / (m - 1)
-        @inbounds varcfg = (sums[4, 1] - sums[3, 1]^2 / m) / (m - 1)
-        @inbounds ratio[1] = Float32(sqrt(varpos) / sqrt(varcfg))
+        @inbounds m1 = Float32(counts[1] - Int32(1))
+        @inbounds ratio[1] = sqrt(stats[2, 1] / m1) / sqrt(stats[4, 1] / m1)
+    end
+    return nothing
+end
+
+"""
+Chan's merge of item `o`'s Welford statistics (mean, sum of squared deviations,
+for both series of [`cfgratio!`](@ref)) into item `l`'s.
+"""
+@inline function chanmerge!(stats, counts, l, o)
+    @inbounds begin
+        ka, kb = counts[l], counts[o]
+        kb == Int32(0) && return nothing
+        f = Float32(kb) / Float32(ka + kb)
+        g = Float32(ka) * f
+        for c in (1, 3)
+            d = stats[c, o] - stats[c, l]
+            stats[c, l] += d * f
+            stats[c + 1, l] += stats[c + 1, o] + d * d * g
+        end
+        counts[l] = ka + kb
     end
     return nothing
 end

@@ -10,10 +10,38 @@ upload(dev::Mantle.Device, x::AbstractMatrix{Float32}) = Mantle.Buffer(dev, Matr
 upload(dev::Mantle.Device, x::AbstractMatrix{<:Integer}) = Mantle.Buffer(dev, Matrix{Int32}(x))
 download(b::Mantle.Buffer) = Array(Mantle.storage(b))
 
-"""Fixed point with 32 fractional bits, what the fill's sums accumulate in:
-integer atomics are exact and order-free where float ones are neither."""
-@inline fixed(x) = unsafe_trunc(Int64, Float64(x) * 4294967296.0 + (x < 0 ? -0.5 : 0.5))
-const FIXED_ONE = 4294967296.0
+"""
+Fixed point with 32 fractional bits, rounded half away from zero, what the
+fill's sums accumulate in: integer atomics are exact and order-free where float
+ones are neither. Exact in the argument's own precision (the scale is a power
+of two and `y - floor(y)` is exact), so a Float32 needs no Float64, which Metal
+does not have.
+"""
+@inline function fixed(x::AbstractFloat)
+    y = abs(x) * oftype(x, 4294967296)
+    f = floor(y)
+    a = unsafe_trunc(Int64, f) + Int64(y - f >= oftype(x, 0.5))
+    return signbit(x) ? -a : a
+end
+fixed(x::Real) = fixed(Float64(x))
+
+"""
+Add the fixed-point `v` to the sum held in `words[2j-1]` (low) and `words[2j]`
+(high). Two 32-bit atomics with the carry, since a 64-bit atomic add is not
+portable (Metal has 64-bit atomic min and max only); in any order the words end
+as the exact Int64 sum modulo 2^64.
+"""
+@inline function addfixed!(words, j, v::Int64)
+    u = reinterpret(UInt64, v)
+    lo = u % UInt32
+    @inbounds newlo = Atomix.@atomic words[Int32(2) * j - Int32(1)] += lo
+    @inbounds Atomix.@atomic words[Int32(2) * j] += (u >> 32) % UInt32 + UInt32(newlo < lo)
+    return nothing
+end
+
+"""The sum [`addfixed!`](@ref) accumulated at `j`."""
+@inline fixedsum(words, j) =
+    @inbounds reinterpret(Int64, UInt64(words[Int32(2) * j]) << 32 | UInt64(words[Int32(2) * j - Int32(1)]))
 
 # ── fill holes ────────────────────────────────────────────────────────────────
 
@@ -46,8 +74,8 @@ function fillholes(dev::Mantle.Device, V::Mantle.Buffer, F::Mantle.Buffer; maxpe
     comp = components(dev, adj, m, nb)
     Mantle.free!(adj)
     isloop = fill!(Mantle.Buffer(dev, Int32, nb), 1)
-    perimeter = fill!(Mantle.Buffer(dev, Int64, nb), 0)
-    centre = fill!(Mantle.Buffer(dev, Int64, 3nb), 0)
+    perimeter = fill!(Mantle.Buffer(dev, UInt32, 2nb), 0)
+    centre = fill!(Mantle.Buffer(dev, UInt32, 6nb), 0)
     count = fill!(Mantle.Buffer(dev, Int32, nb), 0)
     keep = Mantle.Buffer(dev, Int32, nb)
     g = Mantle.Graph(dev)
@@ -124,11 +152,11 @@ function loopsums!(perimeter, centre, count, comp, keys, starts, bnd, V, nb)
         p = vertex(V, edgelow(key))
         q = vertex(V, edgehigh(key))
         m = (p + q) * 0.5f0
-        Atomix.@atomic perimeter[r] += fixed(norm(q - p))
+        addfixed!(perimeter, r, fixed(norm(q - p)))
         base = Int32(3) * (r - Int32(1))
-        Atomix.@atomic centre[base + Int32(1)] += fixed(m[1])
-        Atomix.@atomic centre[base + Int32(2)] += fixed(m[2])
-        Atomix.@atomic centre[base + Int32(3)] += fixed(m[3])
+        addfixed!(centre, base + Int32(1), fixed(m[1]))
+        addfixed!(centre, base + Int32(2), fixed(m[2]))
+        addfixed!(centre, base + Int32(3), fixed(m[3]))
         Atomix.@atomic count[r] += Int32(1)
     end
     return nothing
@@ -138,7 +166,7 @@ end
 function keeploops!(keep, isloop, perimeter, comp, maxfixed, nb)
     r = Int32(KI.get_global_id().x)
     r <= nb || return nothing
-    @inbounds keep[r] = (comp[r] == r && isloop[r] == Int32(1) && perimeter[r] < maxfixed) ? Int32(1) : Int32(0)
+    @inbounds keep[r] = (comp[r] == r && isloop[r] == Int32(1) && fixedsum(perimeter, r) < maxfixed) ? Int32(1) : Int32(0)
     return nothing
 end
 
@@ -149,16 +177,21 @@ function edgekept!(fflag, keep, comp, nb)
     return nothing
 end
 
+"""
+A kept loop's centre vertex, its fixed-point sum over its edge count. In
+Float32: the sum rounds once to Float32 and once more in the division (the
+scale is exact), at most an ulp from the once-rounded quotient.
+"""
 function newvertices!(V2, keep, pos, centre, count, nv, nb)
     r = Int32(KI.get_global_id().x)
     r <= nb || return nothing
     @inbounds if keep[r] == Int32(1)
         j = nv + pos[r]
-        s = Float64(count[r]) * FIXED_ONE
+        s = Float32(count[r]) * 4294967296f0
         base = Int32(3) * (r - Int32(1))
-        V2[1, j] = Float32(Float64(centre[base + Int32(1)]) / s)
-        V2[2, j] = Float32(Float64(centre[base + Int32(2)]) / s)
-        V2[3, j] = Float32(Float64(centre[base + Int32(3)]) / s)
+        V2[1, j] = Float32(fixedsum(centre, base + Int32(1))) / s
+        V2[2, j] = Float32(fixedsum(centre, base + Int32(2))) / s
+        V2[3, j] = Float32(fixedsum(centre, base + Int32(3))) / s
     end
     return nothing
 end
