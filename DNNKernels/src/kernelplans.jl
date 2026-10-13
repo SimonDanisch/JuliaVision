@@ -494,6 +494,15 @@ columns. Wider products use packed cooperative GEMM or dequantise for fp16 GEMM.
 """
 struct MMInt8Plan end
 
+"""
+    MMQ4KPlan
+
+The weight is a [`Q4KMatrix`](@ref). Up to eight columns quantize the activations
+to int8 and take the packed-dot GEMV, one pass over the weight for all of them;
+wider products dequantize the weight to fp16 and take the fp16 GEMM.
+"""
+struct MMQ4KPlan end
+
 """A ConvRot weight: rotate activations, then use the ordinary packed INT8 path."""
 struct MMConvRotInt8Plan end
 

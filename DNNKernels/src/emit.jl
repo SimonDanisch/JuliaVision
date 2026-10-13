@@ -4749,10 +4749,47 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                     MG * K; group = 256, name = "$(op.id).dequant")
         return gemm!(emitctx, op, out, W, B; bias, epi)
     end
+    if plan isa MMQ4KPlan
+        Mm, K = size(A)
+        N = size(B, 2)
+        if N <= Q4K_GEMV_COLUMNS[]
+            xq = scratch(emitctx, UVec4, K ÷ 16, N)
+            xds = scratch(emitctx, Float32, K ÷ 16, N)
+            M.dispatch!(emitctx.g, q8act_kernel!, (xq, xds, B, Int32(K), Int32(N * (K ÷ 32))),
+                        N * (K ÷ 32); group = 256, name = "$(op.id).q8act")
+            # A bias that is not one value per row is added after, with the
+            # activation, rather than in the GEMV's store.
+            inbias = bias !== nothing && biasfoldable(bias, Mm)
+            # Eight columns a pass: each reads the weight once.
+            for c0 in 0:8:(N - 1)
+                n = min(8, N - c0)
+                part(x, rows) = n == N ? x : M.viewof(x, (rows, n); offset = c0 * rows)
+                R = q4krows(n)
+                M.dispatch!(emitctx.g, Q4K_GEMV_KERNELS[(n, R)],
+                            (part(out, Mm), A.q, part(xq, K ÷ 16), part(xds, K ÷ 16),
+                             inbias ? bias : out, inbias || bias === nothing ? epi : identity,
+                             Int32(Mm), Int32(K ÷ QK_K), Val(inbias)),
+                            cld(cld(Mm, R), Q4K_WG ÷ 32) * Q4K_WG; group = Q4K_WG,
+                            name = n == N ? op.id : "$(op.id).$(c0 ÷ 8 + 1)")
+            end
+            if bias !== nothing && !inbias
+                od = size(out)
+                ewdispatch!(emitctx, out, od, (out, bias),
+                    (bcstrides(od, od), bcstrides(od, size(bias))), +; name = "$(op.id).bias")
+                epi === identity || ewdispatch!(emitctx, out, od, (out,),
+                    (bcstrides(od, od),), epi; name = "$(op.id).act")
+            end
+            return out
+        end
+        W = scratch(emitctx, Float16, Mm, K)
+        M.dispatch!(emitctx.g, q4k_dequant_kernel!, (W, A.q, Int32(Mm), Int32(K ÷ QK_K)),
+                    Mm * (K ÷ QK_K) * 8; group = 256, name = "$(op.id).dequant")
+        return gemm!(emitctx, op, out, W, B; bias, epi)
+    end
     plan isa MMCoopMatPlan || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
         "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
-        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMConvRotInt8Plan`, `MMInt8Plan` and `Decline` are " *
+        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMConvRotInt8Plan`, `MMInt8Plan`, `MMQ4KPlan` and `Decline` are " *
         "ported. Port the plan rather than widening this branch.")
     Mm, K = size(A)
     N = size(B, 2)

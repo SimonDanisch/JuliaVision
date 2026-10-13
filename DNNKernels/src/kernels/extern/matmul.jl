@@ -134,6 +134,7 @@ function mmplan(dev, out, A, B, bias)
     # of the float paths can read at all.
     A isa ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     A isa QInt8Matrix && return MMInt8Plan()
+    A isa Q4KMatrix && return MMQ4KPlan()
     p = mm_coopmat_plan(dev, out, A, B)
     p isa Decline || return p
     mm_gemv_plan(dev, out, A, B, bias)
@@ -155,6 +156,7 @@ function mmplan(caps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                 sout::Dims, sa::Dims, sb::Dims, hasbias::Bool) where {Tout,Ta,Tb}
     Ta <: ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     Ta <: QInt8Matrix && return MMInt8Plan()
+    Ta <: Q4KMatrix && return MMQ4KPlan()
     p = mm_coopmat_plan(caps, Tout, Ta, Tb, sa, sb)
     p isa Decline || return p
     mm_gemv_plan(caps, Tout, Ta, Tb, sa, sb, hasbias)
@@ -253,6 +255,17 @@ function matmul!(ctx, ::MMInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
     # for that operand like any other. Re-planning rather than assuming a path,
     # because which one applies depends on the dequantised extents.
     W = q8dequant(ctx, A)
+    matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
+end
+
+"""Q4_K weight: the int8-activation GEMV up to eight columns, else the fp16 GEMM
+on the weight dequantized into the workspace."""
+function matmul!(ctx, ::MMQ4KPlan, out, A, B, bias, epi; gemm=NamedTuple())
+    size(B, 2) <= 8 && return q4kgemv!(ctx.backend, out, A, B; bias, epilogue = epi)
+    m, k = size(A)
+    W = scratch!(ctx.ws, ctx.backend, Float16, m, k)
+    harnesslaunch!(ctx.backend, q4k_dequant_kernel!, W, Mantle.storage(A.q), Int32(m), Int32(k ÷ QK_K);
+                   ndrange = m * (k ÷ QK_K) * 8, workgroupsize = 256)
     matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
 end
 

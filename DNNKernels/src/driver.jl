@@ -320,10 +320,14 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # `flashcm_plan` declines and `coopmat_sdpa_plan` takes.
                fuseattn::Bool = true,
                # Store the matmul weights as int8 with a per-output-channel
-               # scale. Decode reads every weight once per token and is
-               # bandwidth-bound outright, so this is a straight halving of the
-               # floor; see `quant.jl` for the scheme and what it costs.
-               quantize::Bool = false,
+               # scale (`true` or `:int8`), or as Q4_K (`:q4k`). Decode reads
+               # every weight once per token and is bandwidth-bound outright, so
+               # this divides the floor by the bytes saved; see `quant.jl` and
+               # `q4k.jl` for the schemes and what they cost.
+               quantize::Union{Bool,Symbol} = false,
+               # A directory to keep the quantized weights in (see `quantcache.jl`):
+               # written on the first load, read instead of quantizing after it.
+               quantcache::Union{Nothing,AbstractString} = nothing,
                # Record each graph into a Mantle plan and replay it. See
                # [`record`](@ref) — it is off by default because it is not free
                # of preconditions, and a model that does not meet them comes out
@@ -473,15 +477,30 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # 580 tensors of ~100 MB is far too slow to keep under the cap.
     weights = Dict{String,Any}()
     thost = (time_ns() - t0) / 1e9
-    qk = quantize ? quantkeys(graphs) : Set{String}()
-    let ks = collect(keys(host)), n = 0, nq = 0
+    scheme = quantize === true ? :int8 : quantize
+    scheme in (false, :int8, :q4k) ||
+        throw(ArgumentError("quantize must be false, true, :int8 or :q4k, got $(repr(quantize))"))
+    qk = scheme === false ? Set{String}() : quantkeys(graphs)
+    cache = scheme === false || quantcache === nothing ? nothing : QuantCache(quantcache, scheme)
+    let ks = collect(keys(host)), n = 0, nq = 0, nc = 0
         for k in ks
+            # From the cache, the float weight is never read: its pages stay on
+            # disk, and the host never sees them.
+            if cache !== nothing && k in qk && iscached(cache, k, size(host[k]))
+                weights[k] = cacheload(backend, cache, k)
+                nq += 1
+                nc += 1
+                delete!(host, k)
+                n += 1
+                continue
+            end
             d = toback(backend, host[k])
             # Quantise ON THE DEVICE, from the copy that just landed, and drop
             # the float immediately: the host never sees 33.5 G elements and the
             # peak is one weight above the int8 total rather than both sets.
             if k in qk && ndims(d) == 2 && eltype(d) <: AbstractFloat
-                weights[k] = quantizeint8(backend, d)
+                weights[k] = quantizeweight(backend, d, Val(scheme))
+                cache === nothing || cachestore!(cache, k, size(d), weights[k])
                 nq += 1
             else
                 weights[k] = d
@@ -504,7 +523,9 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
         end
         empty!(host)
         GC.gc(true)
-        quantize && @info "Model: $nq of $(length(ks)) weights stored as int8"
+        cache === nothing || closecache!(cache)
+        scheme === false || @info "Model: $nq of $(length(ks)) weights quantized ($scheme)" *
+                                  (cache === nothing ? "" : ", $nc of them read from $(cache.dir)")
     end
     tupload = (time_ns() - t0) / 1e9 - thost
     # The one pass that has to *run* the ops it folds, so it comes after the
@@ -584,10 +605,20 @@ function livekeys(graphs)
 end
 
 """
+    quantizeweight(backend, W, Val(scheme))
+
+A device weight in the `quantize` scheme of [`Model`](@ref). Q4_K needs a
+reduction extent that is a multiple of 256; a weight without one stays int8.
+"""
+quantizeweight(backend, W, ::Val{:int8}) = quantizeint8(backend, W)
+quantizeweight(backend, W, ::Val{:q4k}) =
+    size(W, 2) % QK_K == 0 ? quantizeq4k(backend, W) : quantizeint8(backend, W)
+
+"""
     quantkeys(graphs) -> Set{String}
 
-Weight keys that may be stored as int8: the MATRIX operand of an `mm`/`addmm`
-and nothing else.
+Weight keys that may be stored quantized: the MATRIX operand of an `mm`, an
+`addmm` or a `fused.swiglumm`, and nothing else.
 
 "Nothing else" is the load-bearing half. A weight that is also read by an
 `embedding`, an elementwise op or a second matmul in the other position would
@@ -599,7 +630,10 @@ function quantkeys(graphs)
     cand = Set{String}()
     other = Set{String}()
     for g in values(graphs)
-        matrixin = Dict{String,Int}("mm.default" => 2, "addmm.default" => 3)
+        # `fused.swiglumm` is the product `fuseswiglumm` makes of an `mm` whose
+        # input is a SwiGLU; its weight is the third input, as `addmm`'s is.
+        matrixin = Dict{String,Int}("mm.default" => 2, "addmm.default" => 3,
+                                    "fused.swiglumm" => 3)
         for op in g.ops
             mi = get(matrixin, op.aten, 0)
             for (i, id) in enumerate(op.ins)
