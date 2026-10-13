@@ -427,26 +427,53 @@ width)` right-hand side for columns `n0 .+ (1:width)`, and the epilogue writes
 chunk.
 """
 function gemmchunks!(operand, g, out, w, K, M, n, cols, b, f, residual; name, rows = M)
+    # The device's own fp16 product where it has one (Metal: its cooperative
+    # matrices are 8x8, so the portable kernels' 16x16 tiles do not exist there),
+    # the portable cooperative-matrix GEMM otherwise.
+    native = Val(Mantle.native_gemm_available(g.dev, Float16, Float16, Float32))
     # Two chunk widths at most, the full one and the last; the planes are sized
     # for whichever of the two splits the reduction further.
     last = padded(n - (cld(n, cols) - 1) * cols)
-    splitk = maximum(wd -> max(Mantle.coopmat_gemm_shape(M, wd, K)[2], 1), (min(cols, padded(n)), last))
+    splitk = maximum(wd -> planes(native, M, wd, K), (min(cols, padded(n)), last))
     C = Mantle.Transient.Buffer(g, Float32, M, cols, splitk)
     dst = destination(g, out, rows, cols)
     for n0 in 0:cols:(n - 1)
         w_ = min(cols, padded(n - n0))
         B = operand(n0, w_)
         Cw = Mantle.viewof(C, (M, w_, splitk))
-        bs = Mantle.coopmat_gemm_shape(M, w_, K)
-        Mantle.coopmat_gemm_dispatch!(g, Cw, w, B, M, w_, K; blk_split = bs, partials = Cw,
-                                      reduce = false, name = "$name/gemm")
+        s = product!(native, g, Cw, w, B, M, w_, K; name = "$name/gemm")
         valid = min(w_, n - n0)
-        Mantle.dispatch!(g, epilogue!, (dst, Cw, b, residual, f, Val(max(bs[2], 1)), rows, M,
+        Mantle.dispatch!(g, epilogue!, (dst, Cw, b, residual, f, Val(s), rows, M,
                                         w_, n0, column(out, n0), valid), rows * valid;
                          name = "$name/epilogue")
         produced!(out, dst, n0, valid)
     end
     return out
+end
+
+"""How many partial planes [`product!`](@ref) writes for an `M x N x K` product."""
+planes(::Val{true}, M, N, K) = 1
+planes(::Val{false}, M, N, K) = max(Mantle.coopmat_gemm_shape(M, N, K)[2], 1)
+
+"""
+`C = w B` over the first `N` columns of `B`, as the partial planes `C[:, :, s]`
+the epilogue sums; returns their number. `B` may be wider than `N` (the im2col
+buffer of the widest chunk).
+"""
+function product!(::Val{true}, g, C, w, B, M, N, K; name)
+    fused = Mantle.native_gemm_dispatch!(g.dev, g, Mantle.viewof(C, (M, N)), w,
+                                         Mantle.viewof(B, (K, N)); name)
+    fused === nothing && error("product!: `native_gemm_available` admitted Float16 x Float16 -> ",
+                               "Float32 on $(typeof(g.dev)), and `native_gemm_dispatch!` declined ",
+                               "$(M)x$(N)x$(K) for `$name`. The two answers have to agree.")
+    return 1
+end
+
+function product!(::Val{false}, g, C, w, B, M, N, K; name)
+    bs = Mantle.coopmat_gemm_shape(M, N, K)
+    Mantle.coopmat_gemm_dispatch!(g, C, w, B, M, N, K; blk_split = bs, partials = C,
+                                  reduce = false, name)
+    return max(bs[2], 1)
 end
 
 """
