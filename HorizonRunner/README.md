@@ -49,3 +49,37 @@ masked attention into `fused.maskedattention`, whose only implementation went
 with the eager op library on 2026-09-23; DNNKernels declares it again now. The
 test suite missed it because it runs a tiny random model the fusion never fires
 on.
+
+## Q4_K, drafts and the weight cache
+
+```julia
+m = horizon32b(; dir, quantize = :q4k, cache = "gen/q4kcache/horizon32b")
+out = generate(m, ids; maxnew = 128, stop = (1, 250019), draft = 7)
+```
+
+Measured on the 8060S (RADV, 2026-10-13), 128 tokens after the 21-token prompt
+above, decode alone:
+
+| | ms a token | load |
+| --- | ---: | ---: |
+| int8 | 166.7 | 32 s |
+| Q4_K | 105.7 | 60 to 80 s, quantizing |
+| Q4_K from `cache` | 105.7 | 13 s from disk, 5 s from the page cache |
+| Q4_K, `draft = 7` | 95.1 | |
+
+`quantize = :q4k` stores the matmul weights as llama.cpp's Q4_K, 17.5 GiB
+(DNNKernels' `q4k.jl`); every one of them is read once a token, and the
+products run at about 220 GB/s. Perplexity on a 261-token English passage is
+4.52 against 4.28 for int8; keeping `lm_head` in int8 gave 4.43 at 112 ms a
+token, so mixing precisions per tensor, as llama.cpp's Q4_K_M does, is the next
+step for quality.
+
+`cache` names a directory for the quantized weights. The first load writes them
+there (18.8 GB); later loads read them instead of the 65 GB export.
+
+`draft = k` guesses up to `k` tokens by finding the context's last tokens
+earlier in itself, and checks them in one pass of `horizon32b_verify_bucket_8`,
+whose eight positions cost 123 ms against 102 ms for one. The tokens are the
+same as without; what it saves depends on how much the text repeats itself
+(here 20 of 204 guesses were kept). The verify bucket is exported with
+`tools/export_horizon32b.py --graphs-only --verify 8`.

@@ -54,7 +54,7 @@ function horizon32bgraphs(; dir::AbstractString = assetdir(), bucketdir::Abstrac
     gs = Dict(n => loadgraph(joinpath(dir, "$n.json")) for n in GRAPHS)
     if isdir(bucketdir)
         for file in readdir(bucketdir)
-            occursin(r"^horizon32b_(decode_bucket|prefill_bucket_[0-9]+)\.json$", file) || continue
+            occursin(r"^horizon32b_(decode_bucket|prefill_bucket_[0-9]+|verify_bucket_[0-9]+)\.json$", file) || continue
             name = splitext(file)[1]
             g = loadgraph(joinpath(bucketdir, file))
             g.symbols == ["kv"] || error("$file must be symbolic only in kv")
@@ -99,8 +99,13 @@ Bucket graphs share the weights and full-capacity KV cache with the base graphs.
 
 `quantize` stores every matmul weight as int8 with a per-output-channel scale,
 which is on by default because decode is bandwidth-bound on exactly those
-weights: 64.78 GiB becomes 32.4 GiB and the per-token floor halves. Pass
+weights: 64.78 GiB becomes 32.4 GiB and the per-token floor halves. `:q4k` stores
+them as Q4_K instead, 17.5 GiB (see DNNKernels' `q4k.jl`). Pass
 `quantize = false` for the fp16 reference.
+
+`cache` is a directory for the quantized weights: the first load writes them
+there, and later loads read them instead of reading the fp16 export and
+quantizing it (see DNNKernels' `quantcache.jl`).
 
 `record` replays each graph from a compiled Mantle plan instead of submitting a
 command buffer per dispatch. Mantle cuts a long prefill into submissions itself.
@@ -108,11 +113,12 @@ On by default HERE and not in `Model`: the preconditions are real
 (`DNNKernels.record`), and this is the model they have been checked against.
 """
 function horizon32b(; backend = Mantle.defaultbackend(), dir::AbstractString = assetdir(),
-                    quantize::Bool = true, record::Bool = true, bucketdir::AbstractString = dir)
+                    quantize::Union{Bool,Symbol} = true, record::Bool = true, bucketdir::AbstractString = dir,
+                    cache::Union{Nothing,AbstractString} = nothing)
     gs = horizon32bgraphs(; dir, bucketdir)
     # A full 512-token prefill takes over 20 seconds on the 8060S; Mantle cuts
     # its recording by the device's submission budget.
-    m = Model(gs, horizon32bweights(; dir); backend, quantize, record)
+    m = Model(gs, horizon32bweights(; dir); backend, quantize, record, quantcache = cache)
     dec = m.graphs["horizon32b_decode"]
     # Julia sees safetensors dims REVERSED, so torch (L,B,KVH,maxlen,hd) is
     # (hd,maxlen,KVH,B,L) here. Read the extents off the graph rather than the
@@ -220,6 +226,41 @@ function prefillbucket(m::Horizon32B, n::Int)
     minimum(filter(t -> n <= t <= m.prefill, sizes); init=m.prefill)
 end
 
+"""
+    verifybucket(m, T) -> Int
+
+The smallest exported draft-checking bucket of at least `T` tokens, 0 if none.
+"""
+function verifybucket(m::Horizon32B, T::Int)
+    fits = [Int(g.buffers["input_ids"].shape[2]) for (name, g) in m.model.graphs
+            if startswith(name, "horizon32b_verify_bucket_") && g.buffers["input_ids"].shape[2] >= T]
+    return isempty(fits) ? 0 : minimum(fits)
+end
+
+"""
+    lookupdraft(tokens, k; ngram = 3) -> Vector{Int}
+
+Up to `k` tokens guessed by looking the context up in itself ("prompt lookup"):
+the tokens that followed the most recent earlier occurrence of its last `n`
+tokens, for the longest `n <= ngram` that has one. Free to compute, and right
+where the text repeats itself: a reasoning model quoting its prompt, code being
+edited, a list continuing.
+"""
+function lookupdraft(tokens::AbstractVector{<:Integer}, k::Int; ngram::Int = 3)
+    L = length(tokens)
+    k > 0 || return Int[]
+    for n in min(ngram, L - 1):-1:1
+        tail = @view tokens[(L - n + 1):L]
+        for s in (L - n):-1:1
+            if @view(tokens[s:(s + n - 1)]) == tail
+                follow = tokens[(s + n):min(s + n + k - 1, L)]
+                isempty(follow) || return collect(Int, follow)
+            end
+        end
+    end
+    return Int[]
+end
+
 function bucketcall(m::Horizon32B, name::String, args...; kv::Int)
     call(bucketmodel(m, name), name, args...; dims=(; kv))
 end
@@ -257,11 +298,16 @@ so the ceiling is `maxlen`, the cache capacity, not `prefill`. Attention visits
 a prefix covering the occupied slots; see [`chunkkv`](@ref) for how wide.
 New bucket exports project only the requested prompt position into logits.
 Without bucket exports (or with `bucketed=false`), use the original fixed graphs.
+
+`draft = k` checks up to `k` guessed tokens per pass (see [`lookupdraft`](@ref))
+through the smallest verify bucket of at least `k + 1` tokens, and takes a plain
+decode step where the context offers no guess. The tokens are the same as without:
+a guess is kept only where it is the greedy choice.
 The generation cache is reused and reset between calls; concurrent calls on the
 same model are not supported.
 """
 function generate(m::Horizon32B, ids::AbstractVector{<:Integer}; maxnew::Int = 32,
-                  stop = (), verbose::Bool = false, bucketed::Bool = true)
+                  stop = (), verbose::Bool = false, bucketed::Bool = true, draft::Int = 0)
     t0 = time()
     n = length(ids)
     n > 0 || throw(ArgumentError("prompt must not be empty"))
@@ -335,34 +381,82 @@ function generate(m::Horizon32B, ids::AbstractVector{<:Integer}; maxnew::Int = 3
     maskh = maskbuffer(m, 1; kv); maskd = toback(m.backend, maskh)
     # (vocab, 1, 1) — the DECODE shape, not the prefill bucket `logits` still holds.
     logith = Array{eltype(logits)}(undef, m.vocab, 1, 1)
-    for step in 1:(maxnew - 1)
-        p = n + step - 1
+    # Drafts: up to `draft` tokens guessed by `lookupdraft`, checked together with
+    # the token they follow in one pass of a verify bucket, which reads every
+    # weight once for all of them. Greedy, so the output is the same as without.
+    V = draft > 0 && bucketed ? verifybucket(m, draft + 1) : 0
+    if V > 0
+        vtokh = zeros(Int64, V, 1);  vtokd = toback(m.backend, vtokh)
+        vposh = zeros(Int64, V);     vposd = toback(m.backend, vposh)
+        vkv = attentionbucket(m, n + V)
+        vmaskh = maskbuffer(m, V; kv = vkv); vmaskd = toback(m.backend, vmaskh)
+        vlogith = Array{eltype(logits)}(undef, m.vocab, V, 1)
+    end
+    history = Int[collect(Int, ids); nxt]
+    passes = drafted = accepted = 0
+    while length(out) < maxnew
+        p = n + length(out) - 1             # the slot `nxt` goes to
         p < m.maxlen || break
-        nextkv = usebucket ? attentionbucket(m, p + 1) : m.maxlen
-        if nextkv != kv
-            kv = nextkv
-            maskh = maskbuffer(m, 1; kv)
-            maskd = toback(m.backend, maskh)
+        d = V > 0 && p + V <= m.maxlen ?
+            lookupdraft(history, min(draft, V - 1, maxnew - length(out) - 1)) : Int[]
+        passes += 1
+        if isempty(d)
+            nextkv = usebucket ? attentionbucket(m, p + 1) : m.maxlen
+            if nextkv != kv
+                kv = nextkv
+                maskh = maskbuffer(m, 1; kv)
+                maskd = toback(m.backend, maskh)
+            end
+            tokh[1, 1] = nxt;  copyto!(tokd, tokh)
+            posh[1] = p;       copyto!(posd, posh)
+            causalmask!(maskh, posh); copyto!(maskd, maskh)
+            logits, k, v = usebucket && kv < m.maxlen ?
+                bucketcall(m, "horizon32b_decode_bucket", tokd, k, v, posd, maskd; kv) :
+                call(m.model, "horizon32b_decode", tokd, k, v, posd, maskd; dims=(;))
+            # Downloaded and reduced on the HOST, which is the faster of the two and
+            # was worth checking: 500 kB is 0.21 ms and the host `argmax` 0.64, while
+            # `argmax` on the device array is 0.21 in isolation — but it is several
+            # one-shot dispatches, and in the loop it costs MORE than the download it
+            # replaces. Interleaved, 12 steps each: 154.37 ms host, 154.95 device.
+            copyto!(logith, logits)
+            nxt = argmax(view(logith, :, 1, 1)) - 1
+            push!(out, nxt); push!(history, nxt)
+            nxt in stop && break
+            continue
         end
-        tokh[1, 1] = nxt;  copyto!(tokd, tokh)
-        posh[1] = p;       copyto!(posd, posh)
-        causalmask!(maskh, posh); copyto!(maskd, maskh)
-        logits, k, v = usebucket && kv < m.maxlen ?
-            bucketcall(m, "horizon32b_decode_bucket", tokd, k, v, posd, maskd; kv) :
-            call(m.model, "horizon32b_decode", tokd, k, v, posd, maskd; dims=(;))
-        # Downloaded and reduced on the HOST, which is the faster of the two and
-        # was worth checking: 500 kB is 0.21 ms and the host `argmax` 0.64, while
-        # `argmax` on the device array is 0.21 in isolation — but it is several
-        # one-shot dispatches, and in the loop it costs MORE than the download it
-        # replaces. Interleaved, 12 steps each: 154.37 ms host, 154.95 device.
-        copyto!(logith, logits)
-        nxt = argmax(view(logith, :, 1, 1)) - 1
-        push!(out, nxt)
+        # `nxt` at slot `p`, the drafts after it, and padding that is never read:
+        # its slots are past every position a later query can see until they are
+        # written again.
+        nextkv = attentionbucket(m, p + V)
+        if nextkv != vkv
+            vkv = nextkv
+            vmaskh = maskbuffer(m, V; kv = vkv)
+            vmaskd = toback(m.backend, vmaskh)
+        end
+        for i in 1:V
+            vtokh[i, 1] = i == 1 ? nxt : d[min(i - 1, length(d))]
+            vposh[i] = p + i - 1
+        end
+        copyto!(vtokd, vtokh); copyto!(vposd, vposh)
+        causalmask!(vmaskh, vposh); copyto!(vmaskd, vmaskh)
+        logits, k, v = bucketcall(m, "horizon32b_verify_bucket_$V", vtokd, k, v, vposd, vmaskd; kv = vkv)
+        copyto!(vlogith, logits)
+        drafted += length(d)
+        # Row `i` predicts the token after input `i`: keep drafts while they are
+        # what the model would have said, then its own token where they stop.
+        for i in 1:(length(d) + 1)
+            nxt = argmax(view(vlogith, :, i, 1)) - 1
+            push!(out, nxt); push!(history, nxt)
+            (nxt in stop || length(out) >= maxnew) && break
+            i <= length(d) && nxt == d[i] || break
+            accepted += 1
+        end
         nxt in stop && break
     end
     if verbose && length(out) > 1
         println(stderr, "decode ", round((time() - td) / (length(out) - 1) * 1000, digits=1),
-                " ms/token over ", length(out) - 1, " steps")
+                " ms/token, ", length(out) - 1, " tokens in ", passes, " passes",
+                V > 0 ? ", $accepted of $drafted drafted tokens kept" : "")
     end
     return out
 end

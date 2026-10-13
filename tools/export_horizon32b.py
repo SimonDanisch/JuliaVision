@@ -5,6 +5,7 @@ Export K2 Horizon 32B to DNNKernels' graph JSON + weights.
     uv run tools/export_horizon32b.py --prefill 1024  # a different prompt bucket
     uv run tools/export_horizon32b.py --maxlen 8192   # KV capacity
     uv run tools/export_horizon32b.py --graphs-only --dynamic  # optional buckets
+    uv run tools/export_horizon32b.py --graphs-only --verify 8 # draft checking only
 
 **The default exports two fixed graphs.** `horizon32b_decode` is one token against
 the cache and is genuinely static — `T = 1` forever. `horizon32b_prefill` runs a
@@ -15,6 +16,9 @@ bucket, the way `whispercross` works against its fixed 1500-frame window.
 width `kv` is symbolic, while their cache allocations retain `maxlen` capacity.
 Prefill buckets take `logits_indices`, selecting one position before the final
 normalization and vocabulary projection; the KV caches still cover the prompt.
+`--verify` exports only `horizon32b_verify_bucket_T`: a prompt bucket with a
+symbolic `kv` that returns the logits of EVERY position, which is what checking
+`T - 1` drafted tokens after the last accepted one in a single pass needs.
 `--graphs-only` uses meta weights and leaves the existing weights file untouched.
 Keep the original two graphs alongside these exports: the runner uses them at
 full cache capacity, where PyTorch specializes the contiguous slice differently.
@@ -307,6 +311,8 @@ def main():
     p.add_argument("--dynamic", action="store_true", help="export prompt/attention bucket dimensions")
     p.add_argument("--graphs-only", action="store_true", help="trace on meta without loading or writing weights")
     p.add_argument("--prompt-buckets", type=int, nargs="+", default=[16, 32, 64, 128, 256, 512])
+    p.add_argument("--verify", type=int, nargs="+", default=[],
+                   help="export only draft-checking buckets of these lengths")
     p.add_argument("--out", type=Path, default=GEN / "graphs" / "horizon32b")
     args = p.parse_args()
 
@@ -328,6 +334,17 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     available = {**dict(step.state_dict()), **dict(step.named_buffers())}
     tensors = {}
+
+    if args.verify:
+        kwargs = dict(dynamic=True, collect_weights=not args.graphs_only,
+                      activekv=min(128, args.maxlen // 2))
+        for T in sorted(set(args.verify)):
+            if not 1 < T <= args.maxlen:
+                raise ValueError(f"verify bucket {T} must be between 2 and maxlen")
+            print(f"exporting verify  (T={T}, maxlen={args.maxlen}) ...", flush=True)
+            build(step, f"horizon32b_verify_bucket_{T}", T, args.maxlen, args.device, dt,
+                  args.out, available, tensors, **kwargs)
+        return
 
     print(f"exporting decode  (T=1, maxlen={args.maxlen}) ...", flush=True)
     suffix = "_bucket" if args.dynamic else ""
