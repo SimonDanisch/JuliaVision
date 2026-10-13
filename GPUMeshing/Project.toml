@@ -13,7 +13,6 @@ Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 # Not in the General registry; the same sources as the monorepo's Project.toml.
 [sources]
 KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
-Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}
 Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
 
 [extras]
