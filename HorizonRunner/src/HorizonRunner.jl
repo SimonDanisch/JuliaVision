@@ -100,7 +100,8 @@ Bucket graphs share the weights and full-capacity KV cache with the base graphs.
 `quantize` stores every matmul weight as int8 with a per-output-channel scale,
 which is on by default because decode is bandwidth-bound on exactly those
 weights: 64.78 GiB becomes 32.4 GiB and the per-token floor halves. `:q4k` stores
-them as Q4_K instead, 17.5 GiB (see DNNKernels' `q4k.jl`). Pass
+them as Q4_K instead, 17.5 GiB (see DNNKernels' `q4k.jl`), and `:q4k_m` keeps
+the weights llama.cpp's Q4_K_M gives more bits to in Q6_K (see [`q4km`](@ref)). Pass
 `quantize = false` for the fp16 reference.
 
 `cache` is a directory for the quantized weights: the first load writes them
@@ -116,9 +117,11 @@ function horizon32b(; backend = Mantle.defaultbackend(), dir::AbstractString = a
                     quantize::Union{Bool,Symbol} = true, record::Bool = true, bucketdir::AbstractString = dir,
                     cache::Union{Nothing,AbstractString} = nothing)
     gs = horizon32bgraphs(; dir, bucketdir)
+    # (L, B, KVH, maxlen, hd) in torch order: the layer count is the export's.
+    policy = quantize === :q4k_m ? q4km(Int(gs["horizon32b_decode"].buffers["k_cache"].shape[1])) : quantize
     # A full 512-token prefill takes over 20 seconds on the 8060S; Mantle cuts
     # its recording by the device's submission budget.
-    m = Model(gs, horizon32bweights(; dir); backend, quantize, record, quantcache = cache)
+    m = Model(gs, horizon32bweights(; dir); backend, quantize = policy, record, quantcache = cache)
     dec = m.graphs["horizon32b_decode"]
     # Julia sees safetensors dims REVERSED, so torch (L,B,KVH,maxlen,hd) is
     # (hd,maxlen,KVH,B,L) here. Read the extents off the graph rather than the
@@ -128,6 +131,23 @@ function horizon32b(; backend = Mantle.defaultbackend(), dir::AbstractString = a
     vocab = dec.buffers[dec.outputs[1]].shape[3]
     pre = m.graphs["horizon32b_prefill"].buffers["input_ids"].shape[2]
     return Horizon32B(backend, m, Int(maxlen), Int(pre), Int(vocab))
+end
+
+"""
+    q4km(nlayers) -> QuantPolicy
+
+Q4_K, with Q6_K where llama.cpp's Q4_K_M puts it: `lm_head`, and the down
+projection of the first and last eighth of the layers and of every third layer
+between (its `use_more_bits`).
+Its other choice, the value projections, is not available: `fuseqkv` has stacked
+them with the queries and keys into one weight.
+"""
+function q4km(nlayers::Int)
+    morebits(i) = i < nlayers ÷ 8 || i >= 7nlayers ÷ 8 || (i - nlayers ÷ 8) % 3 == 2
+    pick(key, _) = occursin("lm_head", key) ? :q6k :
+        (m = match(r"layers\.(\d+)\.mlp\.down_proj", key);
+         m !== nothing && morebits(parse(Int, m[1])) ? :q6k : :q4k)
+    return DNNKernels.QuantPolicy(:q4k_m, pick)
 end
 
 """

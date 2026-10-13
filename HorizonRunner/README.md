@@ -53,29 +53,37 @@ on.
 ## Q4_K, drafts and the weight cache
 
 ```julia
-m = horizon32b(; dir, quantize = :q4k, cache = "gen/q4kcache/horizon32b")
+m = horizon32b(; dir, quantize = :q4k_m, cache = "gen/q4kcache/horizon32b-q4km")
 out = generate(m, ids; maxnew = 128, stop = (1, 250019), draft = 7)
 ```
 
-Measured on the 8060S (RADV, 2026-10-13), 128 tokens after the 21-token prompt
-above, decode alone:
+Measured on the 8060S (RADV, 2026-10-13). Decode is 128 tokens after the
+21-token prompt above; perplexity is over a 261-token English passage; prompts
+are timed whole, at 32, 128, 512 and 2048 tokens:
 
-| | ms a token | load |
-| --- | ---: | ---: |
-| int8 | 166.7 | 32 s |
-| Q4_K | 105.7 | 60 to 80 s, quantizing |
-| Q4_K from `cache` | 105.7 | 13 s from disk, 5 s from the page cache |
-| Q4_K, `draft = 7` | 95.1 | |
+| `quantize` | ms a token | perplexity | prompt (s) |
+| --- | ---: | ---: | --- |
+| `:int8` | 166.7 | 4.28 | 0.48, 1.02, 3.45, 15.55 |
+| `:q4k` | 105.7 | 4.52 | 0.27, 0.61, 2.44, 11.93 |
+| `:q4k_m` | 108.7 | 4.42 | 0.35, 0.71, 2.64, 12.9 |
+| `:q4k`, `draft = 7` | 95.1 | | |
+| `:q4k_m`, `draft = 7` | 98.8 | | |
 
-`quantize = :q4k` stores the matmul weights as llama.cpp's Q4_K, 17.5 GiB
-(DNNKernels' `q4k.jl`); every one of them is read once a token, and the
-products run at about 220 GB/s. Perplexity on a 261-token English passage is
-4.52 against 4.28 for int8; keeping `lm_head` in int8 gave 4.43 at 112 ms a
-token, so mixing precisions per tensor, as llama.cpp's Q4_K_M does, is the next
-step for quality.
+A load that quantizes reads the 65 GB export: 30 s when it is in the page cache,
+60 to 80 s when it is not (int8 32 s). From `cache` it is 13 s from disk and 5 to
+10 s from the page cache, the same weights to the bit.
+
+`:q4k` stores the matmul weights as llama.cpp's Q4_K, 17.5 GiB (DNNKernels'
+`q4k.jl`); every one of them is read once a token, at about 220 GB/s. `:q4k_m` is
+llama.cpp's Q4_K_M: Q6_K (`q6k.jl`) for `lm_head` and half the down projections
+(see `q4km`). Keeping those in int8 instead measured 4.40 at 113.3 ms. Prompts
+of more than 16 tokens take the K-quant tensor-core GEMM, which is faster than
+the int8 one at every width measured.
 
 `cache` names a directory for the quantized weights. The first load writes them
-there (18.8 GB); later loads read them instead of the 65 GB export.
+there (18.8 GB for `:q4k`, 20.3 GB for `:q4k_m`); later loads read them instead
+of the 65 GB export. An entry the policy would now quantize differently is
+quantized again and appended; delete the directory to reclaim the old bytes.
 
 `draft = k` guesses up to `k` tokens by finding the context's last tokens
 earlier in itself, and checks them in one pass of `horizon32b_verify_bucket_8`,
