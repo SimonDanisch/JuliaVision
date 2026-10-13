@@ -1,6 +1,6 @@
 """
-Q4_K weights (`q4k.jl`): a port of ggml's quantizer, and a product that reads int8
-activations through `KI.dot4x8`.
+K-quant weights, Q4_K (`q4k.jl`) and Q6_K (`q6k.jl`): ports of ggml's quantizers,
+GEMVs that read int8 activations through `KI.dot4x8`, and the tensor-core GEMM.
 
 Against the host port of both. The device quantizers are the host ones compiled
 for the device, bit for bit where float division is correctly rounded (ROCm).
@@ -70,7 +70,7 @@ end
     @testset "product of $n columns, $R rows a group" for n in (1, 3, 8), R in (1, 2)
         X = Float16.(randn(rng, Float32, K, n))
         out = KernelAbstractions.allocate(backend, Float32, rows, n)
-        DKA.q4kgemv!(backend, out, A, dev(X); R)
+        DKA.kqgemv!(backend, out, A, dev(X); R)
         Xq, d = q8device(backend, dev, X)
         host = reduce(hcat, [q8roundtrip(Float32.(X[:, c])) for c in 1:n])
         @test all(abs.(Xq .- host) .<= 1.01f0 .* d)
@@ -82,10 +82,25 @@ end
         X = Float16.(randn(rng, Float32, K, 2))
         bias = randn(rng, Float32, rows)
         out = KernelAbstractions.allocate(backend, Float32, rows, 2)
-        DKA.q4kgemv!(backend, out, A, dev(X); bias = dev(bias), epilogue = x -> max(x, 0f0))
+        DKA.kqgemv!(backend, out, A, dev(X); bias = dev(bias), epilogue = x -> max(x, 0f0))
         Xq, _ = q8device(backend, dev, X)
         ref = max.(Float64.(deqd) * Float64.(Xq) .+ bias, 0)
         @test maximum(abs.(Array(out) .- ref)) / maximum(abs.(ref)) < 1e-5
+    end
+
+    @testset "GEMM, $n columns" for n in (16, 48, 128)
+        caps = DKA.caps(backend)
+        cfg = DKA.kqgemm_tile(caps, Float32, rows, K, n)
+        if cfg === nothing
+            @info "no Q4_K GEMM tile on this device" n
+        else
+            X = Float16.(randn(rng, Float32, K, n))
+            C = KernelAbstractions.allocate(backend, Float32, rows, n)
+            DKA.kqgemm!(C, A, dev(X); cfg)
+            # The kernel stages the dequantized weight as fp16.
+            ref = Float64.(Float16.(deqd)) * Float64.(X)
+            @test maximum(abs.(Array(C) .- ref)) / maximum(abs.(ref)) < 1e-4
+        end
     end
 
     @testset "dequantized for wide products" begin
@@ -94,4 +109,53 @@ end
                          ndrange = rows * (K ÷ 256) * 8, workgroupsize = 256)
         @test Array(Wd) == Float16.(deqd)
     end
+end
+
+# Q6_K (`q6k.jl`), through the same activation quantizer, GEMM and fallback. The
+# host port was checked byte for byte against ggml's `quantize_row_q6_K_ref` like
+# Q4_K's: 512 blocks, an all-zero block and an all-zero sub-block among them.
+@testset "Q6_K" begin
+    backend = first(Mantle.eachbackend())
+    rng = MersenneTwister(8)
+    rows, K = 64, 1024
+    W = Float16.(randn(rng, Float32, rows, K) .* 0.02f0)
+    W[rand(rng, 1:length(W), 40)] .*= 8
+    W[3, 257:512] .= 0
+    W[5, 1:16] .= 0
+    relerr(a, b) = sqrt(sum(abs2, a .- b) / sum(abs2, b))
+    dev(x) = (d = KernelAbstractions.allocate(backend, eltype(x), size(x)...); copyto!(d, x); d)
+
+    host = DKA.q6k_quantize(W)
+    @test relerr(DKA.q6k_dequantize(host..., rows, K), Float32.(W)) < 0.03     # 0.020 measured
+    A = DKA.quantizeq6k(backend, dev(W))
+    planes = map(a -> vec(Array(Mantle.storage(a))), DKA.kqarrays(A))
+    deqd = DKA.q6k_dequantize(planes..., rows, K)
+    @test relerr(deqd, Float32.(W)) < 0.03
+    @test count(planes[4] .!= host[4]) <= length(host[4]) ÷ 10
+    @test all(iszero, deqd[3, 257:512])
+
+    @testset "product of $n columns" for n in (1, 3, 8)
+        X = Float16.(randn(rng, Float32, K, n))
+        out = KernelAbstractions.allocate(backend, Float32, rows, n)
+        DKA.kqgemv!(backend, out, A, dev(X))
+        Xq, _ = q8device(backend, dev, X)
+        ref = Float64.(deqd) * Float64.(Xq)
+        @test maximum(abs.(Array(out) .- ref)) / maximum(abs.(ref)) < 1e-5
+    end
+
+    @testset "GEMM, $n columns" for n in (16, 128)
+        cfg = DKA.kqgemm_tile(DKA.caps(backend), Float32, rows, K, n)
+        if cfg !== nothing
+            X = Float16.(randn(rng, Float32, K, n))
+            C = KernelAbstractions.allocate(backend, Float32, rows, n)
+            DKA.kqgemm!(C, A, dev(X); cfg)
+            ref = Float64.(Float16.(deqd)) * Float64.(X)
+            @test maximum(abs.(Array(C) .- ref)) / maximum(abs.(ref)) < 1e-4
+        end
+    end
+
+    Wd = KernelAbstractions.allocate(backend, Float16, rows, K)
+    Mantle.kilaunch!(backend, DKA.q6k_dequant_kernel!, Wd, map(Mantle.storage, DKA.kqarrays(A))...,
+                     Int32(rows), Int32(K ÷ 256); ndrange = rows * (K ÷ 256) * 8, workgroupsize = 256)
+    @test Array(Wd) == Float16.(deqd)
 end

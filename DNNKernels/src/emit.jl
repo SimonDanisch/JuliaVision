@@ -4749,10 +4749,34 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                     MG * K; group = 256, name = "$(op.id).dequant")
         return gemm!(emitctx, op, out, W, B; bias, epi)
     end
-    if plan isa MMQ4KPlan
+    if plan isa MMKQuantPlan
         Mm, K = size(A)
         N = size(B, 2)
-        if N <= Q4K_GEMV_COLUMNS[]
+        NP = q8gemm_columns(N)
+        cfg = N > Q4K_GEMV_COLUMNS[] ? kqgemm_tile(caps, eltype(out), Mm, K, NP) : nothing
+        od = size(out)
+        if cfg !== nothing
+            # The kernel reads fp16 activations 16 bytes at a time, `NP` columns.
+            Bp = B
+            if NP != N || eltype(B) !== Float16 || M.basealignment(B) < 16
+                Bp = scratch(emitctx, Float16, K, NP)
+                M.dispatch!(emitctx.g, padcols_kernel!, (Bp, B, Val(K), N), (K, NP);
+                            name = "$(op.id).padB")
+            end
+            dst = NP == N ? out : scratch(emitctx, eltype(out), Mm, NP)
+            l = kqgemm_launch(dst, A, Bp, bias === nothing ? epi : identity, cfg)
+            M.dispatch!(emitctx.g, l.kern, l.args, l.ndrange; group = l.group, name = op.id)
+            NP == N || ewdispatch!(emitctx, out, od, (M.viewof(dst, od),),
+                                   (bcstrides(od, od),), identity; name = "$(op.id).unpad")
+            if bias !== nothing
+                ewdispatch!(emitctx, out, od, (out, bias),
+                    (bcstrides(od, od), bcstrides(od, size(bias))), +; name = "$(op.id).bias")
+                epi === identity || ewdispatch!(emitctx, out, od, (out,),
+                    (bcstrides(od, od),), epi; name = "$(op.id).act")
+            end
+            return out
+        end
+        if N <= Q4K_GEMV_FALLBACK
             xq = scratch(emitctx, UVec4, K ÷ 16, N)
             xds = scratch(emitctx, Float32, K ÷ 16, N)
             M.dispatch!(emitctx.g, q8act_kernel!, (xq, xds, B, Int32(K), Int32(N * (K ÷ 32))),
@@ -4765,15 +4789,14 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
                 n = min(8, N - c0)
                 part(x, rows) = n == N ? x : M.viewof(x, (rows, n); offset = c0 * rows)
                 R = q4krows(n)
-                M.dispatch!(emitctx.g, Q4K_GEMV_KERNELS[(n, R)],
-                            (part(out, Mm), A.q, part(xq, K ÷ 16), part(xds, K ÷ 16),
+                M.dispatch!(emitctx.g, kqgemv_kernels(A)[(n, R)],
+                            (part(out, Mm), kqarrays(A)..., part(xq, K ÷ 16), part(xds, K ÷ 16),
                              inbias ? bias : out, inbias || bias === nothing ? epi : identity,
                              Int32(Mm), Int32(K ÷ QK_K), Val(inbias)),
                             cld(cld(Mm, R), Q4K_WG ÷ 32) * Q4K_WG; group = Q4K_WG,
                             name = n == N ? op.id : "$(op.id).$(c0 ÷ 8 + 1)")
             end
             if bias !== nothing && !inbias
-                od = size(out)
                 ewdispatch!(emitctx, out, od, (out, bias),
                     (bcstrides(od, od), bcstrides(od, size(bias))), +; name = "$(op.id).bias")
                 epi === identity || ewdispatch!(emitctx, out, od, (out,),
@@ -4782,14 +4805,14 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             return out
         end
         W = scratch(emitctx, Float16, Mm, K)
-        M.dispatch!(emitctx.g, q4k_dequant_kernel!, (W, A.q, Int32(Mm), Int32(K ÷ QK_K)),
+        M.dispatch!(emitctx.g, kqdequant_kernel(A), (W, kqarrays(A)..., Int32(Mm), Int32(K ÷ QK_K)),
                     Mm * (K ÷ QK_K) * 8; group = 256, name = "$(op.id).dequant")
         return gemm!(emitctx, op, out, W, B; bias, epi)
     end
     plan isa MMCoopMatPlan || error(
         "DNNKernels: `$(op.aten)` (op $(op.id)) is $(size(A)) * $(size(B)) into " *
         "$(size(out)) and `mmplan` chose $(plan), which has no declared form " *
-        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMConvRotInt8Plan`, `MMInt8Plan`, `MMQ4KPlan` and `Decline` are " *
+        "yet. `MMCoopMatPlan`, `MMGemvPlan`, `MMConvRotInt8Plan`, `MMInt8Plan`, `MMKQuantPlan` and `Decline` are " *
         "ported. Port the plan rather than widening this branch.")
     Mm, K = size(A)
     N = size(B, 2)

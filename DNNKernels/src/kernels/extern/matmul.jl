@@ -134,7 +134,7 @@ function mmplan(dev, out, A, B, bias)
     # of the float paths can read at all.
     A isa ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     A isa QInt8Matrix && return MMInt8Plan()
-    A isa Q4KMatrix && return MMQ4KPlan()
+    A isa KQuantMatrix && return MMKQuantPlan()
     p = mm_coopmat_plan(dev, out, A, B)
     p isa Decline || return p
     mm_gemv_plan(dev, out, A, B, bias)
@@ -156,7 +156,7 @@ function mmplan(caps, ::Type{Tout}, ::Type{Ta}, ::Type{Tb},
                 sout::Dims, sa::Dims, sb::Dims, hasbias::Bool) where {Tout,Ta,Tb}
     Ta <: ConvRotQInt8Matrix && return MMConvRotInt8Plan()
     Ta <: QInt8Matrix && return MMInt8Plan()
-    Ta <: Q4KMatrix && return MMQ4KPlan()
+    Ta <: KQuantMatrix && return MMKQuantPlan()
     p = mm_coopmat_plan(caps, Tout, Ta, Tb, sa, sb)
     p isa Decline || return p
     mm_gemv_plan(caps, Tout, Ta, Tb, sa, sb, hasbias)
@@ -258,14 +258,17 @@ function matmul!(ctx, ::MMInt8Plan, out, A, B, bias, epi; gemm=NamedTuple())
     matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
 end
 
-"""Q4_K weight: the int8-activation GEMV up to eight columns, else the fp16 GEMM
-on the weight dequantized into the workspace."""
-function matmul!(ctx, ::MMQ4KPlan, out, A, B, bias, epi; gemm=NamedTuple())
-    size(B, 2) <= 8 && return q4kgemv!(ctx.backend, out, A, B; bias, epilogue = epi)
+"""K-quant weight: the int8-activation GEMV up to eight columns, the K-quant GEMM
+past that, else the fp16 GEMM on the weight dequantized into the workspace."""
+function matmul!(ctx, ::MMKQuantPlan, out, A, B, bias, epi; gemm=NamedTuple())
+    size(B, 2) <= 8 && return kqgemv!(ctx.backend, out, A, B; bias, epilogue = epi)
     m, k = size(A)
+    cfg = bias === nothing && eltype(B) === Float16 && M.basealignment(B) >= 16 ?
+        kqgemm_tile(ctx.dev, eltype(out), m, k, size(B, 2)) : nothing
+    cfg === nothing || return kqgemm!(out, A, B; cfg, epilogue = epi)
     W = scratch!(ctx.ws, ctx.backend, Float16, m, k)
-    harnesslaunch!(ctx.backend, q4k_dequant_kernel!, W, Mantle.storage(A.q), Int32(m), Int32(k ÷ QK_K);
-                   ndrange = m * (k ÷ QK_K) * 8, workgroupsize = 256)
+    harnesslaunch!(ctx.backend, kqdequant_kernel(A), W, map(Mantle.storage, kqarrays(A))...,
+                   Int32(m), Int32(k ÷ QK_K); ndrange = m * (k ÷ QK_K) * 8, workgroupsize = 256)
     matmul!(ctx, mmplan(ctx.dev, out, W, B, bias), out, W, B, bias, epi; gemm)
 end
 

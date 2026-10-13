@@ -50,7 +50,7 @@ export ConvRotQInt8Matrix, ConvRotQInt8HostMatrix, convrotqint8
 export W4A8ConvRotHostMatrix, w4a8convrot
 export readgguf, GGUFFile, GGUFTensor, gguftensor, ggufbytes
 export PTQ1Matrix, ptq1matrix, ptq1mul!, ptq1_getrows!, ptq1_dequant
-export Q4KMatrix, quantizeq4k, q4kgemv!
+export KQuantMatrix, Q4KMatrix, Q6KMatrix, quantizeq4k, quantizeq6k, kqgemv!, QuantPolicy
 export hadamard!, gated_delta_net!, depthwise_conv4!
 
 include("assets.jl")
@@ -70,6 +70,7 @@ include("gated_delta_net.jl")
 include("q8gemm.jl")
 include("w8a8.jl")
 include("q4k.jl")
+include("q6k.jl")
 include("quantcache.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")

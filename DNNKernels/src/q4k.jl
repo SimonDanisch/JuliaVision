@@ -25,12 +25,22 @@ const Q4K_VECS = 9                  # a block as 16-byte vectors
 const UVec4 = NTuple{4,VecElement{UInt32}}
 
 """
+    KQuantMatrix
+
+A weight in one of llama.cpp's K-quant formats: [`Q4KMatrix`](@ref) or
+[`Q6KMatrix`](@ref). They share the activation quantizer, the tensor-core GEMM and
+the dequantizing fallback, each through its own `kq_stage`; the GEMV and the
+quantizer are each format's own.
+"""
+abstract type KQuantMatrix end
+
+"""
     Q4KMatrix
 
 An `(m, k)` weight in Q4_K: `q` holds `9 * cld(k, 256)` vectors per row (see the
 file's docstring). `k` is a multiple of 256.
 """
-struct Q4KMatrix{Q}
+struct Q4KMatrix{Q} <: KQuantMatrix
     q::Q
     m::Int
     k::Int
@@ -290,36 +300,31 @@ function q4k_dequantize(Q::AbstractVector{UVec4}, rows::Integer, K::Integer)
 end
 
 """
-    q4k_dequant_kernel!(W, Q, rows, nb)
+    kquant_dequant!(W, Ws, kind, rows, nb)
 
-The fp16 matrix of a Q4_K weight, for products wider than the GEMV takes: one
-work-item per row and nibble vector, 32 weights. Consecutive work-items take
-consecutive rows, so the column-major `W` is written along its contiguous axis.
+The fp16 matrix of a K-quant weight, for products the GEMM cannot take: one
+work-item per row and staging step (`kq_stage`), 32 weights. Consecutive
+work-items take consecutive rows, so the column-major `W` is written along its
+contiguous axis.
 """
-function q4k_dequant_kernel!(W, Q, rows::Int32, nb::Int32)
+@inline function kquant_dequant!(W, Ws, kind, rows::Int32, nb::Int32)
     t = Int32(KI.get_global_id().x) - Int32(1)
     if t < rows * nb * Int32(8)
         row, rest = t % rows, t ÷ rows
         b, v = rest ÷ Int32(8), rest % Int32(8)
-        j, h = v ÷ Int32(2), v % Int32(2)
-        base = (row * nb + b) * Int32(Q4K_VECS)
-        hd = @inbounds Q[base + Int32(1)]
-        q = @inbounds Q[base + Int32(2) + v]
-        d, dmin = q4k_half(hd[1].value, 0), q4k_half(hd[1].value, 1)
-        sl, ml = q4k_scalemin(hd, Int32(2) * j)
-        sh, mh = q4k_scalemin(hd, Int32(2) * j + Int32(1))
-        dl, ol = d * Float32(sl), dmin * Float32(ml)
-        dh, oh = d * Float32(sh), dmin * Float32(mh)
-        k0 = b * Int32(QK_K) + Int32(64) * j + Int32(16) * h      # 0-based column of the low half
-        Base.Cartesian.@nexprs 4 w -> Base.Cartesian.@nexprs 4 byte -> begin
-            x = q[w].value >> (8 * (byte - 1))
-            i = k0 + Int32(4 * (w - 1) + byte - 1)
-            @inbounds W[row + Int32(1) + i * rows] = eltype(W)(dl * Float32(x & 0x0f) - ol)
-            @inbounds W[row + Int32(1) + (i + Int32(32)) * rows] = eltype(W)(dh * Float32((x >> 4) & 0x0f) - oh)
+        g, h = v ÷ Int32(2), v % Int32(2)
+        x = kq_stage(kind, Ws, row, b, g, h, nb)
+        k0 = b * Int32(QK_K) + Int32(64) * g + Int32(16) * h      # 0-based column of the first sixteen
+        Base.Cartesian.@nexprs 4 w -> Base.Cartesian.@nexprs 4 e -> begin
+            i = k0 + Int32(4 * (w - 1) + e - 1)
+            @inbounds W[row + Int32(1) + i * rows] = eltype(W)(x[w][e].value)
+            @inbounds W[row + Int32(1) + (i + Int32(32)) * rows] = eltype(W)(x[w + 4][e].value)
         end
     end
     return nothing
 end
+
+q4k_dequant_kernel!(W, Q, rows::Int32, nb::Int32) = kquant_dequant!(W, (Q,), Val(:q4k), rows, nb)
 
 # ── activations ──────────────────────────────────────────────────────────────
 
@@ -397,10 +402,21 @@ end
 q4krows(n) = n >= 4 ? 2 : 1
 
 """
-The widest product the declared path runs as GEMV passes of eight columns, each a
-read of the weight, before it dequantizes the weight for the fp16 GEMM instead.
+The widest product that runs as GEMV passes of eight columns, each a read of the
+weight, where the K-quant GEMM (`kquant_gemm!`) could run instead. Measured on the
+8060S at Horizon's qkv and down projections, in ms:
+
+    columns            16     32     64    128    512
+    qkv   GEMV passes  0.25   0.46   0.92   1.83   7.30
+          GEMM         0.33   0.36   0.49   0.71   2.79
+    down  GEMV passes  0.84   1.66   3.30   6.58  26.34
+          GEMM         1.39   1.13   1.45   1.96   9.54
 """
-const Q4K_GEMV_COLUMNS = Ref(128)
+const Q4K_GEMV_COLUMNS = Ref(16)
+
+"""Where the GEMM has no tile, GEMV passes up to this many columns and the fp16
+GEMM on a dequantized copy of the weight past it."""
+const Q4K_GEMV_FALLBACK = 128
 
 const Q4K_GEMV_KERNELS = Dict{Tuple{Int,Int},Any}()
 for N in 1:8, R in (1, 2, 4)
@@ -459,29 +475,210 @@ for N in 1:8, R in (1, 2, 4)
 end
 
 """
-    q4kgemv!(backend, out, A::Q4KMatrix, B; bias, epilogue, R) -> out
+    kqgemv!(backend, out, A::KQuantMatrix, B; bias, epilogue, R) -> out
 
 `out = epilogue.(A * B .+ bias)` for a `B` of one to eight columns: the
 activations quantized to int8, then one pass over the weight for all columns. `R`
 is the rows a group of 32 lanes takes; two from four columns on, where reusing the
 activations across rows was measured faster on the 8060S.
 """
-function q4kgemv!(backend, out, A::Q4KMatrix, B; bias = nothing, epilogue = identity,
+function kqgemv!(backend, out, A::KQuantMatrix, B; bias = nothing, epilogue = identity,
                   R::Int = q4krows(size(B, 2)))
     m, k = size(A)
     n = size(B, 2)
-    size(B, 1) == k && size(out) == (m, n) || throw(DimensionMismatch("q4kgemv! operands"))
-    1 <= n <= 8 || throw(ArgumentError("q4kgemv! takes one to eight columns, got $n"))
+    size(B, 1) == k && size(out) == (m, n) || throw(DimensionMismatch("kqgemv! operands"))
+    1 <= n <= 8 || throw(ArgumentError("kqgemv! takes one to eight columns, got $n"))
     dev = Mantle.todevice(backend)
     g = Mantle.Graph(dev)
     xq = Mantle.Buffer(dev, UVec4, (k ÷ 16, n))
     xds = Mantle.Buffer(dev, Float32, (k ÷ 16, n))
     Mantle.dispatch!(g, q8act_kernel!, (xq, xds, B, Int32(k), Int32(n * (k ÷ 32))), n * (k ÷ 32);
                      group = 256, name = "q8act")
-    Mantle.dispatch!(g, Q4K_GEMV_KERNELS[(n, R)],
-                     (out, A.q, xq, xds, bias === nothing ? out : bias, epilogue,
+    Mantle.dispatch!(g, kqgemv_kernels(A)[(n, R)],
+                     (out, kqarrays(A)..., xq, xds, bias === nothing ? out : bias, epilogue,
                       Int32(m), Int32(k ÷ QK_K), Val(bias !== nothing)),
                      cld(cld(m, R), Q4K_WG ÷ 32) * Q4K_WG; group = Q4K_WG, name = "q4kgemv")
     runonce!(g)
     return out
+end
+
+# ── the product for prompts ──────────────────────────────────────────────────
+#
+# Past a few hundred columns a product is compute-bound, and the GEMV's int8 dot
+# products run on the vector ALU while the matrix units sit idle. This is the
+# staged cooperative-matrix GEMM of `q8gemm_pipelined_kernel!`, reading Q4_K: the
+# weight tile is dequantized to fp16 as it is staged, and never exists in fp16
+# anywhere else, where the fallback below writes and reads 2 bytes a weight of
+# the whole matrix per product.
+#
+# A step of the reduction is one group of 64 weights (`K` is a multiple of 256).
+# A row's group is two 16-byte vectors of nibbles, each sixteen weights of the
+# group's two sub-blocks, so a thread stages one (row, vector) pair: one header
+# and one vector load, 32 weights. The tiles are k-contiguous, a row (weights) or
+# a column (activations) of `64 + 8` halves apiece, read as row- and column-major
+# fragments.
+
+const Q4K_GEMM_BK = 64
+const Q4K_GEMM_RS4 = (Q4K_GEMM_BK + 8) ÷ 4   # a staged row, in 4-half vectors
+
+@inline q4k_h4(a, b, c, d) = (VecElement(Float16(a)), VecElement(Float16(b)),
+                              VecElement(Float16(c)), VecElement(Float16(d)))
+# The four weights of byte lane `f` (low or high nibbles) of word `w`.
+@inline q4k_word4(w::UInt32, f, s::Float32, o::Float32) =
+    q4k_h4(s * Float32(f(w) & 0x0f) - o, s * Float32((f(w) >> 8) & 0x0f) - o,
+           s * Float32((f(w) >> 16) & 0x0f) - o, s * Float32((f(w) >> 24) & 0x0f) - o)
+
+"""
+    kq_stage(Val(kind), Ws, row, b, g, h, nb) -> NTuple{8,NTuple{4,VecElement{Float16}}}
+
+The staging step of a K-quant format: weights `16h + i` and `32 + 16h + i` (`i`
+0 to 15) of the `g`-th 64 (`g` 0 to 3) of block `b` of row `row`, dequantized,
+four to a vector, the first sixteen then the second. All 0-based; `Ws` are the
+format's arrays, `nb` the blocks in a row.
+"""
+function kq_stage end
+
+# A Q4_K group is one vector of nibbles per half: low nibbles the first 32
+# weights, high the next.
+@inline function kq_stage(::Val{:q4k}, Ws, row::Int32, b::Int32, g::Int32, h::Int32, nb::Int32)
+    Q = Ws[1]
+    vb = (row * nb + b) * Int32(Q4K_VECS)
+    hd = @inbounds Q[vb + Int32(1)]
+    qv = @inbounds Q[vb + Int32(2) + Int32(2) * g + h]
+    d, dmin = q4k_half(hd[1].value, 0), q4k_half(hd[1].value, 1)
+    sl, ml = q4k_scalemin(hd, Int32(2) * g)
+    sh, mh = q4k_scalemin(hd, Int32(2) * g + Int32(1))
+    dl, ol = d * Float32(sl), dmin * Float32(ml)
+    dh, oh = d * Float32(sh), dmin * Float32(mh)
+    lo = ntuple(w -> q4k_word4(qv[w].value, identity, dl, ol), Val(4))
+    hi = ntuple(w -> q4k_word4(qv[w].value, x -> x >> 4, dh, oh), Val(4))
+    return (lo..., hi...)
+end
+
+"""
+    kquant_gemm!(C, Ws, B, epi, Val(kind), Val(M), Val(N), Val(K), Val(cfg))
+
+`C = epi(A * B)` for a K-quant weight `A` (`M x K`, its arrays `Ws`) and fp16 `B`
+(`K x N`, `K` contiguous and 16-byte aligned). `cfg = (STM, STN, WM, WN)`: `WM x
+WN` subgroups of `16STM x 16STN` outputs each. A thread stages one row's
+`kq_stage` per step of 64.
+"""
+@inline function kquant_gemm!(C, Ws, B, epi, kind, ::Val{M}, ::Val{N}, ::Val{K},
+                              ::Val{CFG}) where {M,N,K,CFG}
+    # Sizes from the type parameters, never a local: see `flash.jl` on `@localmem`.
+    sA = KI.localmemory(Q8_H4, Val((16 * CFG[1] * CFG[3] * Q4K_GEMM_RS4,)), Val(1))
+    sB = KI.localmemory(Q8_H4, Val((16 * CFG[2] * CFG[4] * Q4K_GEMM_RS4,)), Val(2))
+    STM, STN, WM, WN = CFG
+    BM, BN, WG = 16STM * WM, 16STN * WN, 32WM * WN
+    RS4 = Int32(Q4K_GEMM_RS4)
+    NB = Int32(K ÷ QK_K)
+    APT = 2BM ÷ WG                     # (row, half) pairs a thread stages
+    BPT = BN * (Q4K_GEMM_BK ÷ 8) ÷ WG  # 16-byte activation chunks a thread stages
+
+    tid = Int32(KI.get_local_id().x) - Int32(1)
+    blk = Int32(KI.get_group_id().x) - Int32(1)
+    tm = (blk % Int32(M ÷ BM)) * Int32(BM)
+    tn = (blk ÷ Int32(M ÷ BM)) * Int32(BN)
+    sg = tid ÷ Int32(32)
+    sm, sn = (sg % Int32(WM)) * Int32(STM), (sg ÷ Int32(WM)) * Int32(STN)
+    @inbounds begin
+        Base.Cartesian.@nexprs 4 nt -> Base.Cartesian.@nexprs 4 mt -> if mt <= STM && nt <= STN
+            c_mt_nt = zero(Mantle.AcceleratedMatrix{Float32,16,16,Mantle.Accumulator})
+        end
+        Base.Cartesian.@nexprs 4 a -> if a <= APT
+            row_a = (tid + Int32((a - 1) * WG)) ÷ Int32(2)
+            h_a = (tid + Int32((a - 1) * WG)) % Int32(2)
+        end
+        Base.Cartesian.@nexprs 8 c -> if c <= BPT
+            kc_c = (tid + Int32((c - 1) * WG)) % Int32(Q4K_GEMM_BK ÷ 8)
+            col_c = (tid + Int32((c - 1) * WG)) ÷ Int32(Q4K_GEMM_BK ÷ 8)
+            pb_c = reinterpret(Ptr{Q8_U4}, pointer(B) + 2 * (Int(tn + col_c) * K + Int(kc_c) * 8))
+        end
+        for kb in Int32(0):Int32(K ÷ Q4K_GEMM_BK - 1)
+            b, g = kb ÷ Int32(4), kb % Int32(4)
+            Base.Cartesian.@nexprs 4 a -> if a <= APT
+                x = kq_stage(kind, Ws, tm + row_a, b, g, h_a, NB)
+                base = Int32(1) + row_a * RS4 + Int32(4) * h_a
+                Base.Cartesian.@nexprs 4 w -> begin
+                    sA[base + Int32(w - 1)] = x[w]
+                    sA[base + Int32(8) + Int32(w - 1)] = x[w + 4]
+                end
+            end
+            k0 = Int(kb) * Q4K_GEMM_BK
+            Base.Cartesian.@nexprs 8 c -> if c <= BPT
+                v = Core.Intrinsics.pointerref(pb_c + 2k0, 1, 16)
+                sB[Int32(1) + col_c * RS4 + Int32(2) * kc_c] = q8h4lo(v)
+                sB[Int32(2) + col_c * RS4 + Int32(2) * kc_c] = q8h4hi(v)
+            end
+            KI.barrier()
+            Base.Cartesian.@nexprs 4 u -> begin
+                Base.Cartesian.@nexprs 4 mt -> if mt <= STM
+                    a_mt = Mantle.AcceleratedMatrix{Float16,16,16,Mantle.MatrixA}(sA,
+                        1 + (sm + Int32(mt - 1)) * Int32(16) * RS4 + Int32((u - 1) * 4), RS4, Val(true))
+                end
+                Base.Cartesian.@nexprs 4 nt -> if nt <= STN
+                    bm = Mantle.AcceleratedMatrix{Float16,16,16,Mantle.MatrixB}(sB,
+                        1 + (sn + Int32(nt - 1)) * Int32(16) * RS4 + Int32((u - 1) * 4), RS4, Val(false))
+                    Base.Cartesian.@nexprs 4 mt -> if mt <= STM
+                        c_mt_nt = muladd(a_mt, bm, c_mt_nt)
+                    end
+                end
+            end
+            KI.barrier()
+        end
+        Base.Cartesian.@nexprs 4 nt -> Base.Cartesian.@nexprs 4 mt -> if mt <= STM && nt <= STN
+            Mantle.accstore!(C, Int32(1) + tm + (sm + Int32(mt - 1)) * Int32(16) +
+                (tn + (sn + Int32(nt - 1)) * Int32(16)) * Int32(M), Int32(M), c_mt_nt, epi)
+        end
+    end
+    return nothing
+end
+
+q4kgemm_kernel!(C, Q, B, epi, m::Val, n::Val, k::Val, cfg::Val) =
+    kquant_gemm!(C, (Q,), B, epi, Val(:q4k), m, n, k, cfg)
+
+kqarrays(A::Q4KMatrix) = (A.q,)
+kqgemm_kernel(::Q4KMatrix) = q4kgemm_kernel!
+kqdequant_kernel(::Q4KMatrix) = q4k_dequant_kernel!
+kqgemv_kernels(::Q4KMatrix) = Q4K_GEMV_KERNELS
+
+"""
+    kqgemm_tile(caps, Tout, m, k, n) -> cfg | nothing
+
+The tile `kquant_gemm!` runs an `(m, k) x (k, n)` K-quant product at, or `nothing`
+where it cannot: no 16 x 16 cooperative matrices on 32-lane subgroups, or extents
+no tile divides.
+"""
+function kqgemm_tile(caps, ::Type{Tout}, m::Integer, k::Integer, n::Integer) where {Tout}
+    caps.coopmat && caps.coopmatsubgroup == 32 && caps.tile == 16 || return nothing
+    Tout in (Float16, Float32) || return nothing
+    k % QK_K == 0 && m % 64 == 0 && n % 16 == 0 || return nothing
+    max(m * k, k * n, m * n) <= typemax(Int32) || return nothing
+    cfg = n % 128 == 0 ? (2, 4, 2, 2) : n % 64 == 0 ? (2, 2, 2, 2) : n % 32 == 0 ? (2, 1, 2, 2) : (2, 1, 2, 1)
+    STM, STN, WM, WN = cfg
+    shared = 8 * (16STM * WM + 16STN * WN) * Q4K_GEMM_RS4
+    32WM * WN <= caps.workgrouplimit && shared <= caps.sharedbudget || return nothing
+    return cfg
+end
+
+"""The launch for the K-quant GEMM at `cfg`."""
+function kqgemm_launch(C, A::KQuantMatrix, B, epi, cfg)
+    m, k = size(A)
+    n = size(B, 2)
+    STM, STN, WM, WN = cfg
+    BM, BN, WG = 16STM * WM, 16STN * WN, 32WM * WN
+    (kern = kqgemm_kernel(A),
+     args = (C, kqarrays(A)..., B, epi, Val(m), Val(n), Val(k), Val(cfg)),
+     ndrange = (m ÷ BM) * (n ÷ BN) * WG, group = WG)
+end
+
+"""Run the K-quant GEMM now; `cfg` from [`kqgemm_tile`](@ref)."""
+function kqgemm!(C, A::KQuantMatrix, B; cfg, epilogue = identity)
+    m, k = size(A)
+    size(B, 1) == k && size(C) == (m, size(B, 2)) || throw(DimensionMismatch("kqgemm operands"))
+    l = kqgemm_launch(C, A, B, epilogue, cfg)
+    l = (; l..., args = map(Mantle.storage, l.args))
+    harnesslaunch!(KernelAbstractions.get_backend(C), l.kern, l.args...;
+                   ndrange = l.ndrange, workgroupsize = l.group)
+    return C
 end

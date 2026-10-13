@@ -302,6 +302,27 @@ function handoff!(old::AbstractDict, new::AbstractDict)
     return new
 end
 
+"""
+    QuantPolicy(name, pick)
+
+Which scheme each quantized weight gets: `pick(key, size)` returns `:int8`,
+`:q4k` or `:q6k` for the weight `key` of float shape `size`. `name` is the policy's, and
+what a weight cache is kept under. `quantize = :q4k` is the policy that answers
+`:q4k` everywhere.
+"""
+struct QuantPolicy{F}
+    name::Symbol
+    pick::F
+end
+
+quantpolicy(q::QuantPolicy) = q
+quantpolicy(q::Bool) = q ? quantpolicy(:int8) : nothing
+function quantpolicy(s::Symbol)
+    s in (:int8, :q4k, :q6k) ||
+        throw(ArgumentError("quantize must be false, true, :int8, :q4k, :q6k or a QuantPolicy, got $(repr(s))"))
+    return QuantPolicy(s, (_, _) -> s)
+end
+
 function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                backend=nothing, device=nothing, memevery=5, memframes=5, topk=30,
                # Off is how the fusion passes get checked: build the model twice
@@ -320,11 +341,12 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                # `flashcm_plan` declines and `coopmat_sdpa_plan` takes.
                fuseattn::Bool = true,
                # Store the matmul weights as int8 with a per-output-channel
-               # scale (`true` or `:int8`), or as Q4_K (`:q4k`). Decode reads
-               # every weight once per token and is bandwidth-bound outright, so
-               # this divides the floor by the bytes saved; see `quant.jl` and
-               # `q4k.jl` for the schemes and what they cost.
-               quantize::Union{Bool,Symbol} = false,
+               # scale (`true` or `:int8`), or as Q4_K (`:q4k`), or each as a
+               # `QuantPolicy` picks. Decode reads every weight once per token
+               # and is bandwidth-bound outright, so this divides the floor by
+               # the bytes saved; see `quant.jl` and `q4k.jl` for the schemes
+               # and what they cost.
+               quantize::Union{Bool,Symbol,QuantPolicy} = false,
                # A directory to keep the quantized weights in (see `quantcache.jl`):
                # written on the first load, read instead of quantizing after it.
                quantcache::Union{Nothing,AbstractString} = nothing,
@@ -477,16 +499,15 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # 580 tensors of ~100 MB is far too slow to keep under the cap.
     weights = Dict{String,Any}()
     thost = (time_ns() - t0) / 1e9
-    scheme = quantize === true ? :int8 : quantize
-    scheme in (false, :int8, :q4k) ||
-        throw(ArgumentError("quantize must be false, true, :int8 or :q4k, got $(repr(quantize))"))
-    qk = scheme === false ? Set{String}() : quantkeys(graphs)
-    cache = scheme === false || quantcache === nothing ? nothing : QuantCache(quantcache, scheme)
+    policy = quantpolicy(quantize)
+    qk = policy === nothing ? Set{String}() : quantkeys(graphs)
+    cache = policy === nothing || quantcache === nothing ? nothing : QuantCache(quantcache, policy.name)
     let ks = collect(keys(host)), n = 0, nq = 0, nc = 0
         for k in ks
             # From the cache, the float weight is never read: its pages stay on
             # disk, and the host never sees them.
-            if cache !== nothing && k in qk && iscached(cache, k, size(host[k]))
+            if cache !== nothing && k in qk &&
+               iscached(cache, k, size(host[k]), quantkind(policy.pick(k, size(host[k])), size(host[k])))
                 weights[k] = cacheload(backend, cache, k)
                 nq += 1
                 nc += 1
@@ -499,7 +520,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
             # the float immediately: the host never sees 33.5 G elements and the
             # peak is one weight above the int8 total rather than both sets.
             if k in qk && ndims(d) == 2 && eltype(d) <: AbstractFloat
-                weights[k] = quantizeweight(backend, d, Val(scheme))
+                weights[k] = quantizeweight(backend, d, policy.pick(k, size(d)))
                 cache === nothing || cachestore!(cache, k, size(d), weights[k])
                 nq += 1
             else
@@ -524,7 +545,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
         empty!(host)
         GC.gc(true)
         cache === nothing || closecache!(cache)
-        scheme === false || @info "Model: $nq of $(length(ks)) weights quantized ($scheme)" *
+        policy === nothing || @info "Model: $nq of $(length(ks)) weights quantized ($(policy.name))" *
                                   (cache === nothing ? "" : ", $nc of them read from $(cache.dir)")
     end
     tupload = (time_ns() - t0) / 1e9 - thost
@@ -605,14 +626,19 @@ function livekeys(graphs)
 end
 
 """
-    quantizeweight(backend, W, Val(scheme))
+    quantizeweight(backend, W, scheme)
 
-A device weight in the `quantize` scheme of [`Model`](@ref). Q4_K needs a
-reduction extent that is a multiple of 256; a weight without one stays int8.
+A device weight in `scheme` (`:int8`, `:q4k`, `:q6k`), as a [`QuantPolicy`](@ref)
+picked it, in the format [`quantkind`](@ref) says it is stored in.
 """
+quantizeweight(backend, W, scheme::Symbol) = quantizeweight(backend, W, Val(quantkind(scheme, size(W))))
 quantizeweight(backend, W, ::Val{:int8}) = quantizeint8(backend, W)
-quantizeweight(backend, W, ::Val{:q4k}) =
-    size(W, 2) % QK_K == 0 ? quantizeq4k(backend, W) : quantizeint8(backend, W)
+quantizeweight(backend, W, ::Val{:q4k}) = quantizeq4k(backend, W)
+quantizeweight(backend, W, ::Val{:q6k}) = quantizeq6k(backend, W)
+
+"""The scheme a weight of float shape `size` is actually stored in: a K-quant
+where the reduction extent is a multiple of 256, int8 where it is not."""
+quantkind(scheme::Symbol, size) = scheme in (:q4k, :q6k) && size[2] % QK_K != 0 ? :int8 : scheme
 
 """
     quantkeys(graphs) -> Set{String}

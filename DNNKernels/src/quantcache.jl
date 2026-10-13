@@ -27,18 +27,23 @@ after re-exporting a model.
 const QUANTCACHE_VERSION = 1
 const QUANTCACHE_ALIGN = 4096
 
-const QUANTCACHE_ELTYPES = Dict("UVec4" => UVec4, "UInt32" => UInt32, "Float32" => Float32)
+const QUANTCACHE_ELTYPES = Dict("UVec4" => UVec4, "UInt32" => UInt32, "Float32" => Float32,
+                                "Float16" => Float16)
 cachename(::Type{UVec4}) = "UVec4"
 cachename(::Type{UInt32}) = "UInt32"
 cachename(::Type{Float32}) = "Float32"
+cachename(::Type{Float16}) = "Float16"
 
 # What a quantized matrix is made of, and how it is put back together.
 cachekind(::Q4KMatrix) = "q4k"
 cachekind(::QInt8Matrix) = "int8"
+cachekind(::Q6KMatrix) = "q6k"
 cachearrays(w::Q4KMatrix) = (w.q,)
 cachearrays(w::QInt8Matrix) = (w.q, w.scale)
+cachearrays(w::Q6KMatrix) = kqarrays(w)
 fromcache(::Val{:q4k}, arrays, shape) = Q4KMatrix(arrays[1], shape[1], shape[2])
 fromcache(::Val{:int8}, arrays, shape) = QInt8Matrix(arrays[1], arrays[2], shape[1])
+fromcache(::Val{:q6k}, arrays, shape) = Q6KMatrix(arrays..., shape[1], shape[2])
 
 mutable struct QuantCache
     dir::String
@@ -72,8 +77,16 @@ function QuantCache(dir::AbstractString, scheme::Symbol)
     return QuantCache(dir, scheme, Dict{String,Any}(), nothing, nothing, nothing)
 end
 
-iscached(c::QuantCache, key::AbstractString, shape) =
-    haskey(c.entries, key) && Tuple(Int.(c.entries[key][:shape])) == Tuple(shape)
+"""
+    iscached(cache, key, shape, kind)
+
+Whether the cache holds `key`, of float shape `shape`, in the format `kind`
+(`:q4k`, `:q6k` or `:int8`). The format is asked so a policy that now picks
+another one for a weight quantizes it again rather than load the old one.
+"""
+iscached(c::QuantCache, key::AbstractString, shape, kind::Symbol) =
+    haskey(c.entries, key) && Tuple(Int.(c.entries[key][:shape])) == Tuple(shape) &&
+    c.entries[key][:kind] == string(kind)
 
 """
     cachestore!(cache, key, shape, w)
