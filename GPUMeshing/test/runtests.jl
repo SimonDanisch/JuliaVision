@@ -8,7 +8,7 @@ of ambiguous face. The host path is then checked against an independent loop wal
 (`reference.jl`), and the device path against the host path, face for face.
 """
 
-using Test, GPUMeshing, Lava, Random, LinearAlgebra
+using Test, GPUMeshing, Random, LinearAlgebra
 import Mantle
 using GeometryBasics: GeometryBasics, Vec3f, Point3f, GLTriangleFace, coordinates, faces, normals
 const GM = GPUMeshing
@@ -24,6 +24,11 @@ function directededges(F)
     end
     return d
 end
+
+"""Whether `x` stayed on `dev`: an array of `T` of that device's backend, whichever
+backend it is (a `LavaArray` on Vulkan, an `MtlArray` on Metal)."""
+ondevice(x, ::Type{T}, dev) where {T} =
+    eltype(x) === T && Mantle.KA.get_backend(x) isa typeof(Mantle.backend(dev))
 
 """Closed and consistently wound: every directed edge as often as its reverse."""
 balanced(F) = (d = directededges(F); all(k -> d[k] == get(d, (k[2], k[1]), 0), keys(d)))
@@ -194,9 +199,9 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
             fb = Mantle.Buffer(dev, f)
             onboard = marchingcubes(dev, fb; level = 0.1, place...)
             Mantle.free!(fb)
-            @test coordinates(onboard) isa Mantle.LavaArray{Point3f,1}
-            @test faces(onboard) isa Mantle.LavaArray{GLTriangleFace,1}
-            @test normals(onboard) isa Mantle.LavaArray{Vec3f,1}
+            @test ondevice(coordinates(onboard), Point3f, dev)
+            @test ondevice(faces(onboard), GLTriangleFace, dev)
+            @test ondevice(normals(onboard), Vec3f, dev)
             @test Array(faces(onboard)) == faces(host)
             # the device's division is not correctly rounded
             dp, hp = Array(coordinates(onboard)), coordinates(host)

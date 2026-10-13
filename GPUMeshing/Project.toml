@@ -17,8 +17,7 @@ Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor
 Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
 
 [extras]
-Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Lava", "Test"]
+test = ["Test"]
