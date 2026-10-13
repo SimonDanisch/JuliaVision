@@ -256,10 +256,14 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
         n = size(coords, 2)
         grid = SparseGrid(dev, Mantle.Buffer(dev, coords), n, res)
         @test length(grid) == n
-        corners, m = voxelcorners(dev, grid)
-        listed = Set(Tuple(c) for c in eachcol(download(corners)))
+        corners, m, cornerof = voxelcorners(dev, grid)
+        ch, co = download(corners), download(cornerof)
+        listed = Set(Tuple(c) for c in eachcol(ch))
         want = Set((x + i, y + j, z + k) for (x, y, z) in eachcol(coords), i in 0:1, j in 0:1, k in 0:1)
         @test listed == want
+        # every voxel's eight corners, through `cornerof`, are columns holding them
+        @test all(Tuple(ch[:, co[1 + 4i + 2j + k, v]]) == (coords[1, v] + i, coords[2, v] + j, coords[3, v] + k)
+                  for v in 1:n, i in 0:1, j in 0:1, k in 0:1)
         # quads against a host lookup of the four voxels around every far edge
         crossing = rand(rng, Int32(-1):Int32(1), 3, n)
         quads, flags = edgequads(dev, grid, Mantle.Buffer(dev, crossing))
@@ -276,7 +280,7 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
         end
         @test fl == Int32.(.!isnothing.(expected))
         @test all(s -> isnothing(expected[s]) || q[:, s] == expected[s], 1:3n)
-        foreach(Mantle.free!, (grid, corners, quads, flags))
+        foreach(Mantle.free!, (grid, corners, cornerof, quads, flags))
     end
 
     @testset "dual contouring a sphere's distance on a narrow band" begin
@@ -287,12 +291,12 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
                                if abs(sdf(x + 0.5, y + 0.5, z + 0.5)) < 1.5])
         n = size(coords, 2)
         grid = SparseGrid(dev, Mantle.Buffer(dev, coords), n, res)
-        corners, m = voxelcorners(dev, grid)
+        corners, m, cornerof = voxelcorners(dev, grid)
         ch = download(corners)
         values = Mantle.Buffer(dev, [sdf(ch[1, i], ch[2, i], ch[3, i]) for i in 1:m])
-        V, F = dualcontour(dev, grid, corners, values, m; origin = Vec3f(-c), cell = 1)
+        V, F = dualcontour(dev, grid, cornerof, values; origin = Vec3f(-c), cell = 1)
         v, f = download(V), download(F)
-        foreach(Mantle.free!, (grid, corners, values, V, F))
+        foreach(Mantle.free!, (grid, corners, cornerof, values, V, F))
         ok, euler = manifold(v, f)
         @test ok
         @test euler == 2

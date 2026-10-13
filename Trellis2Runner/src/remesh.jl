@@ -63,15 +63,15 @@ function remesh(dev::Mantle.Device, vertices::AbstractMatrix{Float32}, faces::Ab
     foreach(Mantle.free!, (mask, cpos, cand, d, flags))
     # The voxels, and the band distance at their corners.
     vox = SparseGrid(dev, coords, n, res)
-    corners, ncorner = voxelcorners(dev, vox)
+    corners, ncorner, cornerof = voxelcorners(dev, vox)
     value = Mantle.Buffer(dev, Float32, ncorner)
     g = Mantle.Graph(dev)
     Mantle.dispatch!(g, coorddistance!, (value, corners, 0f0, eps, cell, lo[1], lo[2], lo[3], sv, sf, ss, st, grid.res, ncorner),
                      ncorner; name = "remesh/corner distance")
     runonce!(g)
-    foreach(Mantle.free!, (sv, sf, ss, st))
-    V, F = dualcontour(dev, vox, corners, value, ncorner; origin = lo, cell)
-    foreach(Mantle.free!, (vox, corners, value))
+    foreach(Mantle.free!, (sv, sf, ss, st, corners))
+    V, F = dualcontour(dev, vox, cornerof, value; origin = lo, cell)
+    foreach(Mantle.free!, (vox, cornerof, value))
     return V, F
 end
 

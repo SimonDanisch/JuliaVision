@@ -32,15 +32,19 @@ function Mantle.free!(grid::SparseGrid)
 end
 
 """
-    voxelcorners(dev, grid) -> (corners, m)
+    voxelcorners(dev, grid) -> (corners, m, cornerof)
 
 The corners of the grid's voxels, `(3, m)` zero-based Int32 in the `(res + 1)`^3
 corner grid, as cumesh's `get_vertex_num` lists them: each voxel its own low
 corner, and each of its other seven whose own voxel, the one that would list it
 as its low corner, is not in the grid. A corner none of whose voxels own it is
 listed once by every voxel around it, so some appear more than once.
-[`dualcontour`](@ref) reads one copy of each, which is the same answer for any
-field that is a function of position.
+
+`cornerof` `(8, n)` Int32 is, for each voxel, the column of its corner
+`(x + i, y + j, z + k)` in row `1 + 4i + 2j + k`: the owner's copy where the
+corner has an owner, the voxel's own copy where it does not. It is what
+[`dualcontour`](@ref) reads a voxel's corners through, which is the same answer
+as any other copy for a field that is a function of position.
 """
 function voxelcorners(dev::Mantle.Device, grid::SparseGrid)
     n, res, vox = grid.n, grid.res, grid.map
@@ -52,22 +56,30 @@ function voxelcorners(dev::Mantle.Device, grid::SparseGrid)
     pos = prefixsum(dev, cnt)
     m = lastentry(pos)
     corners = Mantle.Buffer(dev, Int32, (3, m))
+    cornerof = Mantle.Buffer(dev, Int32, (8, n))
     g = Mantle.Graph(dev)
-    Mantle.dispatch!(g, cornerfill!, (corners, pos, cnt, grid.coords, vox.keys, vox.vals, vox.capacity, Int32(res), n), n;
-                     name = "voxelcorners/fill")
+    Mantle.dispatch!(g, cornerfill!, (corners, cornerof, pos, cnt, grid.coords, vox.keys, vox.vals, vox.capacity,
+                                      Int32(res), n), n; name = "voxelcorners/fill")
     runonce!(g)
     foreach(Mantle.free!, (cnt, pos))
-    return corners, m
+    return corners, m, cornerof
 end
 
 """
-Whether voxel `(x, y, z)` owns the corner at `(x + i, y + j, z + k)`: the
-voxel at that coordinate would, when it exists (cumesh's `get_vertex_num`).
+The column of the voxel whose low corner is the grid point `(x, y, z)`, 0 when
+there is none (cumesh's `get_vertex_num`): that voxel owns the corner, and a
+voxel only lists a corner other than its low one when nothing owns it.
 """
-@inline function ownscorner(keys, vals, cap, res, x, y, z)
-    (x >= res || y >= res || z >= res) && return true
-    return hashlookup(keys, vals, gridkey(x, y, z, res), cap) == Int32(0)
+@inline function cornerowner(keys, vals, cap, res, x, y, z)
+    (x >= res || y >= res || z >= res) && return Int32(0)
+    return hashlookup(keys, vals, gridkey(x, y, z, res), cap)
 end
+
+"""Whether the corner at grid point `(x, y, z)` has no owner, see [`cornerowner`](@ref)."""
+@inline ownscorner(keys, vals, cap, res, x, y, z) = cornerowner(keys, vals, cap, res, x, y, z) == Int32(0)
+
+"""The row of `cornerof` holding a voxel's corner at offset `(i, j, k)`."""
+@inline cornerrow(i, j, k) = Int32(1) + Int32(4) * i + Int32(2) * j + k
 
 function cornercount!(cnt, coords, keys, vals, cap, res, n)
     v = Int32(KI.get_global_id().x)
@@ -84,18 +96,24 @@ function cornercount!(cnt, coords, keys, vals, cap, res, n)
     return nothing
 end
 
-function cornerfill!(corners, pos, cnt, coords, keys, vals, cap, res, n)
+function cornerfill!(corners, cornerof, pos, cnt, coords, keys, vals, cap, res, n)
     v = Int32(KI.get_global_id().x)
     v <= n || return nothing
     @inbounds begin
         x, y, z = coords[1, v], coords[2, v], coords[3, v]
         j = pos[v] - cnt[v] + Int32(1)
         corners[1, j] = x; corners[2, j] = y; corners[3, j] = z
+        cornerof[1, v] = j
         for i in Int32(0):Int32(1), jj in Int32(0):Int32(1), k in Int32(0):Int32(1)
             (i == Int32(0) && jj == Int32(0) && k == Int32(0)) && continue
-            ownscorner(keys, vals, cap, res, x + i, y + jj, z + k) || continue
-            j += Int32(1)
-            corners[1, j] = x + i; corners[2, j] = y + jj; corners[3, j] = z + k
+            u = cornerowner(keys, vals, cap, res, x + i, y + jj, z + k)
+            if u == Int32(0)
+                j += Int32(1)
+                corners[1, j] = x + i; corners[2, j] = y + jj; corners[3, j] = z + k
+                cornerof[cornerrow(i, jj, k), v] = j
+            else
+                cornerof[cornerrow(i, jj, k), v] = pos[u] - cnt[u] + Int32(1)
+            end
         end
     end
     return nothing
@@ -158,32 +176,30 @@ function quadcandidates!(quads, qflag, coords, crossing, keys, vals, cap, res, n
 end
 
 """
-    dualcontour(dev, grid, corners, values, m; origin = Vec3f(0), cell = 1) -> (V, F)
+    dualcontour(dev, grid, cornerof, values; origin = Vec3f(0), cell = 1) -> (V, F)
 
-The zero set of a field sampled at the `m` corners of a sparse voxel grid, by
-dual contouring: one vertex per voxel at the mean of the points where the field
+The zero set of a field sampled at the corners of a sparse voxel grid, by dual
+contouring: one vertex per voxel at the mean of the points where the field
 changes sign along its twelve edges, a quad of the four voxels around every
-crossed edge, wound so it faces the field's positive side. `corners` are what
-[`voxelcorners`](@ref) returns and `values` `(m,)` Float32 the field at each;
-the caller computes them however its field is defined. Voxels no quad reaches
+crossed edge, wound so it faces the field's positive side. `values` `(m,)`
+Float32 is the field at each of the `m` corners [`voxelcorners`](@ref) lists,
+computed however the caller's field is defined, and `cornerof` the voxels'
+corners among them that it returns with them. Voxels no quad reaches
 drop out. Vertices are `origin + cell * p` for `p` in voxel units, as
 `Mantle.Buffer`s `(3, V)` Float32 and `(3, F)` Int32.
 
 Each quad is split as cumesh's `remesh_narrow_band_dc` splits it, see
 [`splitquads!`](@ref).
 """
-function dualcontour(dev::Mantle.Device, grid::SparseGrid, corners::Mantle.Buffer, values::Mantle.Buffer, m::Int;
+function dualcontour(dev::Mantle.Device, grid::SparseGrid, cornerof::Mantle.Buffer, values::Mantle.Buffer;
                      origin::Vec3f = Vec3f(0), cell::Real = 1)
     n = grid.n
-    R = grid.res + 1
-    cmap = insert!(dev, HashMap(dev, m), corners, m, R)
     dual = Mantle.Buffer(dev, Float32, (3, n))
     crossing = Mantle.Buffer(dev, Int32, (3, n))
     g = Mantle.Graph(dev)
-    Mantle.dispatch!(g, dualpoints!, (dual, crossing, grid.coords, cmap.keys, cmap.vals, cmap.capacity, values, Int32(R), n), n;
+    Mantle.dispatch!(g, dualpoints!, (dual, crossing, grid.coords, cornerof, values, n), n;
                      name = "dualcontour/points")
     runonce!(g)
-    Mantle.free!(cmap)
     quads, qflag = edgequads(dev, grid, crossing)
     ns = 3n
     used = fill!(Mantle.Buffer(dev, Int32, n), 0)
@@ -205,9 +221,8 @@ function dualcontour(dev::Mantle.Device, grid::SparseGrid, corners::Mantle.Buffe
     return V, F
 end
 
-"""The field at corner `(x, y, z)` of the `R`^3 corner grid."""
-@inline cornervalue(keys, vals, cap, value, R, x, y, z) =
-    @inbounds value[hashlookup(keys, vals, gridkey(x, y, z, R), cap)]
+"""The field at voxel `v`'s corner at offset `o`, through [`voxelcorners`](@ref)' `cornerof`."""
+@inline cornervalue(value, cornerof, v, o) = @inbounds value[cornerof[cornerrow(o[1], o[2], o[3]), v]]
 
 """
 cumesh's `simple_dual_contour_kernel`: per voxel, the mean of the points where
@@ -215,7 +230,7 @@ the field changes sign along its twelve edges (the voxel's centre when none
 does), in voxel units, and on its three far edges the sign change's direction:
 1 from negative to positive, -1 the other way, 0 for none.
 """
-function dualpoints!(dual, crossing, coords, keys, vals, cap, value, R, n)
+function dualpoints!(dual, crossing, coords, cornerof, value, n)
     i = Int32(KI.get_global_id().x)
     i <= n || return nothing
     @inbounds begin
@@ -223,14 +238,13 @@ function dualpoints!(dual, crossing, coords, keys, vals, cap, value, R, n)
         sx = sy = sz = 0f0
         m = Int32(0)
         for a in Int32(1):Int32(3), u in Int32(0):Int32(1), v in Int32(0):Int32(1)
-            # The edge along axis `a` at offsets `(u, v)` in the other two.
-            px = a == Int32(1) ? x : a == Int32(2) ? x + u : x + u
-            py = a == Int32(1) ? y + u : a == Int32(2) ? y : y + v
-            pz = a == Int32(1) ? z + v : a == Int32(2) ? z + v : z
-            val1 = cornervalue(keys, vals, cap, value, R, px, py, pz)
-            val2 = a == Int32(1) ? cornervalue(keys, vals, cap, value, R, px + Int32(1), py, pz) :
-                   a == Int32(2) ? cornervalue(keys, vals, cap, value, R, px, py + Int32(1), pz) :
-                                   cornervalue(keys, vals, cap, value, R, px, py, pz + Int32(1))
+            # The edge along axis `a` at offsets `(u, v)` in the other two: its
+            # two ends as offsets from the voxel's low corner.
+            o1 = a == Int32(1) ? (Int32(0), u, v) : a == Int32(2) ? (u, Int32(0), v) : (u, v, Int32(0))
+            o2 = a == Int32(1) ? (Int32(1), u, v) : a == Int32(2) ? (u, Int32(1), v) : (u, v, Int32(1))
+            px, py, pz = x + o1[1], y + o1[2], z + o1[3]
+            val1 = cornervalue(value, cornerof, i, o1)
+            val2 = cornervalue(value, cornerof, i, o2)
             crossed = (val1 < 0f0) != (val2 < 0f0)
             if crossed
                 t = -val1 / (val2 - val1)
