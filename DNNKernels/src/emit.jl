@@ -2313,6 +2313,15 @@ function folddims(emitctx::EmitCtx, op::Op, dims, combine, init;
     # unfolded case, so there is one kernel rather than two.
     folded = something(premap(op), identity)
     f = folded === identity ? pre : pre === identity ? folded : pre ∘ folded
+    # The leading axes reduced, and a long run each: a workgroup per output,
+    # see `segreduce_kernel!`. Global pools are this case.
+    n = prod(id[k] for k in dims; init = 1)
+    if sort(collect(dims)) == collect(1:length(dims)) && n >= 4 * SEGREDUCE_WG
+        M.dispatch!(emitctx.g, segreduce_kernel!,
+                    (out, a, f, combine, init, post, Val(SEGREDUCE_WG), n),
+                    SEGREDUCE_WG * length(out); group = SEGREDUCE_WG, name = op.id)
+        return out
+    end
     M.dispatch!(emitctx.g, folddims!, (out, od, a, id, f, combine, init, post),
                 prod(od); name = op.id)
     return out
@@ -2730,9 +2739,17 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max.dim")})
     d = jdim(Int(op.attrs["arg1"]), ndims(a))
     sz = ntuple(k -> k == d ? 1 : size(a, k), ndims(a))
     inds = destor(emitctx, 1, eltype(vals), sz)
-    mapbody!(emitctx, op, maxdim_body, vals, a, Val(d), Val(false);
+    # `maxdim_body` reads the input at the OUTPUT's coordinates with the reduced
+    # one replaced, so it needs the output at the input's rank. Without
+    # `keepdim` torch drops the reduced axis, and a rank-2 output of a rank-3
+    # input then indexed the input with two coordinates: every slice read the
+    # first one. PP-OCRv6's recogniser takes `max(dim=2)` of `(1, T, 18710)`
+    # and got the blank class at every time step. Dropping a length-1 axis does
+    # not move an element, so the keepdim shape is a view and costs nothing.
+    atrank(r) = ndims(r) == ndims(a) ? r : M.viewof(r, sz)
+    mapbody!(emitctx, op, maxdim_body, atrank(vals), a, Val(d), Val(false);
              name = "$(op.id).values")
-    mapbody!(emitctx, op, maxdim_body, inds, a, Val(d), Val(true);
+    mapbody!(emitctx, op, maxdim_body, atrank(inds), a, Val(d), Val(true);
              name = "$(op.id).indices")
     return (vals, inds)
 end
@@ -5222,10 +5239,20 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     convnative === nothing ||
         return convfollowup!(emitctx, op, out, bias, convact, convnative)
 
-    groups == 1 || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) has $(groups) groups, and only " *
-        "the dense convolution is declared. `convolution_direct!` is the " *
-        "grouped kernel; it needs an `emitop!` of its own.")
+    # Grouped, and depthwise as its extreme: `conv2d`, one output element per
+    # thread, the body `convolution_direct!` runs on the immediate path. The
+    # GEMM lowerings below all assume one group. PP-OCRv6's PP-LCNetV4 backbone
+    # is where this first came up: depthwise 3x3 and 5x5 between every pair of
+    # pointwise layers, 128 to 896 groups. A depthwise layer has no reduction
+    # over channels to tile, so one thread per output is not leaving reuse on
+    # the table the way it would for a dense one. The bias is added inside the
+    # body; a folded activation is a pass after it.
+    if groups != 1
+        mapbody!(emitctx, op, conv2d, out, x, w, bias,
+                 Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
+                 Val(dil[1]), Val(dil[2]), Val(groups))
+        return convfollowup!(emitctx, op, out, bias, convact, (bias = true, epilogue = false))
+    end
 
     KWk, KHk, Cin, Cout = size(w)
     Wid, Hei = size(x, 1), size(x, 2)

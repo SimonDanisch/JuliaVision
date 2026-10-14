@@ -896,6 +896,49 @@ function softmax_kernel!(out, a, ::Val{WG}, pre, n) where {WG}
     return nothing
 end
 
+"""
+One workgroup per output element of a reduction whose reduced axes are the
+LEADING ones, so that each output folds one contiguous run of `n` elements of
+`a`: `out[j] = post(fold(combine, f.(a[(j-1)n+1 : jn]); init))`.
+
+`folddims!` gives each output one thread, which is right when there are many
+outputs and short runs and wrong for a global pool: a squeeze-and-excitation
+block averages a whole `(W, H)` plane per channel, so 128 channels of a
+320x448 map were 128 threads reading 143k elements each, one after another.
+That was 651 ms of PP-OCRv6's 1.0 s detector. Here `WG` threads stride the run
+and their partial results meet in workgroup memory.
+
+The last step is one thread folding the `WG` partials rather than a tree: a
+loop with a barrier in it does not survive the CPU backend's split at barriers
+(see `softmax_kernel!`), and `WG` adds are nothing next to the run.
+"""
+const SEGREDUCE_WG = 256
+
+function segreduce_kernel!(out, a, f, combine, init::A, post, ::Val{WG}, n) where {A,WG}
+    lt, = Tuple(KI.get_local_id())
+    grp, = Tuple(KI.get_group_id())
+    sh = KI.localmemory(A, Val((WG,)), Val(1))
+    @inbounds begin
+        base = (grp - 1) * n
+        acc = init
+        i = lt
+        while i <= n
+            acc = combine(acc, A(f(a[base + i])))
+            i += WG
+        end
+        sh[lt] = acc
+    end
+    KI.barrier()
+    @inbounds if lt == 1
+        acc = sh[1]
+        for k in 2:WG
+            acc = combine(acc, sh[k])
+        end
+        out[grp] = post(acc)
+    end
+    return nothing
+end
+
 """Element of an outer repetition: the source tiles, so index it modulo its own size."""
 @inline repeatouter(I, a, sz::NTuple{N,Int}) where {N} =
     @inbounds a[ntuple(k -> mod1(I[k], sz[k]), Val(N))...]

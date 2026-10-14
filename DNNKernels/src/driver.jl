@@ -1096,6 +1096,35 @@ function releaseplans!(m::Model)
 end
 
 """
+    trimpool!(device)
+
+Hand the device pool's unused memory back to the driver, once the device has
+finished with what was freed. Owning thread only, like every pool operation.
+"""
+function trimpool!(dev)
+    M.supports_batch_queue(dev) && M.flush!(dev)
+    M.reclaim!(M.pool(dev), dev; wait = true)
+    M.trim!(M.pool(dev), dev)
+    return nothing
+end
+
+"""
+    close(m::Model)
+
+Free everything the model holds on its device, once the device is idle: the
+recorded plans with the weights they own, the remaining uploaded weights, and
+the pool memory that leaves unused. Call it on the thread that made the
+model's device. The model cannot be used afterwards.
+"""
+function Base.close(m::Model)
+    M.waitidle(m.device)
+    releaseplans!(m)
+    releaseweights!(m.weights)
+    trimpool!(m.device)
+    return nothing
+end
+
+"""
     replay!(mp, name, args) -> outputs
 
 Write `args` into the buffers the plan was declared against, submit it, and hand

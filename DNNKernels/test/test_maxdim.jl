@@ -14,10 +14,14 @@ using Test, Logging, Random
 import DNNKernels, Mantle
 const DK = DNNKernels
 
-"Emit `max.dim` over torch dim `tdim` of `a` into a values and an indices buffer of type `IT`."
-function devicemaxdim(dev, a, tdim, IT)
+"""
+Emit `max.dim` over torch dim `tdim` of `a` into a values and an indices buffer
+of type `IT`, with the reduced axis kept (`keepdim`) or dropped as torch drops it.
+"""
+function devicemaxdim(dev, a, tdim, IT; keepdim::Bool = true)
     d = ndims(a) - tdim
-    sz = ntuple(k -> k == d ? 1 : size(a, k), ndims(a))
+    sz = keepdim ? ntuple(k -> k == d ? 1 : size(a, k), ndims(a)) :
+         Tuple(size(a, k) for k in 1:ndims(a) if k != d)
     g = Mantle.Graph(dev)
     res = Dict{String,Any}("a" => Mantle.Buffer(dev, a),
                            "v#0" => Mantle.Buffer(dev, eltype(a), sz),
@@ -58,6 +62,15 @@ function devicemaxdims(be)
         vals, inds, d = @test_logs min_level = Logging.Warn devicemaxdim(dev, h, 2, Int64)
         @test vec(vals) == [Float16(5), Float16(5)]
         @test vec(inds) == [2999, 2051]
+        # Without `keepdim` the outputs have one axis fewer than the input. The
+        # body indexed the input with the output's coordinates, so every slice
+        # read the first: PP-OCRv6's recogniser, `max(dim=2)` of `(1, T, 18710)`,
+        # returned the blank class at every one of its T steps.
+        p = randn(Float32, 18710, 40, 1)
+        vals, inds, d = devicemaxdim(dev, p, 2, Int64; keepdim = false)
+        @test size(vals) == (40, 1)
+        @test vals == dropdims(maximum(p; dims = 1); dims = 1)
+        @test inds == dropdims(map(i -> i[1] - 1, argmax(p; dims = 1)); dims = 1)
     end
 end
 

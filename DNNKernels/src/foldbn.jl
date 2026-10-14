@@ -26,8 +26,23 @@ when only element 0 of the batch-norm's tuple output is ever read (elements 1
 and 2 are the saved mean/variance, which inference never touches).
 """
 
-"""Reshape a per-output-channel vector to broadcast over a weight's last axis."""
-chanshape(v, W) = reshape(v, ntuple(i -> i == ndims(W) ? length(v) : 1, ndims(W)))
+"""
+    chanshape(v, W; transposed = false)
+
+Reshape a per-output-channel vector to broadcast over the output-channel axis of
+a convolution weight `W`.
+
+That axis is the LAST one for a convolution, whose reversed layout is
+`(kx, ky, Cin, Cout)`, and the second to last for a TRANSPOSED one, whose
+PyTorch weight is `(Cin, Cout, kh, kw)` and so reverses to `(kx, ky, Cout, Cin)`.
+Scaling the last axis of a transposed weight multiplies each INPUT channel by an
+output channel's batch-norm factor: shapes agree whenever `Cin == Cout`, so
+nothing fails, and the result is simply wrong. PP-OCRv6's detection head is
+that case (a 64 -> 64 transposed convolution before its batch norm), and it
+came out 5.04 off in a map whose values are a few units.
+"""
+chanshape(v, W; transposed::Bool = false) =
+    reshape(v, ntuple(i -> i == ndims(W) - transposed ? length(v) : 1, ndims(W)))
 
 function foldbatchnorm(graphs::AbstractDict, weights::AbstractDict)
     w = Dict{String,Any}(weights)
@@ -66,6 +81,12 @@ function foldbatchnorm(g::Graph, weights::Dict{String,Any})
         conv === nothing && continue
         conv.aten == "convolution.default" || continue
         get(uses, conv.out, 0) == 1 || continue          # conv feeds only this bn
+        # A grouped TRANSPOSED weight is `(kx, ky, Cout/groups, Cin)`: its output
+        # channels are interleaved with the groups along two axes, not one, so
+        # the per-channel scale is not a broadcast. Left unfolded; none of the
+        # exported graphs has one.
+        transposed = get(conv.attrs, "arg6", false) == true
+        transposed && Int(get(conv.attrs, "arg8", 1)) != 1 && continue
 
         # every reader of the bn must be a getitem on element 0
         readers = [b for (_, b) in buffers if b.of == bn.out]
@@ -96,7 +117,7 @@ function foldbatchnorm(g::Graph, weights::Dict{String,Any})
         bsrc = hasbias ? weightsource(g, conv.ins[3]) : nothing
         hasbias && (bsrc === nothing || !haskey(weights, bsrc.key)) && continue
         b0 = hasbias ? weights[bsrc.key] : zero(s)
-        newW = wb.dtype.(wsrc .* chanshape(s, wsrc))
+        newW = wb.dtype.(wsrc .* chanshape(s, wsrc; transposed))
         newb = b0 .* s .+ (β .- μ .* s)
 
         # Keys must be unique across *all* graphs, because they share one weights

@@ -155,6 +155,9 @@ include(joinpath(@__DIR__, "test_halfconvs.jl"))
 include(joinpath(@__DIR__, "test_conv_igemm.jl"))
 include(joinpath(@__DIR__, "test_verify_weights.jl"))
 include(joinpath(@__DIR__, "test_maxdim.jl"))
+# What porting PP-OCRv6 found: batch norm in a transposed convolution, grouped
+# convolutions on the declared path, and global pools as workgroup reductions.
+include(joinpath(@__DIR__, "test_ppocr_regressions.jl"))
 include(joinpath(@__DIR__, "test_logmel.jl"))
 include(joinpath(@__DIR__, "test_randomfill_tail.jl"))
 # Host-side gates a second backend exposed: which devices the matrix kernels are
