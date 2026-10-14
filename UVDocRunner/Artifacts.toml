@@ -1,0 +1,7 @@
+[uvdoc]
+git-tree-sha1 = "d0ae8f555b38cce46d8b565afb4d60e2f6d3a389"
+lazy = true
+
+    [[uvdoc.download]]
+    sha256 = "f99a90f0fcbc1241f8e222e3ef4cc952ddcece7286719a55b964636bb82c5103"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/uvdoc.tar.gz"

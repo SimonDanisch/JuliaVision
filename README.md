@@ -51,6 +51,8 @@ too: Qwen-Image drew them, and the other models took it from there.
 | [`SAM2Runner`](SAM2Runner/README.md) | SAM 2.1: click to segment | Apache-2.0 |
 | [`MatAnyoneRunner`](MatAnyoneRunner/README.md) | MatAnyone2: carries a mask through a clip as an alpha matte | **non-commercial** |
 | [`DepthAnythingRunner`](DepthAnythingRunner/README.md) | Depth Anything V2 Small: monocular depth | Apache-2.0 |
+| [`PPOCRRunner`](PPOCRRunner/README.md) | PP-OCRv6: text lines, what they say, and which way up a page is | Apache-2.0 |
+| [`UVDocRunner`](UVDocRunner/README.md) | UVDoc: straighten curved document pages | Apache-2.0 |
 | [`NeuralLUTRunner`](NeuralLUTRunner/README.md) | Image-Adaptive 3D LUT: a colour grade predicted per frame | Apache-2.0 |
 | [`RIFERunner`](RIFERunner/README.md) | RIFE 4.26: frame interpolation | MIT |
 | [`BasicVSRRunner`](BasicVSRRunner/README.md) | BasicVSR++: 4x video upscaling | Apache-2.0 |

@@ -125,6 +125,15 @@ const MODELS = Dict(
     "hunyuan3d-cond" => ("Hunyuan3DRunner", "hunyuan3d-cond"),
     "hunyuan3d-vae"  => ("Hunyuan3DRunner", "hunyuan3d-vae"),
     "hunyuan3d-geo"  => ("Hunyuan3DRunner", "hunyuan3d-geo"),
+    # PP-OCRv6 medium: the text detector and the line recogniser, one graph
+    # each (`tools/export_ppocrv6.py`). fp32; both are small convolutional
+    # networks, 22M and 19M parameters.
+    "ppocrv6_det"    => ("PPOCRRunner", "ppocrv6_det"),
+    "ppocrv6_rec"    => ("PPOCRRunner", "ppocrv6_rec"),
+    # PP-LCNet x1.0 doc orientation, the pipeline's page classifier: 1.7M
+    # parameters, 0/90/180/270.
+    "ppocr_docori"   => ("PPOCRRunner", "ppocr_docori"),
+    "uvdoc"         => ("UVDocRunner", "uvdoc"),
 )
 
 # Files a caller needs to run the model. Anything else in the export directory —
@@ -255,7 +264,10 @@ function copylicense(name::AbstractString, dest::AbstractString)
 end
 
 const GRAPHFILES = Dict(
+    "uvdoc" => ["uvdoc.json", "provenance.json"],
     "whisper-decoder" => ["whisperdec.json", "whispercross.json"],
+    # The recogniser's 18710 output classes; without them it returns indices.
+    "ppocrv6_rec" => ["ppocrv6_rec.json", "characters.json"],
     "whisper-fp32" => ["whisper.json"],
     "kokoro" => ["kokorotext.json", "kokorovoc.json",
                  "vocab.json", "voices.safetensors", "lexicon.json"],
