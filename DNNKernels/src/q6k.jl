@@ -100,85 +100,132 @@ comes out zero.
     return (scale, bestiscale)
 end
 
-"""
-    q6k_block(W, row, b) -> (ql, qh, sc, d)
+# The rest of `quantize_row_q6_K_ref` as four passes, each a short loop: the
+# sixteen fits of a block (`q6k_fit_at!`), its scales (`q6k_scales_at!`), and its
+# `ql` and `qh` words (`q6k_qlword`, `q6k_qhword`). As one kernel a thread a
+# block, with every level of the block unrolled, the pipeline took 98 s to
+# compile against Q4_K's 5. The host reference runs the same functions in loops.
+# All indices 0-based; `FS` and `FI` hold each sub-block's fit, `(16nb, m)`.
 
-Block `b` (0-based) of row `row` (0-based) of the float matrix `W`: eight `ql`
-vectors, four `qh` vectors, the scale vector and `d`.
-"""
-@inline function q6k_block(W, row::Int32, b::Int32)
-    k0 = b * Int32(QK_K)
-    fits = ntuple(Val(16)) do j
-        q6k_fit(ntuple(i -> Float32(@inbounds W[row + Int32(1), k0 + Int32(16 * (j - 1) + i)]), Val(16)))
-    end
-    maxscale = 0f0
-    maxabs = 0f0
-    Base.Cartesian.@nexprs 16 j -> begin
-        a_j = abs(fits[j][1])
-        if a_j > maxabs
-            maxabs = a_j
-            maxscale = fits[j][1]
-        end
-    end
-    zero4 = ntuple(_ -> VecElement(UInt32(0)), Val(4))
-    maxabs < 1f-15 && return (ntuple(_ -> zero4, Val(8)), ntuple(_ -> zero4, Val(4)), zero4, Float16(0))
-    iscale = -128f0 / maxscale
-    dh = Float16(1f0 / iscale)
-    sc = ntuple(j -> min(Int32(127), q4k_round(iscale * fits[j][1])) % Int8, Val(16))
-    dsub = ntuple(j -> Float32(dh) * Float32(sc[j]), Val(16))
-    # The six-bit level of weight `i` (0-based, known when this inlines). A
-    # sub-block whose scale rounded to zero keeps the levels of its fit, as in
-    # ggml, and an all-zero one ggml's zeros; they dequantize to zero either way.
-    @inline function level(i)
-        j = i ÷ 16 + 1
-        x = Float32(@inbounds W[row + Int32(1), k0 + Int32(i + 1)])
-        dsub[j] != 0f0 && return UInt32(clamp(q4k_round(x / dsub[j]), Int32(-32), Int32(31)) + Int32(32))
-        return fits[j][2] == 0f0 ? UInt32(0) : UInt32(q6k_level(x, fits[j][2]) + Int32(32))
-    end
-    # `ql` byte `c` of half `n` (`r = c % 64`) holds weights `128n + r` (low nibble)
-    # and `128n + r + 64` (high).
-    ql = ntuple(Val(8)) do v
-        ntuple(Val(4)) do w
-            c0 = 16 * (v - 1) + 4 * (w - 1)
-            i0 = 128 * (c0 ÷ 64) + c0 % 64
-            word = UInt32(0)
-            Base.Cartesian.@nexprs 4 e -> begin
-                word |= ((level(i0 + e - 1) & 0x0f) | ((level(i0 + e + 63) & 0x0f) << 4)) << (8 * (e - 1))
-            end
-            VecElement(word)
-        end
-    end
-    # `qh` byte `c` of half `n` (`l = c % 32`): the high bits of `128n + l + 32Q`.
-    qh = ntuple(Val(4)) do u
-        ntuple(Val(4)) do w
-            c0 = 16 * (u - 1) + 4 * (w - 1)
-            i0 = 128 * (c0 ÷ 32) + c0 % 32
-            word = UInt32(0)
-            Base.Cartesian.@nexprs 4 e -> begin
-                i = i0 + e - 1
-                word |= ((level(i) >> 4) | ((level(i + 32) >> 4) << 2) | ((level(i + 64) >> 4) << 4) |
-                         ((level(i + 96) >> 4) << 6)) << (8 * (e - 1))
-            end
-            VecElement(word)
-        end
-    end
-    scv = ntuple(w -> VecElement(q4k_bytes(sc[4w - 3] % UInt8, sc[4w - 2] % UInt8,
-                                           sc[4w - 1] % UInt8, sc[4w] % UInt8)), Val(4))
-    return (ql, qh, scv, dh)
+@inline function q6k_fit_at!(FS, FI, W, row::Int32, sub::Int32, nsub::Int32)
+    x = ntuple(i -> Float32(@inbounds W[row + Int32(1), Int32(16) * sub + Int32(i)]), Val(16))
+    scale, iscale = q6k_fit(x)
+    @inbounds FS[sub + Int32(1) + nsub * row] = scale
+    @inbounds FI[sub + Int32(1) + nsub * row] = iscale
+    return nothing
 end
 
-function q6k_quantize_kernel!(QL, QH, SC, D, W, rows::Int32, nb::Int32)
-    t = Int32(KI.get_global_id().x) - Int32(1)
-    if t < rows * nb
-        row, b = t % rows, t ÷ rows
-        ql, qh, scv, dh = q6k_block(W, row, b)
-        blk = row * nb + b
-        @inbounds begin
-            Base.Cartesian.@nexprs 8 v -> (QL[blk * Int32(8) + Int32(v)] = ql[v])
-            Base.Cartesian.@nexprs 4 u -> (QH[blk * Int32(4) + Int32(u)] = qh[u])
-            SC[blk + Int32(1)] = scv
-            D[blk + Int32(1)] = dh
+# The scale with the largest magnitude of a block's sixteen, and that magnitude.
+@inline function q6k_maxscale(FS, row::Int32, b::Int32, nb::Int32)
+    maxscale = 0f0
+    maxabs = 0f0
+    base = Int32(16) * (b + nb * row)
+    for j in Int32(1):Int32(16)
+        s = @inbounds FS[base + j]
+        if abs(s) > maxabs
+            maxabs = abs(s)
+            maxscale = s
         end
+    end
+    return maxscale, maxabs
+end
+
+@inline function q6k_scales_at!(SC, D, FS, row::Int32, b::Int32, nb::Int32)
+    maxscale, maxabs = q6k_maxscale(FS, row, b, nb)
+    blk = row * nb + b
+    if maxabs < 1f-15
+        @inbounds SC[blk + Int32(1)] = ntuple(_ -> VecElement(UInt32(0)), Val(4))
+        @inbounds D[blk + Int32(1)] = Float16(0)
+        return nothing
+    end
+    iscale = -128f0 / maxscale
+    base = Int32(16) * blk
+    words = ntuple(Val(4)) do w
+        word = UInt32(0)
+        for e in Int32(0):Int32(3)
+            s = @inbounds FS[base + Int32(4 * (w - 1)) + e + Int32(1)]
+            word |= UInt32(min(Int32(127), q4k_round(iscale * s)) % UInt8) << (Int32(8) * e)
+        end
+        VecElement(word)
+    end
+    @inbounds SC[blk + Int32(1)] = words
+    @inbounds D[blk + Int32(1)] = Float16(1f0 / iscale)
+    return nothing
+end
+
+# The six-bit level of weight `i` of block `b`. A sub-block whose scale rounded to
+# zero keeps the levels of its fit, as in ggml, and an all-zero one ggml's zeros;
+# they dequantize to zero either way. So does a block ggml zeroes whole.
+@inline function q6k_level_at(W, SC, D, FI, row::Int32, b::Int32, i::Int32, nb::Int32, zeroed::Bool)
+    zeroed && return UInt32(0)
+    blk = row * nb + b
+    j = i ÷ Int32(16)
+    d = Float32(@inbounds D[blk + Int32(1)]) * Float32(q6k_scale(@inbounds(SC[blk + Int32(1)]), j))
+    x = Float32(@inbounds W[row + Int32(1), b * Int32(QK_K) + i + Int32(1)])
+    d != 0f0 && return UInt32(clamp(q4k_round(x / d), Int32(-32), Int32(31)) + Int32(32))
+    fi = @inbounds FI[Int32(16) * blk + j + Int32(1)]
+    return fi == 0f0 ? UInt32(0) : UInt32(q6k_level(x, fi) + Int32(32))
+end
+
+# `ql` word `ω` (0 to 31) of a block: byte `c` of half `n` (`r = c % 64`) holds
+# weights `128n + r` (low nibble) and `128n + r + 64` (high).
+@inline function q6k_qlword(W, SC, D, FS, FI, row::Int32, b::Int32, ω::Int32, nb::Int32)
+    zeroed = q6k_maxscale(FS, row, b, nb)[2] < 1f-15
+    c0 = Int32(4) * ω
+    i0 = Int32(128) * (c0 ÷ Int32(64)) + c0 % Int32(64)
+    word = UInt32(0)
+    for e in Int32(0):Int32(3)
+        lo = q6k_level_at(W, SC, D, FI, row, b, i0 + e, nb, zeroed)
+        hi = q6k_level_at(W, SC, D, FI, row, b, i0 + e + Int32(64), nb, zeroed)
+        word |= ((lo & 0x0f) | ((hi & 0x0f) << 4)) << (Int32(8) * e)
+    end
+    return word
+end
+
+# `qh` word `ω` (0 to 15) of a block: byte `c` of half `n` (`l = c % 32`) holds the
+# high bits of weights `128n + l + 32Q`.
+@inline function q6k_qhword(W, SC, D, FS, FI, row::Int32, b::Int32, ω::Int32, nb::Int32)
+    zeroed = q6k_maxscale(FS, row, b, nb)[2] < 1f-15
+    c0 = Int32(4) * ω
+    i0 = Int32(128) * (c0 ÷ Int32(32)) + c0 % Int32(32)
+    word = UInt32(0)
+    for e in Int32(0):Int32(3)
+        byte = UInt32(0)
+        for Q in Int32(0):Int32(3)
+            byte |= (q6k_level_at(W, SC, D, FI, row, b, i0 + e + Int32(32) * Q, nb, zeroed) >> 4) << (Int32(2) * Q)
+        end
+        word |= byte << (Int32(8) * e)
+    end
+    return word
+end
+
+# The four passes as kernels. Consecutive work-items take consecutive rows, so the
+# column-major weight is read along its contiguous axis.
+function q6k_fit_kernel!(FS, FI, W, rows::Int32, nsub::Int32)
+    t = Int32(KI.get_global_id().x) - Int32(1)
+    t < rows * nsub && q6k_fit_at!(FS, FI, W, t % rows, t ÷ rows, nsub)
+    return nothing
+end
+
+function q6k_scales_kernel!(SC, D, FS, rows::Int32, nb::Int32)
+    t = Int32(KI.get_global_id().x) - Int32(1)
+    t < rows * nb && q6k_scales_at!(SC, D, FS, t % rows, t ÷ rows, nb)
+    return nothing
+end
+
+# One work-item a 16-byte vector of a plane, `per` of them a block: four words.
+@inline q6k_vector(::Val{:ql}, W, SC, D, FS, FI, row, b, v, nb) =
+    ntuple(w -> VecElement(q6k_qlword(W, SC, D, FS, FI, row, b, Int32(4) * v + Int32(w - 1), nb)), Val(4))
+@inline q6k_vector(::Val{:qh}, W, SC, D, FS, FI, row, b, v, nb) =
+    ntuple(w -> VecElement(q6k_qhword(W, SC, D, FS, FI, row, b, Int32(4) * v + Int32(w - 1), nb)), Val(4))
+
+function q6k_pack_kernel!(Q, W, SC, D, FS, FI, rows::Int32, nb::Int32, plane::Val{P}) where {P}
+    per = Int32(P === :ql ? 8 : 4)
+    t = Int32(KI.get_global_id().x) - Int32(1)
+    if t < rows * nb * per
+        row, rest = t % rows, t ÷ rows
+        b, v = rest ÷ per, rest % per
+        @inbounds Q[(row * nb + b) * per + v + Int32(1)] = q6k_vector(plane, W, SC, D, FS, FI, row, b, v, nb)
     end
     return nothing
 end
@@ -199,8 +246,16 @@ function quantizeq6k(backend, W::Union{AbstractMatrix,Mantle.Buffer{<:Any,2}})
     qh = Mantle.Buffer(dev, UVec4, (4nb, rows))
     sc = Mantle.Buffer(dev, UVec4, (nb, rows))
     d = Mantle.Buffer(dev, Float16, (nb, rows))
-    Mantle.dispatch!(g, q6k_quantize_kernel!, (ql, qh, sc, d, W, Int32(rows), Int32(nb)), rows * nb;
-                     group = 256, name = "q6kquant")
+    # The fits, the plan's own: placed for the run and gone after it.
+    fs = Mantle.Transient.Buffer(g, Float32, (16nb, rows))
+    fi = Mantle.Transient.Buffer(g, Float32, (16nb, rows))
+    r, n = Int32(rows), Int32(nb)
+    Mantle.dispatch!(g, q6k_fit_kernel!, (fs, fi, W, r, Int32(16nb)), 16nb * rows; group = 256, name = "q6kfit")
+    Mantle.dispatch!(g, q6k_scales_kernel!, (sc, d, fs, r, n), nb * rows; group = 256, name = "q6kscales")
+    Mantle.dispatch!(g, q6k_pack_kernel!, (ql, W, sc, d, fs, fi, r, n, Val(:ql)), 8nb * rows;
+                     group = 256, name = "q6kql")
+    Mantle.dispatch!(g, q6k_pack_kernel!, (qh, W, sc, d, fs, fi, r, n, Val(:qh)), 4nb * rows;
+                     group = 256, name = "q6kqh")
     runonce!(g)
     return Q6KMatrix(ql, qh, sc, d, rows, K)
 end
@@ -208,22 +263,34 @@ end
 """
     q6k_quantize(W::AbstractMatrix) -> (ql, qh, sc, d)
 
-The host reference of [`quantizeq6k`](@ref), from the same `q6k_block`.
+The host reference of [`quantizeq6k`](@ref), from the same functions.
 """
 function q6k_quantize(W::AbstractMatrix)
     rows, K = size(W)
     nb = K ÷ QK_K
-    ql = Vector{UVec4}(undef, 8nb * rows)
-    qh = Vector{UVec4}(undef, 4nb * rows)
+    r, n = Int32(rows), Int32(nb)
+    fs = Vector{Float32}(undef, 16nb * rows)
+    fi = similar(fs)
     sc = Vector{UVec4}(undef, nb * rows)
     d = Vector{Float16}(undef, nb * rows)
-    for row in 0:(rows - 1), b in 0:(nb - 1)
-        l, h, s, dh = q6k_block(W, Int32(row), Int32(b))
-        blk = row * nb + b
-        ql[8blk .+ (1:8)] .= l
-        qh[4blk .+ (1:4)] .= h
-        sc[blk + 1] = s
-        d[blk + 1] = dh
+    ql = Vector{UVec4}(undef, 8nb * rows)
+    qh = Vector{UVec4}(undef, 4nb * rows)
+    for row in Int32(0):(r - Int32(1))
+        for sub in Int32(0):(Int32(16) * n - Int32(1))
+            q6k_fit_at!(fs, fi, W, row, sub, Int32(16) * n)
+        end
+        for b in Int32(0):(n - Int32(1))
+            q6k_scales_at!(sc, d, fs, row, b, n)
+        end
+        for b in Int32(0):(n - Int32(1))
+            blk = row * n + b
+            for v in Int32(0):Int32(7)
+                ql[8blk + v + 1] = q6k_vector(Val(:ql), W, sc, d, fs, fi, row, b, v, n)
+            end
+            for v in Int32(0):Int32(3)
+                qh[4blk + v + 1] = q6k_vector(Val(:qh), W, sc, d, fs, fi, row, b, v, n)
+            end
+        end
     end
     return ql, qh, sc, d
 end
