@@ -1,7 +1,7 @@
 # The BonsaiRunner README example: one question, greedy, with the prompt and
 # decode rates measured separately.
-# Explicit names: WhisperRunner also exports `encode`, and Mantle `release!`.
-using BonsaiRunner: BonsaiRunner, Bonsai2, session, chatprompt, prefill!, step!, generate, release!
+# Explicit names: WhisperRunner also exports `encode`.
+using BonsaiRunner: BonsaiRunner, Bonsai2, session, chatprompt, prefill!, step!, generate
 
 const BONSAI_QUESTION = "In three sentences: why does a Vulkan compute shader need a pipeline barrier " *
                         "between two dispatches that share a buffer?"
@@ -12,7 +12,7 @@ function bonsai_examples(; max_tokens = 200)
     ids = BonsaiRunner.encode(tk, chatprompt(["user" => BONSAI_QUESTION]; thinking = false))
     s = session(model)
     generate(s, ids; max_tokens = 4)                  # compile and warm both paths
-    release!(s)
+    close(s)
 
     s = session(model)
     # Up to the first token: `prefill!` returns once the prompt is queued, and the
@@ -26,7 +26,7 @@ function bonsai_examples(; max_tokens = 200)
         logits = step!(s, out[end])
         push!(out, BonsaiRunner._greedy(s, logits))
     end
-    release!(s)
+    close(s)
     return (; answer = BonsaiRunner.decode(tk, out), prompt_tokens = length(ids), tokens = length(out),
             prefill_tok_s = length(ids) / tprefill, decode_tok_s = (length(out) - 1) / tdecode)
 end

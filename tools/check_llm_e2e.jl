@@ -33,7 +33,7 @@ function check_bonsai_e2e(model; chunks=(0,1,2,3,8,16), newtokens=8)
                     row = (;prompt,chunk,prompt_tokens=length(ids),relative_max=rel,tokens)
                     push!(results,row); println(row); flush(stdout)
                 finally
-                    BonsaiRunner.release!(s)
+                    close(s)
                 end
             end
         end

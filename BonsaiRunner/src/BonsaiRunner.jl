@@ -14,7 +14,7 @@ using Scratch
 using SHA
 import Mantle
 
-export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, prefill!, generate, release!
+export Bonsai2, BonsaiSession, BonsaiTokenizer, session, step!, prefill!, generate
 export encode, decode, chatprompt, loadweights!, checkpointpath
 
 include("tokenizer.jl")
@@ -156,6 +156,22 @@ end
 
 """Load Bonsai from the package's lazy, content-addressed checkpoint artifacts."""
 Bonsai2(; kw...) = Bonsai2(checkpointpath(); kw...)
+
+"""
+    close(m::Bonsai2)
+
+Free the uploaded weights and Hadamard signs on the device, once it is idle.
+Close the model's sessions first, and call it on the thread that made the
+device. The model cannot be used afterwards.
+"""
+function Base.close(m::Bonsai2)
+    dev = Mantle.todevice(m.backend)
+    Mantle.waitidle(dev)
+    DNNKernels.releaseweights!(m.weights)
+    DNNKernels.releaseweights!(m.signs)
+    DNNKernels.trimpool!(dev)
+    return nothing
+end
 
 function _loadsigns!(model::Bonsai2)
     widths = Int.(model.file.metadata["prism.hadamard.sign_widths"])
@@ -376,7 +392,7 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
 end
 
 """
-    release!(session) -> nothing
+    close(session)
 
 Give back everything the session owns: its recorded step plan, the prefill plans
 it built per chunk length, the Q8 KV caches, the recurrent state, the logits and
@@ -389,10 +405,10 @@ the default page, plus a recording of 1527 passes. Measured while chasing what
 looked like a slowdown: twelve sessions held 11 GB, and dropping the references
 and running a full GC returned 281 MiB of it.
 
-The model is untouched — `release!` is per session, and another session can be
+The model is untouched: closing is per session, and another session can be
 opened on the same weights immediately.
 """
-function release!(s::BonsaiSession)
+function Base.close(s::BonsaiSession)
     Mantle.free!(s.plan)
     for p in values(s.prefills)
         foreach(Mantle.free!, p.plans)
@@ -936,9 +952,11 @@ Advance `session` through a prompt with recorded chunk graphs. A graph is built
 once for each encountered chunk length and reused by later calls. Recurrent
 state is advanced in sequence inside each chunk; projections and attention are
 batched across its tokens. The returned logits belong to the final input token.
+`before_step()` is called before each prompt chunk; it may wait cooperatively
+for higher-priority work on the same device.
 """
 function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
-                  chunk::Integer=PREFILL_CHUNK)
+                  chunk::Integer=PREFILL_CHUNK, before_step=()->nothing)
     isempty(ids) && throw(ArgumentError("prompt must contain at least one token"))
     chunk > 0 || throw(ArgumentError("chunk must be positive"))
     chunk <= PREFILL_CHUNK || throw(ArgumentError(
@@ -949,6 +967,7 @@ function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
     logits = nothing
     first = 1
     while first <= length(ids)
+        before_step()
         n = min(Int(chunk), length(ids) - first + 1)
         _ensure_kv!(s, s.position + n)
         exec = get!(s.prefills, n) do
@@ -960,6 +979,7 @@ function prefill!(s::BonsaiSession, ids::AbstractVector{<:Integer};
         s.position += n
         logits = exec.scratch[:logits]
         first += n
+        yield() # allow camera/OCR tasks on the device-owning thread to run
     end
     logits
 end
@@ -975,17 +995,21 @@ end
 
 _declaregreedy!(s::BonsaiSession, g, logits) = declare_argmax!(g, s.best, logits; name="greedy")
 
-"""Greedy token generation with chunked prompt prefill."""
+"""Greedy token generation with chunked prompt prefill. `before_step()` runs
+before each prompt chunk and each decode step, for cooperative scheduling."""
 function generate(s::BonsaiSession, ids::AbstractVector{<:Integer}; max_tokens::Integer=32,
-                  stop=(s.model.tokenizer.eos,), prefill_chunk::Integer=PREFILL_CHUNK)
+                  stop=(s.model.tokenizer.eos,), prefill_chunk::Integer=PREFILL_CHUNK,
+                  before_step=()->nothing)
     isempty(ids) && throw(ArgumentError("prompt must contain at least one token"))
-    logits = prefill!(s, ids; chunk=prefill_chunk)
+    logits = prefill!(s, ids; chunk=prefill_chunk,before_step)
     out = Int[]
     for i in 1:max_tokens
         id = _greedy(s, logits)
         push!(out, id)
         (id in stop || i == max_tokens) && break
+        before_step()
         logits = step!(s, id)
+        yield()
     end
     out
 end

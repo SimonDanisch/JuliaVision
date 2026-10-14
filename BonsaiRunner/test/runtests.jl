@@ -80,7 +80,7 @@ end
         # a leaked generation is exactly 64 entries that never come back.
         @test onloan() - held < 64
 
-        release!(s)
+        close(s)
         Mantle.reclaim!(Mantle.pool(dev), dev; wait = true)
         @test onloan() <= before                    # and gave all of it back
 
@@ -96,12 +96,12 @@ end
         end
         @test BonsaiRunner.kv_capacity(stepped) == 128
         a = Array(Mantle.storage(last))
-        release!(stepped)
+        close(stepped)
         whole = session(model)
         b = Array(Mantle.storage(prefill!(whole, ids)))
-        release!(whole)
+        close(whole)
         @test argmax(a) == argmax(b)
         @test sum(a .* b) / sqrt(sum(abs2, a) * sum(abs2, b)) > 0.9999
-        DNNKernels.releaseweights!(model.weights)
+        close(model)
     end
 end
