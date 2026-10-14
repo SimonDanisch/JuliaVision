@@ -97,12 +97,13 @@ end
 Load the base graphs, weights, and any bucket graphs in `bucketdir` (default `dir`).
 Bucket graphs share the weights and full-capacity KV cache with the base graphs.
 
-`quantize` stores every matmul weight as int8 with a per-output-channel scale,
-which is on by default because decode is bandwidth-bound on exactly those
-weights: 64.78 GiB becomes 32.4 GiB and the per-token floor halves. `:q4k` stores
-them as Q4_K instead, 17.5 GiB (see DNNKernels' `q4k.jl`), and `:q4k_m` keeps
-the weights llama.cpp's Q4_K_M gives more bits to in Q6_K (see [`q4km`](@ref)). Pass
-`quantize = false` for the fp16 reference.
+`quantize` is how the matmul weights are stored, and they are quantized by
+default because decode is bandwidth-bound on exactly those weights. The default
+`:q4k_m` is llama.cpp's Q4_K_M: Q4_K, with Q6_K where it gives more bits (see
+[`q4km`](@ref)), 18.9 GiB against the export's 64.78. `:q4k` is Q4_K throughout,
+17.5 GiB; `true` or `:int8` is int8 with a per-output-channel scale, 32.4 GiB,
+slower by half and a little more exact (see the README). Pass `quantize = false`
+for the fp16 reference.
 
 `cache` is a directory for the quantized weights: the first load writes them
 there, and later loads read them instead of reading the fp16 export and
@@ -114,7 +115,7 @@ On by default HERE and not in `Model`: the preconditions are real
 (`DNNKernels.record`), and this is the model they have been checked against.
 """
 function horizon32b(; backend = Mantle.defaultbackend(), dir::AbstractString = assetdir(),
-                    quantize::Union{Bool,Symbol} = true, record::Bool = true, bucketdir::AbstractString = dir,
+                    quantize::Union{Bool,Symbol} = :q4k_m, record::Bool = true, bucketdir::AbstractString = dir,
                     cache::Union{Nothing,AbstractString} = nothing)
     gs = horizon32bgraphs(; dir, bucketdir)
     # (L, B, KVH, maxlen, hd) in torch order: the layer count is the export's.
