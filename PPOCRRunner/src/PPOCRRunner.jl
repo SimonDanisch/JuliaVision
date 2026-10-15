@@ -20,7 +20,7 @@ Exported by `tools/export_ppocrv6.py`; bound with
 Everything between the networks runs on the device too: scaling the page into
 the detector's and the classifier's inputs, turning the detector's map into
 boxes (connected components and DB's "unclip"), and cutting each line out at 48
-pixels high. The page is uploaded once; only the boxes, the recogniser's best
+pixels high. The image operations are GPUFiltering's. The page is uploaded once; only the boxes, the recogniser's best
 class per time step and four orientation logits come back. CTC decoding and
 reading order are a few dozen strings and boxes, and stay on the host.
 
@@ -37,11 +37,13 @@ Use a model on the thread that made its device: Mantle submits from there.
 module PPOCRRunner
 
 using DNNKernels, KernelAbstractions
-import Mantle
+import Mantle, GPUFiltering
+using GPUFiltering: PlanarMap, Area, Bilinear
+using GeometryBasics: Vec, Vec2f
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
 using DNNKernels: loadgraph, readsafetensors, Model, recordedplan
-using ColorTypes: Colorant, AbstractRGB, RGB, red, green, blue
+using ColorTypes: Colorant, RGB
 import JSON3
 
 export PPOCR, ppocr, PageInput, pageinput!, upload!, TextLine, detect, recognize, read_lines, orientation
@@ -112,139 +114,28 @@ const BOX_CAPACITY = 4096
 
 # --------------------------------------------------------------------- kernels
 
-channels(c::AbstractRGB) = (Float32(red(c)), Float32(green(c)), Float32(blue(c)))
-
-"""
-    area(img, x0, x1, y0, y1) -> (r, g, b)
-
-The mean colour of `img[x, y]` over the pixels a footprint from `x0` to `x1`
-and `y0` to `y1` (in pixel edges, 0-based) covers. Downscaling by averaging each
-output pixel's footprint keeps thin strokes from aliasing away.
-"""
-@inline function area(img::AbstractMatrix, x0, x1, y0, y1)
-    w, h = size(img)
-    acc, n = (0.0f0, 0.0f0, 0.0f0), 0
-    for y in clamp(floor(Int, y0) + 1, 1, h):clamp(ceil(Int, y1), 1, h),
-            x in clamp(floor(Int, x0) + 1, 1, w):clamp(ceil(Int, x1), 1, w)
-        acc = acc .+ channels(@inbounds img[x, y])
-        n += 1
-    end
-    return acc ./ max(n, 1)
-end
-
-@inline function bilinear(img::AbstractMatrix, x::Float32, y::Float32)
-    w, h = size(img)
-    x, y = clamp(x, 1.0f0, Float32(w)), clamp(y, 1.0f0, Float32(h))
-    xa, ya = min(floor(Int, x), w - 1), min(floor(Int, y), h - 1)
-    xa, ya = max(xa, 1), max(ya, 1)
-    fx, fy = x - xa, y - ya
-    a, b = channels(img[xa, ya]), channels(img[min(xa + 1, w), ya])
-    c, d = channels(img[xa, min(ya + 1, h)]), channels(img[min(xa + 1, w), min(ya + 1, h)])
-    return (a .* (1 - fx) .+ b .* fx) .* (1 - fy) .+ (c .* (1 - fx) .+ d .* fx) .* fy
-end
-
-@kernel function topixels!(out, @Const(src))
-    i = @index(Global)
-    @inbounds out[i] = convert(RGB{Float32}, src[i])
-end
-
-# The page scaled into a network's `(W, H, 3, 1)` input. For the detector it is
-# letterboxed: scaled by `s` to fit, in the top-left corner, the rest white
-# paper. For the classifier its short side goes to `ORI_SHORT` and the centre
-# `W × H` is cut out.
-@kernel function scaled!(out, @Const(img), w::Int, h::Int, W::Int, H::Int, orientation::Bool)
-    i = @index(Global)
-    u = mod(i - 1, W) + 1; v = mod((i - 1) ÷ W, H) + 1; c = (i - 1) ÷ (W * H) + 1
-    s = orientation ? ORI_SHORT / min(w, h) : min(W / w, H / h)
-    cx = orientation ? (round(Int, w * s) - W) ÷ 2 : 0
-    cy = orientation ? (round(Int, h * s) - H) ÷ 2 : 0
-    px = 1f0
-    if orientation || (u <= round(Int, w * s) && v <= round(Int, h * s))
-        f = 1 / s
-        rgb = area(img, (cx + u - 1) * f, (cx + u) * f, (cy + v - 1) * f, (cy + v) * f)
-        px = rgb[c]
-    end
-    @inbounds out[i] = (px - DET_MEAN[c]) / DET_STD[c]
-end
-
-# The line inside `box[1:4]`, `box[5]` input pixels wide and `REC_HEIGHT` high
-# (bilinear without antialiasing, as upstream's `cv2.resize`), normalised and
-# padded with zeros to the input's width `W`.
-@kernel function line!(out, @Const(img), @Const(box), W::Int)
-    i = @index(Global)
-    u = mod(i - 1, W) + 1; v = mod((i - 1) ÷ W, REC_HEIGHT) + 1; c = (i - 1) ÷ (W * REC_HEIGHT) + 1
-    @inbounds begin
-        bx0 = box[1]; by0 = box[2]; bw = max(box[3] - bx0, 1f0); bh = max(box[4] - by0, 1f0); rw = Int(box[5])
-    end
-    val = 0f0
-    if u <= rw
-        px = bilinear(img, bx0 + (u - 0.5f0) * (bw / rw) + 0.5f0, by0 + (v - 0.5f0) * (bh / REC_HEIGHT) + 0.5f0)
-        val = (px[c] - REC_MEAN) / REC_STD
-    end
-    @inbounds out[i] = val
-end
-
-# Connected components of the detector's map above `threshold`: a monotone
-# union-find (a larger root hooks to the smaller), then per-root statistics and
-# compacted boxes. The map never leaves the device.
+# Connected components of the detector's map above `THRESHOLD`
+# (`GPUFiltering.components!`), then per-region statistics and compacted boxes.
+# The map never leaves the device.
 const THRESHOLD = 0.3f0
 const BOX_THRESHOLD = 0.6f0
 const UNCLIP = 1.5f0
 const MIN_SIZE = 3
 
-@kernel function components_init!(parents, stats, sums, counter, @Const(prob))
+@kernel function components_clear!(stats, sums, counter)
     k = @index(Global)
     @inbounds begin
-        parents[k] = prob[k] > THRESHOLD ? Int32(k) : Int32(0)
         stats[1, k] = typemax(Int32); stats[2, k] = typemax(Int32)
         stats[3, k] = 0; stats[4, k] = 0; stats[5, k] = 0; sums[k] = 0f0
         k == 1 && (counter[1] = 0)
     end
 end
 
-@inline function root(parents, k::Int32)
-    p = KA.@atomic :monotonic parents[k]
-    while p != k
-        k = p; p = KA.@atomic :monotonic parents[k]
-    end
-    k
-end
-
-@inline function join!(parents, a::Int32, b::Int32)
-    while true
-        a = root(parents, a); b = root(parents, b)
-        a == b && break
-        hi = max(a, b); lo = min(a, b)
-        result = KA.@atomicreplace :monotonic parents[hi] hi => lo
-        result.success && break
-    end
-    nothing
-end
-
-@kernel function components_merge!(parents, @Const(prob), W::Int)
-    k = @index(Global); x = mod(k - 1, W) + 1; y = (k - 1) ÷ W + 1
-    if @inbounds prob[k] > THRESHOLD
-        if x > 1 && (@inbounds prob[k - 1] > THRESHOLD)
-            join!(parents, Int32(k), Int32(k - 1))
-        end
-        if y > 1
-            for dx in -1:1
-                j = k - W + dx
-                if 1 <= x + dx <= W && (@inbounds prob[j] > THRESHOLD)
-                    join!(parents, Int32(k), Int32(j))
-                end
-            end
-        end
-    end
-end
-
-@kernel function components_stats!(stats, sums, @Const(parents), @Const(prob), W::Int)
+# Each region's bounding box, size and probability sum, kept at its label.
+@kernel function components_stats!(stats, sums, @Const(labels), @Const(prob), W::Int)
     k = @index(Global)
-    if @inbounds parents[k] != 0
-        r = Int32(k)
-        while (@inbounds parents[r]) != r
-            @inbounds r = parents[r]
-        end
+    @inbounds r = labels[k]
+    if r != 0
         x = Int32(mod(k - 1, W) + 1); y = Int32((k - 1) ÷ W + 1)
         KA.@atomic min(stats[1, r], x)
         KA.@atomic min(stats[2, r], y)
@@ -283,8 +174,9 @@ end
 """
     PageInput
 
-A page on the model's device: `pixels`, `RGB{Float32}` in `[x, y]`, and the
-passes that scale it into the networks. Fill `pixels` on the device, or from
+A page on the model's device: `pixels`, `RGB{Float32}` in `[x, y]`, the map
+that cuts the current line out of it, and the passes that scale it into the
+networks. Fill `pixels` on the device, or from
 the host with [`upload!`](@ref); [`read_lines`](@ref), [`detect`](@ref),
 [`recognize`](@ref) and [`orientation`](@ref) read it. [`pageinput!`](@ref)
 makes one per page size, and the model frees them all on `close`.
@@ -301,12 +193,12 @@ Base.size(p::PageInput) = size(Mantle.storage(p.pixels))
 """
     BoxSearch
 
-The device side of turning the detector's map into boxes: union-find parents,
+The device side of turning the detector's map into boxes: component labels,
 per-region statistics, the compacted boxes and their count, the page size they
 are scaled to, and the plan recorded against the detector's output.
 """
 struct BoxSearch{P}
-    parents::Any
+    labels::Any
     stats::Any
     sums::Any
     count::Any
@@ -317,7 +209,7 @@ end
 
 function Base.close(b::BoxSearch)
     Mantle.free!(b.plan)
-    foreach(Mantle.free!, (b.parents, b.stats, b.sums, b.count, b.boxes, b.shape))
+    foreach(Mantle.free!, (b.labels, b.stats, b.sums, b.count, b.boxes, b.shape))
     return nothing
 end
 
@@ -333,7 +225,7 @@ struct Readback{L, B, I}
     shape::Vector{Int32}
     boxes::Matrix{Float32}
     logits::L
-    line::Vector{Float32}
+    line::Vector{PlanarMap}
     best::Dict{Int, B}
     index::Dict{Int, I}
 end
@@ -366,11 +258,15 @@ oriplan(m::PPOCR) = recordedplan(m.ori, "ppocr_docori")
 recplan(rec::Model, W::Int) = recordedplan(rec, "ppocrv6_rec"; dims = (w = W ÷ 16,))
 recplan(m::PPOCR, W::Int) = recplan(m.rec, W)
 
-function record(dev, passes...)
+"""
+    record(declare, dev) -> Mantle.Plan
+
+The graph `declare(graph)` builds on `dev`, recorded. A graph orders its passes
+by the array objects they name, so each array is one object throughout.
+"""
+function record(declare, dev)
     g = Mantle.Graph(dev)
-    for (kernel, args, n, name) in passes
-        Mantle.dispatch!(g, kernel, args, n; name)
-    end
+    declare(g)
     plan = Mantle.Plan(g)
     Mantle.record!(plan)
     return plan
@@ -399,20 +295,22 @@ function ppocr(; backend = Mantle.defaultbackend())
     logits = first(recordedplan(ori, "ppocr_docori").outputs)
     outputs = Dict(w => recplan(rec, w).outputs for w in REC_WIDTHS)
     n = W * H
-    parents, stats = Mantle.Buffer(dev, Int32, (n,)), Mantle.Buffer(dev, Int32, (5, n))
+    labels, stats = Mantle.Buffer(dev, Int32, (n,)), Mantle.Buffer(dev, Int32, (5, n))
     sums, count = Mantle.Buffer(dev, Float32, (n,)), Mantle.Buffer(dev, Int32, (1,))
     boxes, shape = Mantle.Buffer(dev, Float32, (4, BOX_CAPACITY)), Mantle.Buffer(dev, Int32, (2,))
-    plan = record(dev,
-        (components_init!, (parents, stats, sums, count, prob), n, "component initialization"),
-        (components_merge!, (parents, prob, W), n, "component union"),
-        (components_stats!, (stats, sums, parents, prob, W), n, "component statistics"),
-        (components_boxes!, (boxes, count, stats, sums, shape, W, H), n, "compact boxes"))
+    plan = record(dev) do g
+        l, map = Mantle.storage(labels), reshape(prob, W, H)
+        Mantle.dispatch!(g, components_clear!, (stats, sums, count), n; name = "clear components")
+        GPUFiltering.components!(g, l, map, >(THRESHOLD))
+        Mantle.dispatch!(g, components_stats!, (stats, sums, l, map, W), n; name = "component statistics")
+        Mantle.dispatch!(g, components_boxes!, (boxes, count, stats, sums, shape, W, H), n; name = "compact boxes")
+    end
     host = Readback(zeros(Int32, 1), zeros(Int32, 2), zeros(Float32, 4, BOX_CAPACITY),
-                    Array{eltype(logits)}(undef, size(logits)), zeros(Float32, 5),
+                    Array{eltype(logits)}(undef, size(logits)), Vector{PlanarMap}(undef, 1),
                     Dict(w => Array{eltype(o[1])}(undef, size(o[1])) for (w, o) in outputs),
                     Dict(w => Array{eltype(o[2])}(undef, size(o[2])) for (w, o) in outputs))
     return PPOCR(backend, dev, det, rec, ori, (W, H), characters,
-                 BoxSearch(parents, stats, sums, count, boxes, shape, plan), host,
+                 BoxSearch(labels, stats, sums, count, boxes, shape, plan), host,
                  Dict{NTuple{2, Int}, PageInput}())
 end
 
@@ -447,7 +345,7 @@ model is closed. Its `pixels` are the page the next call reads.
 function pageinput!(m::PPOCR, dims::NTuple{2, Int})
     min(dims...) > 0 || throw(ArgumentError("a page needs pixels, got size $dims"))
     get!(m.pages, dims) do
-        PageInput(Mantle.Buffer(m.device, RGB{Float32}, dims), Mantle.Buffer(m.device, Float32, (5,)),
+        PageInput(Mantle.Buffer(m.device, RGB{Float32}, dims), Mantle.Buffer(m.device, PlanarMap, (1,)),
                   Dict{Any, Any}(), Dict{DataType, Any}())
     end
 end
@@ -462,18 +360,33 @@ function upload!(m::PPOCR, img::AbstractMatrix{<:Colorant})
     T = eltype(img)
     buffer, plan = get!(page.staging, T) do
         staging = Mantle.Buffer(m.device, T, size(img))
-        staging, record(m.device, (topixels!, (page.pixels, staging), length(img), "page to Float32"))
+        staging, record(g -> GPUFiltering.convertpixels!(g, Mantle.storage(page.pixels), Mantle.storage(staging)), m.device)
     end
     copyto!(buffer, img)
     Mantle.run!(plan)
     return page
 end
 
-function pass!(m::PPOCR, page::PageInput, key, kernel, args, n)
-    plan = get!(() -> record(m.device, (kernel, args, n, string(key))), page.plans, key)
+"""
+    pass!(declare, m, page, key)
+
+The graph `declare(graph)` builds for `page`, recorded the first time under
+`key`, run.
+"""
+function pass!(declare, m::PPOCR, page::PageInput, key)
+    plan = get!(() -> record(declare, m.device), page.plans, key)
     Mantle.run!(plan)
     return nothing
 end
+
+"""
+    scale!(graph, input, page, map, fill)
+
+The page through `map` into a network's `(W, H, 3, 1)` input, averaging each
+input pixel's cover and normalised for the detector and the classifier.
+"""
+scale!(g, input, page::PageInput, map::PlanarMap, fill) =
+    GPUFiltering.sampleplanar!(g, input, Mantle.storage(page.pixels), map, Area(), DET_MEAN, DET_STD, fill)
 
 # ------------------------------------------------------------------- detection
 
@@ -488,7 +401,10 @@ function detect(m::PPOCR, page::PageInput)
     w, h = size(page)
     mp = detplan(m)
     input = only(mp.inputs)
-    pass!(m, page, :detector, scaled!, (input, page.pixels, w, h, W, H, false), W * H * 3)
+    # Letterboxed: scaled to fit, in the top-left corner, the rest white paper.
+    s = min(W / w, H / h)
+    map = PlanarMap(Vec2f(1 / s, 1 / s), Vec2f(0, 0), Vec{2, Int32}(round(Int, w * s), round(Int, h * s)))
+    pass!(g -> scale!(g, input, page, map, 1.0f0), m, page, :detector)
     DNNKernels.call(m.det, "ppocrv6_det", input; dims = (;))
     host, search = m.host, m.boxes
     host.shape .= (w, h)
@@ -541,7 +457,11 @@ function orientation(m::PPOCR, page::PageInput)
     w, h = size(page)
     mp = oriplan(m)
     input = only(mp.inputs)
-    pass!(m, page, :orientation, scaled!, (input, page.pixels, w, h, ORI_SIZE, ORI_SIZE, true), ORI_SIZE * ORI_SIZE * 3)
+    # The short side to ORI_SHORT and the centre ORI_SIZE square cut out.
+    s = ORI_SHORT / min(w, h)
+    offset = Vec2f((round(Int, w * s) - ORI_SIZE) ÷ 2, (round(Int, h * s) - ORI_SIZE) ÷ 2) / s
+    map = PlanarMap(Vec2f(1 / s, 1 / s), offset, Vec{2, Int32}(ORI_SIZE, ORI_SIZE))
+    pass!(g -> scale!(g, input, page, map, 1.0f0), m, page, :orientation)
     logits = m.host.logits
     copyto!(logits, first(DNNKernels.call(m.ori, "ppocr_docori", input; dims = (;))))
     turned = 90 * (argmax(vec(logits)) - 1)
@@ -604,15 +524,18 @@ end
 
 function recognize(m::PPOCR, page::PageInput, box::NTuple{4, Float32}, rw::Int)
     W = REC_WIDTHS[findfirst(>=(rw), REC_WIDTHS)]
-    params = m.host.line
-    for k in 1:4
-        params[k] = box[k]
-    end
-    params[5] = rw
-    copyto!(page.line, params)
+    # The box `rw` input pixels wide and REC_HEIGHT high, bilinear without
+    # antialiasing as upstream's `cv2.resize`, padded with zeros to `W`.
+    bx0, by0, bx1, by1 = box
+    scale = Vec2f(max(bx1 - bx0, 1.0f0) / rw, max(by1 - by0, 1.0f0) / REC_HEIGHT)
+    m.host.line[1] = PlanarMap(scale, Vec2f(bx0, by0), Vec{2, Int32}(rw, REC_HEIGHT))
+    copyto!(page.line, m.host.line)
     mp = recplan(m, W)
     input = only(mp.inputs)
-    pass!(m, page, (:line, W), line!, (input, page.pixels, page.line, W), W * REC_HEIGHT * 3)
+    pass!(m, page, (:line, W)) do g
+        GPUFiltering.sampleplanar!(g, input, Mantle.storage(page.pixels), Mantle.storage(page.line), Bilinear(),
+                                   ntuple(_ -> REC_MEAN, 3), ntuple(_ -> REC_STD, 3), REC_MEAN)
+    end
     best, index = DNNKernels.call(m.rec, "ppocrv6_rec", input; dims = (w = W ÷ 16,))
     hb, hi = m.host.best[W], m.host.index[W]
     copyto!(hb, best); copyto!(hi, index)
