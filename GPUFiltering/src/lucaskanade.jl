@@ -92,6 +92,5 @@ function lucaskanade!(qx, qy, valid, I0, I1, Ix, Iy, px, py; win::Integer = 11,
     backend = KA.get_backend(I0)
     lucaskanade_kernel!(backend)(qx, qy, valid, I0, I1, Ix, Iy, px, py,
                                  Int32(win), Int32(iters); ndrange = length(px))
-    KA.synchronize(backend)
     return qx, qy, valid
 end

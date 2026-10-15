@@ -299,7 +299,7 @@ function matchpatches!(tracker::PatchTracker, gray::AbstractMatrix{Float32}, M::
     # reduce every patch's score slab to (dx, dy, peak, margin) ON the device, then
     # read back only 4×K floats — the full score-volume copy was ~85% of the per-frame cost
     peakmargin_kernel!(backend)(tracker.peakout, tracker.scores, Int32(R), Int32(excl); ndrange = K)
-    KA.synchronize(backend)
+    # The read waits for the kernels that wrote `peakout`.
     copyto!(tracker.hostpeak, tracker.peakout)
     hp = tracker.hostpeak
     return [(x = tracker.centers[k][1], y = tracker.centers[k][2],

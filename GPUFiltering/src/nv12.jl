@@ -47,10 +47,12 @@ Convert NV12 planes (`y`: W×H UInt8 luma, `uv`: W×(H÷2) UInt8 interleaved chr
 to the RGB image `out` (W×H) on the GPU. Uses BT.709 limited-range by default;
 pass `bt601=true` for SD content.
 """
-function nv12torgb!(out::AbstractMatrix{<:AnyRGB},
+nv12torgb!(out::AbstractMatrix{<:AnyRGB}, y::AbstractMatrix{UInt8}, uv::AbstractMatrix{UInt8}; bt601::Bool = false) =
+    nv12torgb!(device(out), out, y, uv; bt601)
+function nv12torgb!(dev, out::AbstractMatrix{<:AnyRGB},
                     y::AbstractMatrix{UInt8}, uv::AbstractMatrix{UInt8}; bt601::Bool = false)
     size(out) == size(y) || throw(DimensionMismatch("out $(size(out)) vs luma $(size(y))"))
-    nv12torgb_kernel!(KA.get_backend(out))(out, y, uv, bt601; ndrange = size(out))
+    launch!(dev, nv12torgb_kernel!, (out, y, uv, bt601), size(out))
     return out
 end
 
@@ -66,9 +68,9 @@ Limited-range luma plane (`y`: W×H UInt8, 16..235) to full-range Float32 graysc
 `out` (0..1) on the GPU — the analysis passes track on luma, so a decoded NV12
 frame feeds them without any chroma upsampling or RGB round-trip.
 """
-function lumatogray!(out::AbstractMatrix{Float32}, y::AbstractMatrix{UInt8})
+lumatogray!(out::AbstractMatrix{Float32}, y::AbstractMatrix{UInt8}) = lumatogray!(device(out), out, y)
+function lumatogray!(dev, out::AbstractMatrix{Float32}, y::AbstractMatrix{UInt8})
     size(out) == size(y) || throw(DimensionMismatch("out $(size(out)) vs luma $(size(y))"))
-    lumatogray_kernel!(KA.get_backend(out))(out, y; ndrange = size(out))
-    KA.synchronize(KA.get_backend(out))
+    launch!(dev, lumatogray_kernel!, (out, y), size(out))
     return out
 end

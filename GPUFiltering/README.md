@@ -12,6 +12,24 @@ Kernels are asynchronous — call `KernelAbstractions.synchronize(backend)`
 
 Images use `(width, height)` layout (x-contiguous), matching GLMakie.
 
+## Where kernels run
+
+Every operation is a sequence of `launch!(device, kernel, args, ndrange)` and
+never synchronizes or reads back. Its first argument says where the kernels go:
+
+```julia
+otsu!(out, counts)                    # the backend of `out`, now
+otsu!(backend, out, counts, range)    # a KernelAbstractions backend, now
+otsu!(graph, out, counts, range)      # nodes of a Mantle graph (with Mantle loaded)
+```
+
+An operation that needs temporaries has two methods of one name: one allocates
+them, the other (with the device first) takes them, so a recorded graph or a
+loop reuses its own. Values that change between runs of a graph (a warp's
+matrix, a turn, a sampling map) are taken as a value or as a one-element device
+array. A Mantle graph orders its nodes by the array objects they name: name
+each array by one object in every operation of a graph.
+
 ## Examples
 
 Every kernel below ran on the Vulkan device through Lava:
@@ -40,6 +58,38 @@ channellinear!(img, gain::Vec3f, offset::Vec3f)
 means, stds = channelstats(img)            # per-channel statistics
 ```
 
+## Pixels
+
+```julia
+convertpixels!(out, img)              # any RGB or grey format to any RGB format
+grayscale!(out::Matrix{<:Gray}, img)  # Rec. 709 luma
+rotate90!(out, img, degrees)          # 0, 90, 180, 270 clockwise
+luma(c); bilinear(img, x, y); areamean(img, x0, x1, y0, y1)   # for kernels
+```
+
+## Regions and thresholds
+
+```julia
+components!(labels, mask, pred = !iszero)            # 8-connected, union-find with atomics
+erode!(out, img, r); dilate!(out, img, r); opening!(out, img, r)
+histogram!(counts, img, by = luma, range = (0, 1))   # counts spread over columns
+otsu!(out, counts)                                   # threshold and class separation
+selectquantile!(out, img, p, by = luma, stride = 1)  # exact, by radix selection
+sauvola!(out::Matrix{Gray{Bool}}, img, window = 31, k = 0.2, range = 0.5)
+```
+
+## Network inputs and outputs
+
+```julia
+sampleplanar!(dst, img, PlanarMap(scale, offset, extent), Bilinear() or Area(), mean, std, fill)
+resizeplanar!(dst, img; mean, std)    # torch's bilinear upsample, align_corners=False
+gridsample!(out, img, grid)           # torch's grid_sample, align_corners=True, zero padding
+```
+
+`dst` is the `(w, h, 3, 1)` Float32 tensor a DNNKernels graph takes: resampled,
+de-interleaved and normalised in one pass. `PlanarMap` letterboxes, crops a
+centre or cuts out a line padded to a fixed width.
+
 ## Blur / sharpen
 
 ```julia
@@ -56,6 +106,7 @@ blur per frame.
 ```julia
 warp!(out, img, M::Mat3f)     # bicubic (Catmull-Rom) PROJECTIVE warp: out[p] = img[proj(M*(p,1))]
 warp!(out, img, crop)         # normalized (x, y, w, h) crop + resize in one pass
+areadownscale!(out, img[, Blocks(factor, origin)])   # area-average shrink
 cropmatrix(crop, insize, outsize)
 translationmatrix(dx, dy)     # sampling matrix that shifts CONTENT by (dx, dy)
 ```
@@ -104,7 +155,9 @@ affine flow.
 
 ## Tests
 
-`]test GPUFiltering`: 70 tests, all on the CPU. Bit comparisons against
+`]test GPUFiltering`: 118 tests, all on the CPU. Bit comparisons against
 ImageFiltering, flow sign and sub-pixel accuracy, fit recovery, robustness and
-the inverse convention, end-to-end warp, flow, fit and restore round trips, and
-warps whose sample positions leave the Int32 range or divide by zero.
+the inverse convention, end-to-end warp, flow, fit and restore round trips,
+warps whose sample positions leave the Int32 range or divide by zero, and every
+pixel, region, threshold and resampling operation against a direct reference.
+The GPU paths run in PPOCRRunner's, UVDocRunner's and Paperhawk's tests.

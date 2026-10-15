@@ -105,7 +105,9 @@ end
     warp!(out, img, M::Mat3f) -> out
 
 Bicubic (Catmull-Rom) projective warp: each output pixel `(i, j)` samples
-`img` at `M * (i, j, 1)` (border pixels replicate). One kernel covers
+`img` at `M * (i, j, 1)` (border pixels replicate). With a device first, `M` may
+also be a one-element device array (a `GPURef`) for a warp that changes between
+runs of a graph. One kernel covers
 crop, scale, rotation and stabilization warps. `out` and `img` may have
 different sizes.
 
@@ -126,7 +128,9 @@ image that something else then composites.
 Convenience: sample the normalized crop rect `(x, y, w, h)` of `img`
 (measured from the top-left) into all of `out` — crop + resize in one pass.
 """
-function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
+warp!(out::AbstractMatrix{<:AnyRGB}, img::AbstractMatrix{<:AnyRGB}, M::Mat3f; kw...) =
+    warp!(device(img), out, img, M; kw...)
+function warp!(dev, out::AbstractMatrix{T}, img::AbstractMatrix{S}, M;
                skipoutside::Bool = false,
                bounds::Union{Nothing, NTuple{4, <:Integer}} = nothing,
                write::WarpWrite = Replace()) where {T <: AnyRGB, S <: AnyRGB}
@@ -143,8 +147,7 @@ function warp!(out::AbstractMatrix{T}, img::AbstractMatrix{S}, M::Mat3f;
                              allocate `out` there and copy afterwards."))
     w, h = size(img, 1), size(img, 2)
     b = bounds === nothing ? (1, 1, w, h) : bounds
-    warp_kernel!(backend)(out, img, M, skipoutside,
-                          Vec4{Int32}(b[1], b[2], b[3], b[4]), write; ndrange = size(out))
+    launch!(dev, warp_kernel!, (out, img, M, skipoutside, Vec4{Int32}(b[1], b[2], b[3], b[4]), write), size(out))
     return out
 end
 
@@ -219,6 +222,32 @@ function warp!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:Abstrac
     return warp!(out, img, cropmatrix(crop, size(img), size(out)))
 end
 
+@kernel function blockmean_kernel!(out, @Const(img), blocksp)
+    I = @index(Global, Cartesian)
+    blocks = paramvalue(blocksp)
+    f = Int(blocks.factor); x0 = Int(blocks.origin[1]); y0 = Int(blocks.origin[2])
+    r = 0.0f0; g = 0.0f0; b = 0.0f0
+    @inbounds for yy in (y0 + (I[2] - 1) * f + 1):(y0 + I[2] * f), xx in (x0 + (I[1] - 1) * f + 1):(x0 + I[1] * f)
+        c = tofloat(img[xx, yy])
+        r += c.r; g += c.g; b += c.b
+    end
+    inv = 1.0f0 / Float32(f * f)
+    @inbounds out[I] = topixel(eltype(out), r * inv, g * inv, b * inv)
+end
+
+"""
+    Blocks(factor, origin = (0, 0))
+
+Square blocks of `factor × factor` source pixels, the first one's top-left
+corner after pixel `origin`. An isbits value: pass it as is, or in a
+one-element device array (a `GPURef`) when it changes between runs of a graph.
+"""
+struct Blocks
+    factor::Int32
+    origin::Vec{2, Int32}
+end
+Blocks(factor::Integer, origin = (0, 0)) = Blocks(Int32(factor), Vec{2, Int32}(origin))
+
 @kernel function areadownscale_kernel!(out, @Const(img))
     I = @index(Global, Cartesian)
     tw, th = size(out)
@@ -241,8 +270,33 @@ Area-average downscale: every output pixel is the mean of its full source cell,
 so heavy decimation (timeline thumbnails) cannot alias the way point sampling
 does. `out` and `img` may live on any KA backend.
 """
-function areadownscale!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB})
-    areadownscale_kernel!(KA.get_backend(out))(out, img; ndrange = size(out))
-    KA.synchronize(KA.get_backend(out))
+areadownscale!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB}) =
+    areadownscale!(device(out), out, img)
+function areadownscale!(dev, out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB})
+    launch!(dev, areadownscale_kernel!, (out, img), size(out))
     return out
 end
+
+"""
+    areadownscale!([device,] out, img, blocks::Blocks) -> out
+
+Every output pixel the mean of one of `blocks`' squares: exactly `factor`
+times smaller, from `blocks.origin` on, so positions map back by the factor
+alone. `out`'s size says how many blocks; they must lie inside `img`. `blocks`
+may be a one-element device array of a `Blocks` with a device first.
+"""
+areadownscale!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB}, blocks::Blocks) =
+    areadownscale!(device(out), out, img, blocks)
+function areadownscale!(dev, out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB}, blocks)
+    checkblocks(out, img, blocks)
+    launch!(dev, blockmean_kernel!, (out, img, blocks), size(out))
+    return out
+end
+
+function checkblocks(out, img, b::Blocks)
+    b.factor >= 1 || throw(ArgumentError("block factor must be positive, not $(b.factor)"))
+    all(b.origin .+ b.factor .* size(out) .<= size(img)) ||
+        throw(DimensionMismatch("$(size(out)) blocks of $(b.factor) from $(Tuple(b.origin)) leave img $(size(img))"))
+    return nothing
+end
+checkblocks(out, img, b::AbstractArray) = nothing

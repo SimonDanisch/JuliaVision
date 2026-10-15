@@ -5,6 +5,7 @@ using FixedPointNumbers
 using GeometryBasics
 import ImageFiltering
 import KernelAbstractions as KA
+using Random: randperm
 
 maxcomponentdiff(a, b) = maximum(map((x, y) -> max(abs(Float32(red(x)) - Float32(red(y))),
                                                    abs(Float32(green(x)) - Float32(green(y))),
@@ -309,3 +310,5 @@ end
         @test isapprox(m.dy, 3.25; atol = 0.2)
     end
 end
+
+include("operations.jl")

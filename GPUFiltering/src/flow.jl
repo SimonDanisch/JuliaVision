@@ -8,15 +8,11 @@ broadcast-heavy — the same code runs on CPU arrays and GPU arrays; only
 sampling (warp/resize) and convolution are explicit kernels.
 """
 
-@kernel function gray_kernel!(out, @Const(img))
-    I = @index(Global, Cartesian)
-    c = tofloat(img[I])
-    out[I] = 0.2126f0 * c.r + 0.7152f0 * c.g + 0.0722f0 * c.b
-end
-
 "Rec.709 luma of an RGB image into a Float32 matrix of the same size."
-function grayscale!(out::AbstractMatrix{Float32}, img::AbstractMatrix{<:AbstractRGB})
-    gray_kernel!(KA.get_backend(img))(out, img; ndrange = size(img))
+grayscale!(out::AbstractMatrix{Float32}, img::AbstractMatrix{<:AbstractRGB}) = grayscale!(device(out), out, img)
+function grayscale!(dev, out::AbstractMatrix{Float32}, img::AbstractMatrix{<:AbstractRGB})
+    size(out) == size(img) || throw(DimensionMismatch("out $(size(out)) vs img $(size(img))"))
+    launch!(dev, luma_kernel!, (out, img), size(img))
     return out
 end
 
@@ -513,7 +509,6 @@ function opticalflow!(ws::FlowWorkspace, u::AbstractMatrix{Float32}, v::Abstract
     end
     copyto!(u, ws.levels[1].u)
     copyto!(v, ws.levels[1].v)
-    KA.synchronize(KA.get_backend(i1))
     return u, v
 end
 

@@ -82,7 +82,7 @@ function goodfeatures(backend, gray::AbstractMatrix{Float32}; maxpoints::Integer
     vals = KA.allocate(backend, Float32, (nx, ny))
     xs = KA.allocate(backend, Int32, (nx, ny)); ys = similar(xs)
     cellmax_kernel!(backend)(vals, xs, ys, corner, cw, ch, Int32(border); ndrange = (nx, ny))
-    KA.synchronize(backend)
+    # The reads wait for the kernels that wrote them.
     hv = Array(vals); hx = Array(xs); hy = Array(ys)
     thresh = Float32(quality) * maximum(hv)
     pts = NTuple{2, Int}[]

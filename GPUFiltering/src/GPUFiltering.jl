@@ -6,8 +6,11 @@ All functions work on `AbstractMatrix{<:AbstractRGB}` of any KA backend —
 `KernelAbstractions.get_backend(img)`. Computation happens in `RGB{Float32}`
 and is stored back in the array's element type.
 
-Kernels are asynchronous; call `KernelAbstractions.synchronize(backend)`
-(or fetch results with `Array`) before reading on the host.
+Operations only launch kernels: they never synchronize or read a result back.
+A read on the host (`Array`, `copyto!` into host memory) waits for the kernels
+that wrote what it reads. Every operation takes an optional device as its first
+argument, see [`launch!`](@ref): a backend runs it now, a Mantle graph declares
+it.
 """
 module GPUFiltering
 
@@ -35,6 +38,10 @@ export resizeplanar!
 export tofloat, topixel, alphaof, straight, premul, AnyRGB
 export paramvalue
 export WarpWrite, Replace, Over
+export convertpixels!, rotate90!, components!, erode!, dilate!, opening!
+export histogram!, otsu!, selectquantile!, sauvola!, gridsample!
+export sampleplanar!, PlanarMap, Blocks
+public launch!, device, luma, floatpixel, bilinear, areamean, Sampling, Bilinear, Area, quantilesizes
 
 """
     paramvalue(x) -> value
@@ -159,9 +166,11 @@ function todevice(like::AbstractArray, host::Vector{Float32})
     return dev
 end
 
+include("launch.jl")
+include("pixels.jl")
 include("coloradjust.jl")
 include("lut3d.jl")
-include("resizeplanar.jl")
+include("planar.jl")
 include("blur.jl")
 include("transform.jl")
 include("flow.jl")
@@ -171,5 +180,10 @@ include("lucaskanade.jl")
 include("nv12.jl")
 include("blend.jl")
 include("fxmap.jl")
+include("components.jl")
+include("morphology.jl")
+include("histogram.jl")
+include("sauvola.jl")
+include("gridsample.jl")
 
 end

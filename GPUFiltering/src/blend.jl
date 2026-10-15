@@ -15,10 +15,10 @@ Linear cross-mix `out = (1-p)·a + p·b` over three same-size RGB buffers (`out`
 may alias `a` or `b`). The pixel core of a cross-dissolve transition, and of a
 fade when one side is a constant color.
 """
-function blend!(out::AbstractMatrix{<:AnyRGB}, a::AbstractMatrix{<:AnyRGB},
+blend!(out::AbstractMatrix{<:AnyRGB}, a::AbstractMatrix{<:AnyRGB}, b::AbstractMatrix{<:AnyRGB}, p::Real) =
+    blend!(device(out), out, a, b, p)
+function blend!(dev, out::AbstractMatrix{<:AnyRGB}, a::AbstractMatrix{<:AnyRGB},
                 b::AbstractMatrix{<:AnyRGB}, p::Real)
-    backend = KA.get_backend(out)
-    blend_kernel!(backend)(out, a, b, Float32(p); ndrange = size(out))
-    KA.synchronize(backend)
+    launch!(dev, blend_kernel!, (out, a, b, Float32(p)), size(out))
     return out
 end
