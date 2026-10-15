@@ -160,7 +160,7 @@ function layernorm_shfl_kernel!(out, mean, rstd,
     v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
     v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
     v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
-    μ = KI.shfl(s, chunk * ROW) / n
+    μ = KI.shfl(s, chunk * ROW + 1) / n
 
     s2 = 0.0f0
     i = lane
@@ -177,7 +177,7 @@ function layernorm_shfl_kernel!(out, mean, rstd,
     v = KI.shfl_down(s2, 4);  lane < 4  && (s2 += v)
     v = KI.shfl_down(s2, 2);  lane < 2  && (s2 += v)
     v = KI.shfl_down(s2, 1);  lane < 1  && (s2 += v)
-    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW) / n + eps)
+    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW + 1) / n + eps)
 
     i = lane
     @inbounds while valid && i < C
@@ -226,7 +226,7 @@ function add_layernorm_shfl_kernel!(out, sumout, mean, rstd,
     v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
     v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
     v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
-    μ = KI.shfl(s, chunk * ROW) / n
+    μ = KI.shfl(s, chunk * ROW + 1) / n
 
     s2 = 0.0f0
     i = lane
@@ -243,7 +243,7 @@ function add_layernorm_shfl_kernel!(out, sumout, mean, rstd,
     v = KI.shfl_down(s2, 4);  lane < 4  && (s2 += v)
     v = KI.shfl_down(s2, 2);  lane < 2  && (s2 += v)
     v = KI.shfl_down(s2, 1);  lane < 1  && (s2 += v)
-    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW) / n + eps)
+    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW + 1) / n + eps)
 
     i = lane
     @inbounds while valid && i < C
@@ -297,7 +297,7 @@ function layernorm_shfl_window4_add_kernel!(out, wideout, sumout, mean, rstd,
     v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
     v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
     v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
-    μ = KI.shfl(s, chunk * ROW) / n
+    μ = KI.shfl(s, chunk * ROW + 1) / n
 
     s2 = 0.0f0
     i = lane
@@ -315,7 +315,7 @@ function layernorm_shfl_window4_add_kernel!(out, wideout, sumout, mean, rstd,
     v = KI.shfl_down(s2, 4);  lane < 4  && (s2 += v)
     v = KI.shfl_down(s2, 2);  lane < 2  && (s2 += v)
     v = KI.shfl_down(s2, 1);  lane < 1  && (s2 += v)
-    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW) / n + eps)
+    r = 1.0f0 / sqrt(KI.shfl(s2, chunk * ROW + 1) / n + eps)
 
     W = IW * NX
     H = IH * NY
@@ -420,7 +420,7 @@ function rmsnorm_shfl_kernel!(out, rstd, a, γ,
     v = KI.shfl_down(s, 4);  lane < 4  && (s += v)
     v = KI.shfl_down(s, 2);  lane < 2  && (s += v)
     v = KI.shfl_down(s, 1);  lane < 1  && (s += v)
-    r = 1.0f0 / sqrt(KI.shfl(s, chunk * ROW) / n + eps)
+    r = 1.0f0 / sqrt(KI.shfl(s, chunk * ROW + 1) / n + eps)
 
     i = lane
     @inbounds while valid && i < C

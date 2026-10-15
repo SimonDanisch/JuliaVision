@@ -176,13 +176,13 @@ function attn_flash_rows!(out, q, k, v, scale::Float32,
                 Base.Cartesian.@nexprs 16 j -> x_j = kfirst + Int32(j - 1) < Lk ? x_j : -Inf32
             end
             mloc = Base.Cartesian.@ncall 16 max x
-            mnew = max(mrun, max(mloc, KI.shfl(mloc, lane ⊻ Int32(1))))
+            mnew = max(mrun, max(mloc, KI.shfl(mloc, (lane ⊻ Int32(1)) + Int32(1))))
             # `mrun` is -Inf on the first block and `mnew` never is (every block
             # has a key inside the extent), so this is 0 there, not NaN.
             alpha = exp2(mrun - mnew)
             Base.Cartesian.@nexprs 16 j -> p_j = exp2(x_j - mnew)
             lsum = Base.Cartesian.@ncall 16 (+) p
-            lrun = lrun * alpha + (lsum + KI.shfl(lsum, lane ⊻ Int32(1)))
+            lrun = lrun * alpha + (lsum + KI.shfl(lsum, (lane ⊻ Int32(1)) + Int32(1)))
             mrun = mnew
             pb = 1 + (w * Int32(16) + r) * PS4 + part * Int32(4)
             Base.Cartesian.@nexprs 4 m -> pw[pb + Int32(m - 1)] =

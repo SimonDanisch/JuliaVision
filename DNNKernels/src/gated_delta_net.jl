@@ -60,7 +60,7 @@ const GDN_LANES = 4
 # commutes, so each lane's butterfly arrives at the same bits.
 @inline _gdn_lanesum(x::Float32, lane::Int32, ::Val{1}) = x
 @inline _gdn_lanesum(x::Float32, lane::Int32, ::Val{L}) where {L} =
-    _gdn_lanesum(x + KI.shfl(x, lane ⊻ Int32(L ÷ 2)), lane, Val(L ÷ 2))
+    _gdn_lanesum(x + KI.shfl(x, (lane ⊻ Int32(L ÷ 2)) + Int32(1)), lane, Val(L ÷ 2))
 
 @inline _gdn_dot4(a, b) = (a[1].value * b[1].value + a[2].value * b[2].value) +
                           (a[3].value * b[3].value + a[4].value * b[4].value)
