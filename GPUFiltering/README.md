@@ -76,7 +76,15 @@ histogram!(counts, img, by = luma, range = (0, 1))   # counts spread over column
 otsu!(out, counts)                                   # threshold and class separation
 selectquantile!(out, img, p, by = luma, stride = 1)  # exact, by radix selection
 sauvola!(out::Matrix{Gray{Bool}}, img, window = 31, k = 0.2, range = 0.5)
+boxrows!(stats::Matrix{RowStats}, img, mask, boxes, pred = !iszero)    # per box row: count, runs, extent, colour
+fillboxes!(img, boxes, value)
+componentboxes!(boxes, count, labels, minarea = 1)   # connectedComponentsWithStats, compacted
 ```
+
+Boxes are `(x0, y0, x1, y1)`, 1-based and inclusive, in a device vector. A text
+line's profile comes from `boxrows!`: ink per row gives the baseline and the
+x-height, pixels per run the stroke width, the extent and the colour sums the
+rest.
 
 ## Network inputs and outputs
 
@@ -155,9 +163,10 @@ affine flow.
 
 ## Tests
 
-`]test GPUFiltering`: 118 tests, all on the CPU. Bit comparisons against
+`]test GPUFiltering`: 218 tests, all on the CPU. Bit comparisons against
 ImageFiltering, flow sign and sub-pixel accuracy, fit recovery, robustness and
 the inverse convention, end-to-end warp, flow, fit and restore round trips,
 warps whose sample positions leave the Int32 range or divide by zero, and every
-pixel, region, threshold and resampling operation against a direct reference.
+pixel, region, threshold, resampling and box operation against a direct
+reference.
 The GPU paths run in PPOCRRunner's, UVDocRunner's and Paperhawk's tests.

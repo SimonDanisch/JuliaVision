@@ -123,6 +123,17 @@ end
     sampleplanar!(dst, img, PlanarMap((2, 2), (0, 0), (3, 4)), Area(), (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), 1)
     @test all(==(1.0f0), dst[4:6, :, :, 1])
     @test dst[1:3, :, 1, 1] ≈ (red.(blocks[1:3, :]) .- 0.5f0) ./ 0.5f0
+    # A batch: one map per slot, as lines cut out of a page; an empty extent is all fill.
+    maps = [PlanarMap((2, 2), (0, 0), (6, 4)), PlanarMap((1, 1), (4, 2), (6, 4)), PlanarMap((1, 1), (0, 0), (0, 0))]
+    batch = zeros(Float32, 6, 4, 3, 3)
+    sampleplanar!(batch, img, maps, Bilinear())
+    for k in 1:2
+        one = zeros(Float32, 6, 4, 3, 1)
+        sampleplanar!(one, img, maps[k], Bilinear())
+        @test batch[:, :, :, k] == one[:, :, :, 1]
+    end
+    @test all(iszero, batch[:, :, :, 3])
+    @test_throws DimensionMismatch sampleplanar!(batch, img, maps[1:2], Bilinear())
     # resizeplanar! is torch's bilinear upsample with align_corners=False.
     up = zeros(Float32, 20, 11, 3, 1)
     resizeplanar!(up, img)
@@ -136,4 +147,41 @@ end
                (1 - dx) * dy * red(img[x0, y1]) + dx * dy * red(img[x1, y1])
            end for u in 1:20, v in 1:11]
     @test up[:, :, 1, 1] ≈ ref
+end
+
+@testset "boxrows!, fillboxes!, componentboxes!" begin
+    img = rand(RGB{Float32}, 20, 12)
+    mask = rand(Bool, 20, 12)
+    boxes = [Int32.((2, 3, 9, 7)), Int32.((15, 1, 20, 12)), Int32.((1, 1, 1, 1))]
+    stats = fill(RowStats(), 12, 3)
+    boxrows!(stats, img, mask, boxes, identity, 2)
+    for k in 1:2, r in 1:12
+        x0, y0, x1, y1 = boxes[k]
+        y = y0 + r - 1
+        st = stats[r, k]
+        if y > y1
+            @test st.count == 0 && st.runs == 0 && st.first == 0
+        else
+            row = mask[x0:x1, y]
+            @test st.count == count(row)
+            @test st.runs == count(i -> row[i] && (i == 1 || !row[i - 1]), eachindex(row))
+            @test st.first == (any(row) ? x0 + findfirst(row) - 1 : 0)
+            @test st.last == (any(row) ? x0 + findlast(row) - 1 : 0)
+            @test st.sum ≈ sum(img[x0:x1, y][row]; init = RGB{Float32}(0, 0, 0))
+        end
+    end
+    # Boxes past the count are left out.
+    @test all(st -> st.count == 0, stats[:, 3])
+
+    filled = fillboxes!(copy(mask), boxes, false, 2)
+    inside(x, y) = any(b -> b[1] <= x <= b[3] && b[2] <= y <= b[4], boxes[1:2])
+    @test all(filled[x, y] == (inside(x, y) ? false : mask[x, y]) for x in 1:20, y in 1:12)
+
+    blobs = zeros(Int32, 10, 8)
+    blobs[2:3, 2:4] .= 1; blobs[7:9, 6:8] .= 1; blobs[6, 1] = 1
+    labels = components!(zeros(Int32, 10, 8), blobs)
+    found = zeros(Int32, 5, 4); count1 = zeros(Int32, 1)
+    componentboxes!(found, count1, labels, 2)
+    @test count1[1] == 2
+    @test Set(eachcol(found[:, 1:2])) == Set([Int32[2, 2, 3, 4, 6], Int32[7, 6, 9, 8, 9]])
 end

@@ -12,7 +12,7 @@ covers the source from `offset + scale .* (u - 1, v - 1)` to
 `i - 1` to `i`); bilinear sampling reads the centre of that cover. Only the
 destination pixels up to `extent` sample, the rest take the fill: a letterbox,
 or a line padded to a fixed width. An isbits value: pass it as is, or in a
-one-element device array (a `GPURef`) when it changes between runs of a graph.
+device array when it changes between runs of a graph, one per batch slot.
 """
 struct PlanarMap
     scale::Vec2f
@@ -36,42 +36,48 @@ end
                          m.offset[2] + m.scale[2] * (v - 1), m.offset[2] + m.scale[2] * v)
 end
 
-@kernel function sampleplanar_kernel!(dst, @Const(img), mapp, sampling, mean::NTuple{3, Float32},
+# The map of batch slot `b`: one value for every slot, or one per slot.
+@inline planarmap(m::PlanarMap, b) = m
+@inline planarmap(maps::AbstractVector{PlanarMap}, b) = @inbounds maps[b]
+
+@kernel function sampleplanar_kernel!(dst, @Const(img), maps, sampling, mean::NTuple{3, Float32},
                                       invstd::NTuple{3, Float32}, fill::Float32)
     I = @index(Global, Cartesian)
-    u, v = I[1], I[2]
-    m = paramvalue(mapp)
+    u, v, b = I[1], I[2], I[3]
+    m = planarmap(maps, b)
     c = RGB{Float32}(fill, fill, fill)
     if u <= m.extent[1] && v <= m.extent[2]
         c = sampleat(sampling, img, m, u, v)
     end
     @inbounds begin
-        dst[u, v, 1, 1] = (c.r - mean[1]) * invstd[1]
-        dst[u, v, 2, 1] = (c.g - mean[2]) * invstd[2]
-        dst[u, v, 3, 1] = (c.b - mean[3]) * invstd[3]
+        dst[u, v, 1, b] = (c.r - mean[1]) * invstd[1]
+        dst[u, v, 2, b] = (c.g - mean[2]) * invstd[2]
+        dst[u, v, 3, b] = (c.b - mean[3]) * invstd[3]
     end
 end
 
 """
-    sampleplanar!([device,] dst, img, map::PlanarMap, sampling = Bilinear(), mean = (0, 0, 0), std = (1, 1, 1), fill = 0) -> dst
+    sampleplanar!([device,] dst, img, maps, sampling = Bilinear(), mean = (0, 0, 0), std = (1, 1, 1), fill = 0) -> dst
 
-`img`, any colour or grey image, resampled through `map` into `dst`, a
-`(w, h, 3, 1)` `Float32` tensor, each channel normalised as `(v - mean) / std`.
-`fill` is the source value of the pixels outside the map's extent, normalised
-like the rest. Values pass through unclamped: a network's input legitimately
-leaves [0, 1] once normalised.
+`img`, any colour or grey image, resampled into `dst`, a `(w, h, 3, b)`
+`Float32` tensor of `b` batch slots, each channel normalised as
+`(v - mean) / std`. `maps` is one [`PlanarMap`](@ref) for every slot, or a
+device vector of them, one per slot: line `k` of a batch cut out of a page. `fill`
+is the source value of the pixels outside a map's extent, normalised like the
+rest; a slot whose extent is zero is all fill. Values pass through unclamped: a
+network's input legitimately leaves [0, 1] once normalised.
 """
 sampleplanar!(dst::AbstractArray{Float32, 4}, img::AbstractMatrix, map, sampling::Sampling = Bilinear(),
               mean = (0.0f0, 0.0f0, 0.0f0), std = (1.0f0, 1.0f0, 1.0f0), fill::Real = 0.0f0) =
     sampleplanar!(device(dst), dst, img, map, sampling, mean, std, fill)
 function sampleplanar!(dev, dst::AbstractArray{Float32, 4}, img::AbstractMatrix, map, sampling::Sampling,
                        mean, std, fill::Real)
-    size(dst, 3) == 3 && size(dst, 4) == 1 ||
-        throw(DimensionMismatch("dst must be (w, h, 3, 1), not $(size(dst))"))
+    size(dst, 3) == 3 || throw(DimensionMismatch("dst must be (w, h, 3, b), not $(size(dst))"))
+    checkmaps(map, size(dst, 4))
     any(iszero, std) && throw(ArgumentError("std has a zero component: $std"))
     μ = NTuple{3, Float32}(Float32.(mean))
     invstd = NTuple{3, Float32}(inv.(Float32.(std)))
-    launch!(dev, sampleplanar_kernel!, (dst, img, map, sampling, μ, invstd, Float32(fill)), (size(dst, 1), size(dst, 2)))
+    launch!(dev, sampleplanar_kernel!, (dst, img, map, sampling, μ, invstd, Float32(fill)), (size(dst, 1), size(dst, 2), size(dst, 4)))
     return dst
 end
 
@@ -86,6 +92,10 @@ have made itself. See [`sampleplanar!`](@ref).
 Without a device, a host `img` is uploaded to `dst`'s backend first: decoders
 hand out host frames. A device `img` on another backend is an error.
 """
+checkmaps(::PlanarMap, slots) = nothing
+checkmaps(maps::AbstractVector{PlanarMap}, slots) = length(maps) >= slots ||
+    throw(DimensionMismatch("$(length(maps)) maps for $slots batch slots"))
+
 function resizeplanar!(dst::AbstractArray{Float32, 4}, img::AbstractMatrix;
                        mean = (0.0f0, 0.0f0, 0.0f0), std = (1.0f0, 1.0f0, 1.0f0))
     backend = device(dst)
