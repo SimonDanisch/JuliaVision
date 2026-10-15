@@ -2,8 +2,8 @@
 #
 # Every operation here is written once, as kernel launches through `launch!`.
 # Its first argument says where they go: a KernelAbstractions backend runs them
-# now, and a Mantle graph (through the Mantle extension) declares them as nodes
-# of the graph, to run on every `run!` of its plan. The operation itself does not
+# now, and a Mantle graph declares them as nodes of the graph, ordered by what
+# they read and write, to run on every `run!` of its plan. The operation itself does not
 # know which: it launches, and never synchronizes or reads a result back, so the
 # same code is correct in both. Mantle's recording redesign makes the graph the
 # location of graph arrays, after which `launch!` becomes `Mantle.dispatch!` and
@@ -17,7 +17,7 @@
     launch!(device, kernel, args::Tuple, ndrange; name = nothing)
 
 Launch the KernelAbstractions `kernel` over `ndrange` with `args`: now, on a
-`KA.Backend`, or as a node of a Mantle graph with the Mantle extension loaded.
+`KA.Backend`, or as a node of a Mantle graph.
 
 A graph orders its nodes by the array objects they name, so name each array by
 one object in every operation of a graph: two views of one buffer, such as two
@@ -28,6 +28,18 @@ function launch!(device::KA.Backend, kernel, args::Tuple, ndrange; name = nothin
     kernel(device)(args...; ndrange)
     return nothing
 end
+
+function launch!(g::Mantle.Graph, kernel, args::Tuple, ndrange; name = nothing)
+    Mantle.dispatch!(g, kernel, args, ndrange; group = group(ndrange), name)
+    return nothing
+end
+
+# An image-shaped range launches 16x16 workgroups: Mantle's default fills the
+# first axis first, which for a 2-D range is one row of 64 (see `Mantle.dispatch!`).
+group(::Integer) = nothing
+group(::NTuple{1, Integer}) = nothing
+group(::NTuple{2, Integer}) = (16, 16)
+group(::NTuple{3, Integer}) = (16, 16, 1)
 
 """
     device(a) -> backend

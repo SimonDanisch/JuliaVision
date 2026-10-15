@@ -19,6 +19,7 @@ using FixedPointNumbers
 using GeometryBasics
 using KernelAbstractions
 import KernelAbstractions as KA
+import Mantle
 import Statistics: median
 
 export coloradjust!, gaussianblur!, unsharpmask!, warp!, gaussianweights

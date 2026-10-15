@@ -20,7 +20,7 @@ never synchronizes or reads back. Its first argument says where the kernels go:
 ```julia
 otsu!(out, counts)                    # the backend of `out`, now
 otsu!(backend, out, counts, range)    # a KernelAbstractions backend, now
-otsu!(graph, out, counts, range)      # nodes of a Mantle graph (with Mantle loaded)
+otsu!(graph, out, counts, range)      # nodes of a Mantle graph
 ```
 
 An operation that needs temporaries has two methods of one name: one allocates
