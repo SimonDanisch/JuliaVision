@@ -15,9 +15,9 @@ lazy = true
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/ppocrv6_det.tar.gz"
 
 [ppocrv6_rec]
-git-tree-sha1 = "b613d70ecfb26c8464e0878a6a802e9d59bcf793"
+git-tree-sha1 = "451142e8dc1cf2fb64337bdcd66ed0682060579d"
 lazy = true
 
     [[ppocrv6_rec.download]]
-    sha256 = "182a33627d1f9cc26655dbbbc611e026aadc9c7729fa79bcdb6c7ffd227c7691"
+    sha256 = "c7256f1f0f92d0b610927d34724c3c78777c6c2eab08893888fc32fa28b64309"
     url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/ppocrv6_rec.tar.gz"

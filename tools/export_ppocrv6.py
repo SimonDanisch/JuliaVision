@@ -12,9 +12,9 @@ Two graphs, two directories under `gen/graphs/`:
     1280x1792, A4 at about 155 dpi, both sides multiples of 32 as the
     detector's five stride-2 stages need). The caller scales a page into it
     and pads the rest.
-  - `ppocrv6_rec`: one text line scaled to 48 pixels high, `(1, 3, 48, W)`
-    with `W = 16w` symbolic -> per time step (`W / 8` of them) the most likely
-    character and its probability. The softmax over 18710 classes and the
+  - `ppocrv6_rec`: a batch of `b` text lines scaled to 48 pixels high,
+    `(b, 3, 48, W)` with `b` and `W = 16w` symbolic -> per line and time step
+    (`W / 8` of them) the most likely character and its probability. The softmax over 18710 classes and the
     argmax both stay in the graph, so what crosses back to the host is two
     short vectors rather than `W / 8 x 18710` floats. CTC decoding (drop
     repeats, drop blanks) is the caller's, with `characters.json`.
@@ -231,17 +231,21 @@ def main(page, dev, precision, out_root, verify=False, graphs=("det", "rec", "or
         refs = {"input": x, "probability": det(x)}
     write(out_root / "ppocrv6_det", "ppocrv6_det", det, g, refs)
 
-    wdim = Dim("w", min=2, max=200)
+    # Lines are read in batches, so the batch is symbolic as well as the width.
+    # Exported at a batch of 2: torch.export specialises a dimension it sees at 1.
+    wdim, bdim = Dim("w", min=2, max=200), Dim("b", min=1, max=64)
     with torch.no_grad(), EG.precision_ctx(precision):
-        ep = torch.export.export(rec, (torch.randn(1, 3, REC_HEIGHT, 640, device=dev),),
-                                 dynamic_shapes=({3: 16 * wdim},), strict=False)
+        ep = torch.export.export(rec, (torch.randn(2, 3, REC_HEIGHT, 640, device=dev),),
+                                 dynamic_shapes=({0: bdim, 3: 16 * wdim},), strict=False)
         ep = ep.run_decompositions()
-    g = EG.convert(ep, ({3: "W"},), "ppocrv6_rec")
+    g = EG.convert(ep, ({0: "b", 3: "W"},), "ppocrv6_rec")
     with torch.no_grad():
-        line = sample_page(640, REC_HEIGHT * 3, dev)[:, :, 40:40 + REC_HEIGHT, :] * 0 + \
-            torch.linspace(-1, 1, 640, device=dev).view(1, 1, 1, 640)
+        ramp = torch.linspace(-1, 1, 640, device=dev).view(1, 1, 1, 640).expand(1, 3, REC_HEIGHT, 640)
+        page = sample_page(640, REC_HEIGHT * 3, dev)[:, :, 40:40 + REC_HEIGHT, :]
+        # Two different lines, so a batch that mixed them up would not match.
+        line = torch.cat([ramp, page]).contiguous()
         best, index = rec(line)
-        refs = {"input": line.contiguous(), "best": best, "index": index}
+        refs = {"input": line, "best": best, "index": index}
     write(out_root / "ppocrv6_rec", "ppocrv6_rec", rec, g, refs)
     (out_root / "ppocrv6_rec" / "characters.json").write_text(json.dumps(list(chars), ensure_ascii=False))
     print(f"  {len(chars)} classes, index 0 is the CTC blank")

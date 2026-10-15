@@ -19,8 +19,8 @@ Exported by `tools/export_ppocrv6.py`; bound with
 
 Everything between the networks runs on the device too: scaling the page into
 the detector's and the classifier's inputs, turning the detector's map into
-boxes (connected components and DB's "unclip"), and cutting each line out at 48
-pixels high. The image operations are GPUFiltering's. The page is uploaded once; only the boxes, the recogniser's best
+boxes (connected components and DB's "unclip"), and cutting the lines out at 48
+pixels high, a batch of them at a time. The image operations are GPUFiltering's. The page is uploaded once; only the boxes, the recogniser's best
 class per time step and four orientation logits come back. CTC decoding and
 reading order are a few dozen strings and boxes, and stay on the host.
 
@@ -93,6 +93,23 @@ half again costs a few milliseconds of a recogniser that takes twenty.
 """
 const REC_HEIGHT = 48
 const REC_WIDTHS = (320, 480, 640, 960, 1280, 1920, 2560, 3200)
+
+"""
+    recbatches(W, columns = 7680) -> batch sizes
+
+How many lines of input width `W` the recogniser reads in one call, largest
+first: 8, 4, 2 or 1, as long as a batch holds at most `columns` input columns.
+The lines of one width are read in batches of these sizes, the largest that
+still fills, so no batch carries empty slots.
+
+One line underuses the device: short lines are mostly launch and latency, and
+eight lines of 320 columns took a third of eight single calls; at 1920 and 3200
+columns the gain falls to about a quarter (the Ada, with other work running).
+The plans of one model share a memory arena sized by the largest of them. With
+`columns` all of them take about 450 MiB on the device, against 140 MiB for
+one line per call; 3200 columns at a batch of 8 alone would add another 520.
+"""
+recbatches(W::Integer, columns::Integer = 7680) = filter(b -> b == 1 || W * b <= columns, (8, 4, 2, 1))
 
 """
     ORI_SHORT, ORI_SIZE
@@ -174,16 +191,16 @@ end
 """
     PageInput
 
-A page on the model's device: `pixels`, `RGB{Float32}` in `[x, y]`, the map
-that cuts the current line out of it, and the passes that scale it into the
-networks. Fill `pixels` on the device, or from
+A page on the model's device: `pixels`, `RGB{Float32}` in `[x, y]`, the maps
+that cut the current batch of lines out of it, and the passes that scale it
+into the networks. Fill `pixels` on the device, or from
 the host with [`upload!`](@ref); [`read_lines`](@ref), [`detect`](@ref),
 [`recognize`](@ref) and [`orientation`](@ref) read it. [`pageinput!`](@ref)
 makes one per page size, and the model frees them all on `close`.
 """
 struct PageInput{P, L}
     pixels::P
-    line::L
+    lines::L
     plans::Dict{Any, Any}
     staging::Dict{DataType, Any}
 end
@@ -217,17 +234,18 @@ end
     Readback
 
 Host arrays the device's small results are copied into, made once: the box
-count and boxes, the page size, the orientation logits, a line's box, and the
-recogniser's best class and its probability per time step for each width.
+count and boxes, the page size, the orientation logits, the maps of a batch of
+lines, and the recogniser's best class and its probability per time step for
+each width and batch size.
 """
 struct Readback{L, B, I}
     count::Vector{Int32}
     shape::Vector{Int32}
     boxes::Matrix{Float32}
     logits::L
-    line::Vector{PlanarMap}
-    best::Dict{Int, B}
-    index::Dict{Int, I}
+    lines::Vector{PlanarMap}
+    best::Dict{NTuple{2, Int}, B}
+    index::Dict{NTuple{2, Int}, I}
 end
 
 """
@@ -255,8 +273,9 @@ Base.show(io::IO, m::PPOCR) = print(io, "PPOCR(detector ", m.page[1], "x", m.pag
 
 detplan(m::PPOCR) = recordedplan(m.det, "ppocrv6_det")
 oriplan(m::PPOCR) = recordedplan(m.ori, "ppocr_docori")
-recplan(rec::Model, W::Int) = recordedplan(rec, "ppocrv6_rec"; dims = (w = W ÷ 16,))
-recplan(m::PPOCR, W::Int) = recplan(m.rec, W)
+recplan(rec::Model, W::Int, B::Int) = recordedplan(rec, "ppocrv6_rec"; dims = (w = W ÷ 16, b = B))
+recplan(m::PPOCR, W::Int, B::Int) = recplan(m.rec, W, B)
+maxbatch() = maximum(W -> first(recbatches(W)), REC_WIDTHS)
 
 """
     record(declare, dev) -> Mantle.Plan
@@ -293,7 +312,7 @@ function ppocr(; backend = Mantle.defaultbackend())
     prob = first(recordedplan(det, "ppocrv6_det").outputs)
     W, H = size(prob, 1), size(prob, 2)
     logits = first(recordedplan(ori, "ppocr_docori").outputs)
-    outputs = Dict(w => recplan(rec, w).outputs for w in REC_WIDTHS)
+    outputs = Dict((w, b) => recplan(rec, w, b).outputs for w in REC_WIDTHS for b in recbatches(w))
     n = W * H
     labels, stats = Mantle.Buffer(dev, Int32, (n,)), Mantle.Buffer(dev, Int32, (5, n))
     sums, count = Mantle.Buffer(dev, Float32, (n,)), Mantle.Buffer(dev, Int32, (1,))
@@ -306,7 +325,7 @@ function ppocr(; backend = Mantle.defaultbackend())
         Mantle.dispatch!(g, components_boxes!, (boxes, count, stats, sums, shape, W, H), n; name = "compact boxes")
     end
     host = Readback(zeros(Int32, 1), zeros(Int32, 2), zeros(Float32, 4, BOX_CAPACITY),
-                    Array{eltype(logits)}(undef, size(logits)), Vector{PlanarMap}(undef, 1),
+                    Array{eltype(logits)}(undef, size(logits)), Vector{PlanarMap}(undef, maxbatch()),
                     Dict(w => Array{eltype(o[1])}(undef, size(o[1])) for (w, o) in outputs),
                     Dict(w => Array{eltype(o[2])}(undef, size(o[2])) for (w, o) in outputs))
     return PPOCR(backend, dev, det, rec, ori, (W, H), characters,
@@ -328,7 +347,7 @@ function Base.close(m::PPOCR)
         for (buffer, plan) in values(p.staging)
             Mantle.free!(plan); Mantle.free!(buffer)
         end
-        Mantle.free!(p.line); Mantle.free!(p.pixels)
+        Mantle.free!(p.lines); Mantle.free!(p.pixels)
     end
     empty!(m.pages)
     close(m.boxes)
@@ -345,7 +364,7 @@ model is closed. Its `pixels` are the page the next call reads.
 function pageinput!(m::PPOCR, dims::NTuple{2, Int})
     min(dims...) > 0 || throw(ArgumentError("a page needs pixels, got size $dims"))
     get!(m.pages, dims) do
-        PageInput(Mantle.Buffer(m.device, RGB{Float32}, dims), Mantle.Buffer(m.device, PlanarMap, (1,)),
+        PageInput(Mantle.Buffer(m.device, RGB{Float32}, dims), Mantle.Buffer(m.device, PlanarMap, (maxbatch(),)),
                   Dict{Any, Any}(), Dict{DataType, Any}())
     end
 end
@@ -495,51 +514,83 @@ and how much of it, `rw`, the line fills at `REC_HEIGHT` pixels high.
 function linewidth((bx0, by0, bx1, by1)::NTuple{4, Float32})
     bw, bh = max(bx1 - bx0, 1.0f0), max(by1 - by0, 1.0f0)
     rw = clamp(ceil(Int, REC_HEIGHT * bw / bh), 1, last(REC_WIDTHS))
-    return REC_WIDTHS[findfirst(>=(rw), REC_WIDTHS)], rw
+    return recwidth(rw), rw
 end
 
+"The recogniser width a line `rw` input pixels wide is padded to."
+recwidth(rw::Integer) = REC_WIDTHS[findfirst(>=(rw), REC_WIDTHS)]
+
 """
+    recognize(m, page, boxes; retry = true) -> Vector{TextLine}
     recognize(m, page, box; retry = true) -> TextLine
 
-Read the line inside `box` on the page. CTC decoding: the most likely class per
-time step, repeats merged, blanks dropped. Each kept character remembers its
-time step, and the steps are spread evenly over the input, which is what gives
-the words their positions.
+Read the lines inside `boxes` on the page, the lines of one recogniser width in
+batches ([`recbatches`](@ref)). CTC decoding: the most likely class per time
+step, repeats merged, blanks dropped. Each kept character remembers its time
+step, and the steps are spread evenly over the input, which is what gives the
+words their positions.
 
 A curved line needs a taller box, and scaling that box to 48 pixels also makes
-its letters narrower, which can lose most of the text. With `retry`, a line
-read with less than 0.8 confidence is read once more 1.5 times as wide, and the
-more confident reading wins.
+its letters narrower, which can lose most of the text. With `retry`, the lines
+read with less than 0.8 confidence are read once more 1.5 times as wide, in
+batches of their own, and the more confident reading of each wins.
 """
-function recognize(m::PPOCR, page::PageInput, box::NTuple{4, Float32}; retry::Bool = true)
-    _, rw = linewidth(box)
-    line = recognize(m, page, box, rw)
-    if retry && line.score < 0.8f0 && rw < last(REC_WIDTHS)
-        yield()
-        wider = recognize(m, page, box, min(cld(3rw, 2), last(REC_WIDTHS)))
-        wider.score > line.score && return wider
+function recognize(m::PPOCR, page::PageInput, boxes::AbstractVector{NTuple{4, Float32}}; retry::Bool = true)
+    rws = [last(linewidth(box)) for box in boxes]
+    lines = recognize(m, page, boxes, rws)
+    retry || return lines
+    again = [k for k in eachindex(lines) if lines[k].score < 0.8f0 && rws[k] < last(REC_WIDTHS)]
+    wider = recognize(m, page, boxes[again], [min(cld(3rws[k], 2), last(REC_WIDTHS)) for k in again])
+    for (k, line) in zip(again, wider)
+        line.score > lines[k].score && (lines[k] = line)
     end
-    return line
+    return lines
 end
 
-function recognize(m::PPOCR, page::PageInput, box::NTuple{4, Float32}, rw::Int)
-    W = REC_WIDTHS[findfirst(>=(rw), REC_WIDTHS)]
-    # The box `rw` input pixels wide and REC_HEIGHT high, bilinear without
-    # antialiasing as upstream's `cv2.resize`, padded with zeros to `W`.
-    bx0, by0, bx1, by1 = box
-    scale = Vec2f(max(bx1 - bx0, 1.0f0) / rw, max(by1 - by0, 1.0f0) / REC_HEIGHT)
-    m.host.line[1] = PlanarMap(scale, Vec2f(bx0, by0), Vec{2, Int32}(rw, REC_HEIGHT))
-    copyto!(page.line, m.host.line)
-    mp = recplan(m, W)
-    input = only(mp.inputs)
-    pass!(m, page, (:line, W)) do g
-        GPUFiltering.sampleplanar!(g, input, Mantle.storage(page.pixels), Mantle.storage(page.line), Bilinear(),
+recognize(m::PPOCR, page::PageInput, box::NTuple{4, Float32}; retry::Bool = true) =
+    only(recognize(m, page, [box]; retry))
+
+# The lines at input widths `rws`: grouped by recogniser width, each group read
+# in the largest batches that still fill.
+function recognize(m::PPOCR, page::PageInput, boxes::AbstractVector{NTuple{4, Float32}}, rws::AbstractVector{Int})
+    lines = Vector{TextLine}(undef, length(boxes))
+    widths = recwidth.(rws)
+    for W in unique(sort(widths))
+        group = findall(==(W), widths)
+        while !isempty(group)
+            B = first(b for b in recbatches(W) if b <= length(group))
+            # Other tasks on the device's thread get a turn between batches.
+            yield()
+            readbatch!(lines, m, page, boxes, rws, splice!(group, 1:B), W)
+        end
+    end
+    return lines
+end
+
+# One batch: the lines cut out of the page into the recogniser's input, read,
+# and decoded into `lines` at their indices.
+function readbatch!(lines, m::PPOCR, page::PageInput, boxes, rws, batch, W::Int)
+    B = length(batch)
+    for (slot, k) in enumerate(batch)
+        # The box `rw` input pixels wide and REC_HEIGHT high, bilinear without
+        # antialiasing as upstream's `cv2.resize`, padded with zeros to `W`.
+        bx0, by0, bx1, by1 = boxes[k]
+        scale = Vec2f(max(bx1 - bx0, 1.0f0) / rws[k], max(by1 - by0, 1.0f0) / REC_HEIGHT)
+        m.host.lines[slot] = PlanarMap(scale, Vec2f(bx0, by0), Vec{2, Int32}(rws[k], REC_HEIGHT))
+    end
+    copyto!(page.lines, m.host.lines)
+    input = only(recplan(m, W, B).inputs)
+    pass!(m, page, (:lines, W, B)) do g
+        GPUFiltering.sampleplanar!(g, input, Mantle.storage(page.pixels), Mantle.storage(page.lines), Bilinear(),
                                    ntuple(_ -> REC_MEAN, 3), ntuple(_ -> REC_STD, 3), REC_MEAN)
     end
-    best, index = DNNKernels.call(m.rec, "ppocrv6_rec", input; dims = (w = W ÷ 16,))
-    hb, hi = m.host.best[W], m.host.index[W]
+    best, index = DNNKernels.call(m.rec, "ppocrv6_rec", input; dims = (w = W ÷ 16, b = B))
+    hb, hi = m.host.best[(W, B)], m.host.index[(W, B)]
     copyto!(hb, best); copyto!(hi, index)
-    return decode(m, vec(hb), vec(hi), W, rw, box)
+    for (slot, k) in enumerate(batch)
+        lines[k] = decode(m, view(hb, :, slot), view(hi, :, slot), W, rws[k], boxes[k])
+    end
+    return lines
 end
 
 function decode(m::PPOCR, best, index, W, rw, box)
@@ -583,16 +634,7 @@ end
 
 Every line of text on the page that reads as something, in reading order.
 """
-function read_lines(m::PPOCR, page::PageInput)
-    lines = TextLine[]
-    for box in detect(m, page)
-        # Other tasks on the device's thread get a turn between lines.
-        yield()
-        line = recognize(m, page, box)
-        isempty(line.text) || push!(lines, line)
-    end
-    return lines
-end
+read_lines(m::PPOCR, page::PageInput) = filter(line -> !isempty(line.text), recognize(m, page, detect(m, page)))
 
 # The same three on an image on the host, uploaded first.
 detect(m::PPOCR, img::AbstractMatrix{<:Colorant}) = detect(m, upload!(m, img))
@@ -617,8 +659,9 @@ read_lines(m::PPOCR, img::AbstractMatrix{<:Colorant}) = read_lines(m, upload!(m,
                     input = upload!(m, page)
                     read_lines(m, input)
                     orientation(m, input)
-                    for W in REC_WIDTHS
-                        recognize(m, input, (100.0f0, 196.0f0, Float32(100 + W * 16 / REC_HEIGHT - 2), 212.0f0))
+                    for W in REC_WIDTHS, B in recbatches(W)
+                        box = (100.0f0, 196.0f0, Float32(100 + W * 16 / REC_HEIGHT - 2), 212.0f0)
+                        recognize(m, input, fill(box, B); retry = false)
                     end
                 finally
                     close(m)

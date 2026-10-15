@@ -29,7 +29,7 @@ On a Radeon RX 7900 XTX (RADV), 2026-10-10, against PyTorch on the same inputs:
 | | result |
 |---|---|
 | detector map, 1280x1792 | within 7.9e-4 of PyTorch, 93 ms |
-| recogniser, one line | same character at every time step, best probability within 3.6e-7, about 20 ms |
+| recogniser, a batch of two lines | same character at every time step, best probability within 1.2e-4; each line as read alone |
 | orientation | logits within 4.8e-7, 10 ms; 8 of 8 rotations of two test pages right |
 | an A4 letter at 300 dpi | 125 of 125 words, 0.57 s |
 | a photographed menu card | 22 of 22 words incl. "HOCHZEITSMENÜ", where Tesseract 5 gets 21 |
@@ -64,8 +64,10 @@ page size. The page is uploaded once; only the boxes, the recogniser's best
 class per time step and four orientation logits come back. CTC decoding and
 reading order are a few dozen strings and boxes and stay on the host. The
 recogniser's width is rounded up to one of eight planned widths
-(`REC_WIDTHS`), so a page brings no new kernels, and a line read with less than
-0.8 confidence is read once more 1.5 times as wide.
+(`REC_WIDTHS`), so a page brings no new kernels, and the lines of one width are
+read in batches of up to eight (`recbatches`: at most 7680 input columns, so
+wide lines go two or four at a time). The lines read with less than 0.8
+confidence are read once more 1.5 times as wide, in batches of their own.
 
 A caller with its page on the device already writes it into
 `pageinput!(m, size).pixels` and passes that `PageInput` to `read_lines`,

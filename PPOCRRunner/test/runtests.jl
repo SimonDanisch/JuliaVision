@@ -35,14 +35,25 @@ reference(name) = (p = joinpath(GEN, name, "reference.safetensors"); isfile(p) ?
             end
             ref = reference("ppocrv6_rec")
             if ref !== nothing
+                # A batch of two different lines, so slots that mixed would show.
                 x = ref["input"]
-                W = size(x, 1)
-                input = only(recplan(m, W).inputs)
+                W, B = size(x, 1), size(x, 4)
+                input = only(recplan(m, W, B).inputs)
                 copyto!(input, x)
-                best, index = DNNKernels.call(m.rec, "ppocrv6_rec", input; dims = (w = W ÷ 16,))
+                best, index = DNNKernels.call(m.rec, "ppocrv6_rec", input; dims = (w = W ÷ 16, b = B))
                 # The index per time step, not just the best value: `max.dim` once
                 # returned the right maxima at the wrong positions.
                 @test Array(index) == ref["index"]
+                @test maximum(abs.(Array(best) .- ref["best"])) < 5e-4
+                # Each slot of the batch as the same line read alone.
+                batched = Array(best)
+                for s in 1:B
+                    one = only(recplan(m, W, 1).inputs)
+                    copyto!(one, x[:, :, :, s:s])
+                    b1, i1 = DNNKernels.call(m.rec, "ppocrv6_rec", one; dims = (w = W ÷ 16, b = 1))
+                    @test Array(i1) == ref["index"][:, s:s]
+                    @test Array(b1) ≈ batched[:, s:s] atol = 1e-4
+                end
             end
         end
 
@@ -72,6 +83,22 @@ reference(name) = (p = joinpath(GEN, name, "reference.safetensors"); isfile(p) ?
             first_line = first(lines)
             @test first.(first_line.words) == split(expected[1])
             @test all(w -> first_line.box[1] <= w[2] < w[3] <= first_line.box[3], first_line.words)
+        end
+
+        @testset "lines read in batches read as one at a time" begin
+            page = upload!(m, letter)
+            boxes = detect(m, page)
+            batched = recognize(m, page, boxes; retry = false)
+            @test length(boxes) >= 3
+            for (box, line) in zip(boxes, batched)
+                single = recognize(m, page, box; retry = false)
+                @test single.text == line.text
+                @test single.score ≈ line.score atol = 1e-4
+                @test single.words == line.words
+            end
+            # Three of a width: a batch of two, then one.
+            three = recognize(m, page, fill(boxes[2], 3); retry = false)
+            @test all(l -> l.text == batched[2].text, three)
         end
 
         @testset "every page type is converted on the device" begin

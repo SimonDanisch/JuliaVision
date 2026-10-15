@@ -71,7 +71,7 @@ DROP_OPS = {"_assert_tensor_metadata.default", "_assert_scalar.default"}
 # are cached (`export_qwenimage21_condition.py`).
 ROOT = {"h": "h", "H": "h", "h2": "h", "h4": "h", "h8": "h",
         "w": "w", "W": "w", "w2": "w", "w4": "w", "w8": "w",
-        "t": "t", "i": "i", "tj": "tj", "n": "n", "p": "p"}
+        "t": "t", "i": "i", "tj": "tj", "n": "n", "p": "p", "b": "b"}
 
 
 def symbol_names(ep, specs):
