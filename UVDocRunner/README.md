@@ -7,35 +7,23 @@ resamples the original image at its full resolution. Input and output use
 
 ```julia
 using UVDocRunner
-model = uvdoc()                    # construct on the main GPU thread
-flat = unwarp(model, page)         # same resolution as page
-grid = deformation_grid(model, page)  # 31×45×2 normalized source coordinates
-close(model)                      # after all pages have finished
+model = uvdoc()                    # on the thread that owns the device
+flat = unwarp(model, page)         # RGB{Float32}, same resolution as page
+close(model)
 ```
 
-The worker serializes inference and keeps GPU submission on its owning thread,
-so calls from `Threads.@spawn` are supported. The model uses a 488×712 RGB
-input. Preprocessing, grid interpolation and image sampling match Transformers'
-`UVDocImageProcessor`: bilinear, `align_corners=true`, zero padding for image
-coordinates outside the source. No Python is needed at runtime.
+Resizing into the network's 488×712 input, the network and the warp along its
+grid all run on the device; only the flattened page comes back. A caller with
+its page on the device already writes it into
+`UVDocRunner.pageinput!(model, size).pixels`, calls
+`UVDocRunner.unwarp!(model, page)` and reads `page.output`. Preprocessing, grid
+interpolation and image sampling match Transformers' `UVDocImageProcessor`:
+bilinear, `align_corners=true`, zero padding for image coordinates outside the
+source. No Python is needed at runtime. Use a model on the thread that made
+its device: Mantle submits from there.
 
-In AScanner:
-
-```julia
-using AScanner
-dewarper = uvdoc()
-scanner = start(cam; dewarper)
-pdfs = stop!(scanner)
-# Or reprocess an existing scan:
-pdfs = make_pdfs("scans/my-scan"; dewarper)
-close(dewarper)
-```
-
-Unwarping is opt-in: `dewarper=nothing` is the default. The scanner saves the
-perspective-corrected capture, then applies UVDoc before cleaning and OCR.
-Thus the PDF image and its text coordinates describe the same corrected page.
 UVDoc estimates geometry; it does not guarantee that an already flat page
-remains unchanged. Camera captures at the final mount still need evaluation.
+remains unchanged.
 
 ## Export and validation
 
@@ -53,14 +41,6 @@ Then run `include("tools/make_artifacts.jl"); makeartifacts(["uvdoc"])` in
 Julia. This binds a local artifact and prints the separate upload command.
 `gen/graphs/uvdoc/provenance.json` records the resolved upstream revision.
 The exporter writes PyTorch inputs, predicted grid and full-resolution output
-to `reference.safetensors`. Tests compare preprocessing, GPU inference and
-resampling separately, plus identity/reflection/border grids and concurrent
-background calls. Run `include("UVDocRunner/test/runtests.jl")` in the monorepo
-environment with a working GPU and local export references.
-
-Validated on an AMD Radeon RX 7900 XTX with 15 runner tests, including two concurrent
-requests. On the official example book photo (1100×708), the grid's maximum
-absolute difference from PyTorch was 8.4e-7 and the output image's was 1.4e-4
-on the [0,1] scale. Five warmed end-to-end calls took 18.8–19.8 ms, including
-host preprocessing and full-resolution resampling. These timings exclude model
-loading and compilation; other hardware and resolutions will differ.
+to `reference.safetensors`. Tests compare the device's preprocessing, the
+network and the warp with them separately, plus identity, reflection and
+border grids written where the network writes its own.

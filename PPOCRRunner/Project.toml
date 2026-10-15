@@ -29,7 +29,8 @@ Vulkan = {url = "https://github.com/JuliaGPU/Vulkan.jl", rev = "sd/vk1.4"}
 VulkanCore = {url = "https://github.com/JuliaGPU/VulkanCore.jl", rev = "sd/vk1.4"}
 
 [extras]
+PNGFiles = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["PNGFiles", "Test"]

@@ -55,12 +55,22 @@ Nothing in the op set; four fixes, each with a test in
     squeeze-and-excitation pools were 912 ms of a 1011 ms detector; one
     workgroup per output brings the detector to 93 ms.
 
-## Not in the graphs
+## Between the networks
 
-Scaling a page into the detector's input, turning its map into boxes (connected
-components and DB's unclip), cutting lines out at 48 pixels, CTC decoding, and
-the orientation crop all run on the host. The recogniser's width is rounded up
-to one of eight planned widths (`REC_WIDTHS`), so a page brings no new kernels.
+Scaling a page into the detector's input, turning its map into boxes (a
+union-find over connected components and DB's unclip), cutting lines out at 48
+pixels high, and the orientation crop all run on the device, recorded once per
+page size. The page is uploaded once; only the boxes, the recogniser's best
+class per time step and four orientation logits come back. CTC decoding and
+reading order are a few dozen strings and boxes and stay on the host. The
+recogniser's width is rounded up to one of eight planned widths
+(`REC_WIDTHS`), so a page brings no new kernels, and a line read with less than
+0.8 confidence is read once more 1.5 times as wide.
+
+A caller with its page on the device already writes it into
+`pageinput!(m, size).pixels` and passes that `PageInput` to `read_lines`,
+`orientation`, `detect` or `recognize`; images on the host are uploaded by the
+same calls. Use a model on the thread that made its device.
 
 ## Making the assets
 
