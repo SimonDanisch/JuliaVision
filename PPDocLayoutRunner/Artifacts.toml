@@ -1,0 +1,7 @@
+[ppdoclayoutv3]
+git-tree-sha1 = "33a94fc335b4854dc5993192c07857392fbd10ff"
+lazy = true
+
+    [[ppdoclayoutv3.download]]
+    sha256 = "4be2d2111a6cc831a653c12886f4a9ca19f9c753fd2ed9e67589f1f1a67c3d7a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/ppdoclayoutv3.tar.gz"

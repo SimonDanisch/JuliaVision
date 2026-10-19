@@ -118,11 +118,20 @@ def load():
     return det, rec, chars
 
 
-def write(out, name, model, g, refs):
+def write(out, name, model, g, refs, constants=None):
+    """The graph, its weights (with the lifted `constants` of the exported
+    program, when it has any), the op histogram and the PyTorch references."""
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{name}.json").write_text(json.dumps(g, indent=1))
-    tensors = {k: v.detach().contiguous().cpu()
-               for k, v in {**dict(model.named_parameters()), **dict(model.named_buffers())}.items()}
+    # Every name a tensor goes by: a graph may read a tied weight through either
+    # module. Shared tensors are cloned, as safetensors refuses shared memory.
+    named = {**dict(model.named_parameters(remove_duplicate=False)),
+             **dict(model.named_buffers(remove_duplicate=False)), **(constants or {})}
+    tensors, seen = {}, set()
+    for k, v in named.items():
+        v = v.detach().contiguous().cpu()
+        tensors[k] = v.clone() if v.data_ptr() in seen else v
+        seen.add(v.data_ptr())
     save_file(tensors, str(out / "weights.safetensors"))
     hist = {}
     for o in g["ops"]:
