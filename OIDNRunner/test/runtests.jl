@@ -154,3 +154,26 @@ end
         OIDNRunner.release!(d)
     end
 end
+
+@testset "the device pipeline denoises where the images are" begin
+    ref = DNNKernels.readsafetensors(joinpath(exports, "pipeline-reference.safetensors"))
+    color = ref["color"][:, :, :, 1]; albedo = ref["albedo"][:, :, :, 1]; normal = ref["normal"][:, :, :, 1]
+    rgb(a) = [OIDNRunner.RGB{Float32}(a[x, y, 1], a[x, y, 2], a[x, y, 3]) for x in axes(a, 1), y in axes(a, 2)]
+    d = OIDNDenoiser()
+    try
+        dev(a) = copyto!(OIDNRunner.KA.allocate(d.backend, eltype(a), size(a)), a)
+        c, al, n = dev(rgb(color)), dev(rgb(albedo)), dev(rgb(normal))
+        # the autoexposure, reduced on the device in another order than the host loop
+        @test OIDNRunner.deviceinputscale(d, c) ≈ OIDNRunner.inputscale(rgb(color)) rtol = 1e-5
+        for clean_aux in (false, true)
+            host = denoise(d, rgb(color); albedo = rgb(albedo), normal = rgb(normal), clean_aux)
+            out = dev(similar(rgb(color)))
+            OIDNRunner.denoise!(d, out, c, al, n; clean_aux)
+            device = Array(out)
+            got = [getfield(p, k) for p in device, k in (:r, :g, :b)]
+            @test maximum(abs.(got .- host)) <= 1e-3 * maximum(abs.(host))
+        end
+    finally
+        OIDNRunner.release!(d)
+    end
+end
