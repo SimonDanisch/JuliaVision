@@ -26,11 +26,22 @@ abstract type Sampling end
 struct Bilinear <: Sampling end
 "The mean of the source pixels the cover touches: for shrinking without aliasing thin strokes away."
 struct Area <: Sampling end
+"""The source at the cover's centre by cubic convolution, without antialiasing,
+clamped to [0, 1]: what OpenCV's `INTER_CUBIC` and torch's bicubic resize of an
+8-bit image, which saturate the kernel's overshoot at sharp edges, feed a
+network trained on them."""
+struct Bicubic <: Sampling end
 
 @inline function sampleat(::Bilinear, img, m::PlanarMap, u::Int, v::Int)
     return bilinear(img, m.offset[1] + m.scale[1] * (u - 0.5f0) + 0.5f0,
                          m.offset[2] + m.scale[2] * (v - 0.5f0) + 0.5f0)
 end
+@inline function sampleat(::Bicubic, img, m::PlanarMap, u::Int, v::Int)
+    c = bicubic(img, m.offset[1] + m.scale[1] * (u - 0.5f0) + 0.5f0, m.offset[2] + m.scale[2] * (v - 0.5f0) + 0.5f0)
+    return saturate(c)
+end
+@inline saturate(c::Float32) = clamp(c, 0.0f0, 1.0f0)
+@inline saturate(c::RGB{Float32}) = RGB{Float32}(saturate(c.r), saturate(c.g), saturate(c.b))
 @inline function sampleat(::Area, img, m::PlanarMap, u::Int, v::Int)
     return areamean(img, m.offset[1] + m.scale[1] * (u - 1), m.offset[1] + m.scale[1] * u,
                          m.offset[2] + m.scale[2] * (v - 1), m.offset[2] + m.scale[2] * v)

@@ -49,6 +49,41 @@ with the border replicated outside: a `Float32` for an image of numbers, an
     return mixpixel(mixpixel(a, b, fx), mixpixel(c, d, fx), fy)
 end
 
+# Keys' cubic convolution kernel with a = -0.75, OpenCV's INTER_CUBIC and
+# torch's bicubic.
+@inline function cubicweight(t::Float32)
+    t = abs(t)
+    a = -0.75f0
+    return t <= 1.0f0 ? ((a + 2.0f0) * t - (a + 3.0f0)) * t * t + 1.0f0 :
+           t < 2.0f0 ? ((a * t - 5.0f0 * a) * t + 8.0f0 * a) * t - 4.0f0 * a : 0.0f0
+end
+
+"""
+    bicubic(img, x, y)
+
+`img` at `(x, y)` in pixel coordinates (pixel `i` is centred on `i`) by Keys'
+cubic convolution with a = -0.75, as OpenCV's `INTER_CUBIC` and torch's
+bicubic interpolate it, over the 4x4 pixels around, the border replicated:
+a `Float32` for an image of numbers, an `RGB{Float32}` for colour or grey
+pixels. Unclamped, as theirs: the kernel overshoots at edges.
+"""
+@inline bicubic(img::AbstractMatrix, x::Real, y::Real) = bicubic(img, Float32(x), Float32(y))
+@inline function bicubic(img::AbstractMatrix, x::Float32, y::Float32)
+    w, h = size(img)
+    xf, yf = floor(x), floor(y)
+    ix, iy = unsafe_trunc(Int, xf), unsafe_trunc(Int, yf)
+    fx, fy = x - xf, y - yf
+    @inbounds acc = scalepixel(floatpixel(img[clamp(ix, 1, w), clamp(iy, 1, h)]), 0.0f0)
+    for j in -1:2
+        wy = cubicweight(fy - j)
+        py = clamp(iy + j, 1, h)
+        for i in -1:2
+            @inbounds acc = addpixel(acc, scalepixel(floatpixel(img[clamp(ix + i, 1, w), py]), wy * cubicweight(fx - i)))
+        end
+    end
+    return acc
+end
+
 """
     areamean(img, x0, x1, y0, y1)
 

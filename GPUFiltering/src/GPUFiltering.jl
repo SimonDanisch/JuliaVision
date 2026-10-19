@@ -43,7 +43,7 @@ export convertpixels!, rotate90!, components!, erode!, dilate!, opening!
 export histogram!, otsu!, selectquantile!, sauvola!, gridsample!
 export sampleplanar!, PlanarMap, Blocks
 export boxrows!, RowStats, fillboxes!, componentboxes!
-public launch!, device, luma, floatpixel, bilinear, areamean, Sampling, Bilinear, Area, quantilesizes
+public launch!, device, luma, floatpixel, bilinear, bicubic, areamean, Sampling, Bilinear, Bicubic, Area, quantilesizes
 
 """
     paramvalue(x) -> value
