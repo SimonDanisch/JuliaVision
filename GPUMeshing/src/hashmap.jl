@@ -44,7 +44,9 @@ end
 @inline function hashinsert!(keys, vals, key::UInt32, val::Int32, cap::Int32)
     slot = hashslot(key, cap)
     while true
-        prev = (Atomix.@atomicreplace keys[slot] typemax(UInt32) => key).old
+        # Only reserve a key here. Values are consumed by a later graph phase,
+        # after its barrier, rather than published through this reservation.
+        prev = (Atomix.@atomicreplace :monotonic keys[slot] typemax(UInt32) => key).old
         if prev == typemax(UInt32) || prev == key
             @inbounds vals[slot] = val
             return nothing
