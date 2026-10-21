@@ -63,8 +63,13 @@ The exporter verifies the Git LFS weight SHA256 values. Provenance pins code
 commit \`6602ee2ca38a1a2a02135beed8f6e68eed630180\` and weight commit
 \`28883d1769d5930e13cf7f1676dd852bd81ed9e7\`.
 The packer installs an immutable local artifact and creates
-\`oidn-models.tar.gz\`. It does **not** publish a release. Other machines must
-receive/install this artifact before denoising; no hosted download is configured.
+\`oidn-models.tar.gz\`. The current artifact is hosted in the repository's
+existing \`assets-v1\` release; Julia downloads it on first use and verifies
+the archive SHA256 and artifact tree hash. Workers need no manual model copy.
+Repacking unchanged content preserves its published download declaration.
+For new content, upload the archive first, then supply its actual immutable
+URL as the packer's second argument to bind that archive's SHA256. The packer
+does not create releases or upload assets itself.
 
 ## Use
 
