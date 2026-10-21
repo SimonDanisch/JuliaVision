@@ -13,6 +13,14 @@ turnref(img, d) = d == 0 ? img : d == 90 ? reverse(permutedims(img); dims = 1) :
     @test GPUFiltering.bilinear(reshape(Float32[0, 1], 1, 2), 1, 1.5) == 0.5f0
     @test GPUFiltering.bilinear(reshape(Float32[0, 1], 2, 1), 1.5, 1) == 0.5f0
     @test GPUFiltering.bilinear([Gray(0.0f0) Gray(1.0f0)], 1, 1.25) == RGB{Float32}(0.25, 0.25, 0.25)
+    # Bicubic: exact at pixel centres and half way between them, the border replicated.
+    # Elsewhere Keys' kernel with a = -0.75 (OpenCV's, not -0.5) bends a ramp: at a
+    # quarter it weighs the four neighbours (-27, 225, 67, -9)/256, 3/64 past the ramp.
+    ramp = Float32[x + 2y for x in 1:8, y in 1:6]
+    @test GPUFiltering.bicubic(ramp, 3, 4) ≈ ramp[3, 4]
+    @test GPUFiltering.bicubic(ramp, 3.5, 4.5) ≈ 3.5f0 + 9.0f0
+    @test GPUFiltering.bicubic(ramp, 3.25, 4.5) ≈ (-27 * 2 + 225 * 3 + 67 * 4 - 9 * 5) / 256 + 9.0f0
+    @test GPUFiltering.bicubic(fill(0.3f0, 1, 1), -4, 7) ≈ 0.3f0
     img = Float32[1 2; 3 4]
     @test GPUFiltering.areamean(img, 0.0f0, 2.0f0, 0.0f0, 2.0f0) == 2.5f0
     @test GPUFiltering.areamean(img, 1.0f0, 2.0f0, 0.0f0, 1.0f0) == 3.0f0

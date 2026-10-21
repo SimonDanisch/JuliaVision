@@ -134,6 +134,7 @@ const MODELS = Dict(
     # parameters, 0/90/180/270.
     "ppocr_docori"   => ("PPOCRRunner", "ppocr_docori"),
     "uvdoc"         => ("UVDocRunner", "uvdoc"),
+    "ppdoclayoutv3" => ("PPDocLayoutRunner", "ppdoclayoutv3"),
 )
 
 # Files a caller needs to run the model. Anything else in the export directory —
@@ -265,6 +266,8 @@ end
 
 const GRAPHFILES = Dict(
     "uvdoc" => ["uvdoc.json", "provenance.json"],
+    # The 25 region kinds, in the order of the class logits.
+    "ppdoclayoutv3" => ["ppdoclayoutv3.json", "labels.json", "provenance.json"],
     "whisper-decoder" => ["whisperdec.json", "whispercross.json"],
     # The recogniser's 18710 output classes; without them it returns indices.
     "ppocrv6_rec" => ["ppocrv6_rec.json", "characters.json"],

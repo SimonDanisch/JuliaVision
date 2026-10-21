@@ -2127,6 +2127,11 @@ emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("angle.default")}) =
     elementwise!(emitctx, op, z -> atan(imag(z), real(z)),
                  operand(emitctx, op, 1))
 
+"""`aten::pow.Scalar`: a scalar base to the power of each element, as in a
+sinusoidal position encoding's `temperature ** (2i / d)`."""
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("pow.Scalar")}) =
+    elementwise!(emitctx, op, Base.Fix1(^, kernelnumber(emitctx, operand(emitctx, op, 1))), operand(emitctx, op, 2))
+
 """
 `aten::pow.Tensor_Scalar`, with the small integer exponents written out.
 
@@ -2364,6 +2369,14 @@ non-isbits `Type` field.
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("any.dim")})
     a = operand(emitctx, op.ins[1])
     return folddims(emitctx, op, (jdim(Int(op.attrs["arg1"]), ndims(a)),), |, false)
+end
+
+"""`aten::any.dims`: `any.dim` over several axes, or over all of them when the
+graph names none."""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("any.dims")})
+    a = operand(emitctx, op.ins[1])
+    axes = get(op.attrs, "arg1", nothing) === nothing ? Tuple(1:ndims(a)) : reduceddims(op, ndims(a))
+    return folddims(emitctx, op, axes, |, false)
 end
 
 """`aten::all.dim`, `any.dim`'s mirror: `&` from `true`."""
@@ -2733,7 +2746,12 @@ holds: int64 where the graph declares torch's, the values' element type where it
 declares none. `destor` for the indices, because a graph that reads only the
 maximum declares no buffer for them and the kernel writes them anyway.
 """
-function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max.dim")})
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max.dim")}) = extremedim!(emitctx, op, maxdim_body)
+
+"""`aten::min.dim`, `max.dim`'s mirror: the minimum and where it was."""
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("min.dim")}) = extremedim!(emitctx, op, mindim_body)
+
+function extremedim!(emitctx::EmitCtx, op::Op, body)
     a = operand(emitctx, op, 1)
     vals = dest(emitctx, 0)
     d = jdim(Int(op.attrs["arg1"]), ndims(a))
@@ -2747,9 +2765,9 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("max.dim")})
     # and got the blank class at every time step. Dropping a length-1 axis does
     # not move an element, so the keepdim shape is a view and costs nothing.
     atrank(r) = ndims(r) == ndims(a) ? r : M.viewof(r, sz)
-    mapbody!(emitctx, op, maxdim_body, atrank(vals), a, Val(d), Val(false);
+    mapbody!(emitctx, op, body, atrank(vals), a, Val(d), Val(false);
              name = "$(op.id).values")
-    mapbody!(emitctx, op, maxdim_body, atrank(inds), a, Val(d), Val(true);
+    mapbody!(emitctx, op, body, atrank(inds), a, Val(d), Val(true);
              name = "$(op.id).indices")
     return (vals, inds)
 end
@@ -3818,7 +3836,9 @@ and it refuses rather than degrading, as does `largest = false`.
 """
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("topk.default")})
     a = operand(emitctx, op.ins[1])
-    vals = dest(emitctx, 0)
+    # A graph may read only where the k largest are (a detector picking its
+    # queries); the values pass, a full selection per element, is then skipped.
+    vals = maybedest(emitctx, 0)
     k = Int(op.attrs["arg1"])
     d = jdim(Int(get(op.attrs, "arg2", -1)), ndims(a))
     Bool(something(get(op.attrs, "arg3", nothing), true)) || error(
@@ -3829,14 +3849,23 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("topk.default")})
     k <= nn || error(
         "DNNKernels: `topk` (op $(op.id)) asks for $(k) of axis $(d), which " *
         "has $(nn).")
-    nn <= TOPK_MAX_N || error(
-        "DNNKernels: `topk` (op $(op.id)) scans an axis of $(nn) and this " *
-        "kernel is O(k*n) per output -- above $(TOPK_MAX_N) it needs a sorting " *
-        "network, not this.")
     sz = ntuple(i -> i == d ? k : size(a, i), ndims(a))
-    inds = destor(emitctx, 1, eltype(vals), sz)
-    mapbody!(emitctx, op, topk_body, vals, a, Val(d), Val(false);
-             name = "$(op.id).values")
+    inds = destor(emitctx, 1, eltype(something(vals, a)), sz)
+    if nn > TOPK_MAX_N
+        # A long axis (a detector choosing 300 of 13125 anchors): radix
+        # selection in one workgroup per slice, see `topk_large_kernel!`.
+        k <= TOPK_LARGE_K || error(
+            "DNNKernels: `topk` (op $(op.id)) keeps $(k) of an axis of $(nn); " *
+            "`topk_large_kernel!` holds at most $(TOPK_LARGE_K) in workgroup memory.")
+        pre = prod(ntuple(i -> size(a, i), d - 1); init = 1)
+        slices = length(a) ÷ nn
+        M.dispatch!(emitctx.g, topk_large_kernel!,
+                    (something(vals, inds), inds, a, Val(TOPK_LARGE_WG), Val(k), pre, nn, Val(vals !== nothing)),
+                    TOPK_LARGE_WG * slices; group = TOPK_LARGE_WG, name = op.id)
+        return (vals, inds)
+    end
+    vals === nothing || mapbody!(emitctx, op, topk_body, vals, a, Val(d), Val(false);
+                                 name = "$(op.id).values")
     mapbody!(emitctx, op, topk_body, inds, a, Val(d), Val(true);
              name = "$(op.id).indices")
     return (vals, inds)
