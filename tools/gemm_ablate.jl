@@ -1,23 +1,6 @@
-# Staging or arithmetic? The GEMM's k-loop, one half at a time.
-#
-# Every external lever is measured and closed — the tiling family in both
-# directions, double buffering, staging width — and the kernel still runs at
-# ~64% of cuBLAS. This is the instrument that says which half of the k-loop the
-# time is in, the same way `flash_cm2_ablate.jl` settled the flash kernel (where
-# the answer overturned three paragraphs of confident prose).
-#
-#   :all       the kernel
-#   :nostage   stages the FIRST k-block and no other; every later block's
-#              arithmetic runs on that stale tile. Same muladds, same barriers,
-#              no staging loads.
-#
-# It computes a wrong answer on purpose, so only the GAP means anything.
-#
-# The one thing that would invalidate it: if the compiler noticed the staged tile
-# is loop-invariant under `:nostage` and hoisted the cooperative-matrix loads out
-# of the loop, the arm would measure a kernel that does no shared reads either.
-# The barriers prevent that, and the register/binary statistics are printed so a
-# collapse is visible rather than assumed.
+# Compare full staging with intentional first-tile reuse (:nostage).
+# The latter computes incorrect outputs; use only its timing gap.
+# Report register/binary statistics to detect compiler-hoisted shared loads.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava
 using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
@@ -37,11 +20,11 @@ const SHAPES = [(2304, 4096,  576, 24.4),
 pipes() = Mantle.vk_context().caches.pipelines
 
 function run_abl(C, A, B, M, N, K, c, abl)
-    kern = Mantle.GEMM_STAGED_ABL_KERNELS[c]
+    kern = Mantle.staged_gemm_kernel(c,:ablation)
     wg = Mantle.gemm_wg(c)
-    kern(BACKEND, wg)(C, A, B, nothing, identity,
+    Mantle.kilaunch!(BACKEND,kern,C,A,B,nothing,identity,
                       Val(M), Val(N), Val(K), Val(abl);
-                      ndrange = (M ÷ Mantle.gemm_bm(c)) * (N ÷ Mantle.gemm_bn(c)) * wg)
+                      ndrange = (M ÷ Mantle.gemm_bm(c)) * (N ÷ Mantle.gemm_bn(c)) * wg,workgroupsize=wg)
     C
 end
 

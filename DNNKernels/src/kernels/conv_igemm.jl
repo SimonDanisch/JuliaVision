@@ -288,7 +288,8 @@ function conv2d_igemm_ki!(out, x, w, bias,
                         else
                             # partial sums from each split accumulate; the
                             # graph pre-fills the bias so it is added once
-                            Atomix.@atomic out[obase_j + OHW * kidx + o] += T(acc_i_j)
+                            # Dispatch dependencies order the completed reduction.
+                            Atomix.@atomic :monotonic out[obase_j + OHW * kidx + o] += T(acc_i_j)
                         end
                     end
                 end
