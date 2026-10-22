@@ -1,18 +1,6 @@
-# Which tiling is fastest AT EACH SHAPE, against cuBLAS measured beside it.
-#
-# The shipped kernel is one tiling (96 x 128, 8 warps) for all six of SAM 2's
-# `addmm` shapes and runs at a flat 61-76% of cuBLAS. `GEMM_TILINGS` now carries
-# four candidates past the shipped set; this forces each and reports per shape.
-#
-# **Per shape, never a weighted mean.** This exact file's own history is the
-# reason: a mean over these shapes once ranked 96x128 below 64x128 when 96x128 is
-# faster on four of the six — one shape lost by 18% and dragged the average.
-#
-# Rules, all earned: interleaved arms in one process so a clock ramp hits every
-# tiling alike; correctness against cuBLAS checked before any time is believed;
-# a tiling whose block does not divide the shape is SKIPPED rather than forced,
-# because `gemm_tiling` would otherwise read past the operands and report a time
-# for work it did not do.
+# Compare eligible tilings against cuBLAS per shape.
+# Interleave arms and check each result before timing; never force a tiling
+# whose unmasked block does not divide the operands.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf
 using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
@@ -46,7 +34,7 @@ function sweep(M, N, K, share)
     # a tiling the shipped path could actually select.
     cands = [c for c in Mantle.GEMM_TILINGS
              if Mantle.gemm_divides(c, M, N, K) && !Mantle.gemm_aliasing(c, K) &&
-                haskey(Mantle.GEMM_STAGED_KERNELS, c)]
+                Mantle.staged_gemm_supported(c,:scalar)]
 
     @printf("\n%d x %d x %d   (%.1f GFLOP, %.1f%% of the encoder's GEMM)\n", M, N, K, g, share)
     isempty(cands) && (println("   no staged tiling divides this shape"); return)
