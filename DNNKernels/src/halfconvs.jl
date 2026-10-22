@@ -248,7 +248,8 @@ function absmaxbits_kernel!(bits, x, n::I, nthreads::I) where {I<:Integer}
         m = max(m, reinterpret(UInt32, abs(Float32(x[i]))))
         i += nthreads
     end
-    m == UInt32(0) || Atomix.@atomic max(bits[1], m)
+    # Only the reduction value is shared; its consumer runs after this kernel.
+    m == UInt32(0) || Atomix.@atomic :monotonic max(bits[1], m)
     return nothing
 end
 

@@ -1144,7 +1144,8 @@ it is one of the ops `torch.use_deterministic_algorithms` refuses — and
 function scatteradd_kernel!(dst, src, idx, n::Int32)
     j = KI.get_global_id().x
     @inbounds if j <= n
-        Atomix.@atomic dst[Int(idx[j]) + 1] += src[j]
+        # No publication of other memory: the following dispatch consumes dst.
+        Atomix.@atomic :monotonic dst[Int(idx[j]) + 1] += src[j]
     end
     return nothing
 end
