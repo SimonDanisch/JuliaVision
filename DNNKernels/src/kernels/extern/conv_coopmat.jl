@@ -399,6 +399,18 @@ function convgather_wide(dev::M.DeviceCaps, NPQ::Int, CRS::Int, CRSP::Int, Cout:
     return ConvCoopMatPlan(CRS, CRSP, Cout, Cout, NPQ, rows, t)
 end
 
+# Keep roots pinned to the dictionary-based Mantle API working while adopting
+# its newer specialised-kernel query. Both ask about the actual launch family.
+function conv_staged_supported(c, mode::Symbol)
+    if isdefined(Mantle, :staged_gemm_supported)
+        return Mantle.staged_gemm_supported(c, mode)
+    end
+    kernels = mode === :scalar ? Mantle.GEMM_STAGED_KERNELS :
+        mode === :gather ? Mantle.GEMM_STAGED_GATHER_KERNELS :
+        throw(ArgumentError("Unknown convolution staging family: $mode"))
+    return haskey(kernels, c)
+end
+
 """
     convcoutpad(MP, Cout, CRSP) -> Int
 
@@ -455,7 +467,7 @@ which is why every narrow-`N` number in the sweep above is around one.
 function convcoutpad(MP::Int, Cout::Int, CRSP::Int)
     best, bestscore = Cout, 0.0
     for c in Mantle.GEMM_TILINGS
-        Mantle.staged_gemm_supported(c,:scalar) || continue
+        conv_staged_supported(c,:scalar) || continue
         MP % Mantle.gemm_bm(c) == 0 && CRSP % Mantle.gemm_bk(c) == 0 || continue
         Mantle.gemm_aliasing(c, CRSP) && continue
         bn = Mantle.gemm_bn(c)
@@ -741,7 +753,7 @@ function convgather_tiling(MP::Int, CoutP::Int, CRSP::Int)
     bm, bn, bk = Mantle.GEMM_TILE * c[1] * c[3], Mantle.GEMM_TILE * c[2] * c[4], c[5]
     (MP % bm == 0 && CoutP % bn == 0 && CRSP % bk == 0) || return nothing
     # Gathering has its own staging requirements and convolution-only tilings.
-    Mantle.staged_gemm_supported(c,:gather) || return nothing
+    conv_staged_supported(c,:gather) || return nothing
     return c
 end
 
