@@ -1,7 +1,7 @@
 # Port of OIDN v2.5.1's HIP inference path: devices/hip/ck_conv_wmma.cpp (CK WMMA
 # grouped convolution), core/unet_filter.cpp graph, pool/upsample/concat handling.
 # Copyright 2018-2025 Intel Corporation; SPDX-License-Identifier: Apache-2.0.
-# Modified: KernelInterface kernels shared by the Vulkan and ROCm backends.
+# Modified: KernelInterface kernels shared by Vulkan, ROCm and Metal.
 #
 # Layouts follow upstream HIP: activations HWC with channels padded to 8, weights
 # OHWI. As a Julia array an activation is `[c, x, y]`. The convolution is the GEMM
@@ -81,8 +81,8 @@ end
 
 @inline padded(v::T, ok::Bool) where {T} = ifelse(ok, v, zerovec(T))
 
-@inline function relu16(m::AcceleratedMatrix{Float32, 16, 16, Accumulator})
-    for i in Int32(0):(KI.coopmat_length(AcceleratedMatrix{Float32, 16, 16, Accumulator}) - Int32(1))
+@inline function relu16(m::AcceleratedMatrix{Float32, MT, MT, Accumulator}) where {MT}
+    for i in Int32(0):(KI.coopmat_length(AcceleratedMatrix{Float32, MT, MT, Accumulator}) - Int32(1))
         m = KI.coopmat_setcomp(m, i, max(KI.coopmat_getcomp(m, i), 0.0f0))
     end
     return m
@@ -92,7 +92,8 @@ end
     ConvTiling(BO, BP, WO, WP)
 
 A workgroup computes `BO` output channels for `BP` pixels with `WO x WP` wave32
-subgroups, each owning a `(BO/WO) x (BP/WP)` block of 16x16 accumulators.
+subgroups, each owning a `(BO/WO) x (BP/WP)` block of device-sized accumulators
+(16x16 on Vulkan/ROCm, 8x8 on Metal).
 
 Upstream's CK instance is `ConvTiling(32, 256, 2, 2)`: 16 channels x 128 pixels
 per wave. On gfx1151 a 32 x 64 wave block is 20-45% faster, because it loads six
@@ -105,17 +106,29 @@ const CONV_TILINGS = ConvTiling[(32, 256, 2, 2), (16, 128, 1, 2), (32, 128, 1, 2
                                 (16, 256, 1, 4), (64, 128, 2, 2), (96, 128, 3, 2), (96, 64, 3, 1),
                                 (128, 128, 4, 2), (192, 64, 6, 1)]
 const CONV_KERNELS = Dict{ConvTiling, Any}()
+const CONV_KERNELS_8 = Dict{ConvTiling, Any}()
 convthreads(t::ConvTiling) = 32 * t[3] * t[4]
 
-for cfg in CONV_TILINGS
+@inline convaccinit(bias, ptr, off, ::Val{MT}) where {MT} =
+    convert(AcceleratedMatrix{Float32,MT,MT,Accumulator},
+        AcceleratedMatrix{eltype(bias),MT,MT,Accumulator}(ptr,off,0))
+
+function convmatrixtile(backend)
+    c = DNNKernels.caps(backend)
+    c.coopmat && c.tile in (8,16) || error("OIDN needs 8x8 or 16x16 cooperative matrices")
+    return c.tile
+end
+
+for MT in (8,16), cfg in CONV_TILINGS
     BO, BP, WO, WP = cfg
     NT = 32 * WO * WP
-    TO = BO ÷ WO ÷ 16; TP = BP ÷ WP ÷ 16
+    TO = BO ÷ WO ÷ MT; TP = BP ÷ WP ÷ MT
     KG = CONV_BK ÷ 8                               # 8-half groups per k-row
     AV = cld(BO * KG, NT); BV = cld(BP * KG, NT)   # groups staged per thread
     RS = NT ÷ KG                                   # rows between a thread's groups
     AG = AV * NT != BO * KG; BG = BV * NT != BP * KG   # the last group needs a guard
-    kname = Symbol("conv3x3_", BO, "x", BP, "_", WO, "x", WP, "!")
+    kname = MT == 16 ? Symbol("conv3x3_", BO, "x", BP, "_", WO, "x", WP, "!") :
+        Symbol("conv3x3_", BO, "x", BP, "_", WO, "x", WP, "_tile8!")
     @eval begin
         """
         One 3x3 convolution (padding 1) plus bias and optional ReLU, fp16 in and
@@ -132,6 +145,12 @@ for cfg in CONV_TILINGS
             LDV = CONV_LD ÷ V
             sA = KI.localmemory(T, Val((LDV * $BO,)), Val(1))
             sB = KI.localmemory(T, Val((LDV * $BP,)), Val(2))
+            # Vulkan consumes vector-packed storage directly; Metal's matrix
+            # load requires a scalar half view and scalar offsets/strides.
+            matA = $MT == 8 ? reinterpret(Float16, sA) : sA
+            matB = $MT == 8 ? reinterpret(Float16, sB) : sB
+            matV = $MT == 8 ? 1 : V
+            matLD = $MT == 8 ? CONV_LD : LDV
             tid = Int32(KI.get_local_id().x - 1)
             blk = Int32(KI.get_group_id().x - 1)
             nO = Int32(CO ÷ $BO)
@@ -153,7 +172,7 @@ for cfg in CONV_TILINGS
 
             bp = pointer(bias)
             Base.Cartesian.@nexprs $TO i -> Base.Cartesian.@nexprs $TP j ->
-                c_i_j = Mantle.accinit(bias, bp, Int32(1) + o0 + wo + Int32(16 * (i - 1)))
+                c_i_j = convaccinit(bias, bp, Int32(1) + o0 + wo + Int32($MT * (i - 1)), Val($MT))
 
             # Prologue: step zero into registers.
             Base.Cartesian.@nexprs $BV r -> begin
@@ -191,12 +210,12 @@ for cfg in CONV_TILINGS
                     Base.Cartesian.@nexprs $AV r -> Base.Cartesian.@nexprs 2 q ->
                         (q <= NV && (a_r_q = @inbounds Wt[wk + wr_r * Int32(K ÷ V) + Int32(q - 1)]))
                 end
-                Base.Cartesian.@nexprs $(CONV_BK ÷ 16) u -> begin
-                    Base.Cartesian.@nexprs $TO i -> (a_i = AcceleratedMatrix{Float16, 16, 16, MatrixA}(
-                        sA, Int32(1) + Int32(16 * (u - 1) ÷ V) + (wo + Int32(16 * (i - 1))) * Int32(LDV), Int32(LDV), Val(true)))
+                Base.Cartesian.@nexprs $(CONV_BK ÷ MT) u -> begin
+                    Base.Cartesian.@nexprs $TO i -> (a_i = AcceleratedMatrix{Float16, $MT, $MT, MatrixA}(
+                        matA, Int32(1) + Int32($MT * (u - 1) ÷ matV) + (wo + Int32($MT * (i - 1))) * Int32(matLD), Int32(matLD), Val(true)))
                     Base.Cartesian.@nexprs $TP j -> begin
-                        b = AcceleratedMatrix{Float16, 16, 16, MatrixB}(
-                            sB, Int32(1) + Int32(16 * (u - 1) ÷ V) + (wp + Int32(16 * (j - 1))) * Int32(LDV), Int32(LDV))
+                        b = AcceleratedMatrix{Float16, $MT, $MT, MatrixB}(
+                            matB, Int32(1) + Int32($MT * (u - 1) ÷ matV) + (wp + Int32($MT * (j - 1))) * Int32(matLD), Int32(matLD))
                         Base.Cartesian.@nexprs $TO i -> (c_i_j = muladd(a_i, b, c_i_j))
                     end
                 end
@@ -205,13 +224,13 @@ for cfg in CONV_TILINGS
 
             Base.Cartesian.@nexprs $TO i -> Base.Cartesian.@nexprs $TP j -> begin
                 v = RELU ? relu16(c_i_j) : c_i_j
-                h = convert(AcceleratedMatrix{Float16, 16, 16, Accumulator}, v)
-                copyto!(pointer(Y), Int32(1) + o0 + wo + Int32(16 * (i - 1)) + (p0 + wp + Int32(16 * (j - 1))) * Int32(CO),
+                h = convert(AcceleratedMatrix{Float16, $MT, $MT, Accumulator}, v)
+                copyto!(pointer(Y), Int32(1) + o0 + wo + Int32($MT * (i - 1)) + (p0 + wp + Int32($MT * (j - 1))) * Int32(CO),
                         Int32(CO), h)
             end
             return nothing
         end
-        CONV_KERNELS[$cfg] = $kname
+        ($MT == 16 ? CONV_KERNELS : CONV_KERNELS_8)[$cfg] = $kname
     end
 end
 
@@ -414,7 +433,8 @@ function conv!(backend, t::TileBuffers, L::ConvLayer, Y, X0, X1, level; tiling =
     BO, BP = tiling
     nblk = (L.CO ÷ BO) * (capacity(t.tw, t.th, level) ÷ BP)
     S = t.S; nt = convthreads(tiling)
-    Mantle.kilaunch!(backend, CONV_KERNELS[tiling], Y, reinterpret(S, X0), reinterpret(S, X1 === nothing ? X0 : X1),
+    kernels = convmatrixtile(backend) == 8 ? CONV_KERNELS_8 : CONV_KERNELS
+    Mantle.kilaunch!(backend, kernels[tiling], Y, reinterpret(S, X0), reinterpret(S, X1 === nothing ? X0 : X1),
         reinterpret(S, L.Wt), L.bias, Val(halves(S)), Val(W), Val(H), Val(L.C0), Val(L.C1), Val(L.up), Val(L.CO),
         Val(L.K), Val(true), pf; ndrange = nblk * nt, workgroupsize = nt)
     return Y

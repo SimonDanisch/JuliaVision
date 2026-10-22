@@ -121,6 +121,8 @@ end
 
 @testset "every convolution tiling matches a CPU reference" begin
     be = OIDNRunner.preferredbackend()
+    @test OIDNRunner.convmatrixtile(be) == DNNKernels.caps(be).tile
+    @test keys(OIDNRunner.CONV_KERNELS_8) == keys(OIDNRunner.CONV_KERNELS)
     dev(a) = (d = OIDNRunner.KA.allocate(be, eltype(a), length(a)); copyto!(d, vec(a)); d)
     # 30 x 20 leaves a partial pixel tile; the concatenated, upsampled source
     # covers the decoder's gather.
