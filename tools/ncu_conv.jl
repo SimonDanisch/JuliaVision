@@ -8,10 +8,10 @@
 # causes. What is left needs a hardware profiler.
 
 using Lava, KernelAbstractions, DNNKernels
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
-be = LavaBackend()
+be = Mantle.Device()
 OW, OH, Cout, N, KW, KH, Cin, s, p = 15, 8, 256, 1, 3, 3, 256, 1, 1
 Wid = (OW - 1) * s + KW - 2p
 Hei = (OH - 1) * s + KH - 2p

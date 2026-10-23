@@ -1,5 +1,5 @@
 using Test, KokoroRunner, DNNKernels, Lava
-using Mantle: LavaBackend
+import Mantle
 
 # The published artifact went stale and nothing noticed for however long.
 #
@@ -25,7 +25,7 @@ using Mantle: LavaBackend
     if !KokoroRunner.ready()
         @info "KokoroRunner: assets not installed — skipping" dir = KokoroRunner.assetdir()
     else
-        k = KokoroRunner.Kokoro(; backend = LavaBackend())
+        k = KokoroRunner.Kokoro(; backend = Mantle.Device())
         g = k.model.graphs["kokorovoc"]
 
         nfp16 = count(b -> b.dtype === Float16, values(g.buffers))

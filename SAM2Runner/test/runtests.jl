@@ -35,11 +35,10 @@ import KernelAbstractions
 const SUBPROCESS = """
 using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
 import Mantle
-using Mantle: LavaBackend
 using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions
 
-backend = LavaBackend()
+backend = Mantle.Device()
 # See the module docstring: this exists so a rare hang names its kernel. These
 # are `ctx.diag` fields now, not module-level `Ref`s, so they are set AFTER the
 # backend exists — there is no context to carry them before that.
@@ -184,7 +183,7 @@ end
         @info "no SAM 2 assets; the layer-by-layer gate is SKIPPED, not passing"
         @test_skip SAM2Runner.ready()
     else
-        back = Mantle.LavaBackend()
+        back = Mantle.Device()
         sam = SAM2Runner.sam2model(; backend = back)
         refs = SAM2Runner.sam2refs()
 
@@ -281,7 +280,7 @@ end
     # Both answers, so this is not vacuous — there IS a backend the gate has to
     # refuse, and it is refused for the right reason. The positive path through
     # `handover` itself is what `test_replay_decode.jl` exercises below.
-    @test Mantle.recordsplans(Mantle.Device(Mantle.LavaBackend()))
+    @test Mantle.recordsplans(Mantle.Device(Mantle.Device()))
     @test !Mantle.recordsplans(Mantle.Device(KernelAbstractions.CPU()))
 end
 

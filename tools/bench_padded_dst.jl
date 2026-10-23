@@ -43,14 +43,14 @@ ill-conditioned at — and the distance from *fp32* went the other way.
 """
 
 using Lava, DNNKernels, KernelAbstractions, Printf, Statistics, LinearAlgebra
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: Ctx, scratch!, matmul_coopmat!, MMCoopMatPlan,
                   mm_epilogue_kernel!, padcols_kernel!, readsafetensors, toback
 const KA = KernelAbstractions
 
 relrms(a, b) = sqrt(sum(abs2, Float64.(a) .- Float64.(b)) / sum(abs2, Float64.(b)))
 
-backend = LavaBackend()
+backend = Mantle.Device()
 ctx = Ctx(backend)
 const D16 = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "whisper-fp16"))
 W = readsafetensors(joinpath(D16, "weights.safetensors"))

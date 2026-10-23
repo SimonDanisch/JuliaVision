@@ -23,7 +23,7 @@ launch whose grid cannot fill the device — the launches worth fixing first.
 """
 
 using SAM2Runner, DNNKernels, Lava, KernelAbstractions, Printf
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 # 48 SMs on the RTX 4000 Ada. A grid below this cannot occupy the card at all,
@@ -44,7 +44,7 @@ function bucketof(name)
 end
 
 function main()
-    backend = LavaBackend()
+    backend = Mantle.Device()
     @info "loading SAM 2.1"
     model = SAM2Runner.sam2model(; backend)
     img = KA.allocate(backend, Float32, 1024, 1024, 3, 1)

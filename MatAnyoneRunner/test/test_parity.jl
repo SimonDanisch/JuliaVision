@@ -42,7 +42,7 @@ using Mantle
 # passes `backend = LavaBackend()` to its own layer-by-layer gate; this one was
 # the outlier. What is checked is unchanged: the same graphs, the same weights,
 # the same PyTorch references, the same tolerances.
-const BACKEND = Mantle.LavaBackend()
+const BACKEND = Mantle.Device()
 
 const NAMES = ["encode_image", "transform_key", "encode_mask_deep", "encode_mask_shallow",
                "pixel_fusion", "pred_uncertainty", "segment", "readout_query"]

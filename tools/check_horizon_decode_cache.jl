@@ -35,7 +35,7 @@ function check_decode_cache(reference, short_export)
     for _ in 1:15
         t = @elapsed begin
             Mantle.run!(recording.plan)
-            Mantle.waitidle(Mantle.vk_context(short.backend))
+            Mantle.waitidle(short.backend)
         end
         push!(timings, 1000t)
     end

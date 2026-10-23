@@ -28,7 +28,7 @@ worth no more than a single timing was.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: readsafetensors, SAM2, encode, decode, toback
 using Lava
 const KA = KernelAbstractions
@@ -59,7 +59,7 @@ function settled(; tries = 8)
 end
 
 function main(repeats = 3)
-    backend = LavaBackend()
+    backend = Mantle.Device()
     Lava.FLUSH_TIMEOUT_NS[] = 25_000_000_000
     sam = SAM2(Dict(n => loadgraph(joinpath(DIR, "$n.json"))
                     for n in ("sam2_encoder", "sam2_decoder")),

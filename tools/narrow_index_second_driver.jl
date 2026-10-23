@@ -25,7 +25,7 @@ comparable and the result means nothing.
 """
 
 using Lava, KernelAbstractions
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 @kernel function narrow_index!(dest, bc, cis, n)
@@ -50,7 +50,7 @@ function exact(be, sz)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    be = LavaBackend()
+    be = Mantle.Device()
     println("device: ", Mantle.vk_context().device_name)
     r2 = exact(be, (5, 5))
     r3 = exact(be, (5, 5, 3))

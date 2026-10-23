@@ -25,7 +25,7 @@
 # which would be faster and is not what either side is doing here.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using CUDA
 const KA = KernelAbstractions
 const DK = DNNKernels
@@ -40,7 +40,7 @@ const SHAPES = [(2304, 4096,  576, 24.4),
                 ( 288, 16384, 1152, 4.1),
                 (1152, 16384,  288, 4.1)]
 
-const BACKEND = LavaBackend()
+const BACKEND = Mantle.Device()
 const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 const CTX = DK.Ctx(BACKEND; ws = WS)
 

@@ -29,7 +29,6 @@ and permuting it here would move the data twice and compare the wrong axes.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics, Lava, Mantle
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
 using DNNKernels: loadgraph, planfor, replay!, readsafetensors, toback
 const KA = KernelAbstractions
 
@@ -43,7 +42,7 @@ const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "neurallut"))
 # default before the backend is built, which takes the default's channel.
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
 mode == "cpu" && Mantle.defaultdevice!("llvmpipe")
-backend = LavaBackend()
+backend = Mantle.Device()
 
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_neurallut.py`")
 

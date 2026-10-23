@@ -21,10 +21,10 @@
 # 2-D operands or 4-D ones reshaped as the route builds them.
 
 using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: toback
 const KA = KernelAbstractions
-backend = LavaBackend()
+backend = Mantle.Device()
 model = MatAnyoneRunner.matanyonemodel(; backend)
 W, H = parse(Int, ARGS[1]), parse(Int, ARGS[2])
 image = toback(backend, fill(0.5f0, W, H, 3, 1))

@@ -40,12 +40,12 @@
 # 16 us and 116 us in consecutive runs".
 
 using DNNKernels, Lava, KernelAbstractions, Printf
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const DK = DNNKernels
 const KA = KernelAbstractions
 include("measure.jl")
 
-back = LavaBackend()
+back = Mantle.Device()
 
 E, H, B = 64, 20, 1          # head dim, heads, batch — Whisper large-v3-turbo
 scale = 1.0f0 / sqrt(Float32(E))

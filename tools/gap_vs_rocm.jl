@@ -74,7 +74,7 @@ const GEMM = [("square-4096", 4096, 4096, 4096),
               ("denoiser-gateup", 24576, 4224, 4096)]
 
 function main()
-    backend = M.LavaBackend()
+    backend = M.Device()
     ctx = DK.Ctx(backend)
     caps = DK.caps(backend)
     rows = Any[]

@@ -33,7 +33,6 @@ using Printf, Statistics, Dates
 using BenchmarkTools
 import JSON3
 import Mantle
-using Mantle: LavaBackend
 using KernelAbstractions
 
 const HERE = @__DIR__
@@ -41,7 +40,7 @@ const RESULTS = joinpath(HERE, "results")
 include(joinpath(HERE, "..", "tools", "measure.jl"))   # plateau/bench/report
 include(joinpath(HERE, "julia_models.jl"))             # SPEC, BUILDERS, ORDER
 
-const BACKEND = LavaBackend()
+const BACKEND = Mantle.Device()
 sync() = KernelAbstractions.synchronize(BACKEND)
 
 # ── argument handling ────────────────────────────────────────────────────────

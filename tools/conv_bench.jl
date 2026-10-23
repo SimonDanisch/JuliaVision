@@ -44,7 +44,7 @@ Attribute there; use this only once it agrees.
 """
 
 using DNNKernels, Lava, KernelAbstractions, Printf
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 "Shapes as they occur in the autocast graphs at 240x128 — (W, H, Cin, Cout, K, count)."
@@ -85,7 +85,7 @@ function converge(f, backend; iters = 50, maxrounds = 40, patience = 4, tol = 0.
     (best, rounds)
 end
 
-function main(; backend = LavaBackend())
+function main(; backend = Mantle.Device())
     @printf("%-28s %9s %8s %9s %7s %9s\n",
             "shape", "us", "rounds", "TFLOP/s", "count", "ms/step")
     total = 0.0

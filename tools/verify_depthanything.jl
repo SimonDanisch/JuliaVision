@@ -32,14 +32,14 @@ accumulation chain than the op count alone suggests.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics, Lava
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, fusableset, Workspace, Ctx, value
 const KA = KernelAbstractions
 
 const DIR = normpath(joinpath(@__DIR__, "..", "gen", "graphs", "depthanything"))
 
 mode = isempty(ARGS) ? "gpu" : lowercase(ARGS[1])
-backend = mode == "gpu" ? LavaBackend() : KA.CPU()
+backend = mode == "gpu" ? Mantle.Device() : KA.CPU()
 
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_depthanything.py`")
 

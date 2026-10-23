@@ -29,7 +29,7 @@ allocator's state. And the SM clock is printed, because this card idles at
 """
 
 using Lava, KernelAbstractions, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 # The two permutations the encoder actually runs, from the note above
@@ -236,7 +236,7 @@ function timedall(fs, backend; n = 20, reps = 24, heat = nothing)
 end
 
 function main()
-    backend = LavaBackend()
+    backend = Mantle.Device()
     # Raise the SM clock before measuring anything. The first run of this file
     # reported 495 MHz of 2265 and numbers to match — this card idles at 210 and
     # a measurement taken there is worthless (see `perf-plan.md`). Enough work to

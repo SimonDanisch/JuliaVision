@@ -31,7 +31,7 @@ and `heat` runs between rounds.
 """
 
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 # (M, N, K, calls per encode, share of the encoder's GEMM arithmetic)
@@ -84,7 +84,7 @@ function timedall(fs, backend; n = 15, reps = 8, heat = nothing)
 end
 
 function main()
-    backend = LavaBackend()
+    backend = Mantle.Device()
     w = KA.allocate(backend, Float32, 1 << 22)
     v = KA.allocate(backend, Float32, 1 << 22)
     heat(k = 200) = (for _ in 1:k; w .= v .* 1.0001f0 .+ 0.5f0; end)

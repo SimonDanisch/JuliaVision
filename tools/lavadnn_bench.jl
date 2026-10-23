@@ -1,7 +1,7 @@
 # Bench harness for the DNNKernels inference loop. Reload after a restart with
 #   include("tools/lavadnn_bench.jl")
 using DNNKernels, KernelAbstractions, Lava, Statistics, LinearAlgebra, Logging
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 const GENDIR = joinpath(@__DIR__, "..", "gen")
 
@@ -9,7 +9,7 @@ const MATANYONE_GRAPHS = ("encode_image", "transform_key", "encode_mask_deep",
                           "encode_mask_shallow", "pixel_fusion", "pred_uncertainty",
                           "segment", "readout_query")
 
-buildmodel(dir; backend=LavaBackend()) =
+buildmodel(dir; backend=Mantle.Device()) =
     Model(Dict(n => loadgraph(joinpath(GENDIR, "graphs", dir, "$n.json"))
                for n in MATANYONE_GRAPHS),
           readsafetensors(joinpath(GENDIR, "weights.safetensors")); backend)
@@ -70,7 +70,7 @@ function splitcost(m, s, image; n=20)
 end
 
 """Best-of-`rounds` timing; anything less mismeasures a cold kernel by 10x."""
-function timeit(f; n=100, rounds=5, backend=LavaBackend())
+function timeit(f; n=100, rounds=5, backend=Mantle.Device())
     best = Inf
     for _ in 1:rounds
         f(); KA.synchronize(backend)

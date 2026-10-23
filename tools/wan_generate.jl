@@ -19,7 +19,7 @@ reference. `--layers` at export time is the only thing that changes.
 """
 
 using DNNKernels
-using Mantle: LavaBackend
+import Mantle
 using KernelAbstractions
 using Printf
 using Random: MersenneTwister
@@ -44,7 +44,7 @@ on the CPU, where the 3-D convolutions land in a naive kernel.
 function wanpipeline(; ditdir = joinpath(GRAPHS, "wandit-full-fp32"),
                        vaedir = joinpath(GRAPHS, "wanvae16-fp32"),
                        encdir = nothing,
-                       backend = LavaBackend())
+                       backend = Mantle.Device())
     dit = loadgraph(joinpath(ditdir, "wan_dit.json"))
     vae = loadgraph(joinpath(vaedir, "wanvae_decoder.json"))
     ditw = readsafetensors(joinpath(ditdir, "weights.safetensors"))

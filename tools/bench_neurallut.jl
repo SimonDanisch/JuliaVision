@@ -38,7 +38,7 @@ size of what is being clamped stays visible rather than assumed small.
 """
 
 using GPUFiltering, KernelAbstractions, Lava, Printf, Statistics, ColorTypes
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: loadgraph, execute!, readsafetensors, toback,
                   Model, planslab, fusableset, Workspace
 const KA = KernelAbstractions
@@ -83,7 +83,7 @@ function timed(f, backend; n = 15, reps = 20)
     median(ts)
 end
 
-backend = LavaBackend()
+backend = Mantle.Device()
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_neurallut.py`")
 
 # ---------------------------------------------------------------- parity

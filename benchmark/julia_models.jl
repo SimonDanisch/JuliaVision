@@ -17,7 +17,6 @@ import TOML
 using Colors                    # re-exports N0f8; FixedPointNumbers is not a direct dep
 using KernelAbstractions
 import Mantle
-using Mantle: LavaBackend
 using DNNKernels: toback
 
 # All at top level: `using` inside a function body is a syntax error, so the

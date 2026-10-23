@@ -6,7 +6,7 @@ One whole Qwen-Image 2.1 generation, timed per stage, on each backend asked for.
 or from a session, which is how it is meant to be run while working:
 
     include("JuliaVision/QwenImageRunner/benchmark/generate.jl")
-    generationtimes(Mantle.LavaBackend())
+    generationtimes(Mantle.Device())
 
 The stages are the three components of `examples/generate.jl`, in its order and
 with its staging: the encoder is released before the denoiser loads and the
@@ -124,7 +124,7 @@ end
 
 """The loaded backend called `name` (`vulkan` or `rocm`), from Mantle's registry."""
 function backendnamed(name::AbstractString)
-    want = Dict("vulkan" => :LavaBackend, "rocm" => :ROCBackend)[lowercase(name)]
+    want = Dict("vulkan" => :LavaDevice, "rocm" => :ROCBackend)[lowercase(name)]
     for b in Mantle.eachbackend()
         nameof(typeof(b)) === want && return b
     end

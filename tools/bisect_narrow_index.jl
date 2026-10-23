@@ -41,7 +41,7 @@ end
 
 "Run the failing kernel; `true` if it now computes the reference."
 function exact()
-    be = LavaBackend()
+    be = Mantle.Device()
     host = reshape(collect(1f0:105f0), 7, 5, 3)
     A = KA.allocate(be, Float32, 7, 5, 3); copyto!(A, host)
     sz = (5, 5, 3); n = prod(sz)

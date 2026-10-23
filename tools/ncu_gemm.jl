@@ -31,12 +31,12 @@ either.
 """
 
 using Lava, KernelAbstractions, DNNKernels
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 const M, N, K = 2304, 4096, 576
 
-be = LavaBackend()
+be = Mantle.Device()
 Lava.GEMM_STAGED[] = length(ARGS) >= 1 && ARGS[1] == "staged"
 
 A = KA.allocate(be, Float16, M, K); copyto!(A, rand(Float16, M, K) .- Float16(0.5))

@@ -32,7 +32,7 @@ than a baked constant — the three calls differ only in one scalar buffer.
 """
 
 using DNNKernels, KernelAbstractions, Lava, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, fusableset, Workspace
 const KA = KernelAbstractions
 
@@ -74,7 +74,7 @@ function timed(f, backend; n = 9, reps = 3)
     median(ts)
 end
 
-backend = LavaBackend()
+backend = Mantle.Device()
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_rife.py`")
 
 # Through `Model`, not `loadgraph`: it runs the host-side preparation passes

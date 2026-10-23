@@ -54,7 +54,7 @@ by more than either differs from fp32 — see the block of comment at the gate.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using LinearAlgebra: dot
 using DNNKernels: readsafetensors, verifygraph, coverage, toback, Model, call, loadgraph
 const KA = KernelAbstractions
@@ -72,7 +72,7 @@ isfile(joinpath(DIR, "refs.safetensors")) || error(
 
 backend = if mode == "gpu"
     using Lava
-    LavaBackend()
+    Mantle.Device()
 else
     KA.CPU()
 end

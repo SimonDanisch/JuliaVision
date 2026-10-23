@@ -8,10 +8,10 @@ using Test, MatAnyoneRunner
 
 const SUBPROCESS = """
 using MatAnyoneRunner, Lava, DNNKernels, KernelAbstractions
-using Mantle: LavaBackend
+import Mantle
 using DNNKernels: toback
 const KA = KernelAbstractions
-backend = LavaBackend()
+backend = Mantle.Device()
 model = MatAnyoneRunner.matanyonemodel(; backend)
 W, H = 128, 96
 image = toback(backend, fill(0.5f0, W, H, 3, 1))

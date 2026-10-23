@@ -28,13 +28,13 @@ move — which is the check that the shape-level numbers mean anything.
 """
 
 using Lava, DNNKernels, KernelAbstractions, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: Ctx, scratch!, matmul_coopmat!, MMCoopMatPlan,
                   mm_epilogue_kernel!, padcols_kernel!
 const KA = KernelAbstractions
 include(joinpath(@__DIR__, "measure.jl"))
 
-backend = LavaBackend()
+backend = Mantle.Device()
 ctx = Ctx(backend)
 
 "The route that shipped: pad `B`, GEMM into fp32 scratch, epilogue back down."

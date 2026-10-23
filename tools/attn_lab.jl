@@ -24,7 +24,7 @@ reset the `Workspace` per call or the bump allocator OOMs in the loop.
 """
 
 using Lava, DNNKernels, KernelAbstractions, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 const DK = DNNKernels
 
@@ -35,7 +35,7 @@ const SHAPES = [(72, 4096, 4096, 8, 1, 3),
 
 gflop(E, Lq, Lk, H, B) = 2 * 2 * Lq * Lk * E * H * B / 1e9
 
-const BACKEND = LavaBackend()
+const BACKEND = Mantle.Device()
 const HEATW = KA.allocate(BACKEND, Float32, 1 << 22)
 const HEATV = KA.allocate(BACKEND, Float32, 1 << 22)
 const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly

@@ -13,7 +13,7 @@ slab first, so a partial write reads as NaN rather than as a plausible number.
 """
 
 using Test, BasicVSRRunner, KernelAbstractions, Lava
-using Mantle: LavaBackend
+import Mantle
 const KA = KernelAbstractions
 
 tri(x) = abs(mod(x, 64) - 32) * 4
@@ -34,7 +34,7 @@ end
     @test length(g.ops) == 2290
 
     backend = try
-        b = LavaBackend(); KA.synchronize(b); b
+        b = Mantle.Device(); KA.synchronize(b); b
     catch err
         # `LavaError` only. A bare `catch` here would eat a typo in this file and
         # report the skip as a pass, which is how a suite goes green while

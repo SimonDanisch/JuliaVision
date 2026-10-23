@@ -40,7 +40,7 @@ runs out.
 """
 
 using DNNKernels, KernelAbstractions, Printf, Statistics, Lava
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, realinputs,
                   ascomplex, planslab, fusableset, Workspace, Ctx, value
 const KA = KernelAbstractions
@@ -123,7 +123,7 @@ function verify(dir, backend)
 end
 
 function main(args)
-    backend = "--cpu" in args ? KA.CPU() : LavaBackend()
+    backend = "--cpu" in args ? KA.CPU() : Mantle.Device()
     dirs = filter(a -> !startswith(a, "--"), args)
     if isempty(dirs)
         dirs = sort(filter(d -> startswith(basename(d), "trellis2"),
@@ -135,7 +135,7 @@ function main(args)
     println("reference range is the denominator for both percentages\n")
     for d in dirs
         verify(d, backend)
-        backend isa LavaBackend && Mantle.trim_gpu_pool!()
+        backend isa Mantle.LavaDevice && Mantle.trim_gpu_pool!()
     end
 end
 

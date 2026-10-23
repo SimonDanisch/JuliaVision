@@ -21,13 +21,13 @@ const UVec4 = NTuple{4, VecElement{UInt32}}
 # Sixteen bytes either way. As 4 x fp16 on Lava, RADV read the shared tiles in
 # 8-byte `ds_load_b64`s and the gather in 8-byte global loads; as a uvec4 both
 # are 16-byte, as on ROCm.
-stagevec(::Mantle.LavaBackend) = UVec4
+stagevec(::Mantle.LavaDevice) = UVec4
 stagevec(backend) = HalfVec{8}
 # How the K-loop prefetches; see the convolution kernel.
-prefetch(::Mantle.LavaBackend) = Val(:always)
+prefetch(::Mantle.LavaDevice) = Val(:always)
 prefetch(backend) = Val(:branch)
 # The max pool needs fp16 lanes, and SPIR-V vectors stop at four.
-poolvec(::Mantle.LavaBackend) = HalfVec{4}
+poolvec(::Mantle.LavaDevice) = HalfVec{4}
 poolvec(backend) = HalfVec{8}
 halves(::Type{HalfVec{V}}) where {V} = V
 halves(::Type{UVec4}) = 8

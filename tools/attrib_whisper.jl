@@ -23,10 +23,10 @@
 #     include("tools/attrib_whisper.jl")
 
 using WhisperRunner, DNNKernels, Lava, KernelAbstractions, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
-backend = LavaBackend()
+backend = Mantle.Device()
 w = WhisperRunner.whispermodel(; backend)
 # the export's own layout: 3000 frames of 128 mel bins
 mel = rand(Float32, 3000, 128, 1)

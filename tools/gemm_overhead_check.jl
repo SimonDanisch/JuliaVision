@@ -17,12 +17,12 @@
 # flat from reps=4 on, the 64% is the kernel and nothing here is a confound.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using CUDA
 const KA = KernelAbstractions
 const DK = DNNKernels
 
-const BACKEND = LavaBackend()
+const BACKEND = Mantle.Device()
 const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly
 const CTX = DK.Ctx(BACKEND; ws = WS)
 

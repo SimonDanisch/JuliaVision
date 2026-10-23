@@ -59,7 +59,7 @@ end
         @info "no Qwen-Image VAE checkpoint; the decode test is SKIPPED, not passing"
         @test_skip ready(:vae_decoder)
     else
-        backend = Mantle.LavaBackend()
+        backend = Mantle.Device()
         vae = qwenimagevae(; backend)
         try
             nplans() = count(k -> k isa Tuple && first(k) === :plan,

@@ -21,11 +21,11 @@
 # The weight is `op.ins[3]`; its PyTorch shape (K, N) distinguishes all three.
 
 using WhisperRunner, DNNKernels, Lava, KernelAbstractions, Statistics, Printf
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const DK = DNNKernels
 const KA = KernelAbstractions
 
-backend = LavaBackend()
+backend = Mantle.Device()
 w = WhisperRunner.whispermodel(; backend)
 mel = rand(Float32, 3000, 128, 1)
 

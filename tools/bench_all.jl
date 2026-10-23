@@ -57,14 +57,13 @@ using DNNKernels: readsafetensors, toback
 # bare `LavaBackend()` here is an `UndefVarError`. RayDemo has the same
 # break and 35 of the one-off tools beside this one still do.
 import Mantle
-using Mantle: LavaBackend
 # All at top level: `using` inside a function body is a syntax error, so the
 # per-model closures below cannot load their own package. Every runner is
 # precompiled, so this costs startup time and nothing else.
 using SAM2Runner, WhisperRunner, KokoroRunner, MatAnyoneRunner
 using DepthAnythingRunner, NeuralLUTRunner, RIFERunner
 const KA = KernelAbstractions
-const BACKEND = LavaBackend()
+const BACKEND = Mantle.Device()
 sync() = KA.synchronize(BACKEND)
 
 # `N0f8` via Colors, which re-exports it — FixedPointNumbers is not a direct

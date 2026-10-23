@@ -29,7 +29,7 @@ internals they poke are not.
 """
 
 using Test, DNNKernels, KernelAbstractions, Lava, SAM2Runner
-using Mantle: LavaBackend
+import Mantle
 using DNNKernels: readsafetensors, toback
 using SAM2Runner: SAM2, encode, decode, segment, prompt
 const KA = KernelAbstractions
@@ -61,7 +61,7 @@ function eager_decode(eager, sam, pt, lb)
 end
 
 @testset "SAM 2 decode through a baked plan" begin
-    back = LavaBackend()
+    back = Mantle.Device()
     refs = SAM2Runner.sam2refs()
     sam = SAM2Runner.sam2model(; backend = back, res = 1024)
     eager = eagermodel(sam)

@@ -35,7 +35,7 @@ const SEED = 7
 dir = isempty(ARGS) ? QIR.assetdir() : ARGS[1]
 out = joinpath(@__DIR__, "..", "tmp")
 mkpath(out)
-backend = Mantle.LavaBackend()
+backend = Mantle.Device()
 
 lw, lh = W ÷ 16, H ÷ 16
 @printf("prompt %s\n  %dx%d, latent %dx%d, %d steps, graph from %s\n",

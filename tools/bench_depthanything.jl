@@ -28,7 +28,7 @@ any more than it does at 1x.
 """
 
 using DNNKernels, KernelAbstractions, Lava, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using DNNKernels: loadgraph, execute!, readsafetensors, toback, fusableset, Workspace, Model
 const KA = KernelAbstractions
 
@@ -66,7 +66,7 @@ function timed(f, backend; n = 9, reps = 3)
     median(ts)
 end
 
-backend = LavaBackend()
+backend = Mantle.Device()
 isdir(DIR) || error("no export at $DIR — run `uv run tools/export_depthanything.py`")
 
 # Through `Model`, not `loadgraph`: it runs the host-side preparation passes

@@ -21,7 +21,7 @@ Julia's compile-time counter is per-process; see SAM2Runner/test for the shape.
 """
 
 using Test, WhisperRunner, KernelAbstractions, Lava, Random
-using Mantle: LavaBackend
+import Mantle
 const KA = KernelAbstractions
 
 @testset "WhisperRunner" begin
@@ -52,7 +52,7 @@ const KA = KernelAbstractions
         # skipped, and the file reported 2 green assertions instead of 5. A guard
         # that swallows bugs in the test itself is worse than no guard.
         backend = try
-            b = LavaBackend(); KA.synchronize(b); b
+            b = Mantle.Device(); KA.synchronize(b); b
         catch err
             err isa Lava.LavaError || rethrow()
             @info "no working device; skipping the encode" exception = err

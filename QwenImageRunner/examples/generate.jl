@@ -86,7 +86,7 @@ const SEED = parse(Int, get(ENV, "QWENIMAGE21_SEED", "42"))
 
 t0 = time()
 rgba = generate(PROMPT; width = WIDTH, height = HEIGHT, steps = STEPS, seed = SEED,
-                backend = Mantle.LavaBackend())
+                backend = Mantle.Device())
 
 # The fourth channel is a REAL matte, not a formality: ask for a transparent
 # background and it comes back soft-edged with the background at 0, which is the

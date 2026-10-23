@@ -24,7 +24,7 @@ session rather than evaluated into a running one.
 """
 
 using Lava, DNNKernels, KernelAbstractions, LinearAlgebra, Printf, Statistics
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 Mantle.enable_pipeline_executable_properties!()
 
@@ -70,7 +70,7 @@ tflops(M, N, K, secs) = 2.0 * M * N * K / secs / 1e12
 smclock() = parse(Int, first(split(read(`nvidia-smi --query-gpu=clocks.sm --format=csv,noheader`,
                                         String))))
 
-const BACKEND = LavaBackend()
+const BACKEND = Mantle.Device()
 const HEATW = KA.allocate(BACKEND, Float32, 1 << 22)
 const HEATV = KA.allocate(BACKEND, Float32, 1 << 22)
 const WS = nothing   # `scratch!(nothing, backend, …)` allocates directly

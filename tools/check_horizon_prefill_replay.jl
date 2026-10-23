@@ -60,7 +60,7 @@ function check_prefill_replay(m)
         println("REPLAY_START iteration=", iteration); flush(stdout)
         elapsed = @elapsed begin
             Mantle.run!(recorded.plan)
-            Mantle.waitidle(Mantle.vk_context(m.backend))
+            Mantle.waitidle(m.backend)
         end
         actual = prefill_snapshot(recorded.outputs)
         println("REPLAY_DONE iteration=", iteration, " seconds=", elapsed,

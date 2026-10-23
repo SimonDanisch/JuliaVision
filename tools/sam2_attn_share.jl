@@ -19,7 +19,7 @@
 # columns against each other; never a total against the encode.
 ENV["DISPLAY"] = get(ENV, "DISPLAY", ":99")
 using DNNKernels, KernelAbstractions, Printf, Lava
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 using SAM2Runner: SAM2
 using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions
@@ -44,7 +44,7 @@ end
 sam = SAM2(Dict(n => DNNKernels.loadgraph(joinpath(DIR, "$n.json"))
                 for n in ("sam2_encoder", "sam2_decoder")),
            readsafetensors(joinpath(DIR, "weights.safetensors"));
-           backend = LavaBackend(), res = 1024)
+           backend = Mantle.Device(), res = 1024)
 img = toback(sam.model.backend,
              readsafetensors(joinpath(DIR, "refs.safetensors"))["sam2_encoder/in0"])
 

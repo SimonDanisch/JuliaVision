@@ -60,7 +60,7 @@ to check are the large ones: SAM 2, MatAnyone, Whisper's 2.55 GB fp32 encoder.
 """
 
 using KernelAbstractions, Lava, Printf
-using Mantle: LavaBackend   # Mantle owns it; Lava does not re-export it
+import Mantle
 const KA = KernelAbstractions
 
 const MIB = 1024 * 1024
@@ -84,7 +84,7 @@ function sizes_from(path)
     return s
 end
 
-backend = LavaBackend()
+backend = Mantle.Device()
 ctx = Mantle.vk_context()
 bq = ctx.default_bq
 blocks() = length(Mantle.pool(ctx).blocks)
