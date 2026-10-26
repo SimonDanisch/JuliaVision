@@ -144,6 +144,13 @@ const KA = KernelAbstractions
                 segs, step = WhisperRunner.windowresult(tk, [ts(0); words; ts(3); ts(3); words], 0, span, true)
                 @test step == 3 * 16000
                 @test length(segs) == 1
+                # Nothing closed: the open segment counts up to the window's edge
+                # and the next window starts there. It used to be dropped, and
+                # the loop stepped past the whole window's speech.
+                segs, step = WhisperRunner.windowresult(tk, [ts(0); words], 16000, span, true)
+                @test step == span
+                @test length(segs) == 1 && segs[1].start == 1.0 && segs[1].stop == 8.0
+                @test segs[1].text == "Hello there."
                 # No timestamps: one segment over the window's span.
                 segs, step = WhisperRunner.windowresult(tk, words, 16000, span, false)
                 @test step == span

@@ -137,18 +137,19 @@ function decodewindow(w::Whisper, tk::Tokenizer, opts::DecodeOptions,
 end
 
 """
-    segments(tk, tokens, offset) -> (Vector{Segment}, advance_seconds)
+    segments(tk, tokens, offset) -> (Vector{Segment}, advance_seconds, open)
 
 Split a window's tokens on timestamp pairs.
 
 `advance_seconds` is where the next window starts: the end of the last *closed*
-segment. A window whose final segment never closed contributes its text but not
-its boundary — that text will be produced again by the next window, which is the
-behaviour that keeps a sentence intact across the seam.
+segment. A final segment that never closed is returned as `open`, its start
+(seconds into the window) and tokens, or `nothing`; see [`windowresult`](@ref)
+for what becomes of it.
 """
 function segments(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::Float64)
     out = Segment[]
     advance = 0.0
+    open = nothing
     i = 1
     n = length(tokens)
     while i <= n
@@ -159,6 +160,7 @@ function segments(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::Floa
             j += 1
         end
         if j > n                       # segment left open at the window edge
+            open = (tstart, collect(tokens[(i + 1):n]))
             break
         end
         tstop = timestampseconds(tk, tokens[j])
@@ -168,7 +170,7 @@ function segments(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::Floa
         advance = max(advance, tstop)
         i = j                          # a closing stamp opens the next segment
     end
-    return out, advance
+    return out, advance, open
 end
 
 """
@@ -191,7 +193,13 @@ Three cases, each one of whisper.cpp's (`whisper_full_with_state`):
     came back as "Yeah.", "考慮" or "eliaanship.", depending on the temperature
     fallback.
   * otherwise, the next window starts at the end of the last closed segment, and
-    an open one is decoded again there.
+    an open one is decoded again there, which keeps a sentence intact across
+    the seam.
+  * **nothing closed**: the window's speech is one segment running past its
+    edge. Its text counts up to the edge and the next window starts there, as
+    whisper.cpp keeps it. Stepping past the window without it dropped everything
+    said in it: 30 s of a narration take, decoded confidently, came back as
+    nothing.
 """
 function windowresult(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::Integer,
                       span::Integer, timestamps::Bool)
@@ -202,7 +210,13 @@ function windowresult(tk::Tokenizer, tokens::AbstractVector{<:Integer}, offset::
                [Segment(toffset, toffset + span / SAMPLERATE, text, collect(tokens))]
         return segs, span
     end
-    segs, advance = segments(tk, tokens, toffset)
+    segs, advance, open = segments(tk, tokens, toffset)
+    if advance == 0 && open !== nothing
+        start, body = open
+        text = strip(decode(tk, body))
+        isempty(text) || push!(segs, Segment(toffset + start, toffset + span / SAMPLERATE, text, body))
+        return segs, span
+    end
     single = length(tokens) > 1 && !istimestamp(tk, tokens[end - 1]) && istimestamp(tk, tokens[end])
     step = single ? span :
            advance > 0 ? max(1, round(Int, advance * SAMPLERATE)) : WINDOWSAMPLES
