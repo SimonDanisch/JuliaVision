@@ -264,6 +264,12 @@ end
         end
 
         @testset "cooperative-matrix flash: the tiling chooser" begin
+            # On the device the table was measured on, RDNA 3: 64 KiB of shared
+            # memory and 64-wide subgroups over 32-wide matrix subgroups, so the
+            # chooser doubles the subgroups and holds the output in fragments.
+            # The RTX 4000 Ada reports 48 KiB and 32-wide subgroups, which picks
+            # narrower tiles: the chooser working, not the numbers pinned here.
+            dev = DNNKernels.M.DeviceCaps(dev; sharedbudget = 65536, subgroup = 64)
             # 64 x 64 wants 66 KB and must never be offered.
             @test !DNNKernels.flashcmfits(dev, 80, 64, 64, 256)
             @test DNNKernels.flashcmfits(dev, 80, 64, 32, 256)

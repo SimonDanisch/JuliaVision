@@ -136,12 +136,12 @@ end
 # `fuse`, which would also take the elementwise groups with it.
 @testset "the attention fusion can be switched off on its own" begin
     fused = DKA.Model(Dict("g" => safesoftmaxgraph()), Dict{String,Any}();
-                      backend = KernelAbstractions.CPU()).graphs["g"]
+                      backend = Mantle.defaultbackend()).graphs["g"]
     @test count(o -> o.aten == "fused.sdpa", fused.ops) == 1
     @test !any(o -> o.aten == "_softmax.default", fused.ops)
 
     chain = DKA.Model(Dict("g" => safesoftmaxgraph()), Dict{String,Any}();
-                      backend = KernelAbstractions.CPU(), fuseattn = false).graphs["g"]
+                      backend = Mantle.defaultbackend(), fuseattn = false).graphs["g"]
     @test !any(o -> o.aten == "fused.sdpa", chain.ops)
     # And the chain it declined to fuse is still all there to run.
     @test count(o -> o.aten == "_softmax.default", chain.ops) == 1

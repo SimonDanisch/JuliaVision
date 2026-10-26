@@ -60,36 +60,47 @@ const DKW = DNNKernels
             @test all(sh[(N+1):np] .== 1f0)
         end
 
+        @testset "a device without int8 16x16x16 tiles is refused" begin
+            # The RTX 4000 Ada lists int8 only at `K = 32`; there the kernel ran
+            # and computed garbage. The same caps without their int8 shapes.
+            noint8 = DNNKernels.M.DeviceCaps(caps; shapes = filter(s -> s.ab !== Int8, caps.shapes))
+            @test !DKW.w8a8ok(noint8, Float16, 128, 64, 128)
+        end
+
         @testset "the product, and four k blocks" begin
             # `K = 256` is four 64-deep blocks, which is the shape the guarded
             # form got wrong. The others bracket it.
-            for (M, K, N) in ((128, 64, 128), (128, 128, 128), (128, 256, 128),
-                              (256, 1024, 256))
-                np = DKW.w8a8columns(N)
-                @test DKW.w8a8ok(caps, Float16, M, K, np)
-                wh = Float16.(randn(rng, Float32, M, K) .* 0.2f0)
-                A = DNNKernels.quantizeint8(backend, DNNKernels.toback(backend, wh))
-                xh = Float16.(randn(rng, Float32, K, N) .* 0.4f0)
-                # `w8a8quantize` declares into a graph, so its results are
-                # `Mantle.Buffer`s — pool regions — as a packed weight's fields
-                # are. A BARE launch has no graph to resolve one against, so
-                # every operand goes through `Mantle.storage` here; `dispatch!`
-                # does that itself and needs none of this.
-                qbuf, sbuf = DKW.w8a8quantize(backend, DNNKernels.toback(backend, xh), np)
-                qb, sb = Mantle.storage(qbuf), Mantle.storage(sbuf)
-                C = KernelAbstractions.allocate(backend, Float16, M, np)
-                KI.Kernel(backend, DKW.w8a8_gemm_kernel!)(
-                    C, DKW.w8a8weight(A), Mantle.storage(A.scale), qb, sb,
-                    Val(M), Val(np), Val(K);
-                    ndrange = (M ÷ DKW.W8A8_BM) * (np ÷ DKW.W8A8_BN) * DKW.W8A8_WG, workgroupsize = DKW.W8A8_WG)
-                KernelAbstractions.synchronize(backend)
-                qa = Float32.(Array(DKW.w8a8weight(A))[1:M, :])
-                qbh = Float32.(reshape(reinterpret(Int8, Array(qb)), K, np))
-                want = (qa .* Array(Mantle.storage(A.scale))) * (qbh .* reshape(Array(sb), 1, :))
-                got = Float32.(Array(C))
-                # The integer product is exact; what is left is the fp16 store.
-                @test maximum(abs, got .- want) <= 0.002maximum(abs, want)
-                @test all(isfinite, got)
+            if !DKW.w8a8ok(caps, Float16, 128, 64, 128)
+                @test_skip "no int8 16x16x16 tiles on this device"
+            else
+                for (M, K, N) in ((128, 64, 128), (128, 128, 128), (128, 256, 128),
+                                  (256, 1024, 256))
+                    np = DKW.w8a8columns(N)
+                    @test DKW.w8a8ok(caps, Float16, M, K, np)
+                    wh = Float16.(randn(rng, Float32, M, K) .* 0.2f0)
+                    A = DNNKernels.quantizeint8(backend, DNNKernels.toback(backend, wh))
+                    xh = Float16.(randn(rng, Float32, K, N) .* 0.4f0)
+                    # `w8a8quantize` declares into a graph, so its results are
+                    # `Mantle.Buffer`s — pool regions — as a packed weight's fields
+                    # are. A BARE launch has no graph to resolve one against, so
+                    # every operand goes through `Mantle.storage` here; `dispatch!`
+                    # does that itself and needs none of this.
+                    qbuf, sbuf = DKW.w8a8quantize(backend, DNNKernels.toback(backend, xh), np)
+                    qb, sb = Mantle.storage(qbuf), Mantle.storage(sbuf)
+                    C = KernelAbstractions.allocate(backend, Float16, M, np)
+                    KI.Kernel(backend, DKW.w8a8_gemm_kernel!)(
+                        C, DKW.w8a8weight(A), Mantle.storage(A.scale), qb, sb,
+                        Val(M), Val(np), Val(K);
+                        ndrange = (M ÷ DKW.W8A8_BM) * (np ÷ DKW.W8A8_BN) * DKW.W8A8_WG, workgroupsize = DKW.W8A8_WG)
+                    KernelAbstractions.synchronize(backend)
+                    qa = Float32.(Array(DKW.w8a8weight(A))[1:M, :])
+                    qbh = Float32.(reshape(reinterpret(Int8, Array(qb)), K, np))
+                    want = (qa .* Array(Mantle.storage(A.scale))) * (qbh .* reshape(Array(sb), 1, :))
+                    got = Float32.(Array(C))
+                    # The integer product is exact; what is left is the fp16 store.
+                    @test maximum(abs, got .- want) <= 0.002maximum(abs, want)
+                    @test all(isfinite, got)
+                end
             end
         end
 

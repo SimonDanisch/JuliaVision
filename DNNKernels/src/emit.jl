@@ -4251,9 +4251,19 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     # tensor layout, so a destination it cannot address goes on to the next path,
     # the same recovery `sdpa!(ctx, ::FlashCM2Plan, …)` makes.
     cm2 = flashcm2_plan(caps, q, k, v, bias)
-    if cm2 isa FlashCM2Plan && cm2writable(out)
-        flash_dispatch!(emitctx.g, out, cm2, q, k, v, scale; name = op.id)
-        return sdparesults(emitctx, dst)
+    if cm2 isa FlashCM2Plan
+        # A following `(0, 2, 1, 3)` permute is only the destination's strides to
+        # this kernel, which stores through a layout of a root and four strides:
+        # `(E, Lq, H, B)` written in `(E, H, Lq, B)` order is `(1, E*H, E, E*H*Lq)`
+        # over `dst`, registered as a dense view as the rows path does.
+        target = outperm === nothing ? out :
+                 StridedOperand(dst, (E, Lq, H, B), (1, E * H, E, E * H * Lq), 0)
+        if cm2writable(target)
+            flash_dispatch!(emitctx.g, target, cm2, q, k, v, scale; name = op.id)
+            outperm === nothing ||
+                (emitctx.res[outperm.id] = M.viewof(dst, evalshape(outperm.shape, emitctx.dims)))
+            return sdparesults(emitctx, dst)
+        end
     end
     # The same order the immediate path takes (`sdpaplan`). A following
     # `(0, 2, 1, 3)` permute is written by the kernel itself and registered as a

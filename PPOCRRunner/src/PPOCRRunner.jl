@@ -49,6 +49,7 @@ import JSON3
 export PPOCR, ppocr, PageInput, pageinput!, upload!, TextLine, detect, recognize, read_lines, orientation
 
 const KA = KernelAbstractions
+import KernelInterface as KI
 
 """
     detdir(), recdir(), oridir() -> String
@@ -139,43 +140,49 @@ const BOX_THRESHOLD = 0.6f0
 const UNCLIP = 1.5f0
 const MIN_SIZE = 3
 
-@kernel function components_clear!(stats, sums, counter)
-    k = @index(Global)
+function components_clear!(stats, sums, counter)
+    k = KI.get_global_id().x
+    k <= length(sums) || return nothing    # ndrange is rounded up to whole work-groups
     @inbounds begin
         stats[1, k] = typemax(Int32); stats[2, k] = typemax(Int32)
         stats[3, k] = 0; stats[4, k] = 0; stats[5, k] = 0; sums[k] = 0f0
         k == 1 && (counter[1] = 0)
     end
+    return nothing
 end
 
 # Each region's bounding box, size and probability sum, kept at its label.
-@kernel function components_stats!(stats, sums, @Const(labels), @Const(prob), W::Int)
-    k = @index(Global)
+# Monotonic: the statistics are read by the next pass, after the barrier between them.
+function components_stats!(stats, sums, labels, prob, W::Int)
+    k = KI.get_global_id().x
+    k <= length(labels) || return nothing
     @inbounds r = labels[k]
     if r != 0
         x = Int32(mod(k - 1, W) + 1); y = Int32((k - 1) ÷ W + 1)
-        KA.@atomic min(stats[1, r], x)
-        KA.@atomic min(stats[2, r], y)
-        KA.@atomic max(stats[3, r], x)
-        KA.@atomic max(stats[4, r], y)
-        KA.@atomic stats[5, r] += Int32(1)
-        KA.@atomic sums[r] += prob[k]
+        KA.@atomic :monotonic min(stats[1, r], x)
+        KA.@atomic :monotonic min(stats[2, r], y)
+        KA.@atomic :monotonic max(stats[3, r], x)
+        KA.@atomic :monotonic max(stats[4, r], y)
+        KA.@atomic :monotonic stats[5, r] += Int32(1)
+        KA.@atomic :monotonic sums[r] += prob[k]
     end
+    return nothing
 end
 
 # As upstream's DB post-processing: a region whose mean probability is below
 # `BOX_THRESHOLD` is dropped, and each box is grown by `area * UNCLIP /
 # perimeter`, since the network marks a shrunk core of each line. Boxes are
 # axis-aligned, in page pixels: pages are upright and flat before they are read.
-@kernel function components_boxes!(boxes, counter, @Const(stats), @Const(sums), @Const(shape), W::Int, H::Int)
-    k = @index(Global)
+function components_boxes!(boxes, counter, stats, sums, shape, W::Int, H::Int)
+    k = KI.get_global_id().x
+    k <= length(sums) || return nothing
     @inbounds begin
         count = stats[5, k]; x0 = stats[1, k]; y0 = stats[2, k]; x1 = stats[3, k]; y1 = stats[4, k]
         bw = x1 - x0 + 1; bh = y1 - y0 + 1
         if count > 0 && min(bw, bh) >= MIN_SIZE && sums[k] / count >= BOX_THRESHOLD
             d = Float32(bw) * Float32(bh) * UNCLIP / (2f0 * (bw + bh))
             if min(bw, bh) + 2d >= MIN_SIZE + 2
-                slot = KA.@atomic counter[1] += Int32(1)
+                slot = KA.@atomic :monotonic counter[1] += Int32(1)
                 if slot <= BOX_CAPACITY
                     w = shape[1]; h = shape[2]; scale = min(W / Float32(w), H / Float32(h))
                     boxes[1, slot] = max(0f0, (x0 - 1 - d) / scale); boxes[2, slot] = max(0f0, (y0 - 1 - d) / scale)
@@ -184,6 +191,7 @@ end
             end
         end
     end
+    return nothing
 end
 
 # ----------------------------------------------------------------- the model

@@ -1,12 +1,14 @@
 """
 Dropping a weight dict does not free it; `releaseweights!` does.
 
-Mantle frees a pool region on an explicit verb and NEVER from a finalizer —
-`Mantle.trim!` carries the reason: a pool freed from the GC finalizer thread
-gave Lava a `ConcurrencyViolationError` and then a SIGSEGV. The consequence is
-that `empty!(weights)` drops the last Julia reference and the pool's ledger
-still records every region as on loan, so `trim!` finds no empty block and the
-driver gets nothing back.
+A device array's finalizer only retires its buffer; the pool takes the region
+back in a `reclaim!` on the owning thread, after the next submission
+(`Mantle.trim!` carries why the finalizer thread never touches the pool: it
+gave Lava a `ConcurrencyViolationError` and then a SIGSEGV). So a dropped weight
+comes back only after a GC has finalized it. Until then `empty!(weights)` has
+dropped the last Julia reference and the pool's ledger still records every
+region as on loan, so `trim!` finds no empty block and the driver gets nothing
+back.
 
 `QwenImageRunner`'s `release!` did exactly that. Measured over a 256x256
 generation, GTT+VRAM: `release!(encoder)` returned **446 MiB of 7.5 GB**, and
@@ -37,25 +39,48 @@ const DEV = Mantle.todevice(BACKEND)
 ledger() = sum(b -> length(b.live),
                Iterators.flatten(values(Mantle.pool(DEV).blocks)); init = 0)
 
-@testset "a dropped device array does not free itself" begin
-    # The premise the rest of this file rests on. If Mantle ever grows a
-    # finalizer that returns pool memory, this is the assertion that says so and
-    # `releaseweights!` becomes unnecessary rather than wrong.
-    before = ledger()
-    let a = KernelAbstractions.allocate(BACKEND, Float32, 1024, 1024)
-        fill!(a, 1.0f0)
-        @test ledger() > before
-    end
-    GC.gc(true)
-    @test ledger() > before          # still on loan with no reference to it
-
+"""
+Every region already dropped back in the pool, so a count taken now changes only
+with what the testset does. A region dropped after the last submission comes back
+only once the open batch is submitted (`reclaim!` does not wait for unsubmitted
+work), so without the `flush!` the next submission, inside the testset, returns
+whatever earlier files dropped.
+"""
+function settle!()
+    Mantle.flush!(DEV)
+    Mantle.waitidle(DEV)
     Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
     Mantle.trim!(Mantle.pool(DEV), DEV)
-    @test ledger() > before          # and reclaim/trim cannot help either
+end
+
+"""An array allocated and filled, its last reference dropped on return."""
+function dropone()
+    a = KernelAbstractions.allocate(BACKEND, Float32, 1024, 1024)
+    fill!(a, 1.0f0)
+    return nothing
+end
+
+@testset "a dropped device array comes back only after a GC" begin
+    # The premise the rest of this file rests on. The GC is held off while the
+    # array is dropped, which is the state a dropped weight dict stays in until
+    # a collection happens to run.
+    settle!()
+    before = ledger()
+    GC.enable(false)
+    try
+        dropone()
+        settle!()
+        @test ledger() > before      # no reference to it, and still on loan
+    finally
+        GC.enable(true)
+    end
+    GC.gc(true)
+    settle!()
+    @test ledger() <= before         # finalized, retired, reclaimed
 end
 
 @testset "releaseweights! frees arrays and the wrappers around them" begin
-    GC.gc(true)
+    settle!()
     before = ledger()
 
     q = KernelAbstractions.allocate(BACKEND, UInt32, 256, 64)
@@ -72,10 +97,7 @@ end
     releaseweights!(weights)
     @test isempty(weights)
 
-    Mantle.waitidle(DEV)
-    Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
-    Mantle.trim!(Mantle.pool(DEV), DEV)
-    GC.gc(true)
+    settle!()
     # All three regions back, which is the whole point. `<=` rather than `==`
     # because this testset does not own everything the pool is holding.
     @test ledger() <= before
@@ -96,7 +118,7 @@ end
     #     `Vulkan.Instance`, whose destructor closure captures the `Instance`
     #     back. That cycle is a `StackOverflowError`, not a leak.
     W = DNNKernels.toback(BACKEND, randn(Float32, 256, 256))
-    GC.gc(true)
+    settle!()
     before = ledger()               # `W` is already on it; only `A` is new below
 
     A = DNNKernels.quantizeint8(BACKEND, W)
@@ -107,10 +129,7 @@ end
     @test ledger() >= before + 2
 
     releaseweights!(Dict{String,Any}("w" => A))
-    Mantle.waitidle(DEV)
-    Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
-    Mantle.trim!(Mantle.pool(DEV), DEV)
-    GC.gc(true)
+    settle!()
     @test ledger() <= before
 end
 
@@ -141,6 +160,7 @@ end
     # AFTER the model, so the only thing between this and the count below is
     # `initstate`. Taking it before made the assertion depend on what building
     # a `Model` happens to allocate.
+    settle!()
     before = ledger()
 
     st = DNNKernels.initstate(model, 512, 288)
@@ -166,8 +186,6 @@ end
     @test all(==(3.0f0), Array(Mantle.storage(st.owned[1])))
 
     Mantle.release!(st)
-    Mantle.waitidle(DEV)
-    Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
-    Mantle.trim!(Mantle.pool(DEV), DEV)
+    settle!()
     @test ledger() <= before
 end

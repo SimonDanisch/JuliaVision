@@ -221,6 +221,10 @@ workgroup, and the extents it divides. Everything else keeps `q8gemm`.
 """
 function w8a8ok(caps, ::Type{Tout}, m::Integer, k::Integer, n::Integer) where {Tout}
     caps.coopmat && caps.coopmatsubgroup == 32 && caps.tile == 16 || return false
+    # The tiles are int8 `16 x 16 x 16`, which not every device implements: the
+    # RTX 4000 Ada lists int8 only at `K = 32` (`16 x 16 x 32`, `16 x 8 x 32`),
+    # and the kernel ran there anyway and computed garbage.
+    KI.supports(caps, KI.MatrixShape(Int8, Int32, 16, 16, 16, KI.SubgroupScope())) || return false
     Tout in (Float16, Float32) || return false
     m % W8A8_BM == 0 && n % W8A8_BN == 0 && k % W8A8_BK == 0 || return false
     max(m * k, k * n, m * n) <= typemax(Int32)

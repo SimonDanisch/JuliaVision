@@ -192,7 +192,7 @@ end
                           "WhisperRunner" => 5, "MatAnyoneRunner" => 3,
                           "SAM2Runner" => 3, "DepthAnythingRunner" => 2,
                           "KokoroRunner" => 2, "BasicVSRRunner" => 1,
-                          "HorizonRunner" => 1, "NeuralLUTRunner" => 1)
+                          "HorizonRunner" => 1)
     for pkg in sort(readdir(RUNNERS))
         dir = joinpath(RUNNERS, pkg, "src")
         isdir(dir) || continue

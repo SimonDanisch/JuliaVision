@@ -362,10 +362,19 @@ function packconv(w::AbstractArray{<:Real, 4}, b, C0real, C0, C1real, C1, CO)
     return Wt, bias, K
 end
 
-function devicecopy(backend, a)
-    d = KA.allocate(backend, eltype(a), size(a))
-    copyto!(d, a)
-    return d
+# Device memory is Mantle's: a `Mantle.Buffer` holds each region and `free!`
+# releases it, while kernels, copies and reductions take its storage. The buffer
+# is kept in `owners` beside the view, because the storage of a dropped buffer is
+# memory the pool may hand out again.
+function devicebuffer!(owners, backend, data::AbstractVector)
+    b = Mantle.Buffer(Mantle.todevice(backend), data)
+    push!(owners, b)
+    return Mantle.storage(b)
+end
+function devicebuffer!(owners, backend, ::Type{T}, n::Integer) where {T}
+    b = Mantle.Buffer(Mantle.todevice(backend), T, n)
+    push!(owners, b)
+    return Mantle.storage(b)
 end
 
 """
@@ -378,15 +387,18 @@ struct UNet
     cin::Int
     CI::Int
     layers::Dict{Symbol, ConvLayer}
+    owners::Vector{Any}   # the Mantle buffers behind every layer's weights
 end
 function UNet(weights::AbstractDict, cin::Int, backend)
     CI = padc(cin)
     layers = Dict{Symbol, ConvLayer}()
+    owners = Any[]
     function add!(name, C0real, C0, C1real, C1, up)
         w = weights[string(name, ".weight")]; b = weights[string(name, ".bias")]
         CO = size(w, 4) <= 16 ? 16 : cld(size(w, 4), CONV_OPAD) * CONV_OPAD
         Wt, bias, K = packconv(w, b, C0real, C0, C1real, C1, CO)
-        layers[name] = ConvLayer(C0, C1, up, CO, K, devicecopy(backend, vec(Wt)), devicecopy(backend, bias))
+        layers[name] = ConvLayer(C0, C1, up, CO, K, devicebuffer!(owners, backend, vec(Wt)),
+                                 devicebuffer!(owners, backend, bias))
     end
     e = LEVEL_CHANNELS
     add!(:enc_conv1a, cin, CI, 0, 0, false); add!(:enc_conv1b, e[1], e[1], 0, 0, false)
@@ -399,7 +411,7 @@ function UNet(weights::AbstractDict, cin::Int, backend)
     add!(:dec_conv2a, e[3], e[3], e[1], e[1], true); add!(:dec_conv2b, e[2], e[2], 0, 0, false)
     add!(:dec_conv1a, e[2], e[2], cin, CI, true); add!(:dec_conv1b, e[1], e[1], 0, 0, false)
     add!(:dec_conv1c, e[1], e[1], 0, 0, false)
-    return UNet(cin, CI, layers)
+    return UNet(cin, CI, layers, owners)
 end
 
 """
@@ -417,15 +429,18 @@ struct TileBuffers
     a::Vector{Any}        # per level
     b::Vector{Any}
     pool::Vector{Any}     # pool[l] is level l's input, from level l-1
+    owners::Vector{Any}   # the Mantle buffers behind all of them
 end
 capacity(tw, th, l) = cld((tw >> l) * (th >> l), CONV_PIXELS) * CONV_PIXELS
 function TileBuffers(backend, tw, th)
-    alloc(c, l) = KA.allocate(backend, Float16, c * capacity(tw, th, l))
+    owners = Any[]
+    alloc(c, l) = devicebuffer!(owners, backend, Float16, c * capacity(tw, th, l))
     e = LEVEL_CHANNELS
     a = Any[alloc(e[l + 1], l) for l in 0:4]
     b = Any[alloc(e[l + 1], l) for l in 0:4]
     pool = Any[nothing; [alloc(e[l], l) for l in 1:4]]
-    return TileBuffers(tw, th, stagevec(backend), poolvec(backend), alloc(16, 0), alloc(CONV_OPAD, 0), a, b, pool)
+    return TileBuffers(tw, th, stagevec(backend), poolvec(backend), alloc(16, 0), alloc(CONV_OPAD, 0), a, b, pool,
+                       owners)
 end
 
 function conv!(backend, t::TileBuffers, L::ConvLayer, Y, X0, X1, level; tiling = convtiling(L.CO), pf = prefetch(backend))

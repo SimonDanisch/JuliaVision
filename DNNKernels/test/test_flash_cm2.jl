@@ -353,11 +353,11 @@ end
             # every AMD card: the cm2 plan declines and the declared cm1 kernel
             # runs as it did before the port.
             caps0 = MT.caps(gdev)
-            gdev.ctx.caches.caps = MT.DeviceCaps(caps0; wggran = NTuple{4,Int}[])
+            gdev.caches.caps = MT.DeviceCaps(caps0; wggran = NTuple{4,Int}[])
             got1, kernels1 = try
                 run()
             finally
-                gdev.ctx.caches.caps = caps0
+                gdev.caches.caps = caps0
             end
             @test !(DK.attn_flash_cm2! in kernels1)
             @test DK.attn_flash_cm_spatial4! in kernels1

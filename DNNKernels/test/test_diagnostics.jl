@@ -17,6 +17,7 @@ using Test
 using DNNKernels
 using DNNKernels: Diagnostics, Ctx, loadgraph, launch!, planmisses
 using KernelAbstractions
+import Mantle
 include("fixtures.jl")
 const DK = DNNKernels
 const KA = KernelAbstractions
@@ -39,17 +40,17 @@ const KA = KernelAbstractions
     end
 
     @testset "the launch probe reaches `launch!` through the context" begin
-        back = KA.CPU()
+        back = Mantle.defaultbackend()
         d = Diagnostics(launches = Dict{Tuple{Base.Dims,Base.Dims},
                                         Tuple{Int,Base.Dims}}())
         ctx = Ctx(back; diag = d)
-        out = zeros(Float32, 64)
+        out = KA.zeros(back, Float32, 64)
         # A 1-D destination on purpose: `launch!` flattens every multi-dimensional
         # linearly-indexable output, and the probe records the shape of the N-D
         # form, which is the condition the probe is for.
         launch!(ctx, (I, v) -> v, out, 2.0f0)
         launch!(ctx, (I, v) -> v, out, 3.0f0)
-        @test all(==(3.0f0), out)
+        @test all(==(3.0f0), Array(out))
         @test length(d.launches) == 1
         (count, groups) = first(values(d.launches))
         @test count == 2

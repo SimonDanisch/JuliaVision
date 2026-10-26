@@ -223,11 +223,12 @@ function grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
     # Staged here rather than refused, because a host frame is exactly what a
     # caller holding an image has; the `(out, img, lut)` form is the one that
     # asks the caller to have placed its own operands.
-    dimg = KA.allocate(model.backend, RGB{Float32}, size(img)...)
-    copyto!(dimg, RGB{Float32}.(img))
+    staged = Mantle.Buffer(Mantle.todevice(model.backend), RGB{Float32}.(img))
+    dimg = Mantle.storage(staged)
     dout = similar(dimg)
     lut3d!(dout, dimg, lut)
     host = Array(dout)
+    Mantle.free!(staged)
     @inbounds for i in eachindex(out, host)
         out[i] = eltype(out)(host[i])
     end
@@ -271,13 +272,14 @@ end
             # from silently mattering after a re-export.
             @compile_workload begin
                 model = neurallut(; backend)
-                img = KA.allocate(backend, RGB{Float32}, 256, 256)
+                frame = Mantle.Buffer(Mantle.todevice(backend), fill(RGB{Float32}(0.3f0, 0.5f0, 0.7f0), 256, 256))
+                img = Mantle.storage(frame)
                 out = similar(img)
-                fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
                 lut = predictlut(model, img)
                 grade!(out, img, lut)
                 grade!(model, out, img)
                 KA.synchronize(backend)
+                Mantle.free!(frame)
             end
         catch err
             @warn "NeuralLUTRunner: workload skipped; first use will compile" exception = err
