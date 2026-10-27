@@ -38,6 +38,7 @@ module PPOCRRunner
 
 using DNNKernels, KernelAbstractions
 import Mantle, GPUFiltering
+import KernelInterface as KI
 using GPUFiltering: PlanarMap, Area, Bilinear
 using GeometryBasics: Vec, Vec2f
 using Mantle: @setup_workload, @compile_workload
@@ -49,7 +50,6 @@ import JSON3
 export PPOCR, ppocr, PageInput, pageinput!, upload!, TextLine, detect, recognize, read_lines, orientation
 
 const KA = KernelAbstractions
-import KernelInterface as KI
 
 """
     detdir(), recdir(), oridir() -> String
@@ -140,9 +140,11 @@ const BOX_THRESHOLD = 0.6f0
 const UNCLIP = 1.5f0
 const MIN_SIZE = 3
 
+# Plain KernelInterface functions: one work item per pixel or region, guarded
+# against the whole workgroups a launch rounds up to.
 function components_clear!(stats, sums, counter)
-    k = KI.get_global_id().x
-    k <= length(sums) || return nothing    # ndrange is rounded up to whole work-groups
+    k = Int(KI.get_global_id().x)
+    k <= size(stats, 2) || return nothing
     @inbounds begin
         stats[1, k] = typemax(Int32); stats[2, k] = typemax(Int32)
         stats[3, k] = 0; stats[4, k] = 0; stats[5, k] = 0; sums[k] = 0f0
@@ -152,9 +154,8 @@ function components_clear!(stats, sums, counter)
 end
 
 # Each region's bounding box, size and probability sum, kept at its label.
-# Monotonic: the statistics are read by the next pass, after the barrier between them.
 function components_stats!(stats, sums, labels, prob, W::Int)
-    k = KI.get_global_id().x
+    k = Int(KI.get_global_id().x)
     k <= length(labels) || return nothing
     @inbounds r = labels[k]
     if r != 0
@@ -174,8 +175,8 @@ end
 # perimeter`, since the network marks a shrunk core of each line. Boxes are
 # axis-aligned, in page pixels: pages are upright and flat before they are read.
 function components_boxes!(boxes, counter, stats, sums, shape, W::Int, H::Int)
-    k = KI.get_global_id().x
-    k <= length(sums) || return nothing
+    k = Int(KI.get_global_id().x)
+    k <= size(stats, 2) || return nothing
     @inbounds begin
         count = stats[5, k]; x0 = stats[1, k]; y0 = stats[2, k]; x1 = stats[3, k]; y1 = stats[4, k]
         bw = x1 - x0 + 1; bh = y1 - y0 + 1
@@ -327,10 +328,10 @@ function ppocr(; backend = Mantle.defaultbackend())
     boxes, shape = Mantle.Buffer(dev, Float32, (4, BOX_CAPACITY)), Mantle.Buffer(dev, Int32, (2,))
     plan = record(dev) do g
         l, map = Mantle.storage(labels), reshape(prob, W, H)
-        Mantle.dispatch!(g, components_clear!, (stats, sums, count), n; name = "clear components")
+        Mantle.dispatch!(g, components_clear!, (stats, sums, count), n; group = 256, name = "clear components")
         GPUFiltering.components!(g, l, map, >(THRESHOLD))
-        Mantle.dispatch!(g, components_stats!, (stats, sums, l, map, W), n; name = "component statistics")
-        Mantle.dispatch!(g, components_boxes!, (boxes, count, stats, sums, shape, W, H), n; name = "compact boxes")
+        Mantle.dispatch!(g, components_stats!, (stats, sums, l, map, W), n; group = 256, name = "component statistics")
+        Mantle.dispatch!(g, components_boxes!, (boxes, count, stats, sums, shape, W, H), n; group = 256, name = "compact boxes")
     end
     host = Readback(zeros(Int32, 1), zeros(Int32, 2), zeros(Float32, 4, BOX_CAPACITY),
                     Array{eltype(logits)}(undef, size(logits)), Vector{PlanarMap}(undef, maxbatch()),

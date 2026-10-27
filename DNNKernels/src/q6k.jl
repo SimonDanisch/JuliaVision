@@ -370,6 +370,28 @@ end
     return (first..., second...)
 end
 
+# `kq_stage_mma` for Q6_K: `kq_stage`'s arithmetic, narrowed with `stagehalf`.
+@inline q6k_word4_mma(q::UInt32, s::Float32) =
+    q4k_h4_mma(s * Float32(Int32(q & 0xff) - Int32(32)), s * Float32(Int32((q >> 8) & 0xff) - Int32(32)),
+               s * Float32(Int32((q >> 16) & 0xff) - Int32(32)), s * Float32(Int32(q >> 24) - Int32(32)))
+
+@inline function kq_stage_mma(::Val{:q6k}, Ws, row::Int32, b::Int32, g::Int32, h::Int32, nb::Int32)
+    QL, QH, SC, D = Ws
+    blk = row * nb + b
+    n, qs = g ÷ Int32(2), g % Int32(2)
+    A = @inbounds QL[blk * Int32(8) + Int32(4) * n + h + Int32(1)]
+    B = @inbounds QL[blk * Int32(8) + Int32(4) * n + Int32(2) + h + Int32(1)]
+    H = @inbounds QH[blk * Int32(4) + Int32(2) * n + h + Int32(1)]
+    scv = @inbounds SC[blk + Int32(1)]
+    d = Float32(@inbounds D[blk + Int32(1)])
+    sa = d * Float32(q6k_scale(scv, Int32(8) * n + Int32(4) * qs + h))
+    sb = d * Float32(q6k_scale(scv, Int32(8) * n + Int32(4) * qs + Int32(2) + h))
+    ls = Int32(4) * qs
+    first = ntuple(w -> q6k_word4_mma(q6k_q(A[w].value, H[w].value, ls, ls), sa), Val(4))
+    second = ntuple(w -> q6k_word4_mma(q6k_q(B[w].value, H[w].value, ls, ls + Int32(2)), sb), Val(4))
+    return (first..., second...)
+end
+
 q6kgemm_kernel!(C, QL, QH, SC, D, B, epi, m::Val, n::Val, k::Val, cfg::Val) =
     kquant_gemm!(C, (QL, QH, SC, D), B, epi, Val(:q6k), m, n, k, cfg)
 q6k_dequant_kernel!(W, QL, QH, SC, D, rows::Int32, nb::Int32) =

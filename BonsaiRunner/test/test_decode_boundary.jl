@@ -1,6 +1,29 @@
 using Test, Random, BonsaiRunner
 import Mantle
 
+@testset "batched dense GEMV sums all subgroup partials" begin
+    dev = Mantle.Device()
+    sub = Mantle.caps(dev).subgroup
+    rng = MersenneTwister(3527)
+    for K in (16, 65, 128), N in (1, 3)
+        M = 17
+        wh = randn(rng, Float32, K, M)
+        xh = randn(rng, Float32, K, N)
+        w, x = Mantle.Buffer(dev, wh), Mantle.Buffer(dev, xh)
+        out = Mantle.Buffer(dev, fill(NaN32, M, N))
+        try
+            g = Mantle.Graph(dev)
+            Mantle.dispatch!(g, BonsaiRunner.dense_gemv_batch_kernel!,
+                (out, w, x, Int32(K), Int32(M), Int32(cld(M, 4)), Val(sub)),
+                cld(M, 4) * N * 256; group = 256, name = "dense_subgroup_regression")
+            Mantle.runonce!(g)
+            @test Array(out) ≈ transpose(Float64.(wh)) * Float64.(xh) atol = 6e-6 rtol = 3e-6
+        finally
+            foreach(Mantle.free!, (w, x, out))
+        end
+    end
+end
+
 # Decode's layer boundary as one pass: the residual add, the RMS norm and the
 # signed transform of the norm. Its workgroups each compute the norm over the
 # whole row, so a wrong reduction shows up as a block-wise scale error; the

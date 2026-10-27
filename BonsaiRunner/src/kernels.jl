@@ -258,7 +258,14 @@ function add_rmsnorm_batch_kernel!(out, x, branch,
     KI.barrier()
     nsubgroups = Int32(256 ÷ SUBGROUP)
     if subgroup == Int32(0)
-        v = lane < nsubgroups ? sh[lane + Int32(1)] : 0f0
+        # On subgroup8 there are32 partials, not8. Each lane must accumulate
+        # more than one partial before the final subgroup reduction.
+        v = 0f0
+        j = lane
+        while j < nsubgroups
+            v += sh[j + Int32(1)]
+            j += Int32(SUBGROUP)
+        end
         total = DNNKernels.KI.sub_group_reduce_add(v)
         lane == Int32(0) && (sh[Int32(1)] = total)
     end
@@ -349,9 +356,13 @@ function dense_gemv_batch_kernel!(out, weight, x,
         sublane == Int32(0) &&
             (partial[rowin * nsub + subinrow + Int32(1)] = reduced)
         KI.barrier()
-        lane == Int32(0) && row < M &&
-            (@inbounds out[col * M + row + Int32(1)] = eltype(out)(
-                partial[rowin * nsub + Int32(1)] + partial[rowin * nsub + Int32(2)]))
+        if lane == Int32(0) && row < M
+            total = 0f0
+            for s in Int32(1):nsub
+                @inbounds total += partial[rowin * nsub + s]
+            end
+            @inbounds out[col * M + row + Int32(1)] = eltype(out)(total)
+        end
     end
     return nothing
 end
@@ -507,6 +518,10 @@ function gdn_permute_batch_kernel!(out, x)
     return nothing
 end
 
+# A prompt chunk of `depthwise_conv4_kernel!` steps, with its arithmetic: the
+# SiLU is `y * (1 / (1 + exp(-y)))`, not `y / (1 + exp(-y))`. RADV lowers both
+# to the same instructions; Metal rounds the division differently, and the chunk
+# drifted an ulp from sequential decode there.
 function depthwise_conv4_batch_kernel!(out, state, x,
                                                          weight, channels::Int32,
                                                          ntokens::Int32)
@@ -525,7 +540,7 @@ function depthwise_conv4_batch_kernel!(out, state, x,
                     muladd(_weightf32(weight[wi + Int32(2)]), x2,
                            _weightf32(weight[wi + Int32(3)]) * x3)))
                 out[token * channels + c + Int32(1)] = eltype(out)(
-                    y / (1f0 + exp(-y)))
+                    DNNKernels._silu_f32(y))
                 x0, x1, x2 = x1, x2, x3
             end
             state[si] = eltype(state)(x0)

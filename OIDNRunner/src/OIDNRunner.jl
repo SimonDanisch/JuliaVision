@@ -61,6 +61,7 @@ else
     fusedgraph(g) = g
 end
 include("unet.jl")
+include("unetgraph.jl")
 include("gpupipeline.jl")
 function workbuffer(d, key, dims, T = Float32)
     a = get(d.workspace, key, nothing)
@@ -102,15 +103,16 @@ function model!(d, kind)
 end
 function release!(d::OIDNDenoiser)
     lock(d.lock) do
+        Mantle.waitidle(Mantle.todevice(d.backend))
         for m in values(d.models)
             DNNKernels.releaseplans!(m)
             DNNKernels.releaseweights!(m.weights)
         end
         empty!(d.models)
-        foreach(free!, values(d.unets))
-        empty!(d.unets)
         foreach(free!, values(d.workspace))
         empty!(d.workspace)
+        foreach(free!, values(d.unets))
+        empty!(d.unets)
     end
     return nothing
 end

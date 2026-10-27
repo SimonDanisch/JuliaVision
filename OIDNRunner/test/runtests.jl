@@ -1,5 +1,7 @@
 using Test, OIDNRunner, Mantle
 using .OIDNRunner.DNNKernels
+include("test_semantic_graph.jl")
+test_oidn_semantic_graph(OIDNRunner,Mantle.Device())
 const exports = normpath(joinpath(@__DIR__, "..", "..", "gen", "graphs", "oidn"))
 @testset "OIDN transforms" begin
     for x in Float32[0, 1.0f-7, 0.001, 0.1, 1, 100, 65504]

@@ -12,18 +12,22 @@ struct DeviceImages
     galbedo::Any     # prefiltered guides, planar (w, h, 3)
     gnormal::Any
     output::Any      # result, planar (w, h, 3)
-    owners::Vector{Any}   # the Mantle buffers behind all six
+    buffers::Vector{Mantle.Buffer}
 end
 function DeviceImages(backend, w, h)
-    owners = Any[]
-    a() = devicebuffer!(owners, backend, Float32, 3 * w * h)
-    return DeviceImages(w, h, a(), a(), a(), a(), a(), a(), owners)
+    buffers = Mantle.Buffer[]
+    a() = devicearray!(buffers, backend, Float32, (3 * w * h,))
+    return DeviceImages(w, h, a(), a(), a(), a(), a(), a(), buffers)
 end
-free!(x::DeviceImages) = foreach(Mantle.free!, x.owners)
-free!(t::TileBuffers) = foreach(Mantle.free!, t.owners)
-free!(n::UNet) = foreach(Mantle.free!, n.owners)
+free!(x::DeviceImages) = (foreach(Mantle.free!, x.buffers); empty!(x.buffers); nothing)
+function free!(t::TileBuffers)
+    foreach(Mantle.free!,values(t.plans));empty!(t.plans)
+    foreach(Mantle.free!, t.buffers); empty!(t.buffers)
+    return nothing
+end
+free!(n::UNet) = (foreach(Mantle.free!, n.buffers); empty!(n.buffers); nothing)
 free!(::Array) = nothing
-free!(b::Mantle.Buffer) = Mantle.free!(b)   # a device region the workspace holds
+free!(b::Mantle.Buffer) = Mantle.free!(b)   # a device buffer the workspace holds
 
 function deviceimages!(d, w, h)
     img = get(d.workspace, :gpuimages, nothing)
@@ -178,12 +182,13 @@ over a grid of about 16×16-pixel bins, each bin averaged by one thread.
 function deviceinputscale(d, color)
     w, h = size(color)
     nw, nh = cld(w, 16), cld(h, 16)
-    buf = get(d.workspace, :binluminance, nothing)
-    if buf === nothing || length(Mantle.storage(buf)) != nw * nh
-        buf === nothing || free!(buf)
-        buf = d.workspace[:binluminance] = Mantle.Buffer(Mantle.todevice(d.backend), Float32, nw * nh)
+    dev = Mantle.todevice(d.backend)
+    b = get!(() -> Mantle.Buffer(dev, Float32, (nw * nh,)), d.workspace, :binluminance)
+    if length(b) != nw * nh
+        Mantle.free!(b)
+        b = d.workspace[:binluminance] = Mantle.Buffer(dev, Float32, (nw * nh,))
     end
-    lum = Mantle.storage(buf)
+    lum = Mantle.storage(b)
     Mantle.kilaunch!(d.backend, binluminance_kernel!, lum, color, Int32(nw), Int32(nh);
                      ndrange = cld(nw * nh, 256) * 256, workgroupsize = 256)
     total = mapreduce(l -> l > 1.0f-8 ? log2(l) : 0.0f0, +, lum)

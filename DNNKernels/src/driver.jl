@@ -454,12 +454,12 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     nclone > 0 && @info "dropclones: $nclone clone(s) -> alias"
     # Before `fuseops`, which would collapse the norm's `add`+`rsqrt` into a
     # `FusedOp` and hide the epsilon this needs to read.
-    graphs, nswi = fuseswiglu(graphs)
-    nswi > 0 && @info "fuseswiglu: $nswi SwiGLU(s) -> one op each"
-    graphs, nswm = fuseswiglumm(graphs)
-    nswm > 0 && @info "fuseswiglumm: $nswm SwiGLU(s) folded into the product that reads them"
-    graphs, nrms = fusegroupedrms(graphs)
-    nrms > 0 && @info "fusegroupedrms: $nrms grouped RMS norm(s) -> one op each"
+    graphs, patterns = patternfusion(graphs)
+    patterns.swiglu > 0 && @info "fuseswiglu: $(patterns.swiglu) SwiGLU(s) -> one op each"
+    patterns.swiglu_products > 0 &&
+        @info "fuseswiglumm: $(patterns.swiglu_products) SwiGLU(s) folded into the product that reads them"
+    patterns.grouped_rms > 0 &&
+        @info "fusegroupedrms: $(patterns.grouped_rms) grouped RMS norm(s) -> one op each"
     # Before `dropdead`, which would otherwise see the `cat` as live and keep the
     # copies it feeds. After the weight passes, because it only looks at inputs
     # and outputs and nothing above changes those.
@@ -589,18 +589,19 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
                 noutcast += nattncast
             end
         end
-        graphs, nfused = fuseops(graphs)
-        graphs, nmasked = fusemaskedattention(graphs)
+        graphs, fusionreport = genericfusion(graphs)
+        nfused=fusionreport.elementwise
+        nmasked=fusionreport.masked_attention
         nmasked > 0 && @info "fusemaskedattention: $nmasked masked attention blocks"
         # After `fuseops`, so a chain it collapsed can be folded into the GEMM
         # whole rather than only its last link.
-        graphs, nepi = foldepilogue(graphs)
+        nepi=fusionreport.epilogues
         # And the mirror image: into the reduction that consumes it. After
         # `foldepilogue` because an op between an `addmm` and a reduction can be
         # folded either way and only once; the epilogue is the better home, since
         # the GEMM's store touches those elements whether or not anything is
         # folded into it, while a reduction's map step is work either way.
-        graphs, npre = foldpremap(graphs)
+        npre=fusionreport.premaps
     end
     @debug "DNNKernels: folded $nfold batch-norms, $nact relus, $noutcast output casts and $nincast input casts, hoisted $nhoist casts, $nperm permutes, $nconst constants and $nsub constant-subgraph ops, fused $nfused elementwise ops, folded $nepi epilogues and $npre premaps, dropped $ndead dead ops and $dropped orphaned weights"
     tfuse = (time_ns() - t0) / 1e9 - thost - tupload

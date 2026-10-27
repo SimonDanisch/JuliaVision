@@ -21,14 +21,11 @@ const UVec4 = NTuple{4, VecElement{UInt32}}
 # Sixteen bytes either way. As 4 x fp16 on Lava, RADV read the shared tiles in
 # 8-byte `ds_load_b64`s and the gather in 8-byte global loads; as a uvec4 both
 # are 16-byte, as on ROCm.
-stagevec(::Mantle.LavaDevice) = UVec4
-stagevec(backend) = HalfVec{8}
+stagevec(backend) = DNNKernels.caps(backend).tile==8 ? HalfVec{8} : UVec4
 # How the K-loop prefetches; see the convolution kernel.
-prefetch(::Mantle.LavaDevice) = Val(:always)
-prefetch(backend) = Val(:branch)
+prefetch(backend) = DNNKernels.caps(backend).subgroup>=64 ? Val(:always) : Val(:branch)
 # The max pool needs fp16 lanes, and SPIR-V vectors stop at four.
-poolvec(::Mantle.LavaDevice) = HalfVec{4}
-poolvec(backend) = HalfVec{8}
+poolvec(backend) = DNNKernels.caps(backend).tile==8 ? HalfVec{8} : HalfVec{4}
 halves(::Type{HalfVec{V}}) where {V} = V
 halves(::Type{UVec4}) = 8
 const CONV_BK = 32      # reduction step (CK KPerBlock)
@@ -362,19 +359,17 @@ function packconv(w::AbstractArray{<:Real, 4}, b, C0real, C0, C1real, C1, CO)
     return Wt, bias, K
 end
 
-# Device memory is Mantle's: a `Mantle.Buffer` holds each region and `free!`
-# releases it, while kernels, copies and reductions take its storage. The buffer
-# is kept in `owners` beside the view, because the storage of a dropped buffer is
-# memory the pool may hand out again.
-function devicebuffer!(owners, backend, data::AbstractVector)
-    b = Mantle.Buffer(Mantle.todevice(backend), data)
-    push!(owners, b)
+# The device array of a new `Mantle.Buffer` that `owned` keeps alive: `storage`
+# does not, and every later read must see the same array.
+function devicearray!(owned, backend, T, dims)
+    b = Mantle.Buffer(Mantle.todevice(backend), T, dims)
+    push!(owned, b)
     return Mantle.storage(b)
 end
-function devicebuffer!(owners, backend, ::Type{T}, n::Integer) where {T}
-    b = Mantle.Buffer(Mantle.todevice(backend), T, n)
-    push!(owners, b)
-    return Mantle.storage(b)
+function devicecopy!(owned, backend, a)
+    d = devicearray!(owned, backend, eltype(a), size(a))
+    copyto!(d, a)
+    return d
 end
 
 """
@@ -387,18 +382,18 @@ struct UNet
     cin::Int
     CI::Int
     layers::Dict{Symbol, ConvLayer}
-    owners::Vector{Any}   # the Mantle buffers behind every layer's weights
+    buffers::Vector{Mantle.Buffer}
 end
 function UNet(weights::AbstractDict, cin::Int, backend)
     CI = padc(cin)
     layers = Dict{Symbol, ConvLayer}()
-    owners = Any[]
+    buffers = Mantle.Buffer[]
     function add!(name, C0real, C0, C1real, C1, up)
         w = weights[string(name, ".weight")]; b = weights[string(name, ".bias")]
         CO = size(w, 4) <= 16 ? 16 : cld(size(w, 4), CONV_OPAD) * CONV_OPAD
         Wt, bias, K = packconv(w, b, C0real, C0, C1real, C1, CO)
-        layers[name] = ConvLayer(C0, C1, up, CO, K, devicebuffer!(owners, backend, vec(Wt)),
-                                 devicebuffer!(owners, backend, bias))
+        layers[name] = ConvLayer(C0, C1, up, CO, K, devicecopy!(buffers, backend, vec(Wt)),
+                                 devicecopy!(buffers, backend, bias))
     end
     e = LEVEL_CHANNELS
     add!(:enc_conv1a, cin, CI, 0, 0, false); add!(:enc_conv1b, e[1], e[1], 0, 0, false)
@@ -411,7 +406,7 @@ function UNet(weights::AbstractDict, cin::Int, backend)
     add!(:dec_conv2a, e[3], e[3], e[1], e[1], true); add!(:dec_conv2b, e[2], e[2], 0, 0, false)
     add!(:dec_conv1a, e[2], e[2], cin, CI, true); add!(:dec_conv1b, e[1], e[1], 0, 0, false)
     add!(:dec_conv1c, e[1], e[1], 0, 0, false)
-    return UNet(cin, CI, layers, owners)
+    return UNet(cin, CI, layers, buffers)
 end
 
 """
@@ -429,18 +424,19 @@ struct TileBuffers
     a::Vector{Any}        # per level
     b::Vector{Any}
     pool::Vector{Any}     # pool[l] is level l's input, from level l-1
-    owners::Vector{Any}   # the Mantle buffers behind all of them
+    plans::IdDict{UNet,Any}
+    buffers::Vector{Mantle.Buffer}
 end
 capacity(tw, th, l) = cld((tw >> l) * (th >> l), CONV_PIXELS) * CONV_PIXELS
 function TileBuffers(backend, tw, th)
-    owners = Any[]
-    alloc(c, l) = devicebuffer!(owners, backend, Float16, c * capacity(tw, th, l))
+    buffers = Mantle.Buffer[]
+    alloc(c, l) = devicearray!(buffers, backend, Float16, (c * capacity(tw, th, l),))
     e = LEVEL_CHANNELS
     a = Any[alloc(e[l + 1], l) for l in 0:4]
     b = Any[alloc(e[l + 1], l) for l in 0:4]
     pool = Any[nothing; [alloc(e[l], l) for l in 1:4]]
     return TileBuffers(tw, th, stagevec(backend), poolvec(backend), alloc(16, 0), alloc(CONV_OPAD, 0), a, b, pool,
-                       owners)
+                       IdDict{UNet,Any}(), buffers)
 end
 
 function conv!(backend, t::TileBuffers, L::ConvLayer, Y, X0, X1, level; tiling = convtiling(L.CO), pf = prefetch(backend))
@@ -463,27 +459,30 @@ function pool!(backend, t::TileBuffers, Y, X, C, level)
     return Y
 end
 
-"Run the U-Net on `t.input`; the result is `t.output`."
-function forward!(backend, net::UNet, t::TileBuffers)
+"The network topology, shared by semantic graph construction and GPU parity tests."
+function unet_stages!(convop,poolop,backend,net::UNet,t::TileBuffers)
     L = net.layers; a = t.a; b = t.b; p = t.pool; e = LEVEL_CHANNELS
-    conv!(backend, t, L[:enc_conv1a], a[1], t.input, nothing, 0)
-    conv!(backend, t, L[:enc_conv1b], b[1], a[1], nothing, 0); pool!(backend, t, p[2], b[1], e[1], 0)
-    conv!(backend, t, L[:enc_conv2a], a[2], p[2], nothing, 1)
-    conv!(backend, t, L[:enc_conv2b], b[2], a[2], nothing, 1); pool!(backend, t, p[3], b[2], e[2], 1)
-    conv!(backend, t, L[:enc_conv3a], a[3], p[3], nothing, 2)
-    conv!(backend, t, L[:enc_conv3b], b[3], a[3], nothing, 2); pool!(backend, t, p[4], b[3], e[3], 2)
-    conv!(backend, t, L[:enc_conv4a], a[4], p[4], nothing, 3)
-    conv!(backend, t, L[:enc_conv4b], b[4], a[4], nothing, 3); pool!(backend, t, p[5], b[4], e[4], 3)
-    conv!(backend, t, L[:enc_conv5a], a[5], p[5], nothing, 4)
-    conv!(backend, t, L[:enc_conv5b], b[5], a[5], nothing, 4)
-    conv!(backend, t, L[:dec_conv4a], a[4], b[5], p[4], 3)
-    conv!(backend, t, L[:dec_conv4b], b[4], a[4], nothing, 3)
-    conv!(backend, t, L[:dec_conv3a], a[3], b[4], p[3], 2)
-    conv!(backend, t, L[:dec_conv3b], b[3], a[3], nothing, 2)
-    conv!(backend, t, L[:dec_conv2a], a[2], b[3], p[2], 1)
-    conv!(backend, t, L[:dec_conv2b], b[2], a[2], nothing, 1)
-    conv!(backend, t, L[:dec_conv1a], a[1], b[2], t.input, 0)
-    conv!(backend, t, L[:dec_conv1b], b[1], a[1], nothing, 0)
-    conv!(backend, t, L[:dec_conv1c], t.output, b[1], nothing, 0)
+    convop(backend, t, L[:enc_conv1a], a[1], t.input, nothing, 0)
+    convop(backend, t, L[:enc_conv1b], b[1], a[1], nothing, 0); poolop(backend, t, p[2], b[1], e[1], 0)
+    convop(backend, t, L[:enc_conv2a], a[2], p[2], nothing, 1)
+    convop(backend, t, L[:enc_conv2b], b[2], a[2], nothing, 1); poolop(backend, t, p[3], b[2], e[2], 1)
+    convop(backend, t, L[:enc_conv3a], a[3], p[3], nothing, 2)
+    convop(backend, t, L[:enc_conv3b], b[3], a[3], nothing, 2); poolop(backend, t, p[4], b[3], e[3], 2)
+    convop(backend, t, L[:enc_conv4a], a[4], p[4], nothing, 3)
+    convop(backend, t, L[:enc_conv4b], b[4], a[4], nothing, 3); poolop(backend, t, p[5], b[4], e[4], 3)
+    convop(backend, t, L[:enc_conv5a], a[5], p[5], nothing, 4)
+    convop(backend, t, L[:enc_conv5b], b[5], a[5], nothing, 4)
+    convop(backend, t, L[:dec_conv4a], a[4], b[5], p[4], 3)
+    convop(backend, t, L[:dec_conv4b], b[4], a[4], nothing, 3)
+    convop(backend, t, L[:dec_conv3a], a[3], b[4], p[3], 2)
+    convop(backend, t, L[:dec_conv3b], b[3], a[3], nothing, 2)
+    convop(backend, t, L[:dec_conv2a], a[2], b[3], p[2], 1)
+    convop(backend, t, L[:dec_conv2b], b[2], a[2], nothing, 1)
+    convop(backend, t, L[:dec_conv1a], a[1], b[2], t.input, 0)
+    convop(backend, t, L[:dec_conv1b], b[1], a[1], nothing, 0)
+    convop(backend, t, L[:dec_conv1c], t.output, b[1], nothing, 0)
     return t.output
 end
+
+# Retained only as a GPU numerical/timing reference for the graph route.
+forward_immediate!(backend,net::UNet,t::TileBuffers)=unet_stages!(conv!,pool!,backend,net,t)
