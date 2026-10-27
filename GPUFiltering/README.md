@@ -1,14 +1,15 @@
 # GPUFiltering.jl
 
-Backend-agnostic GPU image processing on [KernelAbstractions](https://github.com/JuliaGPU/KernelAbstractions.jl):
+Backend-agnostic GPU image processing in plain
+[KernelInterface](https://github.com/SimonDanisch/KernelAbstractions.jl) kernels:
 every function works on `AbstractMatrix{<:AbstractRGB}` (or `Float32`
-matrices for the flow module) of **any** KA backend — `Matrix` (CPU),
-`LavaArray` (Vulkan), `CuArray`, … — dispatching kernels via
+matrices for the flow module) on any KernelInterface device — a Mantle device
+(Vulkan, Metal, and lavapipe for the CPU), a `CuArray`'s — launching on
 `KernelAbstractions.get_backend(img)`. Born as the processing core of
 VideoEditor.jl; usable standalone.
 
-Kernels are asynchronous — call `KernelAbstractions.synchronize(backend)`
-(or fetch with `Array`) before reading results on the host.
+Kernels are asynchronous: read results with `Array` (or `copyto!` into host
+memory), which waits for the kernels that wrote them.
 
 Images use `(width, height)` layout (x-contiguous), matching GLMakie.
 
@@ -19,7 +20,7 @@ never synchronizes or reads back. Its first argument says where the kernels go:
 
 ```julia
 otsu!(out, counts)                    # the backend of `out`, now
-otsu!(backend, out, counts, range)    # a KernelAbstractions backend, now
+otsu!(device, out, counts, range)     # a device, now
 otsu!(graph, out, counts, range)      # nodes of a Mantle graph
 ```
 
@@ -159,11 +160,12 @@ affine flow.
   its throw branch, which cannot compile to GPU code.
 - `FlowWorkspace` exists because a bare `opticalflow!` call allocates ~15
   intermediates per pyramid level; reusing one workspace across a video
-  analysis is both allocation-free and ~50 % faster on the CPU.
+  analysis is both allocation-free and ~50 % faster (measured on the CPU).
 
 ## Tests
 
-`]test GPUFiltering`: 218 tests, all on the CPU. Bit comparisons against
+`]test GPUFiltering`: 222 tests, on lavapipe (Mesa's Vulkan driver for the CPU,
+from `Lavapipe_jll`), so they run the device code on any machine. Bit comparisons against
 ImageFiltering, flow sign and sub-pixel accuracy, fit recovery, robustness and
 the inverse convention, end-to-end warp, flow, fit and restore round trips,
 warps whose sample positions leave the Int32 range or divide by zero, and every

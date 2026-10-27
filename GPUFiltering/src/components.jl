@@ -1,8 +1,10 @@
 # Connected components: which pixels of a mask belong together.
 
-@kernel function components_init_kernel!(labels, @Const(mask), pred)
-    k = @index(Global, Linear)
+function components_init_kernel!(labels, mask, pred)
+    k, inside = workitem(length(mask))
+    inside || return nothing
     @inbounds labels[k] = pred(mask[k]) ? Int32(k) : Int32(0)
+    return nothing
 end
 
 # The root of `k`'s tree, read atomically while other threads hook trees.
@@ -27,8 +29,9 @@ end
     return nothing
 end
 
-@kernel function components_merge_kernel!(labels, @Const(mask), pred, w::Int32)
-    k = @index(Global, Linear)
+function components_merge_kernel!(labels, mask, pred, w::Int32)
+    k, inside = workitem(length(mask))
+    inside || return nothing
     x = mod(k - 1, w) + 1; y = (k - 1) ÷ w + 1
     if @inbounds pred(mask[k])
         if x > 1 && (@inbounds pred(mask[k - 1]))
@@ -43,13 +46,15 @@ end
             end
         end
     end
+    return nothing
 end
 
 # Every pixel straight to its root. A thread that replaces its own parent by
 # the root keeps every path through it leading to the same root, so the
 # threads that still walk through it end where they would have.
-@kernel function components_flatten_kernel!(labels)
-    k = @index(Global, Linear)
+function components_flatten_kernel!(labels)
+    k, inside = workitem(length(labels))
+    inside || return nothing
     @inbounds l = labels[k]
     if l != 0
         r = l
@@ -58,6 +63,7 @@ end
         end
         @inbounds labels[k] = r
     end
+    return nothing
 end
 
 """

@@ -20,8 +20,9 @@ end
 
 RowStats() = RowStats(0, 0, 0, 0, RGB{Float32}(0, 0, 0))
 
-@kernel function boxrows_kernel!(stats, @Const(img), @Const(mask), @Const(boxes), pred, countp)
-    I = @index(Global, Cartesian)
+function boxrows_kernel!(stats, img, mask, boxes, pred, countp)
+    I, inside = workitem(size(stats))
+    inside || return nothing
     r, k = I[1], I[2]
     n = Int32(0); starts = Int32(0); firstx = Int32(0); lastx = Int32(0)
     acc = RGB{Float32}(0, 0, 0)
@@ -44,6 +45,7 @@ RowStats() = RowStats(0, 0, 0, 0, RGB{Float32}(0, 0, 0))
         end
     end
     @inbounds stats[r, k] = RowStats(n, starts, firstx, lastx, acc)
+    return nothing
 end
 
 """
@@ -70,17 +72,19 @@ function boxrows!(dev, stats::AbstractMatrix{RowStats}, img::AbstractMatrix, mas
     return stats
 end
 
-@kernel function fillboxes_kernel!(img, @Const(boxes), value, countp)
-    I = @index(Global, Cartesian)
+function fillboxes_kernel!(img, boxes, value, countp)
+    I, inside = workitem(size(img))
+    inside || return nothing
     x, y = I[1], I[2]
-    inside = false
+    covered = false
     for k in 1:paramvalue(countp)
         @inbounds b = boxes[k]
-        inside |= b[1] <= x <= b[3] && b[2] <= y <= b[4]
+        covered |= b[1] <= x <= b[3] && b[2] <= y <= b[4]
     end
-    if inside
+    if covered
         @inbounds img[I] = value
     end
+    return nothing
 end
 
 """
@@ -97,39 +101,46 @@ function fillboxes!(dev, img::AbstractMatrix, boxes::AbstractVector, value, coun
     return img
 end
 
-@kernel function componentstats_init_kernel!(stats, counter)
-    k = @index(Global, Linear)
+function componentstats_init_kernel!(stats, counter)
+    k, inside = workitem(size(stats, 2))
+    inside || return nothing
     @inbounds begin
         stats[1, k] = typemax(Int32); stats[2, k] = typemax(Int32)
         stats[3, k] = Int32(0); stats[4, k] = Int32(0); stats[5, k] = Int32(0)
         k == 1 && (counter[1] = Int32(0))
     end
+    return nothing
 end
 
-@kernel function componentstats_kernel!(stats, @Const(labels))
-    I = @index(Global, Cartesian)
+function componentstats_kernel!(stats, labels)
+    I, inside = workitem(size(labels))
+    inside || return nothing
     @inbounds root = labels[I]
     if root != Int32(0)
         x = Int32(I[1]); y = Int32(I[2])
-        KA.@atomic min(stats[1, root], x)
-        KA.@atomic min(stats[2, root], y)
-        KA.@atomic max(stats[3, root], x)
-        KA.@atomic max(stats[4, root], y)
-        KA.@atomic stats[5, root] += Int32(1)
+        # Read by the next launch only: no ordering among these is needed.
+        KA.@atomic :monotonic min(stats[1, root], x)
+        KA.@atomic :monotonic min(stats[2, root], y)
+        KA.@atomic :monotonic max(stats[3, root], x)
+        KA.@atomic :monotonic max(stats[4, root], y)
+        KA.@atomic :monotonic stats[5, root] += Int32(1)
     end
+    return nothing
 end
 
-@kernel function componentlist_kernel!(boxes, counter, @Const(stats), minarea::Int32)
-    k = @index(Global, Linear)
+function componentlist_kernel!(boxes, counter, stats, minarea::Int32)
+    k, inside = workitem(size(stats, 2))
+    inside || return nothing
     @inbounds area = stats[5, k]
     if area >= minarea
-        slot = KA.@atomic counter[1] += Int32(1)
+        slot = KA.@atomic :monotonic counter[1] += Int32(1)   # a unique slot whatever the ordering
         if slot <= size(boxes, 2)
             @inbounds for j in 1:5
                 boxes[j, slot] = stats[j, k]
             end
         end
     end
+    return nothing
 end
 
 """

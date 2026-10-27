@@ -3,8 +3,9 @@
 # pencil next to a dark heading both survive. The window sums are two passes,
 # along rows and then down columns, of the luma and its square.
 
-@kernel function rowsums_kernel!(s1, s2, @Const(lum), r::Int32)
-    I = @index(Global, Cartesian)
+function rowsums_kernel!(s1, s2, lum, r::Int32)
+    I, inside = workitem(size(lum))
+    inside || return nothing
     x, y = I[1], I[2]
     w = size(lum, 1)
     a = 0.0f0; b = 0.0f0
@@ -13,10 +14,12 @@
         a += v; b += v * v
     end
     @inbounds begin s1[I] = a; s2[I] = b; end
+    return nothing
 end
 
-@kernel function sauvola_kernel!(out, @Const(lum), @Const(s1), @Const(s2), r::Int32, k::Float32, range::Float32)
-    I = @index(Global, Cartesian)
+function sauvola_kernel!(out, lum, s1, s2, r::Int32, k::Float32, range::Float32)
+    I, inside = workitem(size(lum))
+    inside || return nothing
     x, y = I[1], I[2]
     w, h = size(lum)
     a = 0.0f0; b = 0.0f0
@@ -26,6 +29,7 @@ end
     n = Float32((min(w, x + r) - max(1, x - r) + 1) * (min(h, y + r) - max(1, y - r) + 1))
     mean = a / n; sd = sqrt(max(b / n - mean * mean, 0.0f0))
     @inbounds out[I] = Gray{Bool}(lum[I] > mean * (1.0f0 + k * (sd / range - 1.0f0)))
+    return nothing
 end
 
 """

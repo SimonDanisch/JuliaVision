@@ -9,8 +9,8 @@ so nothing else in the suite would notice one coming back.
 **`src/` and not the tests**, deliberately. `@index(Global, NTuple)` recovery
 can only be tested through a `@kernel`, because that is the only interface that
 has it — see `test_index_recovery.jl`. The KernelAbstractions path is still live
-for Raycore, Hikari, GPUFiltering and GPUArrays, which all dispatch through the
-same Lava, so a test that covers it is coverage and not a leftover.
+for Raycore, Hikari and GPUArrays, which all dispatch through the same Lava, so a
+test that covers it is coverage and not a leftover.
 
 ## Why this is a ratchet and not just an assertion
 
@@ -88,46 +88,24 @@ iscode(L) = !occursin(r"^\s*#", L)
     end
 end
 
-@testset "every package in this tree is macro-free, or is named here" begin
+@testset "every package in this tree is macro-free" begin
     # The two trees above are the DNN library and its GPU library. This walks
     # the WHOLE repository, because a runner is part of the code base too and
     # four of them had a `@kernel` after the migration said there were none:
     # RIFE's frame pack and unpack, Kokoro's alignment gather, Hunyuan3D's grid
     # queries. Nothing else scanned them.
     #
-    # Two are not zero. They are named, with counts that may only fall, rather
-    # than excluded by a pattern that would also hide a regression.
-    #
-    #   * `GPUFiltering` (25) — and this one is a DECISION, not a leftover. Its
-    #     own docstring is "backend-agnostic … works on any KA backend —
-    #     `Matrix` (CPU), `LavaArray` (Vulkan), `CuArray`", its tests run on
-    #     `KA.CPU()`, and `KA.CPU` implements no `KI.kernel_function`. Porting it
-    #     would delete the CPU backend it exists to support. The `@kernel`s ARE
-    #     the portability. It is not on the DNN path: nothing here dispatches
-    #     through it, and the runners that use it take `tofloat`/`topixel` and
-    #     `resizeplanar!`, which are host-callable.
-    #
-    # `BonsaiRunner` was the second entry here, at 30, and is now at zero along
-    # with everything else. It is `develop`ed into the root project, so this
-    # counts a tree that also loads and runs.
-    #
-    # The same reasoning keeps ~130 `@kernel` tests in Mantle and
-    # `test_index_recovery.jl` here: the KernelAbstractions path is live for
-    # Raycore, Hikari, GPUFiltering and GPUArrays, all of which go through the
-    # same Lava. "No `@kernel`" is a rule about the DNN library, and the DNN
-    # library is at zero.
-    remaining = Dict("GPUFiltering" => 25)
+    # Every package is at zero, GPUFiltering included: its kernels are plain
+    # functions too, and the CPU it runs on is lavapipe, a Vulkan device like any
+    # other. The ~130 `@kernel` tests in Mantle and `test_index_recovery.jl` here
+    # stay: the KernelAbstractions path is live for Raycore, Hikari and
+    # GPUArrays, all of which go through the same Lava.
     defn = r"@kernel(\s+\w+\s*=\s*\w+)*\s+function"
     for pkg in sort(readdir(RUNNERS))
         dir = joinpath(RUNNERS, pkg, "src")
         isdir(dir) || continue
         hits = [(f, i) for (f, i, L) in sourcelines(dir) if iscode(L) && occursin(defn, L)]
-        if haskey(remaining, pkg)
-            # `<=`, so porting one is free and adding one is a conversation.
-            @test (pkg => length(hits)) == (pkg => min(length(hits), remaining[pkg]))
-        else
-            @test (pkg => hits) == (pkg => Tuple{String,Int}[])
-        end
+        @test (pkg => hits) == (pkg => Tuple{String,Int}[])
     end
 end
 
@@ -147,18 +125,12 @@ end
     # And every runner too, on the same argument as the `@kernel` walk above:
     # the two go together. A `@kernel` is only reachable through the
     # constructor protocol, so a package at zero for one and not the other is
-    # a launch whose definition has already moved. GPUFiltering keeps both for
-    # the reason given above; it is the only package that does.
-    ctors = Dict("GPUFiltering" => 16)
+    # a launch whose definition has already moved.
     for pkg in sort(readdir(RUNNERS))
         dir = joinpath(RUNNERS, pkg, "src")
         isdir(dir) || continue
         hits = [(f, i) for (f, i, L) in sourcelines(dir) if iscode(L) && occursin(ctor, L)]
-        if haskey(ctors, pkg)
-            @test (pkg => length(hits)) == (pkg => min(length(hits), ctors[pkg]))
-        else
-            @test (pkg => hits) == (pkg => Tuple{String,Int}[])
-        end
+        @test (pkg => hits) == (pkg => Tuple{String,Int}[])
     end
 
     # These are the ones still to go. The assertion is `<=`, so deleting is free
@@ -186,8 +158,13 @@ end
     # `KA.zeros` and `KA.ones` count too. They are the same allocation with a
     # fill attached, and swapping one for the other would walk the number back
     # without changing anything.
+    #
+    # GPUFiltering's 20 are scratch on the operation's own device, held by plain
+    # structs (`FlowWorkspace`, `PatchTracker`) or by one call, and returned by
+    # the arrays' finalizers; a `Mantle.Buffer` would need an explicit `free!`
+    # from each owner.
     runneralloc = r"(KernelAbstractions|KA)\.(allocate|zeros|ones)\b"
-    remainingalloc = Dict("GPUFiltering" => 17, "DNNKernels" => 9,
+    remainingalloc = Dict("GPUFiltering" => 20, "DNNKernels" => 9,
                           "Hunyuan3DRunner" => 5, "RIFERunner" => 5,
                           "WhisperRunner" => 5, "MatAnyoneRunner" => 3,
                           "SAM2Runner" => 3, "DepthAnythingRunner" => 2,

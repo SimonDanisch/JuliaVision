@@ -104,10 +104,12 @@ of a pixel edge counts as on it, so rounding in the footprint never adds a row.
     return scalepixel(acc, 1.0f0 / max(length(xs) * length(ys), 1))
 end
 
-@kernel function convert_kernel!(out, @Const(img))
-    I = @index(Global, Cartesian)
+function convert_kernel!(out, img)
+    I, inside = workitem(size(out))
+    inside || return nothing
     @inbounds c = tofloat(img[I])
     @inbounds out[I] = topixel(eltype(out), c.r, c.g, c.b)
+    return nothing
 end
 
 """
@@ -123,9 +125,11 @@ function convertpixels!(dev, out::AbstractMatrix{<:AnyRGB}, img::AbstractMatrix)
     return out
 end
 
-@kernel function luma_kernel!(out, @Const(img))
-    I = @index(Global, Cartesian)
+function luma_kernel!(out, img)
+    I, inside = workitem(size(out))
+    inside || return nothing
     @inbounds out[I] = topixel(eltype(out), luma(img[I]))
+    return nothing
 end
 
 """
@@ -140,14 +144,16 @@ function grayscale!(dev, out::AbstractMatrix{<:AbstractGray}, img::AbstractMatri
     return out
 end
 
-@kernel function rotate90_kernel!(out, @Const(img), degreesp)
-    I = @index(Global, Cartesian)
+function rotate90_kernel!(out, img, degreesp)
+    I, inside = workitem(size(out))
+    inside || return nothing
     d = Int(paramvalue(degreesp))
     w, h = size(img)
     x, y = I[1], I[2]
     sx = d == 90 ? y : d == 180 ? w - x + 1 : d == 270 ? w - y + 1 : x
     sy = d == 90 ? h - x + 1 : d == 180 ? h - y + 1 : d == 270 ? x : y
     @inbounds out[I] = img[sx, sy]
+    return nothing
 end
 
 """

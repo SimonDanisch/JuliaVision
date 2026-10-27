@@ -25,8 +25,9 @@
     return (r / 255.0f0, g / 255.0f0, b / 255.0f0)
 end
 
-@kernel function nv12torgb_kernel!(out, @Const(y), @Const(uv), bt601::Bool)
-    I = @index(Global, Cartesian)
+function nv12torgb_kernel!(out, y, uv, bt601::Bool)
+    I, inside = workitem(size(out))
+    inside || return nothing
     x, row = Tuple(I)                        # 1-based; x ∈ 1:W, row ∈ 1:H
     cx = (x - 1) >> 1                        # 0-based chroma column
     crow = ((row - 1) >> 1) + 1              # 1-based chroma row
@@ -38,6 +39,7 @@ end
     r, g, b = yuv_to_rgb(Yv, Uv, Vv, bt601)
     # A decoded video frame has no transparency: it is all there.
     @inbounds out[I] = topixel(eltype(out), r, g, b, 1.0f0)
+    return nothing
 end
 
 """
@@ -56,9 +58,11 @@ function nv12torgb!(dev, out::AbstractMatrix{<:AnyRGB},
     return out
 end
 
-@kernel function lumatogray_kernel!(out, @Const(y))
-    I = @index(Global, Cartesian)
+function lumatogray_kernel!(out, y)
+    I, inside = workitem(size(out))
+    inside || return nothing
     @inbounds out[I] = clamp((Float32(y[I]) - 16.0f0) * (1.0f0 / 219.0f0), 0.0f0, 1.0f0)
+    return nothing
 end
 
 """

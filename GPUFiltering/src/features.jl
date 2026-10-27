@@ -1,32 +1,36 @@
 # GPU Shi-Tomasi feature detection ("good features to track"): the missing
-# piece for robust point tracking. Everything here runs on the KA backend
-# (Lava/CPU) — the per-pixel structure tensor, min-eigenvalue cornerness, and
+# piece for robust point tracking. Everything here runs on the device
+# (lavapipe for the CPU) — the per-pixel structure tensor, min-eigenvalue cornerness, and
 # per-cell argmax selection are all kernels; only the final threshold filter
 # of a few hundred cell winners touches the host.
 
-@kernel function tensorprod_kernel!(sxx, syy, sxy, @Const(ix), @Const(iy))
-    I = @index(Global, Cartesian)
+function tensorprod_kernel!(sxx, syy, sxy, ix, iy)
+    I, inside = workitem(size(ix))
+    inside || return nothing
     a = ix[I]; b = iy[I]
     sxx[I] = a * a
     syy[I] = b * b
     sxy[I] = a * b
+    return nothing
 end
 
 "Min eigenvalue of the (smoothed) structure tensor — Shi-Tomasi cornerness."
-@kernel function cornerness_kernel!(corner, @Const(sxx), @Const(syy), @Const(sxy))
-    I = @index(Global, Cartesian)
+function cornerness_kernel!(corner, sxx, syy, sxy)
+    I, inside = workitem(size(corner))
+    inside || return nothing
     a = sxx[I]; d = syy[I]; b = sxy[I]
     half = 0.5f0 * (a + d)
     disc = sqrt(max(0.25f0 * (a - d)^2 + b * b, 0.0f0))
     corner[I] = half - disc          # smaller eigenvalue
+    return nothing
 end
 
 # One thread per CELL: find the strongest corner in its cell (distributes the
 # selected points across the frame instead of clumping on the highest-contrast
 # region). Writes the winner's value + pixel position per cell.
-@kernel function cellmax_kernel!(vals, xs, ys, @Const(corner), cw::Int32, ch::Int32,
-                                 border::Int32)
-    C = @index(Global, Cartesian)
+function cellmax_kernel!(vals, xs, ys, corner, cw::Int32, ch::Int32, border::Int32)
+    C, inside = workitem(size(vals))
+    inside || return nothing
     cx, cy = Tuple(C)
     w = size(corner, 1); h = size(corner, 2)
     x0 = (cx - 1) * cw + 1; x1 = min(cx * cw, w)
@@ -50,6 +54,7 @@ end
     vals[C] = best
     xs[C] = bx
     ys[C] = by
+    return nothing
 end
 
 """
@@ -68,11 +73,11 @@ function goodfeatures(backend, gray::AbstractMatrix{Float32}; maxpoints::Integer
     sxx = similar(ix); syy = similar(ix); sxy = similar(ix)
     tmp = similar(ix); corner = similar(ix)
     gradients!(ix, iy, gray)
-    tensorprod_kernel!(backend)(sxx, syy, sxy, ix, iy; ndrange = (w, h))
+    launch!(backend, tensorprod_kernel!, (sxx, syy, sxy, ix, iy), (w, h))
     smooth!(sxx, copy(sxx), σ; tmp = tmp)      # window-sum the tensor (gaussian)
     smooth!(syy, copy(syy), σ; tmp = tmp)
     smooth!(sxy, copy(sxy), σ; tmp = tmp)
-    cornerness_kernel!(backend)(corner, sxx, syy, sxy; ndrange = (w, h))
+    launch!(backend, cornerness_kernel!, (corner, sxx, syy, sxy), (w, h))
     # cell grid ~ maxpoints cells, roughly square
     ncell = max(Int(maxpoints), 1)
     aspect = w / h
@@ -81,7 +86,7 @@ function goodfeatures(backend, gray::AbstractMatrix{Float32}; maxpoints::Integer
     cw = Int32(cld(w, nx)); ch = Int32(cld(h, ny))
     vals = KA.allocate(backend, Float32, (nx, ny))
     xs = KA.allocate(backend, Int32, (nx, ny)); ys = similar(xs)
-    cellmax_kernel!(backend)(vals, xs, ys, corner, cw, ch, Int32(border); ndrange = (nx, ny))
+    launch!(backend, cellmax_kernel!, (vals, xs, ys, corner, cw, ch, Int32(border)), (nx, ny))
     # The reads wait for the kernels that wrote them.
     hv = Array(vals); hx = Array(xs); hy = Array(ys)
     thresh = Float32(quality) * maximum(hv)

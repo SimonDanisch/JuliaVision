@@ -16,8 +16,9 @@ function grayscale!(dev, out::AbstractMatrix{Float32}, img::AbstractMatrix{<:Abs
     return out
 end
 
-@kernel function scalarconv_kernel!(out, @Const(img), @Const(weights), radius::Int32, ::Val{DIM}) where {DIM}
-    I = @index(Global, Cartesian)
+function scalarconv_kernel!(out, img, weights, radius::Int32, ::Val{DIM}) where {DIM}
+    I, inside = workitem(size(img))
+    inside || return nothing
     i, j = Tuple(I)
     len = Int32(size(img, DIM))
     acc = 0.0f0
@@ -27,39 +28,41 @@ end
         acc += weights[k + radius + 1] * img[ii, jj]
     end
     out[I] = acc
+    return nothing
 end
 
 "Separable gaussian smoothing for Float32 matrices (replicate border)."
 function smooth!(out::AbstractMatrix{Float32}, img::AbstractMatrix{Float32}, σ::Real;
                  tmp::AbstractMatrix{Float32} = similar(img))
     σ <= 0 && return copyto!(out, img)
-    backend = KA.get_backend(img)
     weights, radius = gaussianweights(σ)
     wdev = todevice(img, weights)
-    kernel = scalarconv_kernel!(backend)
-    kernel(tmp, img, wdev, Int32(radius), Val(1); ndrange = size(img))
-    kernel(out, tmp, wdev, Int32(radius), Val(2); ndrange = size(img))
+    launch!(device(img), scalarconv_kernel!, (tmp, img, wdev, Int32(radius), Val(1)), size(img))
+    launch!(device(img), scalarconv_kernel!, (out, tmp, wdev, Int32(radius), Val(2)), size(img))
     return out
 end
 
-@kernel function gradient_kernel!(ix, iy, @Const(img))
-    I = @index(Global, Cartesian)
+function gradient_kernel!(ix, iy, img)
+    I, inside = workitem(size(img))
+    inside || return nothing
     i, j = Tuple(I)
     w = size(img, 1)
     h = size(img, 2)
     ix[I] = 0.5f0 * (img[min(i + 1, w), j] - img[max(i - 1, 1), j])
     iy[I] = 0.5f0 * (img[i, min(j + 1, h)] - img[i, max(j - 1, 1)])
+    return nothing
 end
 
 "Central-difference gradients of a Float32 image."
 function gradients!(ix::AbstractMatrix{Float32}, iy::AbstractMatrix{Float32},
                     img::AbstractMatrix{Float32})
-    gradient_kernel!(KA.get_backend(img))(ix, iy, img; ndrange = size(img))
+    launch!(device(img), gradient_kernel!, (ix, iy, img), size(img))
     return ix, iy
 end
 
-@kernel function scalarresize_kernel!(out, @Const(img))
-    I = @index(Global, Cartesian)
+function scalarresize_kernel!(out, img)
+    I, inside = workitem(size(out))
+    inside || return nothing
     w, h = size(img)
     ow, oh = size(out)
     x = clamp((Float32(I[1]) - 0.5f0) * w / ow + 0.5f0, 1.0f0, Float32(w))
@@ -72,16 +75,18 @@ end
     fy = y - Float32(y0)
     out[I] = (img[x0, y0] * (1 - fx) + img[x1, y0] * fx) * (1 - fy) +
              (img[x0, y1] * (1 - fx) + img[x1, y1] * fx) * fy
+    return nothing
 end
 
 "Bilinear resize of a Float32 image to `size(out)`."
 function bilinearresize!(out::AbstractMatrix{Float32}, img::AbstractMatrix{Float32})
-    scalarresize_kernel!(KA.get_backend(img))(out, img; ndrange = size(out))
+    launch!(device(img), scalarresize_kernel!, (out, img), size(out))
     return out
 end
 
-@kernel function flowwarp_kernel!(out, @Const(img), @Const(u), @Const(v))
-    I = @index(Global, Cartesian)
+function flowwarp_kernel!(out, img, u, v)
+    I, inside = workitem(size(out))
+    inside || return nothing
     w, h = size(img)
     x = clamp(Float32(I[1]) + u[I], 1.0f0, Float32(w))
     y = clamp(Float32(I[2]) + v[I], 1.0f0, Float32(h))
@@ -93,12 +98,13 @@ end
     fy = y - Float32(y0)
     out[I] = (img[x0, y0] * (1 - fx) + img[x1, y0] * fx) * (1 - fy) +
              (img[x0, y1] * (1 - fx) + img[x1, y1] * fx) * fy
+    return nothing
 end
 
 "Sample `img` displaced by the flow field: `out[p] = img[p + (u[p], v[p])]`."
 function flowwarp!(out::AbstractMatrix{Float32}, img::AbstractMatrix{Float32},
                    u::AbstractMatrix{Float32}, v::AbstractMatrix{Float32})
-    flowwarp_kernel!(KA.get_backend(img))(out, img, u, v; ndrange = size(out))
+    launch!(device(img), flowwarp_kernel!, (out, img, u, v), size(out))
     return out
 end
 
@@ -451,10 +457,8 @@ end
 
 "Separable smoothing with preuploaded weights (no per-call allocation)."
 function smoothws!(out, img, ws::FlowWorkspace, tmp)
-    backend = KA.get_backend(img)
-    kernel = scalarconv_kernel!(backend)
-    kernel(tmp, img, ws.weights, Int32(ws.radius), Val(1); ndrange = size(img))
-    kernel(out, tmp, ws.weights, Int32(ws.radius), Val(2); ndrange = size(img))
+    launch!(device(img), scalarconv_kernel!, (tmp, img, ws.weights, Int32(ws.radius), Val(1)), size(img))
+    launch!(device(img), scalarconv_kernel!, (out, tmp, ws.weights, Int32(ws.radius), Val(2)), size(img))
     return out
 end
 

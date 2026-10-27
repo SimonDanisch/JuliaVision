@@ -19,10 +19,9 @@ end
 # One thread per feature. `Ix, Iy` are the gradients of `I0`. `win` = half window,
 # `iters` = max Gauss-Newton steps. Writes the tracked position and a 0/1 validity flag
 # (0 if the point left the frame, the window is textureless, or the solve diverged).
-@kernel function lucaskanade_kernel!(qx, qy, valid, @Const(I0), @Const(I1),
-                                     @Const(Ix), @Const(Iy), @Const(px), @Const(py),
-                                     win::Int32, iters::Int32)
-    k = @index(Global)
+function lucaskanade_kernel!(qx, qy, valid, I0, I1, Ix, Iy, px, py, win::Int32, iters::Int32)
+    k, inside = workitem(length(px))
+    inside || return nothing
     W = Int32(size(I0, 1)); H = Int32(size(I0, 2))
     fpx = px[k]; fpy = py[k]
     icx = unsafe_trunc(Int32, fpx + 0.5f0)
@@ -76,6 +75,7 @@ end
         end
     end
     qx[k] = rx; qy[k] = ry; valid[k] = v
+    return nothing
 end
 
 """
@@ -83,14 +83,13 @@ end
 
 Track the `px, py` feature points from `I0` to `I1` by sparse Lucas-Kanade on the
 backend of the arrays (`Ix, Iy` = gradients of `I0`). Fills `qx, qy` with the tracked
-positions and `valid` with 1/0 per point. All arrays live on the same KA backend; run
+positions and `valid` with 1/0 per point. All arrays live on the same device; run
 [`gradients!`](@ref) to get `Ix, Iy`. Pair with a reverse call for forward-backward
 error rejection.
 """
 function lucaskanade!(qx, qy, valid, I0, I1, Ix, Iy, px, py; win::Integer = 11,
                       iters::Integer = 15)
-    backend = KA.get_backend(I0)
-    lucaskanade_kernel!(backend)(qx, qy, valid, I0, I1, Ix, Iy, px, py,
-                                 Int32(win), Int32(iters); ndrange = length(px))
+    launch!(device(I0), lucaskanade_kernel!, (qx, qy, valid, I0, I1, Ix, Iy, px, py, Int32(win), Int32(iters)),
+            length(px))
     return qx, qy, valid
 end

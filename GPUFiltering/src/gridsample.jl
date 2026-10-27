@@ -10,8 +10,9 @@
     return @inbounds tofloat(img[x, y])
 end
 
-@kernel function gridsample_kernel!(out, @Const(img), @Const(grid))
-    I = @index(Global, Cartesian)
+function gridsample_kernel!(out, img, grid)
+    I, inside = workitem(size(out))
+    inside || return nothing
     x, y = I[1], I[2]
     w, h = size(out)
     sw, sh = size(img)
@@ -39,6 +40,7 @@ end
         bl = lerp(lerp(p00.b, p10.b, tx), lerp(p01.b, p11.b, tx), ty)
     end
     @inbounds out[I] = topixel(eltype(out), r, g, bl)
+    return nothing
 end
 
 """

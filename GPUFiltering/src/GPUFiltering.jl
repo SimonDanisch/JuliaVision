@@ -1,10 +1,10 @@
 """
-Backend-agnostic GPU image processing built on KernelAbstractions.
+Backend-agnostic GPU image processing in plain KernelInterface kernels.
 
-All functions work on `AbstractMatrix{<:AbstractRGB}` of any KA backend —
-`Matrix` (CPU), `LavaArray` (Vulkan), `CuArray`, … — dispatching kernels via
-`KernelAbstractions.get_backend(img)`. Computation happens in `RGB{Float32}`
-and is stored back in the array's element type.
+All functions work on `AbstractMatrix{<:AbstractRGB}` on any KernelInterface
+backend: a Mantle device's arrays (Vulkan, Metal; lavapipe for the CPU), or a
+`CuArray`. Kernels launch on `KernelAbstractions.get_backend(img)`. Computation
+happens in `RGB{Float32}` and is stored back in the array's element type.
 
 Operations only launch kernels: they never synchronize or read a result back.
 A read on the host (`Array`, `copyto!` into host memory) waits for the kernels
@@ -17,8 +17,8 @@ module GPUFiltering
 using ColorTypes
 using FixedPointNumbers
 using GeometryBasics
-using KernelAbstractions
 import KernelAbstractions as KA
+import KernelInterface as KI
 import Mantle
 import Statistics: median
 

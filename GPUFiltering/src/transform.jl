@@ -47,9 +47,9 @@ end
                    α * a + alphaof(dst) * k)
 end
 
-@kernel function warp_kernel!(out, @Const(img), Mp, skipoutside::Bool,
-                              boundsp, writep)
-    I = @index(Global, Cartesian)
+function warp_kernel!(out, img, Mp, skipoutside::Bool, boundsp, writep)
+    I, inside = workitem(size(out))
+    inside || return nothing
     M = Mat3f(paramvalue(Mp))
     # The source rect and the write mode change per frame in a composition — the
     # layer's crop and its opacity — so both arrive as parameters. ONE value for
@@ -72,7 +72,6 @@ end
     # letterboxing one rule instead of two — the caller decides what shows
     # through by what it put there (black for the base layer, the canvas so far
     # for a layer stacked over one, which is how upper-layer bars stay clear).
-    # Written as a branch, not an early return: KA kernels forbid `return`.
     covered = (x >= Float32(x0) - 0.5f0) & (x <= Float32(x1) + 0.5f0) &
               (y >= Float32(y0) - 0.5f0) & (y <= Float32(y1) + 0.5f0)
     if covered | !skipoutside
@@ -99,6 +98,7 @@ end
         @inbounds out[I] = write(out[I], clamp(r, 0.0f0, 1.0f0), clamp(g, 0.0f0, 1.0f0),
                                  clamp(b, 0.0f0, 1.0f0), clamp(a, 0.0f0, 1.0f0))
     end
+    return nothing
 end
 
 """
@@ -222,8 +222,9 @@ function warp!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:Abstrac
     return warp!(out, img, cropmatrix(crop, size(img), size(out)))
 end
 
-@kernel function blockmean_kernel!(out, @Const(img), blocksp)
-    I = @index(Global, Cartesian)
+function blockmean_kernel!(out, img, blocksp)
+    I, inside = workitem(size(out))
+    inside || return nothing
     blocks = paramvalue(blocksp)
     f = Int(blocks.factor); x0 = Int(blocks.origin[1]); y0 = Int(blocks.origin[2])
     r = 0.0f0; g = 0.0f0; b = 0.0f0
@@ -233,6 +234,7 @@ end
     end
     inv = 1.0f0 / Float32(f * f)
     @inbounds out[I] = topixel(eltype(out), r * inv, g * inv, b * inv)
+    return nothing
 end
 
 """
@@ -248,8 +250,9 @@ struct Blocks
 end
 Blocks(factor::Integer, origin = (0, 0)) = Blocks(Int32(factor), Vec{2, Int32}(origin))
 
-@kernel function areadownscale_kernel!(out, @Const(img))
-    I = @index(Global, Cartesian)
+function areadownscale_kernel!(out, img)
+    I, inside = workitem(size(out))
+    inside || return nothing
     tw, th = size(out)
     w, h = size(img)
     x0 = (I[1] - 1) * w ÷ tw + 1; x1 = max(I[1] * w ÷ tw, x0)
@@ -261,6 +264,7 @@ Blocks(factor::Integer, origin = (0, 0)) = Blocks(Int32(factor), Vec{2, Int32}(o
     end
     inv = 1.0f0 / cnt
     @inbounds out[I] = topixel(eltype(out), r * inv, g * inv, b * inv)
+    return nothing
 end
 
 """
@@ -268,7 +272,7 @@ end
 
 Area-average downscale: every output pixel is the mean of its full source cell,
 so heavy decimation (timeline thumbnails) cannot alias the way point sampling
-does. `out` and `img` may live on any KA backend.
+does. `out` and `img` may live on any device.
 """
 areadownscale!(out::AbstractMatrix{<:AbstractRGB}, img::AbstractMatrix{<:AbstractRGB}) =
     areadownscale!(device(out), out, img)

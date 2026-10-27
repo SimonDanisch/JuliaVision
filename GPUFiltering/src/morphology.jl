@@ -3,8 +3,9 @@
 # each is two one-dimensional passes. Pixels outside the image take no part,
 # so a region may touch the border.
 
-@kernel function minmax_kernel!(out, @Const(img), r::Int32, dilate::Bool, ::Val{DIM}) where {DIM}
-    I = @index(Global, Cartesian)
+function minmax_kernel!(out, img, r::Int32, dilate::Bool, ::Val{DIM}) where {DIM}
+    I, inside = workitem(size(img))
+    inside || return nothing
     i, j = I[1], I[2]
     len = size(img, DIM)
     @inbounds v = img[i, j]
@@ -16,6 +17,7 @@
         end
     end
     @inbounds out[I] = v
+    return nothing
 end
 
 function minmax!(dev, out, img, r, tmp, dilate::Bool)

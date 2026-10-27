@@ -22,8 +22,9 @@ end
 isneutral(adj::ColorAdjustments) =
     adj.brightness == 0 && adj.contrast == 1 && adj.saturation == 1 && adj.temperature == 0
 
-@kernel function coloradjust_kernel!(img, adjp)
-    I = @index(Global, Cartesian)
+function coloradjust_kernel!(img, adjp)
+    I, inside = workitem(size(img))
+    inside || return nothing
     adj = paramvalue(adjp)
     px = img[I]
     av = alphaof(px)
@@ -42,6 +43,7 @@ isneutral(adj::ColorAdjustments) =
     g = (g - 0.5f0) * adj.contrast + 0.5f0 + adj.brightness
     b = (b - 0.5f0) * adj.contrast + 0.5f0 + adj.brightness
     img[I] = premul(eltype(img), r, g, b, av)
+    return nothing
 end
 
 """
@@ -55,13 +57,13 @@ coloradjust!(img::AbstractMatrix{<:AnyRGB}; kwargs...) =
 
 function coloradjust!(img::AbstractMatrix{<:AnyRGB}, adj::ColorAdjustments)
     isneutral(adj) && return img
-    backend = KA.get_backend(img)
-    coloradjust_kernel!(backend)(img, adj; ndrange = size(img))
+    launch!(device(img), coloradjust_kernel!, (img, adj), size(img))
     return img
 end
 
-@kernel function channellinear_kernel!(img, gainp, offsetp)
-    I = @index(Global, Cartesian)
+function channellinear_kernel!(img, gainp, offsetp)
+    I, inside = workitem(size(img))
+    inside || return nothing
     gain = Vec3f(paramvalue(gainp))
     offset = Vec3f(paramvalue(offsetp))
     px = img[I]
@@ -71,6 +73,7 @@ end
                     c.r * gain[1] + offset[1],
                     c.g * gain[2] + offset[2],
                     c.b * gain[3] + offset[3], av)
+    return nothing
 end
 
 """
@@ -81,8 +84,7 @@ building block for frame-to-frame color/exposure stabilization.
 """
 function channellinear!(img::AbstractMatrix{<:AnyRGB}, gain::Vec3f, offset::Vec3f)
     gain == Vec3f(1) && offset == Vec3f(0) && return img
-    backend = KA.get_backend(img)
-    channellinear_kernel!(backend)(img, gain, offset; ndrange = size(img))
+    launch!(device(img), channellinear_kernel!, (img, gain, offset), size(img))
     return img
 end
 

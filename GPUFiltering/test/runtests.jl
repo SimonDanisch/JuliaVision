@@ -1,3 +1,8 @@
+# Everything that launches a kernel runs on lavapipe, Mesa's Vulkan driver for the
+# CPU: the device code a GPU runs, on any machine. Its ICD has to be loaded
+# before anything makes the first device, so before the packages that use it;
+# `Device("lavapipe")` throws, listing the devices, where there is none.
+using Lavapipe_jll
 using GPUFiltering
 using Test
 using ColorTypes
@@ -7,69 +12,83 @@ import ImageFiltering
 import KernelAbstractions as KA
 using Random: randperm
 
+import Mantle
+const DEV = Mantle.Device("lavapipe")
+
+"`a` on the test device."
+todev(a::AbstractArray) = Mantle.devicearray(DEV, a)
+"An uninitialised `T` array on the test device."
+devarray(::Type{T}, dims...) where {T} = Mantle.devicearray(DEV, T, dims...)
+
 maxcomponentdiff(a, b) = maximum(map((x, y) -> max(abs(Float32(red(x)) - Float32(red(y))),
                                                    abs(Float32(green(x)) - Float32(green(y))),
                                                    abs(Float32(blue(x)) - Float32(blue(y)))), a, b))
 
 @testset "coloradjust!" begin
-    img = rand(RGB{Float32}, 64, 48)
     # neutral is a no-op
-    ref = copy(img)
+    host = rand(RGB{Float32}, 64, 48)
+    img = todev(host)
     coloradjust!(img)
-    @test img == ref
+    @test Array(img) == host
 
     # brightness against manual reference
-    img = rand(RGB{Float32}, 64, 48)
+    host = rand(RGB{Float32}, 64, 48)
     ref = map(c -> RGB{Float32}(clamp(c.r + 0.25f0, 0, 1), clamp(c.g + 0.25f0, 0, 1),
-                                clamp(c.b + 0.25f0, 0, 1)), img)
+                                clamp(c.b + 0.25f0, 0, 1)), host)
+    img = todev(host)
     coloradjust!(img; brightness = 0.25f0)
-    KA.synchronize(KA.get_backend(img))
-    @test maxcomponentdiff(img, ref) < 1.0f-6
+    @test maxcomponentdiff(Array(img), ref) < 1.0f-6
 
     # saturation 0 → grayscale
-    img = rand(RGB{N0f8}, 32, 32)
+    img = todev(rand(RGB{N0f8}, 32, 32))
     coloradjust!(img; saturation = 0)
-    KA.synchronize(KA.get_backend(img))
-    @test all(c -> abs(Float32(c.r) - Float32(c.g)) < 2 / 255 && abs(Float32(c.g) - Float32(c.b)) < 2 / 255, img)
+    @test all(c -> abs(Float32(c.r) - Float32(c.g)) < 2 / 255 && abs(Float32(c.g) - Float32(c.b)) < 2 / 255,
+              Array(img))
 end
 
 @testset "gaussianblur! vs ImageFiltering" begin
     for σ in (1.0, 2.5)
-        img = rand(RGB{Float32}, 96, 80)
+        host = rand(RGB{Float32}, 96, 80)
+        img = todev(host)
         out = similar(img)
         gaussianblur!(out, img, σ)
-        KA.synchronize(KA.get_backend(img))
         weights, radius = GPUFiltering.gaussianweights(σ)
         kernelfac = ImageFiltering.kernelfactors((ImageFiltering.centered(weights),
                                                   ImageFiltering.centered(weights)))
-        ref = ImageFiltering.imfilter(img, kernelfac, "replicate")
-        @test maxcomponentdiff(out, ref) < 2.0f-3
+        ref = ImageFiltering.imfilter(host, kernelfac, "replicate")
+        @test maxcomponentdiff(Array(out), ref) < 2.0f-3
     end
 end
 
 @testset "unsharpmask!" begin
-    img = rand(RGB{Float32}, 64, 64)
+    host = rand(RGB{Float32}, 64, 64)
+    img = todev(host)
     out = similar(img)
     unsharpmask!(out, img, 1.5, 0.0)  # amount 0 = identity
-    @test out == img
+    @test Array(out) == host
     unsharpmask!(out, img, 1.5, 0.8)
-    KA.synchronize(KA.get_backend(img))
-    @test out != img
+    @test Array(out) != host
+end
+
+"A smooth random Float32 image on the test device."
+function smoothnoise(w, h, σ)
+    img = todev(zeros(Float32, w, h))
+    GPUFiltering.smooth!(img, todev(rand(Float32, w, h)), σ)
+    return img
 end
 
 @testset "opticalflow!" begin
     using Statistics: median
-    base = zeros(Float32, 320, 180)
-    GPUFiltering.smooth!(base, rand(Float32, 320, 180), 3.0)
+    base = smoothnoise(320, 180, 3.0)
     shifted = similar(base)
     u = similar(base)
     v = similar(base)
     for (du, dv) in ((3.2f0, -1.7f0), (-0.6f0, 0.4f0))
-        flowwarp!(shifted, base, fill(du, size(base)), fill(dv, size(base)))
+        flowwarp!(shifted, base, todev(fill(du, size(base))), todev(fill(dv, size(base))))
         opticalflow!(u, v, base, shifted; levels = 3, iterations = 5)
         # flowwarp by (du, dv) displaces content by -(du, dv); flow = content motion
-        @test abs(median(vec(u)) + du) < 0.05
-        @test abs(median(vec(v)) + dv) < 0.05
+        @test abs(median(vec(Array(u))) + du) < 0.05
+        @test abs(median(vec(Array(v))) + dv) < 0.05
     end
 end
 
@@ -103,9 +122,9 @@ end
     # the fitted "align-back" transform must equal inv(T) — warping the
     # warped image by the fit must restore the original (the stabilization
     # use-case).
-    grayf = zeros(Float32, 320, 180)
-    GPUFiltering.smooth!(grayf, rand(Float32, 320, 180), 3.0)
-    base = map(x -> RGB{Float32}(x, x, x), grayf)
+    grayf = smoothnoise(320, 180, 3.0)
+    hostbase = map(x -> RGB{Float32}(x, x, x), Array(grayf))
+    base = todev(hostbase)
     T = Mat3f(cosd(1.0), sind(1.0), 0, -sind(1.0), cosd(1.0), 0, 4.0, -1.5, 1)
     Ti = inv(T)
     warped = similar(base)
@@ -123,8 +142,9 @@ end
     # ...and applying the fit really restores the original pixels
     restored = similar(base)
     warp!(restored, warped, Mr)
+    hr = Array(restored)
     inner = (40:280, 30:150)
-    d = maximum(abs(restored[i, j].r - base[i, j].r) for i in inner[1], j in inner[2])
+    d = maximum(abs(hr[i, j].r - hostbase[i, j].r) for i in inner[1], j in inner[2])
     @test d < 0.04
 end
 
@@ -162,9 +182,9 @@ end
     # end-to-end: warp a real image by a known homography, recover it via
     # opticalflow! + fithomography — same align-back convention as fitaffine
     # (fit ≈ inv(T)), and applying the fit restores the original pixels
-    grayf = zeros(Float32, 320, 180)
-    GPUFiltering.smooth!(grayf, rand(Float32, 320, 180), 3.0)
-    base = map(x -> RGB{Float32}(x, x, x), grayf)
+    grayf = smoothnoise(320, 180, 3.0)
+    hostbase = map(x -> RGB{Float32}(x, x, x), Array(grayf))
+    base = todev(hostbase)
     S = Mat3f(cosd(0.6), sind(0.6), 5.0f-5, -sind(0.6), cosd(0.6), -3.0f-5, 2.5, -1.5, 1.0)
     Si3 = inv(S)
     Si = Mat3f(Si3 ./ Si3[3, 3])
@@ -178,52 +198,50 @@ end
     @test cornererr(Mr, Si) < 0.3
     restored = similar(base)
     warp!(restored, warped, Mr)
+    hr = Array(restored)
     inner = (40:280, 30:150)
-    @test maximum(abs(restored[i, j].r - base[i, j].r) for i in inner[1], j in inner[2]) < 0.04
+    @test maximum(abs(hr[i, j].r - hostbase[i, j].r) for i in inner[1], j in inner[2]) < 0.04
 end
 
 @testset "warp!" begin
-    img = rand(RGB{Float32}, 64, 64)
+    host = rand(RGB{Float32}, 64, 64)
+    img = todev(host)
     out = similar(img)
     warp!(out, img, Mat3f(1, 0, 0, 0, 1, 0, 0, 0, 1))  # identity
-    KA.synchronize(KA.get_backend(img))
-    @test maxcomponentdiff(out, img) < 1.0f-5
+    @test maxcomponentdiff(Array(out), host) < 1.0f-5
 
     # full-frame crop = identity
     warp!(out, img, (0.0, 0.0, 1.0, 1.0))
-    KA.synchronize(KA.get_backend(img))
-    @test maxcomponentdiff(out, img) < 1.0f-5
+    @test maxcomponentdiff(Array(out), host) < 1.0f-5
 
     # integer translation by (8, 4): out[i,j] = img[i+8, j+4]
     M = Mat3f(1, 0, 0, 0, 1, 0, 8, 4, 1)
     warp!(out, img, M)
-    KA.synchronize(KA.get_backend(img))
-    @test maxcomponentdiff(out[1:50, 1:50], img[9:58, 5:54]) < 1.0f-5
+    @test maxcomponentdiff(Array(out)[1:50, 1:50], host[9:58, 5:54]) < 1.0f-5
 
     # quarter crop of 64² into 32² output = exact 1:1 sampling of that region
     small = similar(img, 32, 32)
     warp!(small, img, (0.5, 0.5, 0.5, 0.5))
-    KA.synchronize(KA.get_backend(img))
-    @test maxcomponentdiff(small, img[33:64, 33:64]) < 1.0f-5
+    @test maxcomponentdiff(Array(small), host[33:64, 33:64]) < 1.0f-5
 
     # A sample far outside the source replicates the edge, and one through a
     # homography whose w crosses zero is still a pixel. Both used to reach
-    # `floor(Int32, x)` with a value it cannot convert: an InexactError here, an
-    # allocation Lava lowered to undef in the GPU kernel.
-    img16 = rand(RGB{Float32}, 16, 16)
+    # `floor(Int32, x)` with a value it cannot convert: an InexactError on the
+    # host, an allocation Lava lowered to undef in the GPU kernel.
+    host16 = rand(RGB{Float32}, 16, 16)
+    img16 = todev(host16)
     out16 = similar(img16)
     warp!(out16, img16, translationmatrix(3.0f9, 0))
-    KA.synchronize(KA.get_backend(img16))
-    @test all(out16[i, j] ≈ img16[1, j] for i in 1:16, j in 1:16)
+    h16 = Array(out16)
+    @test all(h16[i, j] ≈ host16[1, j] for i in 1:16, j in 1:16)
     warp!(out16, img16, translationmatrix(0, -3.0f9))
-    KA.synchronize(KA.get_backend(img16))
-    @test all(out16[i, j] ≈ img16[i, 16] for i in 1:16, j in 1:16)
+    h16 = Array(out16)
+    @test all(h16[i, j] ≈ host16[i, 16] for i in 1:16, j in 1:16)
     # w = 1 - x/16 is exactly zero in column 16: x/w is Inf there, and 0/w NaN
     # when the first row is zero too.
     for M in (Mat3f(1, 0, -0.0625, 0, 1, 0, 0, 0, 1), Mat3f(0, 0, -0.0625, 0, 1, 0, 0, 0, 1))
         warp!(out16, img16, M)
-        KA.synchronize(KA.get_backend(img16))
-        @test all(c -> all(0 .<= (c.r, c.g, c.b) .<= 1), out16)
+        @test all(c -> all(0 .<= (c.r, c.g, c.b) .<= 1), Array(out16))
     end
 end
 
@@ -257,8 +275,7 @@ end
 
     # sub-pixel: a smooth pattern shifted by 0.3 px (bilinear) is recovered
     # to better than a tenth of a pixel
-    smoothimg = zeros(Float32, 128, 128)
-    GPUFiltering.smooth!(smoothimg, rand(Float32, 128, 128), 2.0)
+    smoothimg = Array(smoothnoise(128, 128, 2.0))
     tmpl2 = smoothimg[40:(40 + w - 1), 50:(50 + w - 1)]
     shifted = Matrix{Float32}(undef, w + 2R, w + 2R)
     samplewindow!(shifted, smoothimg, Mat3f(1, 0, 0, 0, 1, 0, 0.3, 0, 1),
@@ -293,12 +310,13 @@ end
     @test isapprox(atand(Mt[2, 1], Mt[1, 1]), θ; atol = 1e-3)
     @test isapprox(Mt[1, 3], tx; atol = 0.05)
 
-    # PatchTracker (CPU backend): a shifted frame is recovered by every patch
-    img = zeros(Float32, 256, 256)
-    GPUFiltering.smooth!(img, rand(Float32, 256, 256), 2.0)
+    # PatchTracker: a shifted frame is recovered by every patch. The frames are
+    # host images, as the tracker takes them; its templates and scratch live on
+    # the device.
+    img = Array(smoothnoise(256, 256, 2.0))
     shifted = similar(img)
     samplewindow!(shifted, img, Mat3f(1, 0, 0, 0, 1, 0, 6.5, -3.25, 1), 1:256, 1:256)
-    tr = PatchTracker(KA.CPU(), img, [(64, 64), (192, 64), (64, 192), (192, 192)];
+    tr = PatchTracker(DEV, img, [(64, 64), (192, 64), (64, 192), (192, 192)];
                       window = 48, maxradius = 16)
     ms = matchpatches!(tr, shifted, Mat3f(1, 0, 0, 0, 1, 0, 0, 0, 1); radius = 12)
     @test length(ms) == 4

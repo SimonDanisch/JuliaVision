@@ -51,9 +51,10 @@ end
 @inline planarmap(m::PlanarMap, b) = m
 @inline planarmap(maps::AbstractVector{PlanarMap}, b) = @inbounds maps[b]
 
-@kernel function sampleplanar_kernel!(dst, @Const(img), maps, sampling, mean::NTuple{3, Float32},
-                                      invstd::NTuple{3, Float32}, fill::Float32)
-    I = @index(Global, Cartesian)
+function sampleplanar_kernel!(dst, img, maps, sampling, mean::NTuple{3, Float32},
+                              invstd::NTuple{3, Float32}, fill::Float32)
+    I, inside = workitem((size(dst, 1), size(dst, 2), size(dst, 4)))
+    inside || return nothing
     u, v, b = I[1], I[2], I[3]
     m = planarmap(maps, b)
     c = RGB{Float32}(fill, fill, fill)
@@ -65,6 +66,7 @@ end
         dst[u, v, 2, b] = (c.g - mean[2]) * invstd[2]
         dst[u, v, 3, b] = (c.b - mean[3]) * invstd[3]
     end
+    return nothing
 end
 
 """

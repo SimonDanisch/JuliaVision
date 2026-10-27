@@ -1,11 +1,13 @@
-@kernel function blend_kernel!(out, @Const(a), @Const(b), p::Float32)
-    I = @index(Global, Cartesian)
+function blend_kernel!(out, a, b, p::Float32)
+    I, inside = workitem(size(out))
+    inside || return nothing
     pa = a[I]; pb = b[I]
     ca = tofloat(pa)
     cb = tofloat(pb)
     q = 1.0f0 - p
     out[I] = topixel(eltype(out), q * ca.r + p * cb.r, q * ca.g + p * cb.g, q * ca.b + p * cb.b,
                      q * alphaof(pa) + p * alphaof(pb))
+    return nothing
 end
 
 """

@@ -1,18 +1,24 @@
 # Histograms, Otsu's threshold and quantiles, all on the device.
 
-@kernel function zero_kernel!(a)
-    i = @index(Global, Linear)
+function zero_kernel!(a)
+    i, inside = workitem(length(a))
+    inside || return nothing
     @inbounds a[i] = zero(eltype(a))
+    return nothing
 end
 
 # Spread over the columns of `counts`, so the atomics of neighbouring pixels
-# rarely meet on one counter.
-@kernel function histogram_kernel!(counts, @Const(img), by, lo::Float32, scale::Float32)
-    i = @index(Global, Linear)
+# rarely meet on one counter. The counts are read by later launches only, so the
+# increments need no ordering among themselves: monotonic, as everywhere here
+# (Lava cannot give sequential consistency under the Vulkan memory model).
+function histogram_kernel!(counts, img, by, lo::Float32, scale::Float32)
+    i, inside = workitem(length(img))
+    inside || return nothing
     nbins, groups = size(counts)
     @inbounds v = Float32(by(img[i]))
     bin = clamp(unsafe_trunc(Int, (v - lo) * scale) + 1, 1, nbins)
-    KA.@atomic counts[bin, mod(i - 1, groups) + 1] += Int32(1)
+    KA.@atomic :monotonic counts[bin, mod(i - 1, groups) + 1] += Int32(1)
+    return nothing
 end
 
 """
@@ -37,8 +43,9 @@ end
 
 # Otsu's method in one thread over the bins: the threshold between bins that
 # maximises the variance between the two classes it makes.
-@kernel function otsu_kernel!(out, @Const(counts), lo::Float32, width::Float32)
-    i = @index(Global, Linear)
+function otsu_kernel!(out, counts, lo::Float32, width::Float32)
+    _, inside = workitem(1)
+    inside || return nothing
     nbins, groups = size(counts)
     total = 0.0f0; sum_all = 0.0f0
     for bin in 1:nbins
@@ -65,6 +72,7 @@ end
     end
     @inbounds out[1] = lo + thr * width
     @inbounds out[2] = (mf - mb) * width
+    return nothing
 end
 
 """
@@ -89,33 +97,40 @@ end
 # whose order is the order of the bits: four passes of one byte each, from the
 # top, each counting the candidates that agree with the bytes chosen so far.
 
-@kernel function select_init_kernel!(state, k::UInt32)
-    i = @index(Global, Linear)
+function select_init_kernel!(state, k::UInt32)
+    _, inside = workitem(1)
+    inside || return nothing
     @inbounds begin state[1] = UInt32(0); state[2] = k; end
+    return nothing
 end
 
-@kernel function select_count_kernel!(hist, @Const(img), by, @Const(state), stride::Int, shift::Int)
-    i = @index(Global, Linear)
+function select_count_kernel!(hist, img, by, state, stride::Int, shift::Int)
+    i, inside = workitem(cld(length(img), stride))   # every `stride`-th pixel
+    inside || return nothing
     @inbounds bits = reinterpret(UInt32, Float32(by(img[1 + (i - 1) * stride])))
     @inbounds prefix = state[1]
     mask = shift == 24 ? UInt32(0) : typemax(UInt32) << (shift + 8)
     if bits & mask == prefix
         bin = Int((bits >> shift) & UInt32(255)) + 1
-        KA.@atomic hist[bin, (i - 1) ÷ 256 + 1] += Int32(1)
+        KA.@atomic :monotonic hist[bin, (i - 1) ÷ 256 + 1] += Int32(1)
     end
+    return nothing
 end
 
-@kernel function select_sum_kernel!(counts, @Const(hist))
-    i = @index(Global, Linear)
+function select_sum_kernel!(counts, hist)
+    i, inside = workitem(length(counts))
+    inside || return nothing
     n = Int32(0)
     for g in 1:size(hist, 2)
         @inbounds n += hist[i, g]
     end
     @inbounds counts[i] = n
+    return nothing
 end
 
-@kernel function select_pick_kernel!(state, out, @Const(counts), shift::Int)
-    i = @index(Global, Linear)
+function select_pick_kernel!(state, out, counts, shift::Int)
+    _, inside = workitem(1)
+    inside || return nothing
     @inbounds k = Int32(state[2])
     bin = 1
     while bin < 256 && k > (@inbounds counts[bin])
@@ -125,6 +140,7 @@ end
         state[1] = state[1] | (UInt32(bin - 1) << shift); state[2] = UInt32(k)
         shift == 0 && (out[1] = reinterpret(Float32, state[1]))
     end
+    return nothing
 end
 
 """

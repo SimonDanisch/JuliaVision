@@ -50,13 +50,11 @@ Asynchronous, like every kernel here: synchronize before reading on the host.
 """
 function lut3d! end
 
-# `inp` is deliberately not `@Const`: the two-argument form passes the same array
-# as both, and `@Const` promises the compiler that binding does not alias a
-# written one. The read is pointwise so aliasing is harmless, but the promise
-# would be false. `lut` is never written by anyone, so it keeps the annotation.
-@kernel function lut3d_kernel!(out, inp, @Const(lut), binsize::Float32,
-                               dim::Int32)
-    I = @index(Global, Cartesian)
+# The two-argument form passes the same array as `out` and `inp`; the read is
+# pointwise, so the aliasing is harmless.
+function lut3d_kernel!(out, inp, lut, binsize::Float32, dim::Int32)
+    I, inside = workitem(size(inp))
+    inside || return nothing
     pxin = inp[I]
     aval = alphaof(pxin)
     c = straight(tofloat(pxin), aval)
@@ -106,6 +104,7 @@ function lut3d! end
         w011 * lut[r0, g1, b1, ch] + w111 * lut[r1, g1, b1, ch]
 
     out[I] = premul(eltype(out), fetch(Int32(1)), fetch(Int32(2)), fetch(Int32(3)), aval)
+    return nothing
 end
 
 function lut3d!(out::AbstractMatrix{<:AnyRGB}, img::AbstractMatrix{<:AnyRGB},
@@ -118,8 +117,7 @@ function lut3d!(out::AbstractMatrix{<:AnyRGB}, img::AbstractMatrix{<:AnyRGB},
     d > 1 || throw(ArgumentError("lut dimension must be > 1, got $d"))
 
     bs = Float32(binsize === nothing ? 1.000001 / (d - 1) : binsize)
-    backend = KA.get_backend(img)
-    lut3d_kernel!(backend)(out, img, lut, bs, Int32(d); ndrange = size(img))
+    launch!(device(img), lut3d_kernel!, (out, img, lut, bs, Int32(d)), size(img))
     return out
 end
 

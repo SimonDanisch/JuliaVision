@@ -26,8 +26,9 @@ function gaussianweights(σ::Real; maxradius::Integer = 0)
 end
 
 # separable passes: dim=1 is the contiguous axis of our (width, height) frames
-@kernel function convpass_kernel!(out, @Const(img), @Const(weights), radiusp, ::Val{DIM}) where {DIM}
-    I = @index(Global, Cartesian)
+function convpass_kernel!(out, img, weights, radiusp, ::Val{DIM}) where {DIM}
+    I, inside = workitem(size(img))
+    inside || return nothing
     radius = Int32(paramvalue(radiusp))
     i, j = Tuple(I)
     len = Int32(size(img, DIM))
@@ -50,6 +51,7 @@ end
     # taps, so a soft edge stays a soft edge and the premultiplied colour stays
     # consistent with the alpha it is multiplied by.
     out[I] = topixel(eltype(out), r, g, b, a)
+    return nothing
 end
 
 """
@@ -69,7 +71,6 @@ function gaussianblur!(out::AbstractMatrix{T}, img::AbstractMatrix{T}, σ::Real;
                        tmp::AbstractMatrix{T} = similar(img),
                        weights = nothing) where {T <: AnyRGB}
     σ <= 0 && return copyto!(out, img)
-    backend = KA.get_backend(img)
     if weights === nothing
         w, radius = gaussianweights(σ)
         wdev = todevice(img, w)
@@ -77,14 +78,14 @@ function gaussianblur!(out::AbstractMatrix{T}, img::AbstractMatrix{T}, σ::Real;
         wdev = weights
         radius = last(gaussianweights(σ; maxradius = (length(weights) - 1) ÷ 2))
     end
-    kernel = convpass_kernel!(backend)
-    kernel(tmp, img, wdev, Int32(radius), Val(1); ndrange = size(img))
-    kernel(out, tmp, wdev, Int32(radius), Val(2); ndrange = size(img))
+    launch!(device(img), convpass_kernel!, (tmp, img, wdev, Int32(radius), Val(1)), size(img))
+    launch!(device(img), convpass_kernel!, (out, tmp, wdev, Int32(radius), Val(2)), size(img))
     return out
 end
 
-@kernel function unsharp_kernel!(out, @Const(img), @Const(blurred), amountp)
-    I = @index(Global, Cartesian)
+function unsharp_kernel!(out, img, blurred, amountp)
+    I, inside = workitem(size(img))
+    inside || return nothing
     amount = Float32(paramvalue(amountp))
     px = img[I]
     c = tofloat(px)
@@ -96,6 +97,7 @@ end
                      c.r + amount * (c.r - bl.r),
                      c.g + amount * (c.g - bl.g),
                      c.b + amount * (c.b - bl.b), alphaof(px))
+    return nothing
 end
 
 """
@@ -110,7 +112,6 @@ function unsharpmask!(out::AbstractMatrix{T}, img::AbstractMatrix{T}, σ::Real, 
                       weights = nothing) where {T <: AnyRGB}
     amount == 0 && return copyto!(out, img)
     gaussianblur!(out, img, σ; tmp, weights)  # out temporarily holds the blur
-    backend = KA.get_backend(img)
-    unsharp_kernel!(backend)(tmp, img, out, Float32(amount); ndrange = size(img))
+    launch!(device(img), unsharp_kernel!, (tmp, img, out, Float32(amount)), size(img))
     return copyto!(out, tmp)
 end

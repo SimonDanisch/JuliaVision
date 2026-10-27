@@ -99,9 +99,11 @@ end
 
 # ------------------------------------------------------- device patch tracking
 
-@kernel function sampleregions_kernel!(regions, @Const(gray), M::Mat3f,
-                                       @Const(cx), @Const(cy), half::Int32, R::Int32)
-    I = @index(Global, Cartesian)   # (a, b, k) over (w + 2R) × (w + 2R) × K
+# `side` is the search region's edge, `w + 2R`: the buffer is sized for the
+# largest radius, so its extent is not the launch's.
+function sampleregions_kernel!(regions, gray, M::Mat3f, cx, cy, half::Int32, R::Int32, side::Int32)
+    I, inside = workitem((side, side, length(cx)))   # (a, b, k) over (w + 2R) × (w + 2R) × K
+    inside || return nothing
     a, b, k = Int32(I[1]), Int32(I[2]), Int32(I[3])
     x = Float32(cx[k] - half - R - Int32(1) + a)
     y = Float32(cy[k] - half - R - Int32(1) + b)
@@ -119,6 +121,7 @@ end
     @inbounds regions[a, b, k] =
         (1 - fx) * (1 - fy) * gray[x0, y0] + fx * (1 - fy) * gray[x0 + Int32(1), y0] +
         (1 - fx) * fy * gray[x0, y0 + Int32(1)] + fx * fy * gray[x0 + Int32(1), y0 + Int32(1)]
+    return nothing
 end
 
 # Weighted zero-normalized cross-correlation. `tmpls` holds w·(t − μ_w(t))
@@ -127,9 +130,10 @@ end
 # template norms. Uniform weights reduce exactly to plain ZNCC; a centered
 # window makes an object patch track the SUBJECT under the click instead of
 # compromising with the background ring around it.
-@kernel function nccscores_kernel!(scores, @Const(regions), @Const(tmpls), @Const(weights),
-                                   @Const(wsum), @Const(tnorm), w::Int32, R::Int32)
-    I = @index(Global, Cartesian)   # (ox, oy, k) over S × S × K, S = 2R + 1
+function nccscores_kernel!(scores, regions, tmpls, weights, wsum, tnorm, w::Int32, R::Int32)
+    S = Int32(2) * R + Int32(1)
+    I, inside = workitem((S, S, length(wsum)))   # (ox, oy, k) over S × S × K
+    inside || return nothing
     ox, oy, k = Int32(I[1]), Int32(I[2]), Int32(I[3])
     sp = 0.0f0    # Σ w·p
     spp = 0.0f0   # Σ w·p²
@@ -143,6 +147,7 @@ end
     end
     den = spp - sp * sp / wsum[k]
     @inbounds scores[ox, oy, k] = den > 0 ? num / (sqrt(den) * tnorm[k]) : -2.0f0
+    return nothing
 end
 
 # parabolic sub-pixel offset from three samples around a peak (device-safe)
@@ -155,8 +160,9 @@ end
 # (S = 2R+1, stored in the top-left of the maxradius-sized `scores`) to
 # out[:,k] = (dx, dy, peak, margin). Lets `matchpatches!` read back only 4×K
 # floats instead of the whole score volume (the GPU→CPU copy dominated).
-@kernel function peakmargin_kernel!(out, @Const(scores), R::Int32, excl::Int32)
-    k = @index(Global)
+function peakmargin_kernel!(out, scores, R::Int32, excl::Int32)
+    k, inside = workitem(size(out, 2))
+    inside || return nothing
     # Int32, not `2R + 1`: the literals are Int64, so that made `S` an Int64,
     # the loops below Int64 ranges, and `bx`/`by` (Int32 until the first `bx = ox`)
     # a `Union{Int32, Int64}`. The union's upper four bytes are undefined while
@@ -181,6 +187,7 @@ end
     @inbounds out[2, k] = by - R - 1 + fy
     @inbounds out[3, k] = best
     @inbounds out[4, k] = best - side
+    return nothing
 end
 
 """
@@ -289,16 +296,15 @@ function matchpatches!(tracker::PatchTracker, gray::AbstractMatrix{Float32}, M::
     w = tracker.w
     K = length(tracker.centers)
     S = 2R + 1
-    backend = KA.get_backend(tracker.tmpls)
+    dev = device(tracker.tmpls)
     copyto!(tracker.gray, gray)
-    sampleregions_kernel!(backend)(tracker.regions, tracker.gray, M, tracker.cx, tracker.cy,
-                                   Int32(w ÷ 2), Int32(R); ndrange = (w + 2R, w + 2R, K))
-    nccscores_kernel!(backend)(tracker.scores, tracker.regions, tracker.tmpls,
-                               tracker.weights, tracker.wsum, tracker.tnorm,
-                               Int32(w), Int32(R); ndrange = (S, S, K))
+    launch!(dev, sampleregions_kernel!, (tracker.regions, tracker.gray, M, tracker.cx, tracker.cy,
+                                         Int32(w ÷ 2), Int32(R), Int32(w + 2R)), (w + 2R, w + 2R, K))
+    launch!(dev, nccscores_kernel!, (tracker.scores, tracker.regions, tracker.tmpls, tracker.weights,
+                                     tracker.wsum, tracker.tnorm, Int32(w), Int32(R)), (S, S, K))
     # reduce every patch's score slab to (dx, dy, peak, margin) ON the device, then
     # read back only 4×K floats — the full score-volume copy was ~85% of the per-frame cost
-    peakmargin_kernel!(backend)(tracker.peakout, tracker.scores, Int32(R), Int32(excl); ndrange = K)
+    launch!(dev, peakmargin_kernel!, (tracker.peakout, tracker.scores, Int32(R), Int32(excl)), K)
     # The read waits for the kernels that wrote `peakout`.
     copyto!(tracker.hostpeak, tracker.peakout)
     hp = tracker.hostpeak
