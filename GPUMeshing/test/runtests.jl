@@ -15,6 +15,7 @@ const GM = GPUMeshing
 
 include("reference.jl")
 include("extensions.jl")
+include("topology.jl")
 
 """Directed edges `(a, b)` with how many faces have them."""
 function directededges(F)
@@ -313,4 +314,5 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
     end
 
     extensiontests(dev)
+    topologytests(dev)
 end

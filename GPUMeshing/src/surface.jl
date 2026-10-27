@@ -145,14 +145,6 @@ function fillcells!(keys, tris, off, V, F, part, lox, loy, loz, cell, nf)
     return nothing
 end
 
-"""Marks the first entry of each cell's run in the sorted keys."""
-function runstarts!(heads, keys, m)
-    i = Int32(KI.get_global_id().x)
-    i <= m || return nothing
-    @inbounds heads[i] = (i == Int32(1) || keys[i] != keys[i - Int32(1)]) ? Int32(1) : Int32(0)
-    return nothing
-end
-
 function cellstarts!(cells, start, keys, idx, ncells, m)
     c = Int32(KI.get_global_id().x)
     c <= ncells + Int32(1) || return nothing
