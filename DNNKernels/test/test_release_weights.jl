@@ -1,14 +1,11 @@
 """
-Dropping a weight dict does not free it; `releaseweights!` does.
+`releaseweights!` frees a weight dict now; dropping it frees it at a collection.
 
-Mantle frees a pool region on an explicit verb and NEVER from a finalizer —
-`Mantle.trim!` carries the reason: a pool freed from the GC finalizer thread
-gave Lava a `ConcurrencyViolationError` and then a SIGSEGV. The consequence is
-that `empty!(weights)` drops the last Julia reference and the pool's ledger
-still records every region as on loan, so `trim!` finds no empty block and the
-driver gets nothing back.
-
-`QwenImageRunner`'s `release!` did exactly that. Measured over a 256x256
+Since 2026-09-24 a dropped `Mantle.Buffer` retires from its finalizer and
+returns at the next `reclaim!` (the finalizer only enqueues; freeing the pool on
+the finalizer thread was the `ConcurrencyViolationError`/SIGSEGV `Mantle.trim!`
+records). Before that a dropped dict freed nothing, and `QwenImageRunner`'s
+`release!` did exactly that. Measured over a 256x256
 generation, GTT+VRAM: `release!(encoder)` returned **446 MiB of 7.5 GB**, and
 the denoiser then loaded on top of a conditioner that was supposed to be gone —
 15582 MiB peak for one 256² image. With `releaseweights!` the same release
@@ -37,48 +34,72 @@ const DEV = Mantle.todevice(BACKEND)
 ledger() = sum(b -> length(b.live),
                Iterators.flatten(values(Mantle.pool(DEV).blocks)); init = 0)
 
-@testset "a dropped device array does not free itself" begin
-    # The premise the rest of this file rests on. If Mantle ever grows a
-    # finalizer that returns pool memory, this is the assertion that says so and
-    # `releaseweights!` becomes unnecessary rather than wrong.
-    before = ledger()
-    let a = KernelAbstractions.allocate(BACKEND, Float32, 1024, 1024)
-        fill!(a, 1.0f0)
-        @test ledger() > before
-    end
+# Release what earlier tests dropped before taking a baseline. Inside the full
+# suite their garbage otherwise retires mid-measurement (an allocation past the
+# pool's soft cap runs `reclaim!` itself), and the count moves for reasons that
+# are not this test's: 133 -> 133 across an allocation, then 2.
+function drained()
+    Mantle.waitidle(DEV)
     GC.gc(true)
-    @test ledger() > before          # still on loan with no reference to it
-
     Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
     Mantle.trim!(Mantle.pool(DEV), DEV)
-    @test ledger() > before          # and reclaim/trim cannot help either
+    ledger()
 end
 
-@testset "releaseweights! frees arrays and the wrappers around them" begin
-    GC.gc(true)
-    before = ledger()
+# A buffer's own pool region, and whether it is still on loan: precise where the
+# pool-wide count is not, since other tests' garbage retires while this runs.
+regionof(b::Mantle.Buffer) = Mantle.region(b.store)
+onloan(r) = get(r.block.live, r.span.lower, nothing) == r.span.upper
 
-    q = KernelAbstractions.allocate(BACKEND, UInt32, 256, 64)
-    sc = KernelAbstractions.allocate(BACKEND, Float32, 256)
-    plain = KernelAbstractions.allocate(BACKEND, Float16, 4096)
+# In a function: a testset's top-level frame keeps its locals reachable until
+# the testset ends, and a buffer it still holds is not garbage.
+function droppedregion()
+    a = Mantle.Buffer(DEV, Float32, (1024, 1024))
+    fill!(a, 1.0f0)
+    Mantle.waitidle(DEV)
+    regionof(a)
+end
+
+@testset "a dropped Buffer returns at a collection, releaseweights! at once" begin
+    # The contract the rest of this file rests on. A `Mantle.Buffer` retires
+    # from its finalizer and returns at the next `reclaim!`, so a dropped weight
+    # dict is not a leak; `releaseweights!` is the release that does not wait
+    # for the collector, which is what a model about to load next needs.
+    # Buffers and not `KernelAbstractions.allocate`: that array lives outside
+    # Mantle's pool on some backends (Metal.jl's own), while every weight
+    # `toback` uploads is a Buffer everywhere.
+    r = droppedregion()
+    @test onloan(r)
+    drained()
+    @test !onloan(r)
+end
+
+@testset "releaseweights! frees buffers and the wrappers around them" begin
+    q = Mantle.Buffer(DEV, UInt32, (256, 64))
+    sc = Mantle.Buffer(DEV, Float32, (256,))
+    plain = Mantle.Buffer(DEV, Float16, (4096,))
     fill!(q, UInt32(0)); fill!(sc, 1.0f0); fill!(plain, Float16(0))
+    regions = regionof.((q, sc, plain))
 
-    # The shape that broke it: a struct holding device arrays, which is what
+    # The shape that broke it: a struct holding device memory, which is what
     # every quantised weight in this tree is.
     wrapped = DNNKernels.ConvRotQInt8Matrix(q, sc, 256, 64)
     weights = Dict{String,Any}("plain" => plain, "wrapped" => wrapped)
 
-    @test ledger() >= before + 3
+    @test all(onloan, regions)
     releaseweights!(weights)
     @test isempty(weights)
 
+    # No collection: the release is the verb's, while `q`, `sc` and `plain`
+    # are still referenced here.
     Mantle.waitidle(DEV)
     Mantle.reclaim!(Mantle.pool(DEV), DEV; wait = true)
-    Mantle.trim!(Mantle.pool(DEV), DEV)
-    GC.gc(true)
-    # All three regions back, which is the whole point. `<=` rather than `==`
-    # because this testset does not own everything the pool is holding.
-    @test ledger() <= before
+    @test !any(onloan, regions)
+
+    # A plain device array takes its backend's own free; the dict empties.
+    arrays = Dict{String,Any}("a" => KernelAbstractions.allocate(BACKEND, Float32, 256))
+    releaseweights!(arrays)
+    @test isempty(arrays)
 end
 
 @testset "a quantised weight is freed by the verb its regions take" begin
@@ -96,8 +117,7 @@ end
     #     `Vulkan.Instance`, whose destructor closure captures the `Instance`
     #     back. That cycle is a `StackOverflowError`, not a leak.
     W = DNNKernels.toback(BACKEND, randn(Float32, 256, 256))
-    GC.gc(true)
-    before = ledger()               # `W` is already on it; only `A` is new below
+    before = drained()              # `W` is already on it; only `A` is new below
 
     A = DNNKernels.quantizeint8(BACKEND, W)
     @test A.q isa Mantle.Buffer
@@ -137,11 +157,10 @@ end
     # the same fault as the weights above, one layer up.
     model = DNNKernels.Model(Dict{String,DNNKernels.Graph}(), Dict{String,Any}();
                              backend = BACKEND)
-    GC.gc(true)
     # AFTER the model, so the only thing between this and the count below is
     # `initstate`. Taking it before made the assertion depend on what building
     # a `Model` happens to allocate.
-    before = ledger()
+    before = drained()
 
     st = DNNKernels.initstate(model, 512, 288)
 

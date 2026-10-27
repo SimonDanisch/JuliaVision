@@ -28,6 +28,17 @@ Regenerate with:
 using Test
 using DNNKernels
 using KernelAbstractions
+include("test_bound_tuple.jl")
+BoundTupleTests.test_bound_tuple(DNNKernels.Mantle.Device())
+include("test_semanticgraph.jl")
+SemanticGraphTests.run(DNNKernels.Mantle.Device())
+SemanticGraphTests.activation(DNNKernels.Mantle.Device())
+include("test_semanticptq.jl")
+SemanticPTQTests.run(DNNKernels.Mantle.Device())
+include("test_semanticstandard.jl")
+SemanticStandardTests.run(DNNKernels.Mantle.Device())
+include("test_genericfusion.jl")
+GenericFusionTests.run(DNNKernels.Mantle.Device())
 
 const JSON3 = DNNKernels.JSON3   # not a direct dep of the driving project
 
@@ -76,6 +87,10 @@ include(joinpath(@__DIR__, "test_upload_frees_host.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
 include(joinpath(@__DIR__, "test_fusegroupedrms.jl"))
+include(joinpath(@__DIR__, "test_activationprep.jl"))
+ActivationPreparationTests.run(Mantle.Device())
+ActivationPreparationTests.integration(Mantle.Device())
+ActivationPreparationTests.swiglumm(Mantle.Device())
 include(joinpath(@__DIR__, "test_cat_interleave.jl"))
 include(joinpath(@__DIR__, "test_fuserope_layouts.jl"))
 include(joinpath(@__DIR__, "test_fusepairrope.jl"))
@@ -144,6 +159,8 @@ include(joinpath(@__DIR__, "test_q8small.jl"))
 include(joinpath(@__DIR__, "test_q8epilogue.jl"))
 include(joinpath(@__DIR__, "test_q8gateup.jl"))
 include(joinpath(@__DIR__, "test_bonsai_primitives.jl"))
+include(joinpath(@__DIR__, "test_gated_delta_net_chunk.jl"))
+GatedDeltaNetChunkTests.run(DNNKernels.Mantle.Device())
 include(joinpath(@__DIR__, "test_masked_flash.jl"))
 include(joinpath(@__DIR__, "test_masked_flash_bounds.jl"))
 include(joinpath(@__DIR__, "test_safesoftmax_attention.jl"))

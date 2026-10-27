@@ -165,7 +165,8 @@ A level's graph opens with the upsampler that creates it, both halves (see
 parent level's voxels and features and where each child comes from.
 """
 function decodelevels(dec::SparseDecoder, slat::AbstractMatrix{Float32}, coords::AbstractMatrix{<:Integer},
-                      stop::Int; res::Int, guide::Union{Nothing,DecodeResult} = nothing, probe = nothing)
+                      stop::Int; res::Int, guide::Union{Nothing,DecodeResult} = nothing, probe = nothing,
+                      graph_factory = SparseDecoderGraph)
     dec.subdiv || guide !== nothing || throw(ArgumentError(
         "decode: this decoder predicts no subdivision; pass the shape decoder's result as `guide`"))
     dev = dec.dev
@@ -176,7 +177,8 @@ function decodelevels(dec::SparseDecoder, slat::AbstractMatrix{Float32}, coords:
     up = nothing
     out = nothing
     for l in 0:(stop - 1)
-        g = Mantle.Graph(dev)
+        g = graph_factory(dev)
+        decoderweights!(g,dec.w)
         n = length(level)
         C = dec.channels[l + 1]
         pos = Mantle.Buffer(dev, level.coords)
@@ -185,10 +187,10 @@ function decodelevels(dec::SparseDecoder, slat::AbstractMatrix{Float32}, coords:
         lin = nothing
         if l == 0
             lin = Mantle.Buffer(dev, Float32, (C, n))
-            Mantle.dispatch!(g, linear32!, (lin, Mantle.Buffer(dev, Matrix{Float32}(slat)),
+            decoderdispatch!(g, linear32!, (lin, Mantle.Buffer(dev, Matrix{Float32}(slat)),
                                             dec.w["from_latent.weight"], dec.w["from_latent.bias"],
                                             C, size(slat, 1), n), C * n; name = "from_latent")
-            Mantle.dispatch!(g, tofp16!, (x, lin, C * n), C * n; name = "from_latent/fp16")
+            decoderdispatch!(g, tofp16!, (x, lin, C * n), C * n; name = "from_latent/fp16")
         else
             upsample!(g, dec, "blocks.$(l - 1).$(dec.nblocks[l])", x, up, pos, grid, level.res, n)
         end
@@ -198,7 +200,7 @@ function decodelevels(dec::SparseDecoder, slat::AbstractMatrix{Float32}, coords:
         if l < nlevels - 1
             sub = dec.subdiv ? Mantle.Buffer(dev, Float16, (8, n)) : nothing
             sub === nothing || subdivision!(g, dec, "blocks.$l.$(dec.nblocks[l + 1])", sub, x, n)
-            runonce!(g)
+            decoderrunonce!(g)
             if probe !== nothing
                 # `L0.in` is from_latent's Float32 output, before the torso's fp16.
                 l == 0 && probe("L0.in", Array(Mantle.storage(lin)))
@@ -215,7 +217,7 @@ function decodelevels(dec::SparseDecoder, slat::AbstractMatrix{Float32}, coords:
         else
             head = Mantle.Buffer(dev, Float32, (dec.out, n))
             head!(g, dec, head, x, n)
-            runonce!(g)
+            decoderrunonce!(g)
             probe === nothing || probe("L$l.in", Array(Mantle.storage(x))[:, 1:n])
             out = Array(Mantle.storage(head))
         end
@@ -236,12 +238,12 @@ chunk, and so is its normalised input.
 """
 function convnext!(g, dec::SparseDecoder, p, x, pos, grid, res, n)
     C, np = size(x)
-    h = Mantle.Transient.Buffer(g, Float16, C, np)
+    h = decodertransient(g, Float16, C, np)
     sparseconv!(g, h, x, dec.w["$p.conv.weight"], dec.w["$p.conv.bias"], pos, grid, res, n;
                 name = "$p.conv")
     cols = chunkcols(C, 4C, n)
-    hn = Mantle.Transient.Buffer(g, Float16, C, cols)
-    m = Mantle.Transient.Buffer(g, Float16, 4C, cols)
+    hn = decodertransient(g, Float16, C, cols)
+    m = decodertransient(g, Float16, 4C, cols)
     for c0 in 0:cols:(n - 1)
         w = min(cols, n - c0)
         wp = padded(w)
@@ -249,7 +251,7 @@ function convnext!(g, dec::SparseDecoder, p, x, pos, grid, res, n)
         hnv = Mantle.viewof(hn, (C, wp))
         xv = Mantle.viewof(x, (C, wp); offset = C * c0)
         mv = Mantle.viewof(m, (4C, wp))
-        Mantle.dispatch!(g, layernorm!, (hnv, hv, dec.w["$p.norm.weight"], dec.w["$p.norm.bias"],
+        decoderdispatch!(g, layernorm!, (hnv, hv, dec.w["$p.norm.weight"], dec.w["$p.norm.bias"],
                                          Val(C), w, 1f-6, identity), w; name = "$p.norm")
         linear!(g, mv, dec.w["$p.mlp.0.weight"], hnv, dec.w["$p.mlp.0.bias"], w, silu, nothing;
                 name = "$p.mlp.0")
@@ -264,10 +266,10 @@ The subdivision logits of `SparseResBlockC2S3d` `p`, on the parent level: the
 first eight rows of `to_subdiv(x)`, which the host reads to build the children.
 """
 function subdivision!(g, dec::SparseDecoder, p, sub, x, n)
-    logits = Mantle.Transient.Buffer(g, Float16, 16, size(x, 2))
+    logits = decodertransient(g, Float16, 16, size(x, 2))
     linear!(g, logits, dec.w["$p.to_subdiv.weight"], x, dec.w["$p.to_subdiv.bias"], n,
             identity, nothing; name = "$p.to_subdiv", rows = 8)
-    Mantle.dispatch!(g, croprows!, (sub, logits, 8, 16, n), 8n; name = "$p.to_subdiv/crop")
+    decoderdispatch!(g, croprows!, (sub, logits, 8, 16, n), 8n; name = "$p.to_subdiv/crop")
     return sub
 end
 
@@ -305,17 +307,17 @@ function upsample!(g, dec::SparseDecoder, p, x, up::Upsampling, pos, grid, res, 
     Cp, npp = size(xp)
     co = size(x, 1)
     m = length(up.level)
-    hn = Mantle.Transient.Buffer(g, Float16, Cp, npp)
-    Mantle.dispatch!(g, layernorm!, (hn, xp, dec.w["$p.norm1.weight"], dec.w["$p.norm1.bias"],
+    hn = decodertransient(g, Float16, Cp, npp)
+    decoderdispatch!(g, layernorm!, (hn, xp, dec.w["$p.norm1.weight"], dec.w["$p.norm1.bias"],
                                      Val(Cp), m, 1f-6, silu), m; name = "$p.norm1")
-    hn2 = Mantle.Transient.Buffer(g, Float16, size(x)...)
+    hn2 = decodertransient(g, Float16, size(x)...)
     fc = up.firstchild
     norm2 = Chunked() do hc, p0, valid
         # The children of parents `p0 .+ (1:valid)`, whose features are `hc`'s
         # first `valid` columns.
         j0 = fc[p0 + 1]
         k = fc[p0 + valid + 1] - j0
-        k > 0 && Mantle.dispatch!(g, spatialnorm!, (hn2, hc, up.parent, up.subidx, Val(co), j0 - 1, k, p0,
+        k > 0 && decoderdispatch!(g, spatialnorm!, (hn2, hc, up.parent, up.subidx, Val(co), j0 - 1, k, p0,
                                                     1f-6, silu), k; name = "$p.c2s/norm2")
     end
     sparseconv!(g, norm2, hn, dec.w["$p.conv1.weight"], dec.w["$p.conv1.bias"], up.pos,
@@ -330,7 +332,7 @@ The head: back to Float32, `layer_norm` without affine (eps 1e-5, torch's defaul
 for `F.layer_norm`), `output_layer`, in one kernel ([`normlinear!`](@ref)).
 """
 function head!(g, dec::SparseDecoder, out, x, n)
-    Mantle.dispatch!(g, normlinear!, (out, x, dec.w["output_layer.weight"], dec.w["output_layer.bias"],
+    decoderdispatch!(g, normlinear!, (out, x, dec.w["output_layer.weight"], dec.w["output_layer.bias"],
                                       Val(size(x, 1)), dec.out, n, 1f-5), n; name = "head")
     return out
 end
@@ -364,7 +366,7 @@ struct VoxelGrid{B,C}
     res::Int
 end
 
-function VoxelGrid(g::Mantle.Graph, dev::Mantle.Device, level::Level, pos)
+function VoxelGrid(g, dev::Mantle.Device, level::Level, pos)
     B = level.res ÷ 8
     table = zeros(Int32, B^3)
     nb = Int32(0)
@@ -374,10 +376,10 @@ function VoxelGrid(g::Mantle.Graph, dev::Mantle.Device, level::Level, pos)
     end
     bricks = Mantle.Buffer(dev, table)
     ncells = 512 * max(Int(nb), 1)
-    cells = Mantle.Transient.Buffer(g, Int32, ncells)
-    Mantle.dispatch!(g, zerofill!, (cells, ncells), ncells; name = "grid/clear")
+    cells = decodertransient(g, Int32, ncells)
+    decoderdispatch!(g, zerofill!, (cells, ncells), ncells; name = "grid/clear")
     n = length(level)
-    Mantle.dispatch!(g, scattergrid!, (bricks, cells, pos, level.res, n), n; name = "grid/scatter")
+    decoderdispatch!(g, scattergrid!, (bricks, cells, pos, level.res, n), n; name = "grid/scatter")
     return VoxelGrid(bricks, cells, level.res)
 end
 
@@ -400,9 +402,9 @@ function sparseconv!(g, out, x, w, b, pos, grid, res, n; name, residual = nothin
     co = size(w, 1)
     K = 27 * ci
     cols = chunkcols(K, co, n)
-    col = Mantle.Transient.Buffer(g, Float16, K, cols)
+    col = decodertransient(g, Float16, K, cols)
     gemmchunks!(g, out, w, K, co, n, cols, b, identity, residual; name) do n0, w_
-        Mantle.dispatch!(g, im2col3!, (col, x, pos, grid.bricks, grid.cells, res, Val(ci), n0, w_), K * w_;
+        decoderdispatch!(g, im2col3!, (col, x, pos, grid.bricks, grid.cells, res, Val(ci), n0, w_), K * w_;
                          name = "$name/im2col")
         col
     end
@@ -435,15 +437,15 @@ function gemmchunks!(operand, g, out, w, K, M, n, cols, b, f, residual; name, ro
     # for whichever of the two splits the reduction further.
     last = padded(n - (cld(n, cols) - 1) * cols)
     splitk = maximum(wd -> planes(native, M, wd, K), (min(cols, padded(n)), last))
-    C = Mantle.Transient.Buffer(g, Float32, M, cols, splitk)
+    C = decodertransient(g, Float32, M, cols, splitk)
     dst = destination(g, out, rows, cols)
     for n0 in 0:cols:(n - 1)
         w_ = min(cols, padded(n - n0))
         B = operand(n0, w_)
         Cw = Mantle.viewof(C, (M, w_, splitk))
-        s = product!(native, g, Cw, w, B, M, w_, K; name = "$name/gemm")
+        s = decoderproduct!(native, g, Cw, w, B, M, w_, K; name = "$name/gemm")
         valid = min(w_, n - n0)
-        Mantle.dispatch!(g, epilogue!, (dst, Cw, b, residual, f, Val(s), rows, M,
+        decoderdispatch!(g, epilogue!, (dst, Cw, b, residual, f, Val(s), rows, M,
                                         w_, n0, column(out, n0), valid), rows * valid;
                          name = "$name/epilogue")
         produced!(out, dst, n0, valid)
@@ -491,7 +493,7 @@ end
 """What `gemmchunks!`'s epilogue writes into: the output, or a chunked output's
 one `rows × cols` chunk."""
 destination(g, out, rows, cols) = out
-destination(g, ::Chunked, rows, cols) = Mantle.Transient.Buffer(g, Float16, rows, cols)
+destination(g, ::Chunked, rows, cols) = decodertransient(g, Float16, rows, cols)
 
 """The destination column a chunk starting at result column `n0` is written from
 (zero-based): `n0` itself, or the chunk's own first column."""

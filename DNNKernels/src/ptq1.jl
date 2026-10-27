@@ -348,9 +348,10 @@ end
     ptq1_rows2!(g, out1, A1::PTQ1Matrix, out2, A2::PTQ1Matrix, x; name)
 
 Declare `out1 = A1 * x` and `out2 = A2 * x` into graph `g` as one launch of
-`ptq1_mul_rows2_kernel!`. The two have the same width.
+`ptq1_mul_rows2_kernel!`. The two have the same width; `x` must be Float32.
 """
 function ptq1_rows2!(g, out1, A1::PTQ1Matrix, out2, A2::PTQ1Matrix, x; name::AbstractString)
+    eltype(x)===Float32 || throw(ArgumentError("PTQ1 decode rows require Float32 activations"))
     (M1, K), (M2, K2) = size(A1), size(A2)
     K == K2 || throw(DimensionMismatch("ptq1_rows2!: widths $K and $K2 differ"))
     nd1, group, S, DB = ptq1_rows_launch(M1, K)
@@ -364,9 +365,11 @@ end
     ptq1_rows!(g, out, A::PTQ1Matrix, x; name)
 
 Declare the decode column `out = A * x` into graph `g` through
-`ptq1_mul_rows_kernel!`.
+`ptq1_mul_rows_kernel!`. `x` must be Float32; Float16 prompt columns use
+[`ptq1_cols!`](@ref) instead.
 """
 function ptq1_rows!(g, out, A::PTQ1Matrix, x; name::AbstractString)
+    eltype(x)===Float32 || throw(ArgumentError("PTQ1 decode rows require Float32 activations"))
     M, K = size(A)
     nd, group, S, DB = ptq1_rows_launch(M, K)
     Mantle.dispatch!(g, ptq1_mul_rows_kernel!,

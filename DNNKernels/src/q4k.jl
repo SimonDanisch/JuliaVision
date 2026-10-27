@@ -555,6 +555,41 @@ function kq_stage end
     return (lo..., hi...)
 end
 
+# The same weights as `kq_stage`, staged for the GEMM's matrix units. `kq_stage`
+# narrows `s * q - o`, a float product, with `Float16`, which Lava's
+# exact-narrowing pass spells in ~20 integer operations a weight so that a
+# driver cannot fuse the product into the conversion (RADV would: one rounding
+# of the exact value instead of Julia's two). For an operand staged for the
+# matrix units either rounding is right, and `stagehalf` lets the conversion be
+# the hardware's: the select it narrows is not arithmetic the pass looks
+# through. It differs from `Float16` only for NaN, which no weight is. GPU time
+# at 512 columns: Q4_K 15-19% less (8192x2048: 1.07 -> 0.87 ms), Q6_K 8-16%.
+# Computing the weights in Float16 from exact halves was a little faster still,
+# but 4-10x less accurate: a Q4_K weight is a scale and a minimum that cancel.
+function kq_stage_mma end
+
+@inline stagehalf(x::Float32) = Float16(ifelse(x == x, x, 0f0))
+@inline q4k_h4_mma(a, b, c, d) = (VecElement(stagehalf(a)), VecElement(stagehalf(b)),
+                                  VecElement(stagehalf(c)), VecElement(stagehalf(d)))
+@inline q4k_word4_mma(w::UInt32, f, s::Float32, o::Float32) =
+    q4k_h4_mma(s * Float32(f(w) & 0x0f) - o, s * Float32((f(w) >> 8) & 0x0f) - o,
+               s * Float32((f(w) >> 16) & 0x0f) - o, s * Float32((f(w) >> 24) & 0x0f) - o)
+
+@inline function kq_stage_mma(::Val{:q4k}, Ws, row::Int32, b::Int32, g::Int32, h::Int32, nb::Int32)
+    Q = Ws[1]
+    vb = (row * nb + b) * Int32(Q4K_VECS)
+    hd = @inbounds Q[vb + Int32(1)]
+    qv = @inbounds Q[vb + Int32(2) + Int32(2) * g + h]
+    d, dmin = q4k_half(hd[1].value, 0), q4k_half(hd[1].value, 1)
+    sl, ml = q4k_scalemin(hd, Int32(2) * g)
+    sh, mh = q4k_scalemin(hd, Int32(2) * g + Int32(1))
+    dl, ol = d * Float32(sl), dmin * Float32(ml)
+    dh, oh = d * Float32(sh), dmin * Float32(mh)
+    lo = ntuple(w -> q4k_word4_mma(qv[w].value, identity, dl, ol), Val(4))
+    hi = ntuple(w -> q4k_word4_mma(qv[w].value, x -> x >> 4, dh, oh), Val(4))
+    return (lo..., hi...)
+end
+
 """
     kquant_gemm!(C, Ws, B, epi, Val(kind), Val(M), Val(N), Val(K), Val(cfg))
 
@@ -597,7 +632,7 @@ WN` subgroups of `16STM x 16STN` outputs each. A thread stages one row's
         for kb in Int32(0):Int32(K ÷ Q4K_GEMM_BK - 1)
             b, g = kb ÷ Int32(4), kb % Int32(4)
             Base.Cartesian.@nexprs 4 a -> if a <= APT
-                x = kq_stage(kind, Ws, tm + row_a, b, g, h_a, NB)
+                x = kq_stage_mma(kind, Ws, tm + row_a, b, g, h_a, NB)
                 base = Int32(1) + row_a * RS4 + Int32(4) * h_a
                 Base.Cartesian.@nexprs 4 w -> begin
                     sA[base + Int32(w - 1)] = x[w]

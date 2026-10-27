@@ -141,6 +141,86 @@ function gated_delta_net_kernel!(out, state,
 end
 
 """
+    gated_delta_net_chunk_kernel!(out, state, conv, alpha, beta, dt_bias, a, z, norm_weight,
+                                  eps, nheads, nkeyheads, n, Val(L), Val(TILED))
+
+[`gated_delta_net_kernel!`](@ref) over the `n` columns of a prompt chunk in one
+launch. The state stays in registers from the first token to the last and is
+stored once. Per token the arithmetic is the one-token kernel's, but not bit for
+bit: SPIR-V lets the driver fuse a multiply and an add, and it fuses differently
+in the two shaders (on the 8060S 1 ulp in ~14% of state values after one token,
+up to 2e-6 on outputs of order 1 after five). `q` and `k` are read from the convolution
+output `conv` (`2*128*nkeyheads + 128*nheads` rows a column) at the value head's
+key head: `head % nkeyheads` in the tiled order, `head ÷ (nheads ÷ nkeyheads)`
+in the native one. `alpha`, `beta`, `z` and `out` hold one column per token.
+"""
+function gated_delta_net_chunk_kernel!(out, state, conv, alpha, beta,
+        dt_bias, a, z, norm_weight,
+        eps::Float32, nheads::Int32, nkeyheads::Int32, n::Int32, ::Val{L}, ::Val{TILED}) where {L,TILED}
+    V4 = NTuple{4,VecElement{Float32}}
+    runs = Val(32 ÷ L)
+    sh = KI.localmemory(Float32, Val((128,)), Val(1))
+    sg = Int32(KI.get_sub_group_size())
+    lane = Int32(KI.get_sub_group_local_id() - 1)
+    slot = Int32(KI.get_sub_group_id() - 1) * sg + lane
+    col = slot ÷ Int32(L)
+    l = slot % Int32(L)
+    head = Int32(KI.get_group_id().x - 1)
+    keyhead = TILED ? head % nkeyheads : head ÷ (nheads ÷ nkeyheads)
+    channels = Int32(256) * nkeyheads + Int32(128) * nheads
+    c4 = reinterpret(V4, conv)
+    s4 = reinterpret(V4, state)
+    sbase = head * Int32(4096) + col * Int32(32) + l
+    s = _gdn_runs(s4, sbase, runs, Val(L))
+    voff = head * Int32(128)
+    @inbounds dtb = Float32(dt_bias[head + Int32(1)])
+    @inbounds ah = Float32(a[head + Int32(1)])
+    @inbounds nw = Float32(norm_weight[col + Int32(1)])
+    for j in Int32(0):(n - Int32(1))
+        c0 = j * (channels ÷ Int32(4))
+        q4 = _gdn_runs(c4, c0 + keyhead * Int32(32) + l, runs, Val(L))
+        k4 = _gdn_runs(c4, c0 + nkeyheads * Int32(32) + keyhead * Int32(32) + l, runs, Val(L))
+        qscale = inv(sqrt(_gdn_lanesum(sum(map(_gdn_sum2, q4)), lane, Val(L)) + eps))
+        kscale = inv(sqrt(_gdn_lanesum(sum(map(_gdn_sum2, k4)), lane, Val(L)) + eps))
+        qn = map(x -> _gdn_scale4(x, qscale), q4)
+        kn = map(x -> _gdn_scale4(x, kscale), k4)
+        @inbounds begin
+            raw_alpha = Float32(alpha[j * nheads + head + Int32(1)]) + dtb
+            decay = exp(_softplus_f32(raw_alpha) * ah)
+            b = _sigmoid_f32(Float32(beta[j * nheads + head + Int32(1)]))
+        end
+        sk = decay * _gdn_lanesum(sum(map(_gdn_dot4, s, kn)), lane, Val(L))
+        vi = j * channels + Int32(256) * nkeyheads + voff + col + Int32(1)
+        delta = (@inbounds(Float32(conv[vi])) - sk) * b
+        s = map((x, kv) -> _gdn_update4(x, decay, kv, delta), s, kn)
+        y = _gdn_lanesum(sum(map(_gdn_dot4, s, qn)), lane, Val(L)) *
+            0.08838834764831845f0 # inv(sqrt(128))
+        l == Int32(0) && (@inbounds sh[col + Int32(1)] = y)
+        KI.barrier()
+        ss = 0f0
+        @inbounds for i in Int32(0):Int32(128 ÷ L - 1)
+            yi = sh[l + Int32(L) * i + Int32(1)]
+            ss = muladd(yi, yi, ss)
+        end
+        invrms = inv(sqrt(_gdn_lanesum(ss, lane, Val(L)) / 128f0 + eps))
+        if l == Int32(0)
+            @inbounds begin
+                o = j * Int32(128) * nheads + voff + col + Int32(1)
+                gated = y * invrms * nw
+                gated *= _silu_f32(Float32(z[o]))
+                out[o] = eltype(out)(gated)
+            end
+        end
+        # The next token rewrites `sh`.
+        KI.barrier()
+    end
+    @inbounds for j in 1:(32 ÷ L)
+        s4[sbase + Int32(L * (j - 1)) + Int32(1)] = s[j]
+    end
+    return nothing
+end
+
+"""
     gated_delta_net!(ctx, out, state, q, k, v, alpha, beta,
                      dt_bias, a, z, norm_weight; eps=1f-6) -> out
 

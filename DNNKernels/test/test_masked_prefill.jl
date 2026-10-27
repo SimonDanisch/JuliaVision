@@ -1,27 +1,40 @@
 import KernelInterface
 using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
 
-@testset "staged masked prefill with strided caches" begin
-    be=Mantle.defaultbackend(); caps=DNNKernels.caps(be)
+# The staged masked attention as `fused.maskedattention` declares it: dense
+# operands (the declared form takes the cache window as a dense copy).
+function staged_attention(dev,q,k,v,mask,scale)
+    DK=DNNKernels
+    g=Mantle.Graph(dev)
+    ctx=DK.EmitCtx(DK.Graph("attn",String[],String[],String[],Dict{String,DK.Buffer}(),String[],DK.Op[]),
+        g,dev,(;),Dict{String,Any}(),Set{String}(),Ref("attn"),Any[],Dict{String,Any}())
+    out=Mantle.Buffer(dev,Float16,size(q))
+    DK.maskedprefill_dispatch!(ctx,DK.Op("attn","fused.maskedattention",String[],"attn",Dict{String,Any}()),
+        out,q,k,v,mask,scale)
+    plan=Mantle.record!(Mantle.Plan(g))
+    try
+        Mantle.run!(plan);Mantle.waitidle(dev)
+        Array(Mantle.storage(out))
+    finally
+        Mantle.free!(plan);Mantle.free!(out)
+    end
+end
+
+@testset "staged masked prefill" begin
+    dev=Mantle.Device();caps=Mantle.caps(dev)
     if caps.coopmat && caps.coopmatsubgroup==32 && caps.tile==16
         rng=MersenneTwister(711)
         qh=randn(rng,Float16,128,128,2,1).*Float16(.2)
         kh=randn(rng,Float16,128,512,2,1).*Float16(.2)
         vh=randn(rng,Float16,128,512,2,1)
-        q=DNNKernels.toback(be,qh)
-        k=view(DNNKernels.toback(be,kh),:,1:128,:,:)
-        v=view(DNNKernels.toback(be,vh),:,1:128,:,:)
-        out=similar(q)
-        g=DNNKernels.Graph("empty",String[],String[],String[],
-            Dict{String,DNNKernels.Buffer}(),String[],DNNKernels.Op[])
-        ctx=DNNKernels.Ctx(Dict{String,Any}(),g,(;),be;ws=nothing)
+        q=Mantle.Buffer(dev,qh)
+        k=Mantle.Buffer(dev,kh[:,1:128,:,:]);v=Mantle.Buffer(dev,vh[:,1:128,:,:])
         for offset in (0,63)
             mh=Float16[s<=mod(r-1,16)+offset+1 ? 0 : -65504
                        for s in 1:128,r in 1:128,h in 1:1,b in 1:1]
-            mask=DNNKernels.toback(be,mh)
-            DNNKernels.reset!(ctx.ws)
-            DNNKernels.maskedprefill!(ctx,out,q,k,v,mask,.08838835f0)
-            got=Array(out); want=similar(qh)
+            mask=Mantle.Buffer(dev,mh)
+            got=staged_attention(dev,q,k,v,mask,.08838835f0)
+            want=similar(qh)
             for h in 1:2
                 scores=Float16.(Float32.(kh[:,1:128,h,1])'*Float32.(qh[:,:,h,1]))
                 scores=Float32.(Float16.(Float16.(scores.*.08838835f0).+mh[:,:,1,1]))
@@ -31,8 +44,9 @@ using Test, DNNKernels, Mantle, KernelAbstractions, Random, LinearAlgebra
             end
             @test all(isfinite,got)
             @test maximum(abs,Float32.(got).-Float32.(want))<.005
+            Mantle.free!(mask)
         end
-        @test !DNNKernels.maskedprefill_applicable(ctx,q,k,v,zeros(Float16,128,128,1,1))
+        foreach(Mantle.free!,(q,k,v))
     else
         @test_skip false
     end
@@ -42,19 +56,17 @@ end
 # is worth pinning: a grouped-query 128-token prompt folds to `nq = 1024`, where
 # the staged route is no faster and drifts further from the unfused graph.
 @testset "staged masked prefill query floor" begin
-    be=Mantle.defaultbackend(); caps=DNNKernels.caps(be)
+    dev=Mantle.Device();caps=Mantle.caps(dev)
     if caps.coopmat && caps.coopmatsubgroup==32 && caps.tile==16
         nk=512
-        k=DNNKernels.toback(be,zeros(Float16,128,nk,8,1))
-        v=DNNKernels.toback(be,zeros(Float16,128,nk,8,1))
-        g=DNNKernels.Graph("empty",String[],String[],String[],
-            Dict{String,DNNKernels.Buffer}(),String[],DNNKernels.Op[])
-        ctx=DNNKernels.Ctx(Dict{String,Any}(),g,(;),be;ws=nothing)
+        k=Mantle.Buffer(dev,zeros(Float16,128,nk,8,1));v=Mantle.Buffer(dev,zeros(Float16,128,nk,8,1))
         for (nq,want) in ((1024,false),(2048,true),(4096,true))
-            q=DNNKernels.toback(be,zeros(Float16,128,nq,8,1))
-            mask=DNNKernels.toback(be,zeros(Float16,nk,nq,1,1))
-            @test DNNKernels.maskedprefill_applicable(ctx,q,k,v,mask)==want
+            q=Mantle.Buffer(dev,zeros(Float16,128,nq,8,1));mask=Mantle.Buffer(dev,zeros(Float16,nk,nq,1,1))
+            @test DNNKernels.maskedprefill_applicable(caps,q,k,v,mask)==want
+            Mantle.free!(q);Mantle.free!(mask)
         end
+        @test !DNNKernels.maskedprefill_applicable(caps,k,k,v,Mantle.Buffer(dev,zeros(Float16,nk,nk,1,1)))
+        foreach(Mantle.free!,(k,v))
     else
         @test_skip false
     end

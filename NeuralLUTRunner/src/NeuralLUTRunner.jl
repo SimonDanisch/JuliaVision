@@ -223,11 +223,18 @@ function grade!(model::NeuralLUT, out::AbstractMatrix{<:AbstractRGB},
     # Staged here rather than refused, because a host frame is exactly what a
     # caller holding an image has; the `(out, img, lut)` form is the one that
     # asks the caller to have placed its own operands.
-    dimg = KA.allocate(model.backend, RGB{Float32}, size(img)...)
-    copyto!(dimg, RGB{Float32}.(img))
-    dout = similar(dimg)
-    lut3d!(dout, dimg, lut)
-    host = Array(dout)
+    # Pool buffers, held across the launch and the readback: `storage` alone
+    # does not keep a `Mantle.Buffer` alive.
+    dimg = toback(model.backend, RGB{Float32}.(img))
+    dout = Mantle.Buffer(Mantle.todevice(model.backend), RGB{Float32}, size(img))
+    host = try
+        GC.@preserve dimg dout begin
+            lut3d!(Mantle.storage(dout), Mantle.storage(dimg), lut)
+            Array(Mantle.storage(dout))
+        end
+    finally
+        Mantle.free!(dimg); Mantle.free!(dout)
+    end
     @inbounds for i in eachindex(out, host)
         out[i] = eltype(out)(host[i])
     end

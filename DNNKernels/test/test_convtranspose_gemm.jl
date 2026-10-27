@@ -218,7 +218,7 @@ end
         # simdgroup one, both kernels whose name says gemm; a backend that answers
         # `librarygemm` declares a call instead, which is the same route through
         # something with no kernel to name.
-        @test any(k -> occursin("gemm", k), kernels) ||
+        @test any(k -> occursin("gemm", lowercase(k)), kernels) ||
               any(c -> occursin("Gemm", c), calls)
         @test maximum(abs, Float32.(got) .- ref) / maximum(abs, ref) < 5e-3
         act === :relu && @test minimum(Float32.(got)) >= 0f0

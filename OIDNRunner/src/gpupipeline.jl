@@ -12,21 +12,22 @@ struct DeviceImages
     galbedo::Any     # prefiltered guides, planar (w, h, 3)
     gnormal::Any
     output::Any      # result, planar (w, h, 3)
+    buffers::Vector{Mantle.Buffer}
 end
 function DeviceImages(backend, w, h)
-    a() = KA.allocate(backend, Float32, 3 * w * h)
-    return DeviceImages(w, h, a(), a(), a(), a(), a(), a())
+    buffers = Mantle.Buffer[]
+    a() = devicearray!(buffers, backend, Float32, (3 * w * h,))
+    return DeviceImages(w, h, a(), a(), a(), a(), a(), a(), buffers)
 end
-free!(x::DeviceImages) = foreach(KA.unsafe_free!, (x.color, x.albedo, x.normal, x.galbedo, x.gnormal, x.output))
+free!(x::DeviceImages) = (foreach(Mantle.free!, x.buffers); empty!(x.buffers); nothing)
 function free!(t::TileBuffers)
-    foreach(KA.unsafe_free!, (t.input, t.output))
-    foreach(KA.unsafe_free!, t.a); foreach(KA.unsafe_free!, t.b)
-    foreach(KA.unsafe_free!, t.pool[2:end])
+    foreach(Mantle.free!,values(t.plans));empty!(t.plans)
+    foreach(Mantle.free!, t.buffers); empty!(t.buffers)
     return nothing
 end
-free!(n::UNet) = foreach(L -> (KA.unsafe_free!(L.Wt); KA.unsafe_free!(L.bias)), values(n.layers))
+free!(n::UNet) = (foreach(Mantle.free!, n.buffers); empty!(n.buffers); nothing)
 free!(::Array) = nothing
-free!(a::AbstractArray) = KA.unsafe_free!(a)   # a device array the workspace holds
+free!(b::Mantle.Buffer) = Mantle.free!(b)   # a device buffer the workspace holds
 
 function deviceimages!(d, w, h)
     img = get(d.workspace, :gpuimages, nothing)
@@ -181,8 +182,13 @@ over a grid of about 16×16-pixel bins, each bin averaged by one thread.
 function deviceinputscale(d, color)
     w, h = size(color)
     nw, nh = cld(w, 16), cld(h, 16)
-    lum = get!(() -> KA.allocate(d.backend, Float32, nw * nh), d.workspace, :binluminance)
-    length(lum) == nw * nh || (lum = d.workspace[:binluminance] = KA.allocate(d.backend, Float32, nw * nh))
+    dev = Mantle.todevice(d.backend)
+    b = get!(() -> Mantle.Buffer(dev, Float32, (nw * nh,)), d.workspace, :binluminance)
+    if length(b) != nw * nh
+        Mantle.free!(b)
+        b = d.workspace[:binluminance] = Mantle.Buffer(dev, Float32, (nw * nh,))
+    end
+    lum = Mantle.storage(b)
     Mantle.kilaunch!(d.backend, binluminance_kernel!, lum, color, Int32(nw), Int32(nh);
                      ndrange = cld(nw * nh, 256) * 256, workgroupsize = 256)
     total = mapreduce(l -> l > 1.0f-8 ? log2(l) : 0.0f0, +, lum)

@@ -60,7 +60,15 @@ struct EmitCtx{G,D}
     # buffer id, filled by `declare!`, read by `gemm!` — which needs the padded
     # extent, while everything downstream reads `res` and sees the real one.
     padded::Dict{String,Any}
+    activations::ActivationPrep{G}
 end
+
+# Preserve the constructor used by kernel tests and handwritten declarations.
+EmitCtx(aten,g,dev,dims,res,esc,outid,owned,padded) =
+    EmitCtx(aten,g,dev,dims,res,esc,outid,owned,padded,ActivationPrep(g;enabled=false))
+
+const SHARE_ACTIVATIONS = Ref(true)
+const FUSE_ACTIVATION_Q8 = Ref(true)
 
 # Host scalar attributes are commonly decoded as Float64, while some GPU
 # targets (Metal in particular) have no Float64 instructions.  Lower only those
@@ -125,6 +133,11 @@ type (there is no copy in between to convert). An output is written into
 `outputs[id]` when the caller names one, and is otherwise a transient of `g`,
 which the caller's own passes declared after this read like any other. The
 result maps every output id to the resource that holds it.
+
+`inputs` may also bind an operation's intermediate result. For a multi-output
+operation, bind its producer id to a tuple of resources (and `nothing` for
+unused results); its ordinary `getitem` views then name those resources without
+copies. Shape and type checks apply to every tuple element before it is bound.
 
 This is what lets one call be one graph: several modules, the caller's passes
 between them and the loop around them are declared into `g`, and Mantle
@@ -197,6 +210,10 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
     dev = g.dev
     emitctx = EmitCtx(aten, g, dev, dims, Dict{String,Any}(), esc, Ref(""), Any[],
                       Dict{String,Any}())
+    # Graph-owned values are SSA: no op rewrites one. A caller-bound result can
+    # alias an input or hold several versions of in-place state, so every write
+    # to bound storage drops the representations prepared from it (below).
+    emitctx.activations.enabled = SHARE_ACTIVATIONS[]
     shapes = resultshapes(aten)
     gateups = Dict{String,Op}()
     if Q8GATEUP[] && !Q8SINGLE[] && before === nothing && after === nothing
@@ -222,7 +239,7 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
         for id in aten.order
             r = get(bound, id, nothing)
             r === nothing ? declare!(emitctx, aten.buffers[id], weights, live, shapes, producers) :
-                            bind!(emitctx, aten.buffers[id], r)
+                            bind!(emitctx, aten.buffers[id], r, shapes)
         end
         # A runner's own work, in this graph rather than beside it. Before the
         # ops, because a pass that fills an input has to be declared before the
@@ -233,8 +250,15 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
         for op in aten.ops
             op.out in skip && continue
             op.id in folded && continue
+            # Reuse only across a consecutive run of pure matrix products.
+            # Every other op is conservatively a version boundary, including
+            # cache updates, aliases and unknown/custom operations.
+            op.aten in ("mm.default","addmm.default") || invalidate_q8!(emitctx.activations)
+            prepared = collect(keys(emitctx.activations.entries))
             emitctx.outid[] = op.out
-            if haskey(gateups, op.id)
+            if emit_mapped_activation!(emitctx,op,weights)
+                # The scalar producer and its Q8 representation are one pass.
+            elseif haskey(gateups, op.id)
                 emitq8gateup!(emitctx, op, gateups[op.id])
             elseif op.aten in NOISEOPS
                 # ZeroNoise is a deterministic fill. RandomNoise gets a small
@@ -246,6 +270,7 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
             else
                 emitop!(emitctx, op, op.tag)
             end
+            invalidate_bound_q8!(emitctx, op, bound, prepared)
         end
     catch
         freeowned!(emitctx)
@@ -274,13 +299,90 @@ function emitinto!(g, aten::Graph, weights::AbstractDict, dims::NamedTuple,
     return emitctx
 end
 
+# An op that writes caller storage may overwrite a prepared activation's source.
+# Only representations prepared before the op are stale: one the op made from
+# its own result (a fused expression and its Q8) describes the new contents.
+function invalidate_bound_q8!(ctx::EmitCtx, op::Op, bound::AbstractDict, prepared)
+    r = get(bound, op.out, nothing)
+    for x in (r isa Tuple ? r : (r,))
+        x === nothing || invalidate_q8!(ctx.activations, x; among = prepared)
+    end
+    nothing
+end
+
+"""Select a dense expression -> Q8 producer by semantics and capabilities.
+
+Only exact, direct matrix readers are accepted. Views/broadcasts, unknown
+readers and prompt GEMMs are left to their ordinary lowerings. The float output
+is still written, so graph outputs and verification remain observable.
+"""
+function emit_mapped_activation!(ctx,op,weights)
+    FUSE_ACTIVATION_Q8[] && ctx.activations.enabled || return false
+    M.caps(ctx.dev).subgroup>=64 || return false
+    b=get(ctx.aten.buffers,op.out,nothing)
+    b===nothing && return false
+    dims=evalshape(b.shape,ctx.dims)
+    length(dims)==2 || return false
+    k,n=dims
+    k>0 && k%QK_K==0 && 0<n<=Q4K_GEMV_FALLBACK || return false
+    inputs=op.ins
+    f = if op.aten=="fused.elementwise"
+        op.attrs["fused"]
+    elseif fusable(ctx.aten,op)
+        ff,ii=recipe(ctx.aten,Op[op]);inputs=ii;ff
+    else
+        return false
+    end
+    isempty(inputs) && return false
+    all(id->evalshape(ctx.aten.buffers[id].shape,ctx.dims)==dims,inputs) || return false
+    readers=[o for o in ctx.aten.ops if op.out in o.ins]
+    isempty(readers) && return false
+    for reader in readers
+        reader.aten=="mm.default" && reader.ins[1]==op.out || return false
+        wb=ctx.aten.buffers[reader.ins[2]]
+        wb.kind===:weight || return false
+        # A caller-bound weight tensor is not in the table and is not packed.
+        a=get(weights,wb.key,nothing)
+        a isa KQuantMatrix && size(a,2)==k || return false
+        n<=Q4K_GEMV_COLUMNS[] ||
+            kqgemm_tile(M.caps(ctx.dev),ctx.aten.buffers[reader.out].dtype,
+                size(a,1),k,q8gemm_columns(n))===nothing || return false
+    end
+    out=dest(ctx)
+    declare_mapped_q8!(ctx.activations,out,out,kernelcallable(ctx,f),
+        Tuple(operand(ctx,id) for id in inputs);name="$(op.id).mapped_q8")
+    true
+end
+
 """
     bind!(emitctx, buffer, resource)
 
 Give a graph buffer the caller's resource instead of storage of its own, after
-checking it is that buffer: same shape, same element type.
+checking it is that buffer: same shape, same element type. Multi-output buffers
+accept a tuple and bind their `id#i` resources, using the same authoritative
+getitem shapes as ordinary tuple allocation.
 """
-function bind!(emitctx::EmitCtx, b::Buffer, r)
+function bind!(emitctx::EmitCtx, b::Buffer, r,
+               result_shapes::Dict{String,Any}=resultshapes(emitctx.aten))
+    if haskey(b.attrs,"shapes")
+        shapes=b.attrs["shapes"];types=b.attrs["dtypes"]
+        r isa Tuple && length(r)==length(shapes)==length(types) || throw(ArgumentError(
+            "emitgraph!: multi-output `$(b.id)` requires a tuple with $(length(shapes)) elements"))
+        # Check the complete binding before installing any of its elements.
+        for (i,(shape,T)) in enumerate(zip(shapes,types))
+            if shape===nothing || T===nothing
+                r[i]===nothing || throw(ArgumentError("emitgraph!: unused result $(b.id)#$(i-1) must be nothing"))
+                continue
+            end
+            want=evalshape(resultshape(result_shapes,"$(b.id)#$(i-1)",shape),emitctx.dims)
+            r[i]!==nothing && size(r[i])==want && eltype(r[i])===T || throw(ArgumentError(
+                "emitgraph!: result $(b.id)#$(i-1) requires $T $want"))
+        end
+        for i in eachindex(r)
+            r[i]===nothing || (emitctx.res["$(b.id)#$(i-1)"]=r[i])
+        end
+        return nothing
+    end
     want = evalshape(b.shape, emitctx.dims)
     size(r) == want || throw(ArgumentError(
         "emitgraph!: `$(b.id)` of $(emitctx.aten.name) is declared $(want) and the " *
@@ -3437,6 +3539,7 @@ end
 function q8gateupmatch(g, mm, sw, weights, dims, esc, bound)
     mm.aten == "mm.default" && length(mm.ins) == 2 || return false
     sw.aten in ("fused.swiglu", "fused.swiglumm") || return false
+    haskey(sw.attrs, "residual") && return false
     wb = g.buffers[mm.ins[2]]
     wb.kind === :weight || return false
     a = weights[wb.key]
@@ -4554,7 +4657,7 @@ plan and the shape, which is what tells the next person which one to port and
 what to check it against.
 """
 function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identity,
-               padded = nothing, smallbatch = true)
+               padded = nothing, smallbatch = true, prepared = nothing)
     dev = emitctx.dev
     caps = M.caps(dev)
     # A backend library with this exact fused epilogue wins before choosing a
@@ -4823,10 +4926,9 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             return out
         end
         if N <= Q4K_GEMV_FALLBACK
-            xq = scratch(emitctx, UVec4, K ÷ 16, N)
-            xds = scratch(emitctx, Float32, K ÷ 16, N)
-            M.dispatch!(emitctx.g, q8act_kernel!, (xq, xds, B, Int32(K), Int32(N * (K ÷ 32))),
-                        N * (K ÷ 32); group = 256, name = "$(op.id).q8act")
+            p = prepared === nothing ? declare_q8!(emitctx.activations,B,B;name="$(op.id).q8act") : prepared
+            (p.k,p.columns)==(K,N) || throw(DimensionMismatch("prepared GEMM activation"))
+            xq,xds = p.q,p.scales
             # A bias that is not one value per row is added after, with the
             # activation, rather than in the GEMV's store.
             inbias = bias !== nothing && biasfoldable(bias, Mm)
@@ -4908,11 +5010,42 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     return out
 end
 
-"""`aten::mm(a, b)`, which in the reversed layout is `b * a`."""
+"""`aten::mm(a, b)`, which in the reversed layout is `b * a`; plus a residual
+of the same extent when `foldresidual` folded the add that read it."""
 function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mm.default")})
     a, b = operand(emitctx, op, 1), operand(emitctx, op, 2)
     out = dest(emitctx)
+    haskey(op.attrs, "residual") &&
+        return residualgemm!(emitctx, op, out, b, a, operand(emitctx, op.ins[3]))
     return gemm!(emitctx, op, out, b, a)
+end
+
+"""
+    residualgemm!(emitctx, op, out, A, B, r; kw...) -> out
+
+`A * B + r` into `out`, all three the same elements (`out` and `r` may be
+reshapes of `A * B`'s extent).
+
+The packed GEMV adds a per-row bias in the lane that stores that row, after
+reading it, so a single-column residual rides in its store even when `out`
+overwrites `r`: a caller's in-place residual stream. Otherwise the residual is
+the product's bias, which a lowering may add after storing the product; when
+`out` overwrites `r` that would read an already overwritten residual, so the
+product goes to scratch first and the residual is added elementwise.
+"""
+function residualgemm!(emitctx::EmitCtx, op::Op, out, A, B, r; kw...)
+    Mm, N = size(A, 1), size(B, 2)
+    od = (Mm, N)
+    o = M.viewof(out, od)
+    if (A isa KQuantMatrix && N == 1) || activationroot(out) !== activationroot(r)
+        gemm!(emitctx, op, o, A, B; bias = M.viewof(r, N == 1 ? (Mm,) : od), kw...)
+        return out
+    end
+    t = scratch(emitctx, eltype(out), Mm, N)
+    gemm!(emitctx, op, t, A, B; kw...)
+    ewdispatch!(emitctx, o, od, (t, M.viewof(r, od)), (bcstrides(od, od), bcstrides(od, od)), +;
+                name = "$(op.id).residual")
+    return out
 end
 
 """
@@ -4929,16 +5062,35 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("fused.swiglumm")})
     out = dest(emitctx)
     H = op.attrs["dtype"]
     K = size(A, 2)
+    residual = haskey(op.attrs, "residual") ? operand(emitctx, op.ins[4]) : nothing
+    # The folded add's result may be a reshape of the product's extent.
+    residual === nothing || (out = M.viewof(out, (size(A, 1), length(out) ÷ size(A, 1))))
+    product!(W, B; kw...) = residual === nothing ? gemm!(emitctx, op, out, W, B; kw...) :
+                                                residualgemm!(emitctx, op, out, W, B, residual; kw...)
     if A isa ConvRotQInt8Matrix
         halves = swigluhalves(emitctx, op, H, K)
         if halves !== nothing
             B, padded = convrotinput(emitctx, op, M.caps(emitctx.dev), out, A, halves, nothing)
-            return gemm!(emitctx, op, out, QInt8Matrix(A.q, A.scale, A.m), B; padded)
+            return product!(QInt8Matrix(A.q, A.scale, A.m), B; padded)
         end
     end
     h = scratch(emitctx, H, evalshape(emitctx.aten.buffers[op.ins[1]].shape, emitctx.dims)...)
+    # Capability/shape selection only. Large prompts retain cooperative GEMM;
+    # unsupported layouts retain the existing strided SwiGLU path.
+    n=length(h)÷K
+    if FUSE_ACTIVATION_Q8[] && A isa KQuantMatrix &&
+       M.caps(emitctx.dev).subgroup>=64 && n<=Q4K_GEMV_FALLBACK &&
+       (n<=Q4K_GEMV_COLUMNS[] || kqgemm_tile(M.caps(emitctx.dev),eltype(out),size(A,1),K,q8gemm_columns(n))===nothing)
+        gate,up=operand(emitctx,op.ins[1]),operand(emitctx,op.ins[2])
+        if size(gate)==size(up)==size(h) && K%QK_K==0
+            hv=M.viewof(h,(K,n))
+            p=declare_mapped_q8!(emitctx.activations,hv,hv,SwiGLUMap{H}(),
+                (M.viewof(gate,(K,n)),M.viewof(up,(K,n)));name="$(op.id).swiglu_q8")
+            return product!(A,hv;prepared=p)
+        end
+    end
     swiglu!(emitctx, op, h; name = "$(op.id).swiglu")
-    return gemm!(emitctx, op, out, A, M.viewof(h, (K, length(h) ÷ K)))
+    return product!(A, M.viewof(h, (K, length(h) ÷ K)))
 end
 
 """

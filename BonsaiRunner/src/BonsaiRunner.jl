@@ -247,6 +247,13 @@ struct PrefillExec
     plans::Vector{Any}
 end
 
+function _freeprefill(p::PrefillExec)
+    foreach(Mantle.free!,p.plans)
+    Mantle.free!(p.tokens)
+    Mantle.free!(p.position)
+    nothing
+end
+
 """Quantized K/V storage for one full-attention layer."""
 mutable struct Q8KVCache{A,S}
     k::A
@@ -304,7 +311,12 @@ function session(model::Bonsai2; kv_page::Integer=4096)
                       Mantle.GPURef(dev, Int32(0)),
                       Mantle.GPURef(dev, Int32(0)), nothing, Int(kv_page),
                       Dict{Int,Any}())
-    s.plan, s.scratch = _recordstep(s, dev)
+    try
+        s.plan, s.scratch = _recordstep(s, dev)
+    catch
+        close(s)
+        rethrow()
+    end
     s
 end
 
@@ -385,7 +397,7 @@ function _ensure_kv!(s::BonsaiSession, needed::Integer)
     s.plan, s.scratch = _recordstep(s, Mantle.Device(s.model.backend))
     Mantle.free!(oldplan)
     for p in values(s.prefills)
-        foreach(Mantle.free!, p.plans)
+        _freeprefill(p)
     end
     empty!(s.prefills)
     s
@@ -409,9 +421,10 @@ The model is untouched: closing is per session, and another session can be
 opened on the same weights immediately.
 """
 function Base.close(s::BonsaiSession)
-    Mantle.free!(s.plan)
+    s.plan === nothing || Mantle.free!(s.plan)
+    s.plan = nothing
     for p in values(s.prefills)
-        foreach(Mantle.free!, p.plans)
+        _freeprefill(p)
     end
     empty!(s.prefills)
     for c in values(s.kv)
@@ -470,9 +483,12 @@ function _ptq!(s::BonsaiSession, g, out, name::String, transformed,
             (out, A.data, transformed, Val(M), Val(N), Val(K)),
             blocks * DNNKernels.PTQ1_COOP_WG;
             group=DNNKernels.PTQ1_COOP_WG, name)
-    elseif N == 1
+    elseif N == 1 && eltype(transformed) === Float32
         DNNKernels.ptq1_rows!(g, out, A, transformed; name)
     else
+        # Single-token prefill stores its transformed input in Float16 too.
+        # The decode kernel reinterprets float4, so only the column kernel may
+        # consume that input; passing it to decode read beyond its extent.
         # From PTQ1_GEMM_COLS columns, the device's GEMM over a Float16 expansion
         # takes the multiples of 32; the rest go a few columns at a time, sharing
         # each decoded weight. The expansion and one pass over it are ~1.3 s a
@@ -622,7 +638,7 @@ function Base.getindex(q::GraphScratch, k::Symbol)
         # The Hadamard-transformed activations feed fp16 cooperative matrices.
         # Storing them in that precision removes a separate cast before every
         # projection and has the same rounding point as the old cast.
-        Mantle.Transient.Buffer(q.g, k in q.half ? Float16 : Float32, (n,))
+        _transient(q.g, k in q.half ? Float16 : Float32, (n,))
     end
 end
 
@@ -681,10 +697,10 @@ function _dense_batch!(s::BonsaiSession, g, out, weight, x, K::Int, M::Int,
     # Float64 reference (4.5e-7 against 2.4e-6).
     if ntokens >= 8 && Mantle.native_gemm_available(g.dev, Float32, Float32, eltype(out)) &&
        eltype(x) === Float32
-        W = Mantle.Transient.Buffer(g, Float32, (M, K))
+        W = _transient(g, Float32, (M, K))
         _dispatch!(g, weight_transpose_kernel!, (W, weight, Int32(K), Int32(M)), K * M;
                    group=256, name=name * ".expand")
-        fused = Mantle.native_gemm_dispatch!(g.dev, g, Mantle.viewof(out, (M, ntokens)), W,
+        fused = _native_gemm!(g, Mantle.viewof(out, (M, ntokens)), W,
                                              Mantle.viewof(x, (K, ntokens)); name)
         fused === nothing && error(
             "_dense_batch!: `native_gemm_available` admitted Float32 on $(typeof(g.dev)) " *
@@ -709,7 +725,7 @@ function _dense_coop_batch!(g, out, weight, xhalf,
                             K::Int, M::Int, ntokens::Int, name::String)
     # A 32-wide block cannot cover a 16-token prompt.
     block = M % 32 == 0 && ntokens % 32 == 0 ? 2 : 1
-    Mantle.coopmat_gemm_dispatch!(g, out, weight, xhalf, M, ntokens, K;
+    _coop_gemm!(g, out, weight, xhalf, M, ntokens, K;
                                   name, blk_split=(block, 1))
     out
 end
@@ -866,18 +882,22 @@ const PTQ1_GEMM_COLS = 64
 # submission budget), and the graph stays one: splitting it into sixteen graphs
 # of four layers worked for the submission length and cost everything else,
 # because Mantle derives liveness, placement, aliasing and barriers per graph.
-function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false)
+function _recordprefill(s::BonsaiSession, ntokens::Int; profile::Bool=false, semantic::Bool=true)
     dev = Mantle.Device(s.model.backend)
     tokens = Mantle.Buffer(dev, zeros(Int32, ntokens))
     position = Mantle.GPURef(dev, Int32(0))
-    # ONE graph, all 64 layers, so the placer sees the whole working set.
-    g = Mantle.Graph(dev)
-    q = _batchscratch(g, s.logits, ntokens)
-    _declareprefill_stage!(s, g, q, tokens, position, ntokens, 0:NLAYERS-1;
-                           initialize=true, finalize=true)
-    plan = Mantle.Plan(g; profile)
-    Mantle.record!(plan)
-    PrefillExec(tokens, position, q, Any[plan])
+    try
+        # ONE graph, all 64 layers, so the placer sees the whole working set.
+        g = semantic ? _neuralgraph(s,dev) : Mantle.Graph(dev)
+        q = _batchscratch(g, s.logits, ntokens)
+        _declareprefill_stage!(s, g, q, tokens, position, ntokens, 0:NLAYERS-1;
+                               initialize=true, finalize=true)
+        plan = _recordneural(g;profile)
+        PrefillExec(tokens, position, q, Any[plan])
+    catch
+        Mantle.free!(tokens);Mantle.free!(position)
+        rethrow()
+    end
 end
 
 # One layer boundary of the decode step: `xout = xin + branch`, its RMS norm into
@@ -921,11 +941,11 @@ function _declarestep!(s::BonsaiSession, g, q)
     q[:logits]
 end
 
-function _recordstep(s::BonsaiSession, dev)
-    g = Mantle.Graph(dev)
+function _recordstep(s::BonsaiSession, dev; semantic::Bool=true)
+    g = semantic ? _neuralgraph(s,dev) : Mantle.Graph(dev)
     q = _stepscratch(g, s.logits, kv_capacity(s))
     _declarestep!(s, g, q)
-    (Mantle.record!(Mantle.Plan(g)), q)
+    (_recordneural(g), q)
 end
 
 """
@@ -1019,5 +1039,7 @@ function generate(s::BonsaiSession, prompt::AbstractString; max_tokens::Integer=
     generated = generate(s, ids; max_tokens, kwargs...)
     decode(s.model.tokenizer, generated)
 end
+
+include("graph.jl")
 
 end # module

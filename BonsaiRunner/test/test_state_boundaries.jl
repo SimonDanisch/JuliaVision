@@ -52,6 +52,10 @@ import Mantle
             want[c,t] = y / (1f0 + exp(-y))
             state[:,c] = [state[2,c], state[3,c], x[c,t]]
         end
+        # Every chunking against one-token steps BITWISE: the batched kernel is
+        # a prompt chunk of the decode kernel, and its SiLU once rounded an ulp
+        # apart on Metal (`y / d` against the decode kernel's `y * (1 / d)`).
+        outputs = Dict{Any,Matrix{Float32}}()
         for lengths in ((65,), (1,2,3,1,8,16,32,2), ntuple(_->1,nt))
             s, weight = Mantle.Buffer(dev, initial), Mantle.Buffer(dev, w)
             got = zeros(Float32, channels, nt)
@@ -72,8 +76,12 @@ import Mantle
             end
             @test got ≈ want rtol=2e-6 atol=2e-7
             @test Array(s) == state
+            outputs[lengths] = got
             foreach(Mantle.free!, (s,weight))
         end
+        sequential = reinterpret(UInt32, outputs[ntuple(_->1,nt)])
+        @test reinterpret(UInt32, outputs[(65,)]) == sequential
+        @test reinterpret(UInt32, outputs[(1,2,3,1,8,16,32,2)]) == sequential
     end
 
     @testset "DeltaNet continuation and restored state" begin

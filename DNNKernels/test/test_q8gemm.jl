@@ -62,7 +62,10 @@ end
         DNNKernels.q8gemm!(c16,a,b16;tiling=tile16,bias)
         @test maximum(abs,Float32.(Array(c16)).-Float32.(reference[:,1:16])) <=
               0.002maximum(abs,Float32.(reference[:,1:16]))
-        @test DNNKernels.q8gemm_tiling(DNNKernels.caps(KernelAbstractions.CPU()),a,b,c) === nothing
+        # A device without matrix units gets no tiling.
+        plain=DNNKernels.KI.DeviceCaps(DNNKernels.caps(backend);coopmat=false,
+            shapes=DNNKernels.KI.MatrixShape[])
+        @test DNNKernels.q8gemm_tiling(plain,a,b,c) === nothing
         # `Mantle.storage(b)`: `toback` hands back the pool region, and these two
         # want a badly-shaped ARRAY operand to check the refusals with. `view`
         # is deliberately not defined on a `Buffer` — Mantle already means
@@ -77,7 +80,12 @@ end
 
 @testset "pipelined int8 GEMM for wide products" begin
     backend = Mantle.defaultbackend()
-    dev = DNNKernels.caps(backend)
+    # The selection rule, under the capabilities it requires: 32-lane 16x16
+    # cooperative matrices. Derived from this device, so the budgets are real.
+    host = DNNKernels.caps(backend)
+    dev = DNNKernels.KI.DeviceCaps(host; coopmat = true, coopmatsubgroup = 32, tile = 16,
+                                   workgrouplimit = max(host.workgrouplimit, 256),
+                                   sharedbudget = max(host.sharedbudget, 32768))
     # Which products take it: wide ones, measured at Qwen-Image 2.1's four.
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == (2, 4, 2, 2, 32)
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 12288, 4096, 4224) == (2, 4, 2, 2, 32)
@@ -88,7 +96,7 @@ end
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4118) === nothing
     @test DNNKernels.q8gemm_pipelined_tile(dev, Int8, 4096, 4096, 4224) === nothing
 
-    if dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16
+    if host.coopmat && host.coopmatsubgroup == 32 && host.tile == 16
         rng = MersenneTwister(19)
         # Both tiles, and a k deep enough to run the prefetch through many blocks.
         for (m, k, n) in ((256, 512, 1024), (256, 1024, 1024))
@@ -100,7 +108,7 @@ end
             bh = Float16.(randn(rng, Float32, k, n))
             biash = randn(rng, Float32, m)
             exact = scale .* (qf * Float32.(bh)) .+ biash
-            cfg = DNNKernels.q8gemm_pipelined_tile(dev, Float16, m, k, n)
+            cfg = DNNKernels.q8gemm_pipelined_tile(host, Float16, m, k, n)
             @test cfg !== nothing
             b = DNNKernels.toback(backend, bh)
             bias = DNNKernels.toback(backend, biash)
