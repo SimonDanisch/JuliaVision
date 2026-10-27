@@ -142,15 +142,56 @@ function declare_mtp!(g,s::Session,kv,tokens,hidden,positions,n;out=nothing,name
     norm!(out,xr,"mtp.norm.weight",1,"norm")
 end
 
-"""DECLARE the output head over the MTP state `state` (w, 1) and its argmax into
-`slot`, a one-token view."""
+"""Restrict the MTP layer's drafts to the tokens `ids` (0-based): their rows of
+the output head, gathered as they are quantized, are all a draft reads, a
+fraction of the trunk's 417 MB head (frequency-ranked drafting, FR-Spec, Zhao
+et al. 2025). A token outside them is never drafted; the verify reads the whole
+head, so the output is unchanged. A second call replaces the first's."""
+function draftvocabulary!(m::Model,ids)
+    vocab=Int(m.config.vocab_size)
+    !isempty(ids)&&allunique(ids)&&all(t->0<=t<vocab,ids) || throw(ArgumentError("draft tokens must be distinct token ids"))
+    head=gatherrows(m.device,m.weights["lm_head"],Int.(ids).+1)
+    lookup=Mantle.Buffer(m.device,Int32.(ids))
+    if haskey(m.weights,"mtp.draft_head")
+        old=Any[DK.kqarrays(m.weights["mtp.draft_head"])...,m.weights["mtp.draft_ids"]]
+        filter!(b->!any(o->o===b,old),m.owned);foreach(Mantle.free!,old)
+    end
+    append!(m.owned,DK.kqarrays(head));push!(m.owned,lookup)
+    m.weights["mtp.draft_head"]=head;m.weights["mtp.draft_ids"]=lookup
+    m
+end
+
+# Rows of a K-quant matrix: each array holds a row's blocks back to back.
+function gatherrows(dev,A::DK.KQuantMatrix,rows)
+    m=size(A,1)
+    arrays=map(DK.kqarrays(A)) do x
+        host=Array(x);g=reshape(host,length(host)÷m,m)[:,rows]
+        Mantle.Buffer(dev,ndims(x)==1 ? vec(g) : g)
+    end
+    kqmatrix(A,arrays,length(rows))
+end
+kqmatrix(A::DK.Q6KMatrix,arrays,m)=DK.Q6KMatrix(arrays...,m,A.k)
+kqmatrix(A::DK.Q4KMatrix,arrays,m)=DK.Q4KMatrix(arrays...,m,A.k)
+
+function draft_token!(slot,ids,index)
+    Q.KI.get_global_id().x==1 && (@inbounds slot[1]=ids[index[1]+Int32(1)])
+    nothing
+end
+DK.kernelresults(::typeof(draft_token!))=(1,)
+
+"""DECLARE the output head over the MTP state `state` (w, 1), the draft
+vocabulary's rows if the model has one, and its argmax into `slot`, a one-token
+view."""
 function declare_draft!(g,s::Session,slot,state;name)
-    m=s.inner.model
-    logits=Mantle.Transient.Buffer(g,Float32,(Int(m.config.vocab_size),1))
-    Q.linear_batch!(g,logits,m.weights["lm_head"],state,1;name="$name.lm_head")
+    m=s.inner.model;restricted=haskey(m.weights,"mtp.draft_head")
+    head=m.weights[restricted ? "mtp.draft_head" : "lm_head"]
+    logits=Mantle.Transient.Buffer(g,Float32,(size(head,1),1))
+    Q.linear_batch!(g,logits,head,state,1;name="$name.head")
+    best=restricted ? Mantle.Transient.Buffer(g,Int32,(1,)) : slot
     pv=Mantle.Transient.Buffer(g,Float32,(BR.ARGMAX_PARTS,));pidx=Mantle.Transient.Buffer(g,Int32,(BR.ARGMAX_PARTS,))
     Q.dispatch(g,BR.argmax_partial_kernel!,(pv,pidx,logits,Int32(length(logits))),BR.ARGMAX_PARTS*256;group=256,name="$name.argmax_parts")
-    Q.dispatch(g,BR.argmax_final_kernel!,(slot,pv,pidx),256;group=256,name="$name.argmax")
+    Q.dispatch(g,BR.argmax_final_kernel!,(best,pv,pidx),256;group=256,name="$name.argmax")
+    restricted && Q.dispatch(g,draft_token!,(slot,m.weights["mtp.draft_ids"],best),1;group=1,name="$name.token")
 end
 
 """Speculative decoding with drafts from the MTP layer (`loadmtp!`): rounds of
