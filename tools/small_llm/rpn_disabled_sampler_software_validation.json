@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "scope": "SOFTWARE-Vulkan disabled grammar exact equality versus ordinary sampler over32 stochastic draws; not full-model or Radeon qualification",
+    "passed": 320,
+    "source_sha256": {
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "test_rpn_disabled_sampler_identity.jl": "838f5624c3f827a3f98bfedb95eea60394847059134ed0a132810ece3a96b4a5",
+        "rpn_prefix_grammar_gpu.jl": "bd539802b15a40107e0ece10b725c0aef9b2361dd37e03d4abd6bcf8a0d1ce81"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "scope": "CPU-only corrected NEW prompt, not deployed or used in frozen original; future reuse of tasks must be posthoc development",
+    "passed": 49,
+    "source_sha256": {
+        "rpn_stencil_tasks.jl": "f52e27ef6734e8b5b684d0ae764502ad8fb8e008058727754be1e41f141f6930",
+        "test_rpn_stencil_contract_v2.jl": "35c42a7cc6ce57eb7cb27512f71191dd1ac68efd8c029c3c84132e9b43b343a7",
+        "rpn_stencil_contract_v2.jl": "71b05e7a29ca9d2c7a3604412552319270d248d4fed5348131ea74b239e82b8a"
+    }
+}

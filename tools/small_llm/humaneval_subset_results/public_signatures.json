@@ -1,0 +1,66 @@
+{
+    "scope": "public docstring-to-isolated-JET input metadata only",
+    "passed": true,
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "name": "unique_elements",
+            "types": "[Tuple{Vector}]"
+        },
+        {
+            "task": "039_prime_fib",
+            "name": "prime_fib",
+            "types": "[Tuple{Int}]"
+        },
+        {
+            "task": "106_f",
+            "name": "f",
+            "types": "[Tuple{Int}]"
+        },
+        {
+            "task": "162_string_to_md5",
+            "name": "string_to_md5",
+            "types": "[Tuple{String}]"
+        },
+        {
+            "task": "104_unique_digits",
+            "name": "unique_digits",
+            "types": "[Tuple{Vector{Int}}]"
+        },
+        {
+            "task": "074_total_match",
+            "name": "total_match",
+            "types": "[Tuple{Vector{String},Vector{String}}]"
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "name": "palindrome_with_append",
+            "types": "[Tuple{String}]"
+        },
+        {
+            "task": "037_sort_even",
+            "name": "sort_even",
+            "types": "[Tuple{Vector}]"
+        },
+        {
+            "task": "146_specialFilter",
+            "name": "specialFilter",
+            "types": "[Tuple{Vector{Int}}]"
+        },
+        {
+            "task": "048_is_palindrome",
+            "name": "is_palindrome",
+            "types": "[Tuple{String}]"
+        },
+        {
+            "task": "110_exchange",
+            "name": "exchange",
+            "types": "[Tuple{Vector{Int},Vector{Int}}]"
+        },
+        {
+            "task": "077_iscube",
+            "name": "iscube",
+            "types": "[Tuple{Int}]"
+        }
+    ]
+}

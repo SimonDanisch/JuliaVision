@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "PRIVATE trusted-reference grader fixtures ONLY, not neural quality",
+    "passed": 13,
+    "source_sha256": {
+        "compiler_transfer2_benchmark.jl": "e946941a53234d82a42dfd0d0262ac540a97b0c70299a4211857b1e2f79d5df6",
+        "test_compiler_transfer2_scoring.jl": "05beeb8d23ed6d963573e1acaab99472864a4f76fdef2d26a032e176b9546bdd"
+    }
+}

@@ -1,0 +1,65 @@
+{
+    "scope": "prospective authored validation after four-task development; not independent public/held-out/frontier evidence",
+    "design": "paired no-addon vs installed API pack; raw and uniformly compiler-transformed scores from SAME outputs",
+    "policy": "one attempt per task/arm; fixed seed; counterbalanced arm order; no retries, best-of selection or hidden feedback",
+    "execution": "sandboxed software Vulkan, not Radeon performance or formal correctness",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 2048,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "qualification_sha256": "f3b6e35aec7dc2f417879e96a99057c620f20ca379aad4a3f03c2eba1582db59",
+    "api_pack_sha256": "f873054bbe4962b668588c68b9647c695244bf195ddc69a71cc1c2d662c0bd17",
+    "tasks": [
+        {
+            "id": "transfer_clamped_gather",
+            "prompt_sha256": "0013abda235b5414838dd52a47917bd42f47bca13020042a5c8f7f6c43c8f41e",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "4569982705962b29b1fbd4f9dc4f03e48394e748e0e7317af83895e2b3a4764e"
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "prompt_sha256": "81325585fdde56b12d20603cf2a689b6e24e52b2504c191fc93a69db5199e756",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "0c460a62dcb1736c90206b0ca482a21f74ad1020eb5543854798f1688743d837"
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "prompt_sha256": "ec8f6c2badcea6042e84b09f5d98a16d2e91fa3c5bbd747dd5bd4b34708c3792",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "ee1449bb042d0c852294de3fa118538282a9d35c5ecb00748357ff3035a2b090"
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "prompt_sha256": "28196199163dbd4ae67eb5eba824ee29dbf5c0ef5723dbcadf88a536ac688a08",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "ae5dc594a7195256a13f8da79f7f12cefd2684e688fcf8cbacee142cc432d72e"
+        }
+    ],
+    "source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "pointwise_kernel_lowering.jl": "a987b19cb1f00220859dc09ad3cbbb46913023144a5d6eccdf9beb626a2adbc2",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "qwen_weight_cache.jl": "f4959ba9735321dcc6847fca35a2abbd4c20fadd417651f067ce56d4e78e4b3d",
+        "checked_pointwise_lowering.jl": "74de4fbceada7c352159edcc1ff76391f488cf3c15ea88a883845863995c53d5",
+        "sampled_julia.jl": "b6872f2bda4dabdda4eed34ac3cc02d58a4d28b2f66f7108d4342acc0e4787e0",
+        "kernel_transfer_benchmark.jl": "932b9f213f82415116ea8bc5b538526d820e2e0f5dfac58c6c0a989b1745e7d3",
+        "capture_kernel_api_pack.jl": "2fc8340cbccf913bc41bf71b9df6c599f7a5720b64fbe141a4d845073b14721f",
+        "vulkan_kernel_benchmark.jl": "ade73e53e385f3d25f5594760d7fbbfc3e16f3d90d775b5e42e0937b67b820bb",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "kernel_transfer_tasks.jl": "ce2f5eb1238f9d7828b5d2eff7e135d59a19476d984225fff4597bc0f5103ae4",
+        "vulkan_kernel_tasks.jl": "961c5c69317bfbd4cbcda97fba99f14611c27c793428affc820471bd578c823a",
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "run_humaneval_subset.jl": "322a15989dd91749118d9f224fc886ae2dcf17c3b8be50dcb9c554cfd600eb08",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0"
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "complete": true,
+    "study_checks": 10,
+    "reference_checks": 65,
+    "json_parser_checks": 27,
+    "julia_frontend_checks": 17,
+    "reference_pixel_parity": true,
+    "run_receipts": [
+        "r1146",
+        "r1181",
+        "r1199",
+        "r1201",
+        "r1203"
+    ],
+    "scope": "Host/reference/mock registration+grading only; NOT model plot quality",
+    "sources": {
+        "safe_plot_julia_source.jl": "d20da3d8c2681a5e7c01845ae157c318eacf970d09b898003922764fa9ab5e92",
+        "test_plot_interface_study.jl": "bf5ac72633d4cb73838f4a3b72f2cccd376ed56bfde303ad615d127ed2aede97",
+        "score_plot_interface.jl": "30a28c2ca820efa797c957af750d59fbf8a1babdbeffc717bf509e204a3f0f74",
+        "plot_interface_study.jl": "1a026cb8a5a21d4df10ac730eea1c08fcff38e6086065d24ddf2aefbdac2a13b",
+        "plot_interface_deploy.jl": "e3160f8dfd07999d42c384d9a83b497eb52983469533273bae752c02247df1f5",
+        "plot_interface_admission.jl": "27a53ff73e5a697a1b3f53f3db5967660e326d5c7ecd29d6072764747079cce3",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec"
+    }
+}

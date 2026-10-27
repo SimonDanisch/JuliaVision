@@ -1,0 +1,116 @@
+{
+    "complete": true,
+    "semantic_checks": 11,
+    "render": {
+        "rendered": true,
+        "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/safe_plot_builder_artifacts/reference.png",
+        "dimensions": {
+            "width": 960,
+            "height": 480
+        },
+        "elapsed_seconds": 47.01182198524475,
+        "sha256": "4704c81899b878d63b776fb062e30238feb146c91ef2662a038045c0f8800948",
+        "layout": {
+            "canvas": [
+                960,
+                480
+            ],
+            "axes": [
+                {
+                    "title": "Signal and envelope",
+                    "decorated_bounds": [
+                        16,
+                        16,
+                        467.0931,
+                        464
+                    ],
+                    "within_canvas": true
+                },
+                {
+                    "title": "Positive response",
+                    "decorated_bounds": [
+                        485.09308,
+                        16.0,
+                        944.0,
+                        464.0
+                    ],
+                    "within_canvas": true
+                }
+            ]
+        },
+        "diagnostic": "LAYOUT_REPORT={\"canvas\":[960,480],\"axes\":[{\"title\":\"Signal and envelope\",\"decorated_bounds\":[16.0,16.0,467.0931,464.0],\"within_canvas\":true},{\"title\":\"Positive response\",\"decorated_bounds\":[485.09308,16.0,944.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+    },
+    "semantic": {
+        "id": "safe_plot_builder_reference",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 3.5735881328582764,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   11     11  1.2s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "7ab16e1348675a8c317dc4ec5bd5935f63854f524807966ed1fff700436b6349"
+    },
+    "scope": "Trusted declarative Makie builder CPU-only semantic/reference-render qualification, NOT neural answer quality, arbitrary Julia admission or an aesthetic score",
+    "public_reference_spec": {
+        "size": [
+            960,
+            480
+        ],
+        "legend": true,
+        "linkx": true,
+        "axes": [
+            {
+                "title": "Signal and envelope",
+                "xlabel": "Time",
+                "ylabel": "Amplitude",
+                "xscale": "linear",
+                "yscale": "linear",
+                "legend_position": "rt"
+            },
+            {
+                "title": "Positive response",
+                "xlabel": "Time",
+                "ylabel": "Response (log scale)",
+                "xscale": "linear",
+                "yscale": "log10",
+                "legend_position": "lt"
+            }
+        ],
+        "series": [
+            {
+                "kind": "band",
+                "axis": 1,
+                "x": "x",
+                "low": "lo",
+                "high": "hi",
+                "label": "Envelope",
+                "color": "blue"
+            },
+            {
+                "kind": "line",
+                "axis": 1,
+                "x": "x",
+                "y": "a",
+                "label": "Signal",
+                "color": "blue"
+            },
+            {
+                "kind": "scatter",
+                "axis": 2,
+                "x": "x",
+                "y": "b",
+                "label": "Response",
+                "color": "orange"
+            }
+        ]
+    },
+    "sources": {
+        "qualify_safe_plot_builder.jl": "6cdbb4c111029a8bb369632a0786b5de1c7598bf792064d450647b69c23fc59d",
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "safe_plot_builder.jl": "1e099b935c08b9c644c42281717430d802313286c2a2ffc8c9748731e6dc1e09",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec",
+        "julia_render.jl": "20350157de8962bd192ac87cde0550482da7894563799042c43003d8543207f9"
+    }
+}

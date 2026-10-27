@@ -1,0 +1,79 @@
+{
+    "scope": "POSTHOC prompt-format development ablation on same four now-used authored tasks; NOT prospective transfer or new model-only intelligence evidence",
+    "policy": "One unchanged attempt per task. Same frozen compiler, API source context, arithmetic specs, seed, total/thinking budget. Strong system/final scalar-output contract only; no hidden feedback, arithmetic examples, retries or compiler changes. Original failed results retained.",
+    "rows": [
+        {
+            "id": "transfer2_backward_gradient_scalar_format",
+            "task": "transfer2_backward_gradient",
+            "arm": "scalar_program",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "only local assignments and output store admitted"
+        },
+        {
+            "id": "transfer2_weighted_forward_drop_scalar_format",
+            "task": "transfer2_weighted_forward_drop",
+            "arm": "scalar_program",
+            "status": "passed",
+            "stage": "execution",
+            "truncated": false,
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "shared_indexed_interpolation",
+                "adapter": "POSTHOC pure scalar locals plus final value, checked by unchanged typed pointwise lowerer; no arithmetic repair",
+                "global_x_alias_substitutions": 0,
+                "index_alias_proof": "Wrapper i is exactly KI.get_global_id().x for this one-dimensional guarded invocation. Preserve Int32 casts; no arithmetic or unknown API repair."
+            },
+            "generation_sha256": "f42be48ddd2d2d3bd06bc50486b66502a2e118eba801a797e4f825b116d5c52f"
+        },
+        {
+            "id": "transfer2_column_difference_squares_scalar_format",
+            "task": "transfer2_column_difference_squares",
+            "arm": "scalar_program",
+            "status": "passed",
+            "stage": "execution",
+            "truncated": false,
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "rows * cols",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "shared_column_bias_clip",
+                "adapter": "POSTHOC pure scalar locals plus final value, checked by unchanged typed pointwise lowerer; no arithmetic repair",
+                "global_x_alias_substitutions": 0,
+                "index_alias_proof": "Wrapper i is exactly KI.get_global_id().x for this one-dimensional guarded invocation. Preserve Int32 casts; no arithmetic or unknown API repair."
+            },
+            "generation_sha256": "3195d528721167ee7b675c10c16f535ad620870e646a48069840b63a27c5b92a"
+        },
+        {
+            "id": "transfer2_block_left_rotate_scalar_format",
+            "task": "transfer2_block_left_rotate",
+            "arm": "scalar_program",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "unknown/impure expression or loop-carried dependency"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "75a9539cb2df756af2b9941a7445f4e27f881c1ccedc98973f0c6057871fbd0c",
+    "scorer_sha256": "e946941a53234d82a42dfd0d0262ac540a97b0c70299a4211857b1e2f79d5df6"
+}

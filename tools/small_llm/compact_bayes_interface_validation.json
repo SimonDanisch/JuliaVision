@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 33,
+    "scope": "Public interface/input validation only, no model-quality improvement",
+    "source_sha256": {
+        "compact_bayes_admission.jl": "165a488702d6eaad4f92acfd3dc3fc885114d41c38cf6ca2869473c1ff677473",
+        "compact_bayes_tasks.jl": "f27445d0ffc93a0bb9eedcfd5e88b5750116836c462d20d2595ce0cac7658100",
+        "test_compact_bayes_interface.jl": "24890bb5b7311bd7ea4032aa3cb7ff1f58ba2ee37c85443c483d531e50efd560"
+    }
+}

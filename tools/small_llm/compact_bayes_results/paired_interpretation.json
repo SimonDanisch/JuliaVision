@@ -1,0 +1,164 @@
+{
+    "complete": true,
+    "tasks": [
+        "bayes_extract_01",
+        "bayes_extract_02",
+        "bayes_extract_03",
+        "bayes_extract_04",
+        "bayes_extract_05",
+        "bayes_extract_06",
+        "bayes_extract_07",
+        "bayes_extract_08"
+    ],
+    "relative_to_full_schema": {
+        "total": 8,
+        "repairs": 0,
+        "regressions": 0,
+        "discordant": 0,
+        "unchanged_correct": 0,
+        "unchanged_incorrect": 8,
+        "before": {
+            "successes": 0,
+            "total": 8,
+            "estimate": 0,
+            "lower": 0,
+            "upper": 0.32440756488388023
+        },
+        "after": {
+            "successes": 0,
+            "total": 8,
+            "estimate": 0,
+            "lower": 0,
+            "upper": 0.32440756488388023
+        },
+        "exact_two_sided_discordance_p": 1,
+        "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+    },
+    "scope": "POSTHOC same8 fictional problems. Changed public interface/prompt/output lengths, original sampler/model; not independent transfer, equal compute or isolated model-weight improvement.",
+    "incremental_generation_costs": {
+        "complete": true,
+        "rows": [
+            {
+                "id": "bayes_extract_01_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 409,
+                "generated_tokens": 32,
+                "decode_steps": 64,
+                "decode_submissions": 64,
+                "generation_timer_seconds": 13.951066017150879,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_02_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 403,
+                "generated_tokens": 128,
+                "decode_steps": 192,
+                "decode_submissions": 192,
+                "generation_timer_seconds": 16.713297128677368,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_03_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 439,
+                "generated_tokens": 45,
+                "decode_steps": 64,
+                "decode_submissions": 64,
+                "generation_timer_seconds": 14.847908020019531,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_04_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 439,
+                "generated_tokens": 45,
+                "decode_steps": 64,
+                "decode_submissions": 64,
+                "generation_timer_seconds": 14.903595924377441,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_05_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 457,
+                "generated_tokens": 138,
+                "decode_steps": 192,
+                "decode_submissions": 192,
+                "generation_timer_seconds": 15.63827109336853,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_06_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 450,
+                "generated_tokens": 116,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 14.653347969055176,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_07_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 457,
+                "generated_tokens": 1024,
+                "decode_steps": 1024,
+                "decode_submissions": 1024,
+                "generation_timer_seconds": 28.937598943710327,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_08_compact_network",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 425,
+                "generated_tokens": 1024,
+                "decode_steps": 1024,
+                "decode_submissions": 1024,
+                "generation_timer_seconds": 29.03260612487793,
+                "truncated": true
+            }
+        ],
+        "arms": [
+            {
+                "arm": "compact_network",
+                "label": "compact_network",
+                "tasks": 8,
+                "passed": 0,
+                "cost_known": 8,
+                "cost_missing": 0,
+                "input_tokens": 3479,
+                "generated_tokens": 2552,
+                "decode_steps": 2752,
+                "decode_submissions": 2752,
+                "generation_timer_seconds": 148.67769122123718,
+                "truncated": 2,
+                "timed_seconds_per_pass": null
+            }
+        ],
+        "scope": "Descriptive incremental generation costs for exactly the registered jobs; not a pooled intelligence score, throughput benchmark or causal speed comparison.",
+        "timer": "Existing generation timer includes prompt processing, decode and graph/JIT work after session creation; excludes model loading, session creation, worker startup/retirement, sandbox tests and external solvers. Token rate must NOT be reported as steady-state decode throughput.",
+        "baseline_cost": "Revision arms exclude the shared original answer-generation cost; these are incremental costs, NOT end-to-end workflow costs. Missing error costs remain unknown, never zero."
+    },
+    "solver_seconds": 0,
+    "primary_summary_sha256": "efb5017396ae36856445d8d1cb53141e2765251b5c043fcf59bb9332d4379b9e",
+    "baseline_summary_sha256": "995853ffda021a0b9bea688d71d1fb2c3320285a4edda7a1f3dbd1e2db47fe8d",
+    "source_sha256": "e8a0dbdb0088a1054ce7cb06dca2007d605845976e804ed0ebb29350b47b3f11",
+    "caveat": "Model generation timer excludes model/session loading, worker startup/retirement and external solver; not end-to-end speed or decode throughput. No semantic correction or reference network supplied to solver."
+}

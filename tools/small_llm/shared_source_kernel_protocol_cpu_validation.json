@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 25,
+    "scope": "PRIVATE CPU MOCKS ONLY, no model or hardware evidence",
+    "source_sha256": {
+        "shared_source_kernel_benchmark.jl": "57b2c1d7cfe1b99141186c239dcc92d75b6a65156bd72789abca9c28ffe945a1",
+        "test_shared_source_kernel_protocol.jl": "f64757f49ed99098fffb1b89d922c8eb53bed0baac28eda24d1fb61b0978c943"
+    }
+}

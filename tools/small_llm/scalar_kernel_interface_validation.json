@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "scope": "Trusted scalar adapter software-Vulkan fixtures, including wrong-arithmetic rejection; NOT model quality",
+    "passed": 26,
+    "source_sha256": {
+        "test_scalar_kernel_interface.jl": "bff20ed5253276e5455fe71dca3bdb661978fdf66138bd15ac724430ee963751",
+        "scalar_kernel_interface.jl": "866774d3e01bc8c6354584cc11fde8d0701b90c7bc9e815be1d0443819725266",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17"
+    }
+}

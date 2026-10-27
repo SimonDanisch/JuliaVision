@@ -1,0 +1,69 @@
+{
+    "complete": true,
+    "scope": "Prospective third fixed-hash public BigCodeBench-X cohort, excluding prior16 tasks. Local Julia1.12/package adaptation, not official upstream/container or contamination-free/frontier/plot-aesthetics evidence.",
+    "conditions_sha256": "34be6571dc3f11762dbebab1dd900a0f2973b8479a894c48cf6926b652b37710",
+    "summary_sha256": "0f96e2a13e4d2f4e2d35328be17daafa98e504d20198084ed04328b067dd9613",
+    "passed": {
+        "direct": 0,
+        "public_docs": 0
+    },
+    "total_per_arm": 8,
+    "exception_categories": {
+        "direct": {
+            "UndefVarError": 5,
+            "MethodError": 2,
+            "ParseError": 1
+        },
+        "public_docs": {
+            "UndefVarError": 4,
+            "test_failure_without_classified_julia_exception": 1,
+            "MethodError": 2,
+            "ArgumentError": 1
+        }
+    },
+    "truncated_outputs": 1,
+    "pairs": [
+        {
+            "task": "BigCodeBench/27",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/309",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/939",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/277",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/311",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/137",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/651",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/1060",
+            "direct": "failed",
+            "public_docs": "failed"
+        }
+    ],
+    "interpretation": "Descriptive SAME-COHORT outcomes only. Extra context did not establish frontier capability. Exception labels are trace categories, not a proof of root cause or private-test feedback for future prompts.",
+    "summarizer_sha256": "c0dcbdd2213e7c6886e1b638216ec5fb5369f948534f76e8626217336ce3a721"
+}

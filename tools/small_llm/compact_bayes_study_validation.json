@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 10,
+    "scope": "Synthetic answer/scorer qualification, not neural quality",
+    "source_sha256": {
+        "test_compact_bayes_study.jl": "f58a3d292c0c2009347196e065817a1329a164046c035e034bca07bc850a24ff",
+        "score_compact_bayes.jl": "7ee84ce333117a6e616437fece69b4b9adac8d05508a165bb14a3f82b4e4e218",
+        "compact_bayes_study.jl": "eabd876d94d67eb092c32d923a4004efaef29087c3d6fa148c6866e3ec82a374"
+    }
+}

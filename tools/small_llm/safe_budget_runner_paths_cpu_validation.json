@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 266,
+    "scope": "PRIVATE CPU MOCKS ONLY: orchestration/receipt/cleanup logic, NOT hardware or intelligence evidence",
+    "source_sha256": {
+        "safe_budget_transfer_extension.jl": "b54c4efbaa345230f14c7200fc9c299353b0c692790f22b731a86e42f02aabfa",
+        "test_safe_budget_runner_paths.jl": "b73663e0b709366c8f84766130e7e053dad5b4dc23afbf1bbd8051e74d7fa297"
+    }
+}

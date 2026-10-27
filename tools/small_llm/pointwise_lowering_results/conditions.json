@@ -1,0 +1,17 @@
+{
+    "scope": "post-hoc DEVELOPMENT diagnostic motivated by observed serial-loop baseline failure; not held-out or model-only intelligence evidence",
+    "rule": "apply the same restricted compiler to ALL four frozen candidates; admitted transformation replaces baseline regardless of numerical score, rejected input retains baseline; no extra model generation",
+    "preconditions": "distinct input/output storage, original serial reads in bounds, admitted Float32/Int subset and one-dimensional launch",
+    "qualification_sha256": "a8b69d3696cd69c4ef8d43ee36e53bd31c86273dbd80997f2e58a2db5bdbf9b6",
+    "baseline_conditions_sha256": "cbd427e916da0355e9564ab09b081d89a949009aaa8bcfb2e0dcec4996fe63fb",
+    "baseline_outputs_sha256": {
+        "ki_body_atomic_max": "a1776f48f0a466334841c8a0d8fdd170b6c35e36526bcb1a258d1a69960c0b3e",
+        "ki_body_clamped_stencil": "268ed59aa171ad9e4e7fa2f57a7076d1c28278d045b498489e7a21c0eebede2b",
+        "ki_body_affine": "f9ef27ef8ce2c332c8fb76659b284d55d995fbfa26cbcde338dc131f684028ae",
+        "ki_body_column_major_scale": "304b0a4abe3af7fca2a2c41f07bb3ff878aad7c09f8df09f804e4833d7942b7d"
+    },
+    "source_sha256": {
+        "pointwise_kernel_lowering.jl": "a987b19cb1f00220859dc09ad3cbbb46913023144a5d6eccdf9beb626a2adbc2",
+        "pointwise_lowering_study.jl": "a70b1c49fd0bc77666908437fd77c24e859fd1031a45ebab84aa9c1798f781b9"
+    }
+}

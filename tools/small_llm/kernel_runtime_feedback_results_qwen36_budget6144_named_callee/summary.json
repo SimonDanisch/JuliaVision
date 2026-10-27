@@ -1,0 +1,81 @@
+{
+    "scope": "pre-registered development extension on four authored kernel tasks, NOT held-out/frontier evidence; rerun on Qwen3.6-35B-A3B.Q4_K_S.gguf as a new registration",
+    "backbone": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "baseline": "qwen36_budget6144",
+    "rows": [
+        {
+            "id": "ki_body_affine",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": false,
+            "generated_tokens": 2588
+        },
+        {
+            "id": "ki_body_affine",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true,
+            "generated_tokens": 6144
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "retain_baseline",
+            "truncated": false,
+            "generated_tokens": 2994
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "action": "retain_baseline",
+            "truncated": false,
+            "generated_tokens": 2994
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": false,
+            "generated_tokens": 3601
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "action": "single_revision",
+            "truncated": false,
+            "generated_tokens": 2674
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": false,
+            "generated_tokens": 4016
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": false,
+            "generated_tokens": 5112
+        }
+    ],
+    "totals": {
+        "runtime_feedback": {
+            "passed": 2,
+            "pending": 0
+        },
+        "self_review": {
+            "passed": 1,
+            "pending": 0
+        }
+    }
+}

@@ -1,0 +1,28 @@
+{
+    "dataset_revision": "52b58aa40d63b1a6c08ac910b798229b36f5c24f",
+    "selection_sha256": "701465d45d06a2c054054154e9f2f527707d7293ab7d580cad566a024371d754",
+    "qualification_sha256": "76ea4737954afbb5a608a9cf7cd61fae3ef162d57f3409526b940a7c4e2c33b0",
+    "baseline": {
+        "thinking": true,
+        "decoding": "greedy",
+        "max_tokens": 2048,
+        "output_poll_chunk": 128
+    },
+    "planned_revision": {
+        "trigger": "new positive parser/dispatch/JET diagnostics at public docstring signatures only",
+        "arms": [
+            "self_review",
+            "jet_feedback"
+        ],
+        "thinking": true,
+        "max_tokens": 2048,
+        "decoding": "greedy",
+        "attempts_per_arm": 1
+    },
+    "constraints": [
+        "no replacing tasks, no regenerating completed candidates, no private assertions or reference bodies in prompts",
+        "public benchmark, possible training contamination; fixed12-task basic-test diagnostic, NOT full HumanEval/EvalPlus or frontier evidence",
+        "greedy2048-token development setting is not Qwen's recommended sampled/long-output benchmark configuration"
+    ],
+    "source_sha256": "b6354101530e2563eb9a2860e507c8ce6a345111ed02f586d0de53593e13016a"
+}

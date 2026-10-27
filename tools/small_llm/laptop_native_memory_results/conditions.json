@@ -1,0 +1,186 @@
+{
+    "scope": "Two authored DEVELOPMENT API tasks already used in earlier pilots. Same Laptop runtime and exact published-source corpus; NOT independent held-out/frontier evidence.",
+    "design": "Native final-RMSNorm kNN probability mixture vs zero/shuffled labels/source-in-context; all ten fixed conditions, no arm/seed selection. No tool request or textual memory feedback inside decode.",
+    "policy": "One immutable attempt per condition; failures/interruption retained; greedy non-thinking512-token cap for short API functions. No regeneration. Zero-mixture identity gate on unrelated fixed prompt BEFORE task generation.",
+    "jobs": [
+        {
+            "id": "ki_launch_zero",
+            "task": "ki_launch",
+            "arm": "zero",
+            "weight": 0,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+                }
+            ],
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "ki_launch_memory_10",
+            "task": "ki_launch",
+            "arm": "memory_10",
+            "weight": 0.1,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+                }
+            ],
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "ki_launch_memory_25",
+            "task": "ki_launch",
+            "arm": "memory_25",
+            "weight": 0.25,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+                }
+            ],
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "ki_launch_shuffled_25",
+            "task": "ki_launch",
+            "arm": "shuffled_25",
+            "weight": 0.25,
+            "shuffled": true,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+                }
+            ],
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "ki_launch_source_context",
+            "task": "ki_launch",
+            "arm": "source_context",
+            "weight": 0,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports.\n\nPublished installed method source:\nCore.kwcall(kwargs::NamedTuple, kernel::Kernel, args::Vararg{Any, N}) where {N} =\n    call_kernel(kernel, args; kwargs...)\n\n\nfunction call_kernel(\n        kernel::Kernel, args::Tuple; numgroups = (), workgroupsize = (), ndrange = (),\n        max_work_group_size::Integer = typemax(Int), kwargs...\n    )\n    groups, items = launch_geometry(kernel, numgroups, workgroupsize, ndrange, max_work_group_size)\n    any(iszero, groups) && return nothing\n    launch(kernel, groups, items, args; kwargs...)\n    return nothing\nend\n"
+                }
+            ],
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "makie_update_source_context",
+            "task": "makie_update",
+            "arm": "source_context",
+            "weight": 0,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports.\n\nPublished installed method source:\nfunction ComputePipeline.update!(plot::Plot; args...)\n    ComputePipeline.update!(plot.attributes; args...)\n    return\nend\n\n\nfunction ComputePipeline.update!(plot::Plot, args...; attr...)\n    kw = [Pair{Symbol, Any}(Symbol(:arg, i), arg) for (i, arg) in enumerate(args)]\n    for (a, v) in attr\n        push!(kw, Pair{Symbol, Any}(a, v))\n    end\n    ComputePipeline.update!(plot.attributes, kw)\n    return\nend\n"
+                }
+            ],
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        },
+        {
+            "id": "makie_update_shuffled_25",
+            "task": "makie_update",
+            "arm": "shuffled_25",
+            "weight": 0.25,
+            "shuffled": true,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports."
+                }
+            ],
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        },
+        {
+            "id": "makie_update_memory_25",
+            "task": "makie_update",
+            "arm": "memory_25",
+            "weight": 0.25,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports."
+                }
+            ],
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        },
+        {
+            "id": "makie_update_memory_10",
+            "task": "makie_update",
+            "arm": "memory_10",
+            "weight": 0.1,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports."
+                }
+            ],
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        },
+        {
+            "id": "makie_update_zero",
+            "task": "makie_update",
+            "arm": "zero",
+            "weight": 0,
+            "shuffled": false,
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports."
+                }
+            ],
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        }
+    ],
+    "budget_tokens": 512,
+    "thinking": false,
+    "temperature": 32,
+    "topk": 8,
+    "shuffle_seed": 20261024,
+    "datastore_registration_sha256": "1b2e5fde40fe097c960f9c1e84fcb22e998daa03a0dfb588f2944d1df74ac291",
+    "records": 254,
+    "width": 2560,
+    "source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "head_input_tap.jl": "f2f42bedee1c82a10640d81e24499f9b226a94c4ba245a3bd54dfcf92b19e4c0",
+        "memory_status_history.jl": "6002fc9c85c306c902175c90d7925963ef3e753fa043207b52801dffa3a3979b",
+        "julia_advanced_tasks.jl": "2fd263b00bff024b107f6061c49875811b51e6ce7694b13ed882fc3222e34ed8",
+        "native_hidden_records.jl": "b748cd8bbd87f1fd930efceb199acd15c721a84e1dac2dd98ff7488d7050a481",
+        "laptop_native_memory_study.jl": "cd7c460ec933e222ea8d52a123d9b45025f5f480f650d0f929fcccccf845ee03",
+        "native_hidden_generation.jl": "37142cee611f3f86105034818b9672e8ddecbc6e9f32f6bf543ed7029bb3fe6e",
+        "knn_memory.jl": "82e34ec6583a42b2d527f098ede8dec787a4e3fa51565afd838ef6a2db4079fb",
+        "portable_qwen35.jl": "f2dcba1bbd31f0d59c5dd37ece99c5c1751123e3610faa0421560d8d02ee613e"
+    }
+}

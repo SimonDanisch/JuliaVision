@@ -1,0 +1,151 @@
+{
+    "scope": "Fixed-hash eight-task public BigCodeBench-X subset, local Julia1.12/package-contract adaptation. NOT official upstream-container score, private/contamination-free benchmark, Makie aesthetics metric or frontier equivalence.",
+    "policy": "ALL eight fixed tasks retained, one fixed-seed attempt each, no feedback/retries/selection. Original external test suites unchanged. Correctness judged by stdin/stdout tests, not code style or plot aesthetics.",
+    "jobs": [
+        {
+            "id": "bcbx_92_baseline",
+            "task": "BigCodeBench/92",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a program that reads a JSON object from standard input with the following structure:\n```json\n{\n  \"data\": [[x1, y1], [x2, y2], ...],\n  \"n_clusters\": 3\n}\n```\n- `\"data\"` must be a list of samples, each sample itself a list of two numeric features.\n- `\"n_clusters\"` must be an integer greater than 1.\n\nThe program should:\n1. Validate the input:\n   - If `\"data\"` is not a list of equal-length numeric lists, or\n   - If `\"n_clusters\"` is not an integer > 1,\n   then print an error message to standard output and exit with code 1.\n2. Perform K-means clustering on the provided data with the specified number of clusters.\n3. Generate a scatter plot showing:\n   - The data points colored by their cluster label.\n   - The cluster centroids marked with a distinct marker (e.g., a red “x”).\n4. Encode the plot image in PNG format as a base64 string.\n5. Print to standard output a JSON object with keys:\n   - `\"labels\"`: list of integer labels for each sample,\n   - `\"centroids\"`: list of `[x, y]` centroid coordinates,\n   - `\"plot\"`: base64-encoded PNG image string.\n6. Exit with code 0 on success."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_852_baseline",
+            "task": "BigCodeBench/852",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a standalone program that reads from standard input two or three space-separated integers:\n- `max_length`: the maximum length of each random string (must be ≥ 1),\n- `n_samples`: the number of random strings to generate,\n- an optional `seed` to initialize the random number generator for reproducible output.\n\nThe program should:\n1. If `max_length` is less than 1, print the message  \n   `max_length must be larger than or equal to 1.`  \n   to standard error and exit with a nonzero status.\n2. Otherwise, generate `n_samples` random strings of lowercase letters (`a`–`z`), each of length between 1 and `max_length` inclusive. Use a suitable method to generate random letters, and if a `seed` is provided, initialize the random number generator with this seed before generating.\n3. Print each generated string on its own line to standard output and exit with status 0."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_155_baseline",
+            "task": "BigCodeBench/155",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a program that:\n\n1. Reads from standard input a 2D array of numbers. Each row is on its own line, with exactly eight space-separated values.\n2. Computes the average of each row.\n3. Appends these averages as a new column named `Average`.\n4. Writes the resulting table as CSV to standard output, with columns `A,B,C,D,E,F,G,H,Average` and no row indices.\n5. Creates a plot of the row averages against their row indices (starting at 0) and saves it to a file named `plot.png`. The Y-axis label of the plot should be `Average`.\n\nYou may use any libraries or tools available in your programming environment to implement the functionality."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_293_baseline",
+            "task": "BigCodeBench/293",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a standalone program that:\n\n1. Reads two lines from standard input:\n   - The first line contains zero or more integers separated by spaces, representing a collection of elements.\n   - The second line contains a single integer, the desired subset size.\n2. Generates all subsets (combinations) of the given size from the input elements.\n3. Computes the sum of each subset.\n4. Plots a histogram of these sums with one bin per integer sum, aligned and with a relative width of 0.8, and saves the plot to a file named `\"histogram.png\"`.\n5. Prints two lines to standard output:\n   - First line: a list of combinations, where each combination is represented as a tuple of integers, formatted exactly as Python lists of tuples.\n   - Second line: a list of sums corresponding to those combinations, formatted exactly as a Python list.\n\nEnsure your program exits with code 0 on success."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_241_baseline",
+            "task": "BigCodeBench/241",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a program that:\n\n1. Reads zero or more numbers (floats or ints) from standard input, separated by whitespace.\n2. Constructs an array or list from these numbers (empty if no input).\n3. Normalizes the array by dividing each element by the Euclidean norm of the array (if the array is empty, it remains empty).\n4. Creates a plot with the original data series and the normalized series on the same axes, sets the title to \"Original vs. Normalized Data\", and saves the figure as `plot.png`.\n5. Prints two lines to standard output:\n   - First line: the original array as a list.\n   - Second line: the normalized array as a list.\n\nExample:\nIf stdin is\n```\n1 2 3 4\n```\nthe program should produce a `plot.png` file and print\n```\n[1.0, 2.0, 3.0, 4.0]\n[0.18257418583505536, 0.3651483716701107, 0.5477225575051661, 0.7302967433402214]\n```\nto stdout, then exit with code 0."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_255_baseline",
+            "task": "BigCodeBench/255",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a standalone program that:\n\n1. Reads a single integer `func_index` from standard input.  \n   - `0` selects the sine function,  \n   - `1` selects the cosine function,  \n   - `2` selects the tangent function.\n\n2. Computes 1000 points `x_i` linearly spaced from `0` to `2π`, then computes `y_i = FUNCTION(x_i)` using the selected function.\n\n3. Prints the `y` values on the first line as space-separated floats with 10 decimal places.\n\n4. Prints the radial label position (`func_index * 45`) as an integer on the second line.\n\n5. Exits with code `0` on success. If the input is not an integer or `func_index` is not in `{0, 1, 2}`, the program should exit with a non-zero code and produce no output.\n\nYou may use any numerical computation libraries or built-in functions available in your programming environment."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_980_baseline",
+            "task": "BigCodeBench/980",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Write a program that reads a tabular dataset from standard input in CSV format, plots the correlation matrix heatmap of its numeric columns, and saves the heatmap image to a file named `heatmap.png`. The program should then standardize all numeric columns so that each has mean 0 and variance 1, leaving any non-numeric columns unchanged. Finally, the program should write the resulting dataset back to standard output in CSV format.\n\nIf the input dataset is empty or contains no numeric columns, the program should exit with a non-zero exit code and produce no output."
+                }
+            ]
+        },
+        {
+            "id": "bcbx_928_baseline",
+            "task": "BigCodeBench/928",
+            "arm": "baseline",
+            "messages": [
+                {
+                    "system": "Write a complete standalone Julia1.12.7 program that reads standard input and writes standard output as specified. No explanatory prose. Installed packages: JSON3, CairoMakie, Makie and Julia standard libraries (including Base64, Statistics, LinearAlgebra, Random). Do not assume DataFrames/CSV/Plots/PyPlot/ScikitLearn are installed; implement needed computation with available libraries. No package installation or network access. Plotting must be headless; PNGs can be written to an IOBuffer then Base64-encoded when requested."
+                },
+                {
+                    "user": "Read a single word from standard input and create a mapping that contains all possible two-letter combinations of the lowercase English alphabet. The keys of this mapping should be every pair of distinct letters (like \"ab\", \"ac\", ..., \"zy\") as well as the 26 doubled-letter pairs (\"aa\", \"bb\", ..., \"zz\"). The values should represent the frequency of each two-letter combination in the input word (i.e., the number of times that substring appears). If a combination does not appear in the word, its value must be 0. Finally, print this mapping to standard output."
+                }
+            ]
+        }
+    ],
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 6144,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "thinking_budget": 4096,
+    "parent_conditions_sha256": "c9aeba5138ce37fde721f6b65f379c9134c164cc1cdfff86ec54ef4ae8bb94eb",
+    "gate_sha256": "3eaf18f83b3fb8118e1bb07561e14da7a80f4800ff876bddd943a66a9fb23171",
+    "portable_manifest_sha256": "70199eb4df8d32f9bc1dba8b5db7a480ac58744f2873ffa1c9220f4e29708973",
+    "snapshot_manifest_sha256": "cbbfb35177cb9a36b3769a863d5b2b790000e2fca402baaa2bf1d37bcb77b65d",
+    "reference_validation_sha256": "83916c21a7df64ad46432ce274fdbfe32787e2ee1cb71024b92507691c5398e7",
+    "adapter_validation_sha256": "d6181f361dcba62114ec14285fbc10be3509271d68c8ac5dc8606d7aaeb184b7",
+    "project_sha256": "ce432cb2380f0ecfb5b3220b8985a207e8eb2e9b6be1bc19751564f60ce7d3c3",
+    "manifest_sha256": "5be02c10f5f7bdd0594deaae2aebebe7da4a17dc00e101117cff19438ceed065",
+    "source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "laptop_pending_study.jl": "32f3ea94e2fe21ebe0d0ebf31fea61f6456658a7eae0f1749326711627eac83b",
+        "laptop_shared_source.jl": "3126d7f5f09c48517ee7ca6b7d3025c717ace3ba3a0bd41aef5780d940200116",
+        "shared_source_kernel_benchmark.jl": "57b2c1d7cfe1b99141186c239dcc92d75b6a65156bd72789abca9c28ffe945a1",
+        "portable_qwen35.jl": "f2dcba1bbd31f0d59c5dd37ece99c5c1751123e3610faa0421560d8d02ee613e",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "score_bigcodebench_x.py": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "bigcodebench_x_julia_adapter.py": "028925a752ed6f7d497f1963c79f6aa8bc2bd1e7905e6b44d3278d39a7b3e8d2",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "bigcodebench_x_study.jl": "c8c616d207d5121aa178a99c2d7d68a3622cfded868a06fdee0c1dc9495b1635",
+        "qualify_bigcodebench_x_reference.py": "af5474da38ad6fcc19f27dd2091ec385b6d7913fe59a0d3b4db2f9ae3d6214f1",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "sampled_safe_budget_julia.jl": "6305b261e76da407a4d820d040636142bfbe924e97879ac9f44c57010dbdcc2e",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0",
+        "shared_source_kernel_tasks.jl": "9ddf1dd1d1c32a26dd8c6cde593e864c3e02267e0cc36a1b7650ac75cf87ac7b"
+    }
+}

@@ -1,0 +1,187 @@
+{
+    "scope": "Separate literal32-operation prompt-compliance audit. Primary frozen scores retained; NOT a new generation or corrected prompt experiment.",
+    "deviation": "Public prompt says maximum32 non-finish operations; implemented parser/device grammar allows up to7 final binary stack reductions beyond nominal32. Same parser/mask policy for both arms, but not the literal published limit.",
+    "rule": "Strict success requires original mathematical pass AND original parser admission AND at most32 non-finish actions. No repairs, retries, changed tests or generation feedback.",
+    "complete": true,
+    "conditions_sha256": "918bf54d9022ec8d0e3b18478653933ae8986529534842c9e74b13e4e790de8c",
+    "primary_summary_sha256": "3a6dc8d228680e9b9a80a900a4d9854fb72b7453f971b1c9c2bce0cf96dba1d2",
+    "auditor_sha256": "15ede80c30efed2593c630ccd2cc13162d0313fb357344b9087b8c6933017652",
+    "rows": [
+        {
+            "id": "central_periodic_gradient_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "858f62dfc6509c23ad2230d4db30ccee18ac60f04d313f4512b20eabe1ce4e0e"
+        },
+        {
+            "id": "central_periodic_gradient_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 39,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "d5b97d14c4c391c90ecd3cacf0ad09be5eaa979bbc7698dceb21bbe33b3570db"
+        },
+        {
+            "id": "half_diffusion_update_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 10,
+            "literal_compliance": true,
+            "strict_success": false,
+            "generation_sha256": "0dc7aae32ce268250fadf088d2c7a67be344295189e13a42d2d0bfa5f45f3027"
+        },
+        {
+            "id": "half_diffusion_update_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "e15d6c480392c4d693a3e792a5f69f6157a9e126948e31945fb88308920950a7"
+        },
+        {
+            "id": "clamped_neighbor_energy_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "b41d04e22a194a78e67cf40f000519de98adc9a1cb8aeee9b8184f40280e1776"
+        },
+        {
+            "id": "clamped_neighbor_energy_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 11,
+            "literal_compliance": true,
+            "strict_success": false,
+            "generation_sha256": "86580632b1ab743b0ec37dc7aade0da81013949df96caf9f8e21bdb76c11e512"
+        },
+        {
+            "id": "positive_forward_increment_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "passed",
+            "grammar_admitted": true,
+            "operations": 6,
+            "literal_compliance": true,
+            "strict_success": true,
+            "generation_sha256": "8755a794f046ad61b3bf3a961e0d4151b427e4dd4f90d1054caaabffd56cfd7e"
+        },
+        {
+            "id": "positive_forward_increment_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "d831f09e0c31458c1e03f5006808de37f74355fbb2b5b4710519948c4de8c0f1"
+        },
+        {
+            "id": "unit_interval_projection_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "761cf66e5833b4d4b7aa86ef34276d32b713c29d6353a7779910147b73665389"
+        },
+        {
+            "id": "unit_interval_projection_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 5,
+            "literal_compliance": true,
+            "strict_success": false,
+            "generation_sha256": "a16aac05064c93cc4437fd267c8eb63e32de7f7d774aab855a6b3e4ddb4ee754"
+        },
+        {
+            "id": "clamped_morphological_range_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 22,
+            "literal_compliance": true,
+            "strict_success": false,
+            "generation_sha256": "92f5ef0b48211dfc46c99afceed94444de017b254ce2feacddfcd08305d2edfc"
+        },
+        {
+            "id": "clamped_morphological_range_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "db193cef8ba1642a956e9136a08289a90ff7816cb40b7bda73b882a26c15dadc"
+        },
+        {
+            "id": "nonnegative_limited_slope_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "8c8fdc79deeca7dbb96fd8fd81cb9929e88d062dcb1ea87506f21769fb7600db"
+        },
+        {
+            "id": "nonnegative_limited_slope_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 32,
+            "literal_compliance": true,
+            "strict_success": false,
+            "generation_sha256": "8b2df74f24d0ce8f6e72c6eeea28eee7bf155f2fbf1b2d94dafb11219e592510"
+        },
+        {
+            "id": "periodic_neighbor_sum_energy_enabled",
+            "arm": "enabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": true,
+            "operations": 34,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "63dc5f3bce0d4e3e9df0b9d604efd416666e1f9f8660ef34af0004205754655b"
+        },
+        {
+            "id": "periodic_neighbor_sum_energy_disabled",
+            "arm": "disabled",
+            "status": "audited",
+            "primary_status": "failed",
+            "grammar_admitted": false,
+            "operations": null,
+            "literal_compliance": false,
+            "strict_success": false,
+            "generation_sha256": "39a02a214120f39efae88d83b2277d83f10e55475dab83f7615b80d799bdb011"
+        }
+    ]
+}

@@ -1,0 +1,53 @@
+{
+    "scope": "full-model FP32 native-HF parity for retained 98/434/1910-token prompts; exact Julia input IDs, not an intelligence benchmark",
+    "complete": true,
+    "rows": [
+        {
+            "id": "baseline_short",
+            "input_tokens": 98,
+            "maxabs": 1.52587890625e-5,
+            "relative_rms": 1.3259925532104528e-6,
+            "finite": true,
+            "prefix_argmax": 71093,
+            "native_prefix_argmax": 71093,
+            "generated_ids": [
+                71093,
+                73,
+                67383,
+                198,
+                1628,
+                11290,
+                34936,
+                11
+            ],
+            "native_ids": [
+                71093,
+                73,
+                67383,
+                198,
+                1628,
+                11290,
+                34936,
+                11
+            ],
+            "exact_greedy": true,
+            "decode_submissions": 8,
+            "elapsed_seconds": 18.874966859817505
+        }
+    ],
+    "elapsed_seconds": 74.23353409767151,
+    "phase": "prefill batch completed",
+    "current_case": "baseline_short",
+    "completed_input_tokens": 98,
+    "prompt_chunk": 8,
+    "synchronize_chunks": true,
+    "timing_scope": "diagnostic per-chunk waits, NOT a production throughput measurement",
+    "reference_sha256": "82f39359b7467ab8dd717f291d3ec45e46ead51b67ecb650496b7fa99a33f979",
+    "source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "verify_native_conversations.jl": "33545682d01c33ef450d186bdcf96165a394cd7232c7f8564b221b2f2467cae8",
+        "grouped_attention_qwen35.jl": "bcd2fc397bc6471a31aca585e6fdbc19bd1e7d7d060f0b130613aece823bac21",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93"
+    }
+}

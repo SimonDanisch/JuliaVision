@@ -1,0 +1,53 @@
+{
+    "scope": "public compile/smoke feedback and installed API docstrings only; no private contract assertions/expected values",
+    "task": "ka_tail",
+    "probe": {
+        "id": "ka_tail",
+        "passed": false,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 1,
+        "elapsed_seconds": 1.3551008701324463,
+        "diagnostic": "ERROR: LoadError: AssertionError: Not a function definition: begin\n    #= /input/candidate.jl:5 =#\n    y[i] = a * x[i] + b * y[i]\nend\nStacktrace:\n [1] splitdef(fdef::Expr)\n   @ MacroTools /home/sim/.julia/packages/MacroTools/Ar0jT/src/utils.jl:349\n [2] include(mapexpr::Function, mod::Module, _path::String)\n   @ Base ./Base.jl:307\n [3] top-level scope\n   @ /input/runner.jl:3\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/candidate.jl:4\nin expression starting at /input/candidate.jl:3\nin expression starting at /input/runner.jl:3\n",
+        "log_truncated": false,
+        "code_sha256": "cbe46a561b307e4d2023c42184736e46587aeee459e3d1aebf046d896ffd5c37"
+    },
+    "api": [
+        {
+            "package": "KernelAbstractions",
+            "name": "@kernel",
+            "defined": true,
+            "documented": true,
+            "text": "  @kernel function f(args) end\n\n  Takes a function definition and generates a Kernel constructor from it. The\n  enclosed function is allowed to contain kernel language constructs. In order\n  to call it the kernel has first to be specialized on the backend and then\n  invoked on the arguments.\n\n  Kernel language\n  ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡\n\n    •  @Const\n    •  @index\n    •  @groupsize\n    •  @ndrange\n    •  @localmem\n    •  @private\n    •  @uniform\n    •  @synchronize\n    •  @print\n    •  @groupreduce\n    •  @groupscan\n\n  Kernel constructor\n  ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡\n\n  After defining a kernel function f, call f(backend[, workgroupsize[,\n  ndrange]]) to obtain a Kernel specialized for that backend. Workgroup size\n  and ndrange can be fixed at construction time (enabling size-specific\n  compile-time optimizations and fewer runtime checks, at the cost of\n  recompilation when the sizes change) or supplied at launch:\n\n  f(backend)                    # dynamic workgroup size and ndrange\n  f(backend, 64)                # static workgroup size of 64\n  f(backend, 64, 1024)          # static workgroup size and ndrange\n  f(backend, 64, (128, 128))    # multi-dimensional ndrange\n\n  Example\n  ≡≡≡≡≡≡≡\n\n  using KernelAbstractions\n  \n  @kernel function vecadd(A, @Const(B))\n      I = @index(Global)\n      @inbounds A[I] += B[I]\n  end\n  \n  dev = CPU()\n  A = ones(1024)\n  B = rand(1024)\n  vecadd(dev, 64)(A, B, ndrange=length(A))\n  synchronize(dev)\n\n  ────────────────────────────────────────────────────────────────────────────\n\n  @kernel config function f(args) end\n\n  This allows for the following configurations:\n\n    1. cpu={true, false}: Deprecated in KernelAbstractions 0.10; this\n       option is ignored.\n    2. inbounds={false, true}: Enables a forced @inbounds macro around\n       the function definition in the case the user is using too many\n       @inbounds already in their kernel. Note that this can lead to\n       incorrect results, crashes, etc and is fundamentally unsafe. Be\n       careful!\n    3. unsafe_indices={false, true}: Disables the implicit validation of\n       indices, users must avoid @index(Global).\n    4. generated={false, true}: Turns the kernel into a generated\n       function, see Generated below.\n\n    •  @context\n\n  │ Warning\n  │\n  │  This is an experimental feature.\n\n  Generated\n  –––––––––\n\n  With generated=true the kernel body is treated as a quoted expression, so $\n ",
+            "truncated": true,
+            "full_document_sha256": "536d331c96bd0a60fd55e835c04cdd2d3143a88b4450d33e4356a3832e9d25ff"
+        },
+        {
+            "package": "KernelAbstractions",
+            "name": "@index",
+            "defined": true,
+            "documented": true,
+            "text": "  @index\n\n  The @index macro can be used to give you the index of a workitem within a\n  kernel function. It supports both the production of a linear index or a\n  cartesian index. A cartesian index is a general N-dimensional index that is\n  derived from the iteration space.\n\n  Index granularity\n  ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡\n\n    •  Global: Used to access global memory.\n    •  Group: The index of the workgroup.\n    •  Local: The within workgroup index.\n\n  Index kind\n  ≡≡≡≡≡≡≡≡≡≡\n\n    •  Linear: Produces an Int64 that can be used to linearly index into\n       memory.\n    •  Cartesian: Produces a CartesianIndex{N} that can be used to index\n       into memory.\n    •  NTuple: Produces a NTuple{N} that can be used to index into memory.\n\n  If the index kind is not provided it defaults to Linear, this is subject to\n  change.\n\n  Examples\n  ≡≡≡≡≡≡≡≡\n\n  @index(Global, Linear)\n  @index(Global, Cartesian)\n  @index(Local, Cartesian)\n  @index(Group, Linear)\n  @index(Local, NTuple)\n  @index(Global)",
+            "truncated": false,
+            "full_document_sha256": "76898dfc2e3793936788f1b56ea5d319405dbe7759232825b8443f181e4809ec"
+        },
+        {
+            "package": "KernelAbstractions",
+            "name": "get_backend",
+            "defined": true,
+            "documented": true,
+            "text": "  get_backend(A::AbstractArray)::Backend\n\n  Get a Backend instance suitable for array A.\n\n  │ Note\n  │\n  │  Backend implementations must provide get_backend for their custom\n  │  array type. It should be the same as the return type of allocate",
+            "truncated": false,
+            "full_document_sha256": "144d252709a4c97d7716ed5f485f7ce5fbbacb83056e1f6d22dfe3728ab66397"
+        },
+        {
+            "package": "KernelAbstractions",
+            "name": "synchronize",
+            "defined": true,
+            "documented": true,
+            "text": "  synchronize(::Backend)\n\n  Block the calling task until all work it has queued on the active device of\n  backend has completed.\n\n  │ Note\n  │\n  │  Backend implementations must implement this function\n  │  cooperatively, yielding to the Julia scheduler while waiting\n  │  rather than blocking inside a driver call. It must not wait for\n  │  work on other queues that the current queue is not ordered after,\n  │  e.g., by wait_event. See the notes for backend implementations for\n  │  why.",
+            "truncated": false,
+            "full_document_sha256": "84c4d9a36e67b2e42bef615addf550d201337d682293fd2db7265cb0f64a1739"
+        }
+    ]
+}

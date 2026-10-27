@@ -1,0 +1,865 @@
+{
+  "scope": "CPU-only analytical scenarios, NOT measured larger-model throughput",
+  "hardware": "Ryzen AI Max+395 / Radeon8060S / LPDDR5x8000 256-bit",
+  "peak_bandwidth_GBs": 256,
+  "calibration": {
+    "nominal_weight_bytes": 2546458624,
+    "measured_short_tps": 63.24558139472784,
+    "effective_weight_GBs": 161.05225617249866
+  },
+  "assumptions": [
+    "Batch-one nonspeculative decode, resident weights; no CPU/GPU offload over PCIe",
+    "Effective bandwidth scenario130..180GB/s calibrated loosely from historical4B weight traffic, not a separately measured memcpy bandwidth",
+    "KV read multiplier1..2.5; MoE additional1..4ms/token UNCALIBRATED architecture-transfer allowance, not a proven bound",
+    "Q4_K=4.5bits, Q6_K=6.5625bits. Actual quantization formats/quality/kernel efficiency change results",
+    "Weight-only memory-fit flags are NOT usable memory guarantees; add KV, recurrent state, scratch, OS and loader peaks",
+    "No cold-load/prefill/thinking-length/answer-quality predictions; benchmark successful tasks per second separately",
+    "Context rows do NOT imply native context or engine support. Gemma/LFM long-context estimates withheld rather than fabricating KV layout"
+  ],
+  "source_files_sha256": {
+    "model_speed_metadata.json": "9d94ae58cf8fde7bee10f5c53a9a8b66cb345ba94beefeda5e567bc86168b28f",
+    "model_speed_estimator.py": "e379c4fa882b1e8af3751bb37aba879d4f71ac6cfe8dc9360cbb2714c607ef3a",
+    "qwen4b_decode_profile.json": "96da5924407f23bcd98808c6c142c2ed8085e8c052c843ee9b47e57b2529397d",
+    "qwen4b_q4_resident_benchmark.json": "6dc879043677f6ca9faca59a673a5ec2648411f0b9d0a4a731f1237870387ec2",
+    "qwen2b_q4_resident_benchmark.json": "9b84f559c01e35cf6ffae640e40479c8b74bcb0ef492abb32625705aebf9c769"
+  },
+  "dense_streamed_parameter_scenarios": [
+    {
+      "scanned_parameters_billions": 8,
+      "stored_bits_per_parameter": 4.5,
+      "active_weight_GB": 4.5,
+      "short_weight_only_tps": [
+        28.888888888888886,
+        40.0
+      ],
+      "bandwidth_required_GBs_at_50": 225.0,
+      "optimistic_256GBs_ceiling": 56.888888888888886
+    },
+    {
+      "scanned_parameters_billions": 12,
+      "stored_bits_per_parameter": 4.5,
+      "active_weight_GB": 6.75,
+      "short_weight_only_tps": [
+        19.25925925925926,
+        26.666666666666668
+      ],
+      "bandwidth_required_GBs_at_50": 337.5,
+      "optimistic_256GBs_ceiling": 37.925925925925924
+    },
+    {
+      "scanned_parameters_billions": 20,
+      "stored_bits_per_parameter": 4.5,
+      "active_weight_GB": 11.25,
+      "short_weight_only_tps": [
+        11.555555555555555,
+        16.0
+      ],
+      "bandwidth_required_GBs_at_50": 562.5,
+      "optimistic_256GBs_ceiling": 22.755555555555556
+    },
+    {
+      "scanned_parameters_billions": 32,
+      "stored_bits_per_parameter": 4.5,
+      "active_weight_GB": 18.0,
+      "short_weight_only_tps": [
+        7.222222222222221,
+        10.0
+      ],
+      "bandwidth_required_GBs_at_50": 900.0,
+      "optimistic_256GBs_ceiling": 14.222222222222221
+    },
+    {
+      "scanned_parameters_billions": 70,
+      "stored_bits_per_parameter": 4.5,
+      "active_weight_GB": 39.375,
+      "short_weight_only_tps": [
+        3.301587301587302,
+        4.571428571428571
+      ],
+      "bandwidth_required_GBs_at_50": 1968.75,
+      "optimistic_256GBs_ceiling": 6.501587301587302
+    }
+  ],
+  "rows": [
+    {
+      "repo": "Qwen/Qwen3.5-2B",
+      "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 1195588864.0,
+      "resident_text_weight_bytes": 3229818112.0,
+      "kv_bytes_per_position_f16": 12288,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": false,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        108.73303015308112,
+        150.55342636580463
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 214.12042860914437,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 50331648,
+          "scenario_tps": [
+            98.37916660289679,
+            144.47149578672318
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 402653184,
+          "scenario_tps": [
+            59.031292208282096,
+            112.62374195776383
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 1610612736,
+          "scenario_tps": [
+            24.894100954124557,
+            64.14364527480848
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 12288000000,
+          "scenario_tps": [
+            4.073244600121942,
+            13.349561590429698
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3.5-4B",
+      "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 2546458624.0,
+      "resident_text_weight_bytes": 5089245184.0,
+      "kv_bytes_per_position_f16": 32768,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": false,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        51.05129090838902,
+        70.68640279623094
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 100.53177286575067,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 134217728,
+          "scenario_tps": [
+            45.1075181136248,
+            67.14723314722627
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 1073741824,
+          "scenario_tps": [
+            24.852732343346485,
+            49.72100373597876
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 4294967296,
+          "scenario_tps": [
+            9.7862996872778,
+            26.310304621408513
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 32768000000,
+          "scenario_tps": [
+            1.5390724568990306,
+            5.097062421839606
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3.5-9B",
+      "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 4751902720.0,
+      "resident_text_weight_bytes": 8820361216.0,
+      "kv_bytes_per_position_f16": 32768,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": false,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        27.357462401923918,
+        37.87956332574081
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 53.87315672994249,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 134217728,
+          "scenario_tps": [
+            25.553091556113774,
+            36.83904273659035
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 1073741824,
+          "scenario_tps": [
+            17.481912621506286,
+            30.897868663371714
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 4294967296,
+          "scenario_tps": [
+            8.392879218896372,
+            19.896384018081154
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 32768000000,
+          "scenario_tps": [
+            1.4999093814748088,
+            4.797453803206449
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-14B",
+      "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 8071633920.0,
+      "resident_text_weight_bytes": 11183262720.0,
+      "kv_bytes_per_position_f16": 163840,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": false,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        16.105784936292057,
+        22.300317604096694
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 31.716007259159742,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 671088640,
+          "scenario_tps": [
+            13.334214731765162,
+            20.588552223256183
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 5368709120,
+          "scenario_tps": [
+            6.04836644527983,
+            13.392515314847202
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 21474836480,
+          "scenario_tps": [
+            2.1049657315205925,
+            6.09209822910015
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 163840000000,
+          "scenario_tps": [
+            0.3112492911713989,
+            1.0470495561909672
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 14831835136.0,
+      "resident_text_weight_bytes": 19917408256.0,
+      "kv_bytes_per_position_f16": 65536,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": false,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        8.764930219893188,
+        12.136057227544415
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 17.26017027917428,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 268435456,
+          "scenario_tps": [
+            8.385515008546475,
+            11.920316189258392
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 2147483648,
+          "scenario_tps": [
+            6.435470171126067,
+            10.601132017711931
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 8589934592,
+          "scenario_tps": [
+            3.5806091336312487,
+            7.685157957334691
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 65536000000,
+          "scenario_tps": [
+            0.7275908925491679,
+            2.2397019864402288
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3.6-35B-A3B",
+      "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 1806273024.0,
+      "resident_text_weight_bytes": 21393664512.0,
+      "kv_bytes_per_position_f16": 20480,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": true,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        55.883380264826556,
+        90.62198289211625
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 141.72829721671135,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 83886080,
+          "scenario_tps": [
+            51.262067690106115,
+            86.94983861491644
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 671088640,
+          "scenario_tps": [
+            32.467576060361864,
+            67.73635762060877
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 2684354560,
+          "scenario_tps": [
+            14.38505108748649,
+            38.53871814070971
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 20480000000,
+          "scenario_tps": [
+            2.4287138381876665,
+            8.012009816123562
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "revision": "b2cff646eb4bb1d68355c01b18ae02e7cf42d120",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 1792006144.0,
+      "resident_text_weight_bytes": 18324895744.0,
+      "kv_bytes_per_position_f16": 98304,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": true,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        56.22822427932095,
+        91.27760608031858
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 142.85665306290377,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 402653184,
+          "scenario_tps": [
+            39.17268371945273,
+            75.8003465497515
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 3221225472,
+          "scenario_tps": [
+            12.542124868178794,
+            34.66049914766597
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 12884901888,
+          "scenario_tps": [
+            3.7654680142785284,
+            12.115576108588783
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 98304000000,
+          "scenario_tps": [
+            0.52404139435442,
+            1.7950455639558822
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-Coder-Next",
+      "revision": "a7fbcb5c0e12d62a448eaa0e260346bf5dcc0feb",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 2106188800.0,
+      "resident_text_weight_bytes": 45988037632.0,
+      "kv_bytes_per_position_f16": 24576,
+      "local_kv_fixed_bytes_f16": 0,
+      "moe": true,
+      "attention": "full/GQA",
+      "method": "Config-derived matrix dimensions; Q4_K projections/Q6_K head/F32 input lookup storage. Text only, excludes vision/MTP, allocator/prefill scratch and recurrent-state storage.",
+      "short_context_weight_only_tps": [
+        49.501391522193686,
+        78.73365489324416
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 121.54655840919864,
+      "fits_32GiB_weights_only": false,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 100663296,
+          "scenario_tps": [
+            45.172657960306324,
+            75.41313527622953
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 805306368,
+          "scenario_tps": [
+            28.02053427520034,
+            58.224254031892436
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 3221225472,
+          "scenario_tps": [
+            12.173136672577293,
+            32.683214138280825
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 24576000000,
+          "scenario_tps": [
+            2.0291514515687874,
+            6.700868694661248
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "openai/gpt-oss-20b",
+      "format": "native",
+      "revision": "6cee5e81ee83917806bbde320786a8fb61efebee",
+      "active_weight_bytes": 3705753600.0,
+      "resident_text_weight_bytes": 13747322880.0,
+      "kv_bytes_per_position_f16": 24576,
+      "local_kv_fixed_bytes_f16": 3145728,
+      "moe": true,
+      "attention": "alternating full/window",
+      "method": "Native MXFP4 expert + BF16 shared/head",
+      "short_context_weight_only_tps": [
+        30.763743536774125,
+        46.32306073138554
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 69.0817651772638,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 103809024,
+          "scenario_tps": [
+            28.983722598699472,
+            45.11772767199455
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 808452096,
+          "scenario_tps": [
+            20.810375753681374,
+            38.3451454105176
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 3224371200,
+          "scenario_tps": [
+            10.580562289495644,
+            25.316011330771577
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 24579145728,
+          "scenario_tps": [
+            1.9794858897275749,
+            6.323577607841383
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "openai/gpt-oss-20b",
+      "format": "requantized",
+      "revision": "6cee5e81ee83917806bbde320786a8fb61efebee",
+      "active_weight_bytes": 2178325440.0,
+      "resident_text_weight_bytes": 12742441920.0,
+      "kv_bytes_per_position_f16": 24576,
+      "local_kv_fixed_bytes_f16": 3145728,
+      "moe": true,
+      "attention": "alternating full/window",
+      "method": "Hypothetical Q4_K experts/shared + Q6_K output head; requires requantization and appropriate kernels",
+      "short_context_weight_only_tps": [
+        48.17802851830949,
+        76.32534379987861
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 117.52146639760127,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 103809024,
+          "scenario_tps": [
+            43.950872391008595,
+            73.10729882216538
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 808452096,
+          "scenario_tps": [
+            27.545549490147977,
+            56.840115212943076
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 3224371200,
+          "scenario_tps": [
+            12.08262271401611,
+            32.24248272963655
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 24579145728,
+          "scenario_tps": [
+            2.0266207624550887,
+            6.682141722858845
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "openai/gpt-oss-120b",
+      "format": "native",
+      "revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+      "active_weight_bytes": 4999403520.0,
+      "resident_text_weight_bytes": 65168179200.0,
+      "kv_bytes_per_position_f16": 36864,
+      "local_kv_fixed_bytes_f16": 4718592,
+      "moe": true,
+      "attention": "alternating full/window",
+      "method": "Native MXFP4 expert + BF16 shared/head",
+      "short_context_weight_only_tps": [
+        23.553269756221773,
+        34.75303658132433
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 51.20610868394156,
+      "fits_32GiB_weights_only": false,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 155713536,
+          "scenario_tps": [
+            22.001502546921014,
+            33.73871615385977
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 1212678144,
+          "scenario_tps": [
+            15.202724447971768,
+            28.15984048103676
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 4836556800,
+          "scenario_tps": [
+            7.3818357525282305,
+            17.9713172026624
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 36868718592,
+          "scenario_tps": [
+            1.330723749938582,
+            4.2808094858683425
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "openai/gpt-oss-120b",
+      "format": "requantized",
+      "revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+      "active_weight_bytes": 3035551680.0,
+      "resident_text_weight_bytes": 66675533760.0,
+      "kv_bytes_per_position_f16": 36864,
+      "local_kv_fixed_bytes_f16": 4718592,
+      "moe": true,
+      "attention": "alternating full/window",
+      "method": "Hypothetical Q4_K experts/shared + Q6_K output head; requires requantization and appropriate kernels",
+      "short_context_weight_only_tps": [
+        36.56253985316844,
+        55.97795274744269
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 84.33392904712464,
+      "fits_32GiB_weights_only": false,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": 155713536,
+          "scenario_tps": [
+            32.954479176865654,
+            53.39241752494622
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": 1212678144,
+          "scenario_tps": [
+            19.73510317900572,
+            40.648296758321095
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": 4836556800,
+          "scenario_tps": [
+            8.30833181601891,
+            22.354393317860517
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": 36868718592,
+          "scenario_tps": [
+            1.3580236212405699,
+            4.490539525319365
+          ],
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "google/gemma-4-26B-A4B-it",
+      "revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 2440316544.0,
+      "resident_text_weight_bytes": 14815316544.0,
+      "moe": true,
+      "kv_bytes_per_position_f16": null,
+      "local_kv_fixed_bytes_f16": null,
+      "attention": "not modeled",
+      "method": "Gemma4 publisher rounded active/total counts; approximate advertised counts with explicit Q6 head, NOT shape-derived; KV/novel operators not modeled",
+      "short_context_weight_only_tps": [
+        43.91422270820508,
+        68.69399058375751
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 104.90442341565341,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    },
+    {
+      "repo": "LiquidAI/LFM2-24B-A2B",
+      "revision": "a3bbacd91a678b97712f0e323e52f8c24ba29542",
+      "format": "Q4_K/Q6_head",
+      "active_weight_bytes": 1328353008.0,
+      "resident_text_weight_bytes": 13534603008.0,
+      "moe": true,
+      "kv_bytes_per_position_f16": null,
+      "local_kv_fixed_bytes_f16": null,
+      "attention": "not modeled",
+      "method": "LFM2 publisher active/total counts; approximate advertised counts with explicit Q6 head, NOT shape-derived; KV/novel operators not modeled",
+      "short_context_weight_only_tps": [
+        70.33288524288214,
+        119.33545996548308
+      ],
+      "optimistic_256GBs_weight_only_ceiling": 192.71985568462688,
+      "fits_32GiB_weights_only": true,
+      "fits_128GiB_weights_only": true,
+      "contexts": [
+        {
+          "context": 4096,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 32768,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 131072,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        },
+        {
+          "context": 1000000,
+          "fp16_cache_bytes": null,
+          "scenario_tps": null,
+          "context_is_supported": "Check model card/RoPE/engine; arithmetic size alone is NOT support"
+        }
+      ]
+    }
+  ],
+  "unsupported": [
+    {
+      "repo": "Qwen/Qwen3.8-Flash-Next",
+      "reason": "Unsupported Qwen architecture: qwen4_exp_text"
+    }
+  ]
+}

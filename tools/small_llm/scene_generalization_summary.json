@@ -1,0 +1,41 @@
+{
+    "scope": "small authored generalization diagnostic, frozen schema, no task-specific compiler rule; not frontier or aesthetic quality",
+    "rows": [
+        {
+            "arm": "direct",
+            "task": "scene_ratio",
+            "status": "passed",
+            "input_tokens": 112,
+            "generated_tokens": 158,
+            "budget_tokens": 512,
+            "generation_seconds": 4.98199200630188
+        },
+        {
+            "arm": "direct",
+            "task": "scene_shared_y",
+            "status": "failed",
+            "input_tokens": 128,
+            "generated_tokens": 167,
+            "budget_tokens": 512,
+            "generation_seconds": 4.996978044509888
+        },
+        {
+            "arm": "adapter",
+            "task": "scene_ratio",
+            "status": "failed",
+            "input_tokens": 490,
+            "generated_tokens": 178,
+            "budget_tokens": 512,
+            "generation_seconds": 16.54698896408081
+        },
+        {
+            "arm": "adapter",
+            "task": "scene_shared_y",
+            "status": "passed",
+            "input_tokens": 504,
+            "generated_tokens": 300,
+            "budget_tokens": 512,
+            "generation_seconds": 7.994966983795166
+        }
+    ]
+}

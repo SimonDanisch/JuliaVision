@@ -1,0 +1,20 @@
+{
+    "scope": "development decoding ablation on the SAME twelve public basic-test tasks; not held-out/frontier evidence",
+    "selection_sha256": "701465d45d06a2c054054154e9f2f527707d7293ab7d580cad566a024371d754",
+    "qualification_sha256": "76ea4737954afbb5a608a9cf7cd61fae3ef162d57f3409526b940a7c4e2c33b0",
+    "baseline": {
+        "thinking": true,
+        "decoding": "exact top-k/nucleus",
+        "max_tokens": 2048,
+        "output_poll_chunk": 128,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0,
+        "seed": 20261024
+    },
+    "comparisons": "one sampled output per task vs retained original greedy output; no seed search or regeneration; same prompt and output cap",
+    "limitation": "Only decoding changes. The2048-token cap is still below Qwen's recommended long output budgets.",
+    "greedy_conditions_sha256": "d8ee7f46a44462207d47ee9ce8c2ae3f401e0394a811867d93f6882ce362a24b",
+    "source_sha256": "3065aed94d827c500bb188b849365421ff631d27fcff1bf7daab872ad1ad978d"
+}

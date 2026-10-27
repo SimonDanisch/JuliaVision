@@ -1,0 +1,148 @@
+{
+    "scope": "POST-HOC typed-array compiler expansion motivated by the controller pilot's host-style gather; NOT neural or independent held-out evidence",
+    "policy": "uniform typed pointwise lowering then unchanged void-tail normalization, no best-score selection; all registered cases retained, no generation or retries",
+    "rows": [
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_clamped_gather_no_addon",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_clamped_gather_api_pack",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_sincos_pair_no_addon",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "5ee2897d1944666936d1170ba53a9247ff32700fd9a79f9f7f887ec1fe2db4a1",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_sincos_pair_api_pack",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_flat_transpose_no_addon",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_flat_transpose_api_pack",
+            "status": "failed",
+            "lowered": false,
+            "admission": "function syntax required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6",
+            "code_sha256": "e4196341a6209e9374fef39ada5e2dd6128f9b02afb9c23f629dde71e7dd38ad"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_atomic_sum_no_addon",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "6fae32e4d37dd44307cff0f024335cea54712d2dd4cfd1fedfba93f2c5be3151",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "kernel_transfer_results",
+            "id": "transfer_atomic_sum_api_pack",
+            "status": "failed",
+            "lowered": false,
+            "admission": "one function definition required",
+            "void_tail": false,
+            "reused_raw_score": true,
+            "generation_sha256": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "dataset": "safe_reasoning_budget_results",
+            "id": "transfer_clamped_gather_no_addon",
+            "status": "passed",
+            "lowered": true,
+            "admission": "admitted disjoint pointwise subset",
+            "void_tail": true,
+            "reused_raw_score": false,
+            "generation_sha256": "20febc7489a94a6adb1d94affd22eaa5c1da6e3fd78d61a496453b1f07d34a63",
+            "code_sha256": "a2a8a3b0d3d8bd5a87bdb9d83c6324e3bc641f20244295df63dff1c164750120"
+        },
+        {
+            "dataset": "safe_reasoning_budget_results",
+            "id": "transfer_clamped_gather_api_pack",
+            "status": "passed",
+            "lowered": false,
+            "admission": "explicit simple argument types required",
+            "void_tail": true,
+            "reused_raw_score": false,
+            "generation_sha256": "9e11ab7df7bdd223dd375ffc00c0224376118c1f1094ea7017ff79152467d03e",
+            "code_sha256": "ec36212c85cca3e79caa44cfd86b38c226f4e35e6b56372ef43ec66276dfc838"
+        },
+        {
+            "dataset": "safe_budget_transfer_extension_results",
+            "id": "transfer_sincos_pair_no_addon",
+            "status": "pending"
+        },
+        {
+            "dataset": "safe_budget_transfer_extension_results",
+            "id": "transfer_sincos_pair_api_pack",
+            "status": "pending"
+        },
+        {
+            "dataset": "safe_budget_transfer_extension_results",
+            "id": "transfer_flat_transpose_no_addon",
+            "status": "pending"
+        },
+        {
+            "dataset": "safe_budget_transfer_extension_results",
+            "id": "transfer_flat_transpose_api_pack",
+            "status": "pending"
+        },
+        {
+            "dataset": "safe_budget_transfer_extension_results",
+            "id": "transfer_atomic_sum_no_addon",
+            "status": "pending"
+        },
+        {
+            "dataset": "safe_budget_transfer_extension_results",
+            "id": "transfer_atomic_sum_api_pack",
+            "status": "pending"
+        }
+    ],
+    "complete": false,
+    "conditions_sha256": "a0450b7f9840988f7fd328de1925c2cbf38f643a2e89c1103b595c805781b93f"
+}

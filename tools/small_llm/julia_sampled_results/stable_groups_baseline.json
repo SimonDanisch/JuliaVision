@@ -1,0 +1,53 @@
+{
+    "task": "stable_groups",
+    "category": "base",
+    "arm": "baseline",
+    "model": "qwen35-4b",
+    "thinking": true,
+    "scope": "one predeclared-seed thinking/sampling control; not a tool gain or seed search",
+    "cache": "Float32 split",
+    "quantization": "Q4_K/Q8 activations; Q6_K head",
+    "contract_sha256": "a553870771dd59bfa632398fa45ab889539bfa133310433d2f7475e20c269d67",
+    "prompt_sha256": "90fa8a4f34a72ff8a815260a862ac4c2e6585993d69fe585446c48ec3e709525",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve(keys, values). Return a Vector of Pair mapping each distinct key to the sum of its values, preserving FIRST occurrence order of keys. Inputs have equal length; keys are strings, values are Int. Empty input must return an empty vector. No packages. Code only."
+        }
+    ],
+    "answer": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   **Function Name:** `solve`\n    *   **Arguments:** `keys` (Vector of Strings), `values` (Vector of Int).\n    *   **Return Type:** `Vector{Pair{String, Int}}`.\n    *   **Logic:** Map each distinct key to the sum of its values.\n    *   **Order:** Preserve the *first occurrence* order of keys.\n    *   **Edge Cases:** Empty input must return an empty vector. Inputs have equal length.\n    *   **Constraints:** No packages (standard library only). Code only (no explanations, markdown, etc.).\n\n2.  **Algorithm Design:**\n    *   Initialize an empty result vector.\n    *   Iterate through the inputs (keys and values). Since inputs have equal length, I can zip them or iterate by index.\n    *   Track seen keys to avoid duplicates. A `Set` is efficient for tracking seen items, but I need to preserve order.\n    *   Actually, since I need to preserve the order of *first occurrence*, I can iterate through the `keys` vector once.\n    *   For each key at index `i`:\n        *   Check if `key` has been processed before.\n        *   If not, add the pair `(key, sum)` to the result vector. Initialize `sum` for this key to `values[i]`.\n        *   If yes, add `values[i]` to the existing sum for that key.\n    *   To do this efficiently without packages (like `OrderedDict`), I can use a dictionary (associative array) to store the running sums, and a separate list/vector for the order of keys.\n    *   Wait, standard Julia `Dict` preserves insertion order in recent versions (0.4+), but it's safer to explicitly manage order to avoid dependency on version specifics if strict compliance is needed. However, standard Julia `Dict` is fine. But a simple approach is:\n        1.  Check if inputs are empty. If so, return `[]`.\n        2.  Initialize `sums = Dict{String, Int}()` and `result = Vector{Pair{String, Int}}()`.\n        3.  Loop `i` from 1 to `length(keys)`.\n        4.  If `keys[i]` is not in `sums`:\n            *   `sums[keys[i]] = values[i]`\n            *   `push!(result, keys[i] => sums[keys[i]])`\n        5.  Else:\n            *   `sums[keys[i]] += values[i]`\n        6.  Return `result`.\n\n3.  **Refining the Logic:**\n    *   Input validation: The prompt says \"Empty input must return an empty vector\". It implies `keys` and `values` can be empty vectors.\n    *   Constraint: \"No packages\".\n    *   Constraint: \"Code only\".\n\n4.  **Drafting the Code:**\n\n    ```julia\n    function solve(keys, values)\n        result = Vector{Pair{String, Int}}()\n        sums = Dict{String, Int}()\n        \n        for (key, val) in zip(keys, values)\n            if !haskey(sums, key)\n                sums[key] = val\n                push!(result, key => val)\n            else\n                sums[key] += val\n            end\n        end\n        \n        return result\n    end\n    ```\n\n5.  **Edge Case Check:**\n    *   Empty `keys`: `zip` returns empty iterator. Loop doesn't run. `result` is `[]`. Correct.\n    *   Single element: `haskey` false. Adds to `result`. Correct.\n    *   Duplicate keys: `haskey` true. Adds to sum. Correct.\n    *   Order: Since we iterate `keys` from start to end, the first time a key is encountered, it gets added to `result`. Subsequent encounters update the sum in `sums` but do not add to `result` again. So `result` preserves first occurrence order. Correct.\n\n6.  **Final Review:**\n    *   Does it use packages? No.\n    *   Is it executable? Yes.\n    *   Does it return `Vector{Pair}`? Yes.\n    *   Does it handle empty input? Yes.\n    *   Does it handle sums? Yes.\n    *   Does it handle order? Yes.\n\n    One minor optimization/simplification: I don't strictly need `sums` to be a `Dict` if I want to be ultra minimal, but `Dict` is standard library. `zip` is standard. `Vector`, `Pair`, `Dict` are all standard.\n\n    Wait, `Dict` in Julia preserves insertion order *conceptually* (as of 1.0+), but relying on `Dict` iteration order isn't the issue here, I am iterating `keys` directly to determine order. The `Dict` is just for aggregation.\n\n    Let's write the final code block.\n\n    ```julia\n    function solve(keys, values)\n        if isempty(keys)\n            return Vector{Pair{String, Int}}()\n        end\n\n        result = Vector{Pair{String, Int}}()\n        sums = Dict{String, Int}()\n\n        for (key, val) in zip(keys, values)\n            if haskey(sums, key)\n                sums[key] += val\n            else\n                sums[key] = val\n                push!(result, Pair(key, val))\n            end\n        end\n\n        return result\n    end\n    ```\n    Wait, `Pair` constructor is `Pair(key, val)`.\n    The prompt asks for `Vector of Pair`.\n    The logic holds.\n\n    One thing: `isempty` check is technically redundant if the loop handles empty input correctly (it returns empty vector), but explicit is fine. Actually, `zip` on empty vectors works fine, so the explicit check isn't strictly necessary but harmless. I'll remove it to keep it concise unless there's a reason to keep it. The prompt says \"Empty input must return an empty vector\". If `keys` is empty, `zip` is empty, loop doesn't run, returns empty vector. So the explicit check is not needed.\n\n    Revised Code:\n    ```julia\n    function solve(keys, values)\n        result = Vector{Pair{String, Int}}()\n        sums = Dict{String, Int}()\n\n        for (key, val) in zip(keys, values)\n            if haskey(sums, key)\n                sums[key] += val\n            else\n                sums[key] = val\n                push!(result, Pair(key, val))\n            end\n        end\n\n        return result\n    end\n    ```\n    Wait, `Dict` is `Dict{K, V}`. `Pair` is `Pair{K, V}`.\n    `Pair(key, val)` works.\n\n    Let's double check if `Dict` is considered a \"package\". No, it's part of the standard library.\n\n    One detail: \"Inputs have equal length\". I don't need to check this.\n\n    Final check on constraints: \"Return only executable Julia code.\" \"Code only.\"\n\n    So I should output just the function definition.\n\n    Wait, is `Dict` guaranteed to be available without packages? Yes, `Base` includes `Dict`.\n\n    One more check: `Pair` is a type, `Vector` is a type. `Vector{Pair{String, Int}}` is correct.\n\n    Let's refine the loop.\n    ```julia\n    function solve(keys, values)\n        result = Vector{Pair{String, Int}}()\n        sums = Dict{String, Int}()\n        for (k, v) in zip(keys, values)\n            if haskey(sums, k)\n                sums[k] += v\n            else\n                sums[k] = v\n                push!(result, (k, v))\n            end\n        end\n        return result\n    end\n    ```\n    Using `push!(result, (k, v))` creates a tuple, which is not a `Pair`. `Vector{Pair}` requires `Pair` type. Tuple `(k, v)` is `Tuple{String, Int}`.\n    So I must use `Pair(k, v)` or ensure `result` is `Vector{Tuple}`.\n    Prompt says: \"Return a Vector of Pair\".\n    So `push!(result, Pair(k, v))` is correct.\n\n    Wait, `Dict` is slightly heavier than needed if I want to be super minimal, but it's standard.\n    Is there a way without `Dict`?\n    I could use a list of lists, but that's messy. `Dict` is fine.\n\n    Wait, I should check if `Dict` is allowed. \"No packages\". Standard library is allowed. `Dict` is standard.\n\n    Okay, ready.\n\n    One small optimization: `zip` creates an iterator.\n    The loop is fine.\n\n    Wait, `Pair` is `Pair{String, Int}`.\n    Code:\n    ```julia\n    function solve(keys, values)\n        result = Vector{Pair{String, Int}}()\n        sums = Dict{String, Int}()",
+    "code": "",
+    "input_tokens": 96,
+    "generated_tokens": 2048,
+    "budget_tokens": 2048,
+    "decode_steps_executed": 2048,
+    "decode_submissions": 2048,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": false,
+    "truncated": true,
+    "elapsed_seconds": 40.91245794296265,
+    "input_sha256": "64a96b4543cb37fadc1cf6665c3db9f6f789f01291267d2617797e9952b611ad",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 1,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2049,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "generation_source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "test_gpu_sampling.jl": "33ee73999fb701f752999380032b909a2c8ddbac126212046dd76c52c3df114d",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93",
+        "run_julia_modes_window.jl": "0d7c978de3c1df6687089d05b2ab3babf1a31baecc572685abcd217f29172fad",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "sampled_julia.jl": "b6872f2bda4dabdda4eed34ac3cc02d58a4d28b2f66f7108d4342acc0e4787e0"
+    }
+}

@@ -1,0 +1,96 @@
+{
+    "complete": true,
+    "scope": "trusted synthetic typed-input compiler fixtures; software Vulkan only, NOT model intelligence",
+    "rows": [
+        {
+            "id": "gather",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            },
+            "result": {
+                "id": "gather",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 23.845788955688477,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    5      5  14.2s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "789bfac5e86c41e04e699044a67f1d54b4a9d0561ab569de8552848d71d0c52e"
+            }
+        },
+        {
+            "id": "shifted_weighted_gather",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            },
+            "result": {
+                "id": "shifted_weighted_gather",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 23.759979009628296,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |   15     15  14.0s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "5cc149ff28660b9309b514f6e9617f251bcd2a6a6c1a2a620f3949f7e7680b61"
+            }
+        },
+        {
+            "id": "wrong_gather_arithmetic",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            },
+            "result": {
+                "id": "wrong_gather_arithmetic",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 24.92082190513611,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 1 passed, 4 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Test Failed at /input/runner.jl:30\n  Expression: __bench_launch__(kernel!, initial, x, indices, Int32(n), Int32(m); threads = n) == expected\n   Evaluated: Float32[-0.9780309, -789.0, -789.0, -789.0] == Float32[0.9780309, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:30\n  Expression: __bench_launch__(kernel!, initial, x, indices, Int32(n), Int32(m); threads = n) == expected\n   Evaluated: Float32[-0.9780309, -0.9780309, -0.9780309, -0.9780309, -0.9780309, -0.9780309, -0.9130889, -789.0, -789.0, -789.0] == Float32[0.9780309, 0.9780309, 0.9780309, 0.9780309, 0.9780309, 0.9780309, 0.9130889, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:30\n  Expression: __bench_launch__(kernel!, initial, x, indices, Int32(n), Int32(m); threads = n) == expected\n   Evaluated: Float32[0.81295204, -0.49757105, -0.9780309, 0.91648483, 0.10898675, -0.9780309, 0.91648483, 0.6736996, -0.6674628, -0.9780309  …  -0.9780309, 0.91648483, 0.5048461, -0.8080275, -0.9780309, 0.91648483, -0.30581692, -789.0, -789.0, -789.0] == Float32[-0.81295204, 0.49757105, 0.9780309, -0.91648483, -0.10898675, 0.9780309, -0.91648483, -0.6736996, 0.6674628, 0.9780309  …  0.9780309, -0.91648483, -0.5048461, 0.8080275, 0.9780309, -0.91648483, 0.30581692, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:30\n  Expression: __bench_launch__(kernel!, initial, x, indices, Int32(n), Int32(m); threads = n) == expected\n   Evaluated: Float32[0.81295204, -0.9813977, -0.30581692, -0.117340066, -0.9780309, 0.9096285, -0.9813977, 0.6736996, -0.9198159, -0.49757105  …  0.9762438, -0.9813977, 0.5048461, -0.8178191, -0.6674628, 0.29780164, -0.9780309, -789.0, -789.0, -789.0] == Float32[-0.81295204, 0.9813977, 0.30581692, 0.117340066, 0.9780309, -0.9096285, 0.9813977, -0.6736996, 0.9198159, 0.49757105  …  -0.9762438, 0.9813977, -0.5048461, 0.8178191, 0.6674628, -0.29780164, 0.9780309, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nTest Summary: | Pass  Fail  Total   Time\ncontract      |    1     4      5  14.9s\nRNG of the outermost testset: Random.Xoshiro(0x2c2d5fb5dfb51c96, 0x1b21699e1be59ae7, 0x6e048681e819bf91, 0x9e905a4e861d3e68, 0xf99ab53f66b35ff8)\n",
+                "log_truncated": false,
+                "code_sha256": "ada2d8de0b32186bfa9dc850fbf3bbaf93253a39d6a1ec5f2411356a862ac71e"
+            }
+        }
+    ],
+    "source_sha256": {
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "qualify_typed_pointwise_lowering.jl": "56c47d756e8c3da2b80bf48410ffc38a872d09219ae248d08c33f8cfd1df7340",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a"
+    }
+}

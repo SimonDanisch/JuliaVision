@@ -1,0 +1,202 @@
+{
+    "scope": "prospective authored validation after four-task development; not independent public/held-out/frontier evidence",
+    "design": "paired no-addon vs installed API pack; raw and uniformly compiler-transformed scores from SAME outputs",
+    "rows": [
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "5ee2897d1944666936d1170ba53a9247ff32700fd9a79f9f7f887ec1fe2db4a1",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "5ee2897d1944666936d1170ba53a9247ff32700fd9a79f9f7f887ec1fe2db4a1",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": false,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6",
+            "code_sha256": "e4196341a6209e9374fef39ada5e2dd6128f9b02afb9c23f629dde71e7dd38ad"
+        },
+        {
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": false,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6",
+            "code_sha256": "e4196341a6209e9374fef39ada5e2dd6128f9b02afb9c23f629dde71e7dd38ad"
+        },
+        {
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "6fae32e4d37dd44307cff0f024335cea54712d2dd4cfd1fedfba93f2c5be3151",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "6fae32e4d37dd44307cff0f024335cea54712d2dd4cfd1fedfba93f2c5be3151",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pointwise": false,
+            "void_tail": false,
+            "generation_sha256": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+    ],
+    "totals": {
+        "api_pack_compiler": {
+            "passed": 0,
+            "pending": 0
+        },
+        "no_addon_raw": {
+            "passed": 0,
+            "pending": 0
+        },
+        "api_pack_raw": {
+            "passed": 0,
+            "pending": 0
+        },
+        "no_addon_compiler": {
+            "passed": 0,
+            "pending": 0
+        }
+    },
+    "complete": true,
+    "conditions_sha256": "4e8a40782cea71f9ed96516ba338b6467e0b585fc614a4db181a676cf663e379"
+}

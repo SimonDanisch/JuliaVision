@@ -1,0 +1,66 @@
+{
+    "scope": "stricter admission audit of the SAME post-hoc four-candidate compiler experiment, not another independent score",
+    "rule": "reuse an existing software-Vulkan receipt ONLY when the checked selected code is byte-identical",
+    "correction": "V1's generic admission allowed floating loop limits and shadowed names; these are rejected here. Frozen historical artifacts are not rewritten.",
+    "limitation": "restricted transformation with explicit disjointness/in-bounds/ordinary-arithmetic/1D-launch preconditions; not an arbitrary Julia compiler or Radeon performance result",
+    "rows": [
+        {
+            "task": "ki_body_atomic_max",
+            "accepted": false,
+            "reason": "unknown import binding",
+            "certificate": null,
+            "code_sha256": "c2df20c472aa69fd984409df94cafce8e9409058315eae6cd59bb7a9f7d016de",
+            "receipt_sha256": "9902b61f6751841431aed1b32ab1f77438efe8329646de2ce97f491d164685b0",
+            "status": "failed"
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "accepted": false,
+            "reason": "unknown/impure expression or loop-carried dependency",
+            "certificate": null,
+            "code_sha256": "b379aa789cfc643a9c4ee6b0a9ee8bac604a4c969eafd3938f7bb0c03dc5cd2a",
+            "receipt_sha256": "6c42f0c9602a16e8f7ce2994382c83d9b93f734febd84470c5b1bf09a3d90f0e",
+            "status": "failed"
+        },
+        {
+            "task": "ki_body_affine",
+            "accepted": false,
+            "reason": "one function definition required",
+            "certificate": null,
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "receipt_sha256": "3546008b1797ea3cd7aab55c596c9e656ce719668715f2387e131bc204c65e69",
+            "status": "failed"
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "accepted": true,
+            "reason": "admitted disjoint pointwise subset",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "rows * cols",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 vector data, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            },
+            "code_sha256": "390a105e9c0a5b6c97b9ad27944fc6ad38a0d4e09ada9963ca8e0f450a655ef1",
+            "receipt_sha256": "dae3469d37325e0c6a07b9c1ad9d90dfadea8673c606544727f18e7579152776",
+            "status": "passed"
+        }
+    ],
+    "passed": 1,
+    "baseline_passed": 0,
+    "pending": 0,
+    "source_sha256": {
+        "pointwise_kernel_lowering.jl": "a987b19cb1f00220859dc09ad3cbbb46913023144a5d6eccdf9beb626a2adbc2",
+        "test_checked_pointwise_lowering.jl": "fc045a6538e6c72bdaae5a72691adfc1b610634e7c3f47b2bea2bc2c0750e38b",
+        "audit_checked_pointwise_study.jl": "13274ed801b8438500a537222029437437f1e0d42dd69632e25e6b4a5e7078c8",
+        "checked_pointwise_lowering.jl": "74de4fbceada7c352159edcc1ff76391f488cf3c15ea88a883845863995c53d5"
+    }
+}

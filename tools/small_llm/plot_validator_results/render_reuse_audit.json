@@ -1,0 +1,170 @@
+{
+    "complete": true,
+    "rows": [
+        {
+            "id": "plot_transfer_01_self_review",
+            "arm": "self_review",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_01_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_01_plot_spec.png",
+            "generation_sha256": "9cca6134172671011e9ae122724da8fba02c020ff2578100cbfbda79625947e9",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_01_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_01_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_01_plot_spec.png",
+            "generation_sha256": "9cca6134172671011e9ae122724da8fba02c020ff2578100cbfbda79625947e9",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_02_self_review",
+            "arm": "self_review",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_02_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_02_plot_spec.png",
+            "generation_sha256": "755c187be799279777cc8b0dc82c0dc86e9fa5efdb6dd2efcacb3512b096af0b",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_02_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_02_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_02_plot_spec.png",
+            "generation_sha256": "755c187be799279777cc8b0dc82c0dc86e9fa5efdb6dd2efcacb3512b096af0b",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_03_self_review",
+            "arm": "self_review",
+            "status": "unsupported_output",
+            "selected_generation_id": "plot_transfer_03_self_review",
+            "artifact": null,
+            "generation_sha256": "a4f1328e81948d1bccd41bcca07050b78171e9e4692471194520e91660a66cb7",
+            "rendered": false,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_03_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "unsupported_output",
+            "selected_generation_id": "plot_transfer_03_validator_feedback",
+            "artifact": null,
+            "generation_sha256": "3d351362dcad4c78aed19ca1123eef7651159896bb295520bb7ce0cae7bdbd28",
+            "rendered": false,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_04_self_review",
+            "arm": "self_review",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_04_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_04_plot_spec.png",
+            "generation_sha256": "823a80916e230634c69ebb3d0e68558299c3b82333b427325eaf154fe7d56632",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_04_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_04_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_04_plot_spec.png",
+            "generation_sha256": "823a80916e230634c69ebb3d0e68558299c3b82333b427325eaf154fe7d56632",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_05_self_review",
+            "arm": "self_review",
+            "status": "unsupported_output",
+            "selected_generation_id": "plot_transfer_05_self_review",
+            "artifact": null,
+            "generation_sha256": "cbca6e654af376b27fedfa20fbb6171d31e079368846cade2ab5d147b6a190a0",
+            "rendered": false,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_05_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "unsupported_output",
+            "selected_generation_id": "plot_transfer_05_validator_feedback",
+            "artifact": null,
+            "generation_sha256": "9878fc72d41a12d392d6f6dab22d9b6b7c6c6db37ba145a9a672696d50d5e89d",
+            "rendered": false,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_06_self_review",
+            "arm": "self_review",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_06_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_06_plot_spec.png",
+            "generation_sha256": "b18594b62cec83541ea286ba1fa9c8cd619976458bf6cbed577ccd1867fb2339",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_06_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_06_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_06_plot_spec.png",
+            "generation_sha256": "b18594b62cec83541ea286ba1fa9c8cd619976458bf6cbed577ccd1867fb2339",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_07_self_review",
+            "arm": "self_review",
+            "status": "unsupported_output",
+            "selected_generation_id": "plot_transfer_07_self_review",
+            "artifact": null,
+            "generation_sha256": "4358ad7ceba40d5a03749a401cfb02531ac6461cf308523f8188eeb4f6617450",
+            "rendered": false,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_07_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "unsupported_output",
+            "selected_generation_id": "plot_transfer_07_validator_feedback",
+            "artifact": null,
+            "generation_sha256": "e02c54b3594adf553dddf8a0ffc5336b4bc308c54a43dad3cedf8d020b8a1c67",
+            "rendered": false,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_08_self_review",
+            "arm": "self_review",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_08_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_08_plot_spec.png",
+            "generation_sha256": "b562365530b272380304579257bf881b26aabc298d66d414f96792fbfcfcebe6",
+            "rendered": true,
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_08_validator_feedback",
+            "arm": "validator_feedback",
+            "status": "reused_original_unclipped",
+            "selected_generation_id": "plot_transfer_08_plot_spec",
+            "artifact": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_08_plot_spec.png",
+            "generation_sha256": "b562365530b272380304579257bf881b26aabc298d66d414f96792fbfcfcebe6",
+            "rendered": true,
+            "aesthetic_score": null
+        }
+    ],
+    "scope": "POSTHOC exact-byte original-image provenance reuse ONLY, not new renders, independent trials or aesthetic evaluation. New admitted revisions would remain PENDING until separately rendered.",
+    "unique_reused_images": 5,
+    "primary_summary_sha256": "f8bb10eb8ead4fd8de17a47b2b2a45fc51fdf54dd80fb20e5c42561917bc0da2",
+    "original_render_summary_sha256": "26e628a937f86c8d82690436d80ea10eb84dcd51e694b7d5f0bf0b1accabcabf",
+    "source_sha256": "c84fcfee0a8df0b3f44a8317cc0bbeb9b8b2392ca06b151061328923b8b22bd8"
+}

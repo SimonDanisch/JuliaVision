@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "checks": 13,
+    "run": "r1346",
+    "scope": "CPU/SOFTWARE infrastructure only, NOT hardware or neural quality",
+    "sources": {
+        "bayes_native_parity.jl": "35264b7f40f109ac4e24b02d5d3c617ccd1e65ccf95f539e2ce01950eb9ebe2a",
+        "test_bayes_native_parity.jl": "6b5e810004ca0bdecd15946be8222631e02030fdad628a030d9cfd4658116a94"
+    }
+}

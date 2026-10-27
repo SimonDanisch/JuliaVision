@@ -1,0 +1,24 @@
+{
+    "conditions_sha256": "202aa9d6ea2b3799d0283cd4bdc41cafd69f2f9a7aff4b53a6401825d6b36bac",
+    "scope": "Operational amendment after one process-loss attempt; same prompts/model/sampler/math. NO regeneration. Before remaining six outputs and before any task grading.",
+    "qualification": {
+        "lost_checks": 8,
+        "score_analysis_checks": 10,
+        "artifact_copy_checks": 10,
+        "generation_body_byte_identity": true
+    },
+    "lost_record_sha256": "02e4a60403b91b0e7a7d60823050d04f4d36ed169b1c83672391f7c9e28dd373",
+    "recovery_gate_sha256": "14a493be757f2e8fa664c9ee86d0168c1d1165c3e9d6f3234fe3a9ea522a8413",
+    "runner_source_sha256": {
+        "run_compact_bayes_demo_resume.jl": "07edbd0f3e3d309c03d625c8a4929762f5345ec4d7a1c49acc4218827bfd1fd5",
+        "compact_bayes_demo_interruption.jl": "e1f7c08f87b457c4a0f214633802f7f96ac4862dc7bd76ef9fd91add1c617755"
+    },
+    "grader_source_sha256": {
+        "compact_bayes_demo_interruption.jl": "e1f7c08f87b457c4a0f214633802f7f96ac4862dc7bd76ef9fd91add1c617755",
+        "collect_compact_bayes_demo_resume.jl": "8a1c63f15dabfcf2dfd4d45dd4ed7c7f6f191b70006401d872bb2b3f00a66547",
+        "summarize_compact_bayes_demo_resume.jl": "f950d4813c7fb0cdbbb0d1ea86d29bf0bf9f6d4f246fccd6a7a3d8b5904bae94",
+        "summarize_compact_bayes_demo.jl": "cfd89d51518c7b701ec35a87e913da9583ba143b0fc758ce2dc93ae4635159d9",
+        "score_compact_bayes_demo_resume.jl": "42e4faaec87ae5bca81921db07b3776ee17b84255eaa52adedd09b34be29a8fa"
+    },
+    "analysis": "Report all8 registered slots with infrastructure attrition explicitly, plus seven completed cases; no missing cost treated as zero, no normal waitidle for lost context."
+}

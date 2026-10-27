@@ -1,0 +1,72 @@
+{
+    "complete": true,
+    "checks": 65,
+    "rows": [
+        {
+            "id": "plot_transfer_01",
+            "reference_sha256": "93ee3fade5d1bb0a819bb89dca984c8f58d169318285a79f7fdb173d49e939f3",
+            "native_reference_sha256": "97fef9c4734c2dd3907f9e544847b2fdab9440c0ed3a65b343d6f8aac7b9ec5c",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_02",
+            "reference_sha256": "d73265e0b69878c0a262cadb2bd6f3df795777c631eb6e6981ad80478e2889d3",
+            "native_reference_sha256": "77635b7ae2ce51dc24f023ecdd4e8fcdfd13490bc3fdea7e0ab3abe16d18a093",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_03",
+            "reference_sha256": "d86b9a5eafc2f47884e439eeff91d732f75c061718e86a554c317f6f997b7cce",
+            "native_reference_sha256": "f064209251ca50cb6357bd83b9b9be31e4b49c7592b6db13eb5811fbf73bb440",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_04",
+            "reference_sha256": "2ea9c572e1ffe42aa1850182fca06d01dc02f7aee770989766952ff4d3f7d578",
+            "native_reference_sha256": "82b99f7a4152f4c7087f89ebecc158487e97bd147a84d432db77d1ce1c3c659c",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_05",
+            "reference_sha256": "caaa3ab1f16418e5323e376b59d3a983b5ce2d973dedd4b2dd61eadec0906738",
+            "native_reference_sha256": "96f3d53cac8c039944154ca271e1e1e519d76fc7b0363fcf7375e12f12045d32",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_06",
+            "reference_sha256": "7e0c8d5550ddd6b6ca882f9f1067297e07fa6dbdff0bf63f5cc2d52cd7e005aa",
+            "native_reference_sha256": "75ef614cac1ceed636d2946259355b571905ca06b1d972f989781f5bd1f96c58",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_07",
+            "reference_sha256": "de5798b464714832b18e6e7ad2fa12bb16d82f73f5ca66aac66a2a415bec3ba6",
+            "native_reference_sha256": "0184339ec2fef137969b9eef03d30a80b74754d28c3dfd4d55317f1bc6a961b4",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        },
+        {
+            "id": "plot_transfer_08",
+            "reference_sha256": "55cea631c50cd93677820605544ed133b1c8d9204fc28930ef18695fe6c8f4e6",
+            "native_reference_sha256": "bf6280200e2a2dff76a8cd86fad865e8dd94791293eae91460420a0158eca686",
+            "correct_reference": true,
+            "wrong_color_rejected": true
+        }
+    ],
+    "scope": "Private reference/frontend/data/mutant qualification only; no model plot answers or aesthetic score. Restricted Julia is compiled into the SAME trusted drawing plan, never executed.",
+    "sources": {
+        "qualify_plot_interface_references.jl": "795ea1e3ca5bb1eef6436f4d584476453dd97b8342cb5f769fe3d9e904a6af78",
+        "plot_interface_references.jl": "228435b7828cd85f420928c68211cbed07ad1f9e79927eb8ffc38ef664a3c4f1",
+        "plot_interface_tasks.jl": "c105ec13f560b635f5953f1fdbfff4ad29d0050e56718b1af988f4a1f8796863",
+        "safe_plot_builder.jl": "1e099b935c08b9c644c42281717430d802313286c2a2ffc8c9748731e6dc1e09",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec",
+        "plot_interface_admission.jl": "27a53ff73e5a697a1b3f53f3db5967660e326d5c7ecd29d6072764747079cce3",
+        "safe_plot_julia_source.jl": "d20da3d8c2681a5e7c01845ae157c318eacf970d09b898003922764fa9ab5e92"
+    }
+}

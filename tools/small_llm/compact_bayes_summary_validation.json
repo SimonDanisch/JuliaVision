@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 8,
+    "scope": "Mock arithmetic only, no neural improvement",
+    "source_sha256": {
+        "summarize_compact_bayes.jl": "e8a0dbdb0088a1054ce7cb06dca2007d605845976e804ed0ebb29350b47b3f11",
+        "test_summarize_compact_bayes.jl": "e74f89dd8ea4aff3ad27f88deaa48e01d3870b6adba1a406322f2ea0d8dead3b"
+    }
+}

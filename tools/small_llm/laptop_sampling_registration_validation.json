@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU registration/integrity only; NOT full-model GPU continuation qualification",
+    "passed": 7,
+    "source_sha256": {
+        "test_laptop_sampling_registration.jl": "b38fd565fea13a1a830922ff9ba13c6185147c3c7fac2820d2f34bfc2646ca0d",
+        "laptop_sampling_full_model.jl": "34a170500e6626f7cfcd26b2303b961c51b331a5d8aa3aa909612f0e80733e6f"
+    }
+}

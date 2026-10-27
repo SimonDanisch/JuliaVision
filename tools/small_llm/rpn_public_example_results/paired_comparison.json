@@ -1,0 +1,57 @@
+{
+    "complete": true,
+    "by_arm": {
+        "disabled": {
+            "conditions": 4,
+            "completed": 4,
+            "syntax_accepted": 4,
+            "mathematical_passes": 1,
+            "inference_errors": 0
+        },
+        "enabled": {
+            "conditions": 4,
+            "completed": 4,
+            "syntax_accepted": 1,
+            "mathematical_passes": 1,
+            "inference_errors": 0
+        }
+    },
+    "pairs": [
+        {
+            "task": "unit_parabolic_cap",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "symmetric_unit_projection",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "periodic_gradient_energy",
+            "outcome": "both_pass",
+            "enabled": "passed",
+            "disabled": "passed"
+        },
+        {
+            "task": "clamped_neighbor_contrast",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        }
+    ],
+    "paired_counts": {
+        "both_pass": 1,
+        "pending": 0,
+        "enabled_only": 0,
+        "neither_pass": 3,
+        "disabled_only": 0
+    },
+    "scope": "Four NEW authored related-family public-example tasks after prior RPN development. Prospective numeric-mask comparison, NOT external held-out/frontier evidence.",
+    "policy": "ALL8 jobs frozen before generation. Both arms grammar-enabled and receive IDENTICAL public examples/prompts, model, sampling and512-token cap. One numeric-mask flag differs; numeric tracking and graph declarations identical. No retries/seed search/private feedback/arithmetic repair. Dead ends count as failures. Success requires independent CPU/software-Vulkan mathematical tests, not just public-example agreement.",
+    "conditions_sha256": "9fd3b267e3d71bd093eac99cdb674015af17bcf8682c9de4193370c19fcc5350",
+    "primary_summary_sha256": "9d98ed67537aba181b3b23e19fae0bb1c001c16173735d3c7d8e884e0a68bcd5",
+    "limits": "BOTH arms grammar-enabled; enabled/disabled here refers ONLY to the numeric public-example mask. Four authored related-family tasks, one seed each; not external or frontier evidence. Independent tests determine success; public-example agreement alone does not."
+}

@@ -1,0 +1,136 @@
+{
+    "complete": true,
+    "scope": "POSTHOC ALL8 SAME original prompts. Native FP32/greedy CPU diagnostic, different precision AND decoding, NOT isolated quantization effect, independent transfer or replacement primary score.",
+    "rows": [
+        {
+            "id": "bayes_extract_01_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.909091,
+            "expected_probability": 0.15384615384615385,
+            "absolute_error": 0.7552448461538461,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "a2795c571fcd005b6873758d5e67435a7ce5bff8e2391ad8ddb9ec664fb174ec",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_02_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.090909,
+            "expected_probability": 0.08695652173913043,
+            "absolute_error": 0.003952478260869571,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "753731afdd73b9627cd4118f4c99e9408ee2c70cd51cdea37a577a5802a49dc9",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_03_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.96,
+            "expected_probability": 0.875,
+            "absolute_error": 0.08499999999999996,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "7b9a6df3956aee7cd364afebadf5fdb48a1c307a0fa235ab4c75c31c89aa24de",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_04_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.96,
+            "expected_probability": 0.4,
+            "absolute_error": 0.5599999999999999,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "251f21aaff2e2d798aa285418dea7919df17b6d7b71847d34ceb22e4fbb67095",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_05_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0,
+            "expected_probability": 0.8727272727272727,
+            "absolute_error": 0.8727272727272727,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "b148f57c5e7360790c75679e5f6b969c2034ec6b301b873c8b0a2d6289d9f080",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_06_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.857143,
+            "expected_probability": 0.4840764331210191,
+            "absolute_error": 0.3730665668789809,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "57e5279091af0b23d74fcaccd488476967bb5b131e220c1766d0f2f912ff8b50",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_07_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.99,
+            "expected_probability": 0.12087912087912088,
+            "absolute_error": 0.8691208791208791,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "6750f3b068dad4bf3a4ae58ac7e4f82b9d75fd14fd19b523d840be48c5abaf0f",
+            "original_sampled_status": "failed"
+        },
+        {
+            "id": "bayes_extract_08_direct_probability",
+            "status": "failed",
+            "admitted": true,
+            "admission_reason": "numeric probability",
+            "probability": 0.95,
+            "expected_probability": 0.7058823529411765,
+            "absolute_error": 0.24411764705882344,
+            "eos_completed": true,
+            "inference_error": false,
+            "output_sha256": "fd3545056f3fd75e23e8b9fb1e7149e753bed889d9d37b46a4ad139b7c911984",
+            "original_sampled_status": "failed"
+        }
+    ],
+    "total": 8,
+    "passed": 0,
+    "curve": [
+        {
+            "absolute_tolerance": 1.0e-5,
+            "correct": 0
+        },
+        {
+            "absolute_tolerance": 0.0001,
+            "correct": 0
+        },
+        {
+            "absolute_tolerance": 0.001,
+            "correct": 0
+        },
+        {
+            "absolute_tolerance": 0.01,
+            "correct": 1
+        }
+    ],
+    "eos_completed": 8,
+    "admitted": 8,
+    "conditions_sha256": "301ca0c7c8da67c68a9e7c52508721dcf5887a0fdfd59002cbd14c42424dce5e",
+    "original_summary_sha256": "995853ffda021a0b9bea688d71d1fb2c3320285a4edda7a1f3dbd1e2db47fe8d",
+    "scorer_sha256": "2e6ea842c2f3dc83d74a79837143e9ac985d15b32f1c8aea4489e2938d4c6cf8",
+    "caveat": "Even a large difference cannot uniquely identify Q4, sampler or engine error. Existing native-logit parity and a matched greedy quantized control would be needed for stronger diagnosis. Incomplete/time-limited outputs remain failures at this diagnostic budget; no regeneration."
+}

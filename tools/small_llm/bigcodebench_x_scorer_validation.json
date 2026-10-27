@@ -1,0 +1,9 @@
+{
+  "complete": true,
+  "tests": 2,
+  "scope": "PRIVATE mocked execution/receipt/cache qualification; not model-quality evidence",
+  "source_sha256": {
+    "score_bigcodebench_x.py": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77",
+    "test_score_bigcodebench_x.py": "093e2ee206ffa9f9c26e53dc90d35f547d697ed4cbdc410fc41b21ee52f1bdb8"
+  }
+}

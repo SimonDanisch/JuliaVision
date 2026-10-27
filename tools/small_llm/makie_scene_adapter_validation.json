@@ -1,0 +1,26 @@
+{
+    "scope": "trusted adapter qualification only; no model output or accuracy improvement",
+    "execution": [
+        {
+            "id": "makie_link",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 50.535950899124146,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   18     18  5.0s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "78c64b4be35aeee4a8da8b7f84421cc3e133380b7d2da2f28f81838e25c270ee",
+            "contract_sha256": "6e32636ca9696d7455069a0ef7ea4df4535465aab29edd71b8e83b954902fc0d"
+        },
+        {
+            "id": "makie_band",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 47.70119094848633,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   17     17  4.2s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "a873bb8387c9c140aba69bbab2f8bdbfd9f34486777340bd8390815e52c1f3d5",
+            "contract_sha256": "d4a7929939849bc09deaf0cc5cccfd8de3959b02367e585795c8de97f0b3ce27"
+        }
+    ],
+    "adapter_sha256": "46a9c7191f09a49fbc0d6cd530f9580417e9dcb7a31db4b813a63f8cc8268d9f"
+}

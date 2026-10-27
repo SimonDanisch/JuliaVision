@@ -1,0 +1,68 @@
+{
+    "complete": true,
+    "passed": 14,
+    "rows": [
+        {
+            "task": "ki_body_affine",
+            "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+            "analysis_completed": true,
+            "payload": {
+                "completed": true,
+                "observed": "Float32[5.0, -5.0, 3.0, -9.0, -9.0]"
+            },
+            "loading_or_harness_error": null,
+            "public_prompt_sha256": "032ec2e81f3d56938ceb231cdad93e4564ce1417f5d6fb7306fe3008900cdeb0",
+            "fixture_sha256": "99faee2ce8c4052e71171020e68ba252cfbb0d39e46d979ba6e1483b0a035f44",
+            "code_sha256": "7ded78d7d89f16ba7e6813e4b8f02dc0dc26c60d97de7eb42dd5d3564fdbe833",
+            "elapsed_seconds": 24.102992057800293
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+            "analysis_completed": true,
+            "payload": {
+                "completed": true,
+                "observed": "Float32[0.33333334, 0.0, -0.33333334, -9.0, -9.0]"
+            },
+            "loading_or_harness_error": null,
+            "public_prompt_sha256": "e542adb56c4469df6d3cc8fbfe43321ac757a9d9d95bfa024195f3c34f8490a8",
+            "fixture_sha256": "814d02f73a9b61361439b31f9d0e753b9b5be20d8d27f0e63a6bf3c225fe402b",
+            "code_sha256": "1522b2e9329d4ce2a737fc4ef2e1ea10df27f2692ffbbaa97db39370000289c3",
+            "elapsed_seconds": 23.870680809020996
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+            "analysis_completed": true,
+            "payload": {
+                "completed": true,
+                "observed": "Float32[4.0, -12.0, 2.0, 32.0, 8.0, 28.0, -9.0, -9.0]"
+            },
+            "loading_or_harness_error": null,
+            "public_prompt_sha256": "a830b88eacf165cacaf8c5754fa1eec93e7e6a1f927aa32f87415c81e6ee1b1e",
+            "fixture_sha256": "f400ab7ab619e1e128427210cc5e311b6f805493d35489211db0073e42a95260",
+            "code_sha256": "63dbefa3b56d5d72e8b6ee0d34d15cb81081a1f0c0061beb2d50f2a476046643",
+            "elapsed_seconds": 23.97483992576599
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+            "analysis_completed": true,
+            "payload": {
+                "completed": true,
+                "observed": "Float32[2.0, 8.0]"
+            },
+            "loading_or_harness_error": null,
+            "public_prompt_sha256": "48c281996b9e7cb046da8eb28ead76b62300a25ce30f12cf7fa2ac54878e0a78",
+            "fixture_sha256": "dabe40344838b9d3318114da114d3549fa0bfc3134cee1441b3145aaa2b58fa5",
+            "code_sha256": "6c407a88894dfe320c9a7b7364451ef48871a25a223eb41943576285505c0a86",
+            "elapsed_seconds": 24.276477098464966
+        }
+    ],
+    "source_sha256": {
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "vulkan_kernel_tasks.jl": "961c5c69317bfbd4cbcda97fba99f14611c27c793428affc820471bd578c823a",
+        "kernel_public_smoke.jl": "bff8d95eb6fc61a13c8b30e1eabe18b77b0c1dbcd726b473acd0a5cedb8652f6",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a"
+    }
+}

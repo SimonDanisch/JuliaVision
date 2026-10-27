@@ -1,0 +1,90 @@
+{
+    "scope": "Single authored gather task, post-hoc budget intervention; two context arms, NOT two independent tasks",
+    "result": "API-pack raw kernel changes fail->pass; no-addon remains fail; no separate compiler gain in this pilot",
+    "limits": [
+        "One fixed seed, one task; not frontier intelligence or independent held-out evidence",
+        "Reported elapsed excludes cold model load/session setup; EOS polling executes extra tokens beyond first EOS",
+        "API-context benefit with the controller is one paired observation, not evidence that arbitrary knowledge is now integrated"
+    ],
+    "rows": [
+        {
+            "arm": "no_addon",
+            "scores": {
+                "raw": {
+                    "before_passed": false,
+                    "after_passed": false,
+                    "original_score_sha256": "7b0870a28ef463cd208dd460174fe947da437c61c257139e4a3b6492a6135e37",
+                    "controlled_score_sha256": "5e7fef7e4d3196def1d806619ea5fa7fe96af2547c8902d0f17a159fbd049520"
+                },
+                "compiler": {
+                    "before_passed": false,
+                    "after_passed": false,
+                    "original_score_sha256": "6e0bcfe85589c8c3a4be690f27b2c01f54622ab815135b2948a6d8336da8ec0f",
+                    "controlled_score_sha256": "872fd7bcf5ba88ee4f3b2b392b63e0b10b37f98af81903e9b3ca5860ae79b56a"
+                }
+            },
+            "pre_closure_decoded_prefix": {
+                "matches_original": true,
+                "utf8_bytes": 3793,
+                "sha256": "c5c0b68e3c67c82b80663db2fac5497859270d87589f551ca16f7979fa65dfdd"
+            },
+            "before": {
+                "generated": 2048,
+                "executed_steps": 2048,
+                "truncated": true,
+                "finished_thinking": false,
+                "elapsed_seconds": 46.226871967315674
+            },
+            "after": {
+                "generated": 1111,
+                "executed_steps": 1152,
+                "truncated": false,
+                "finished_thinking": true,
+                "forced_closures": 1,
+                "elapsed_seconds": 32.78100085258484
+            },
+            "original_sha256": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3",
+            "controlled_sha256": "20febc7489a94a6adb1d94affd22eaa5c1da6e3fd78d61a496453b1f07d34a63"
+        },
+        {
+            "arm": "api_pack",
+            "scores": {
+                "raw": {
+                    "before_passed": false,
+                    "after_passed": true,
+                    "original_score_sha256": "16fcb8be52da27fbcd1e0567cb028b16135d04f8f2f353b10e172a8861200b3d",
+                    "controlled_score_sha256": "d91c63cd94e7bc55b710b37d6bd386c5c3a825105eca44912f32246bf6674722"
+                },
+                "compiler": {
+                    "before_passed": false,
+                    "after_passed": true,
+                    "original_score_sha256": "c3c536b19dc3590d4468ccdd5f471ccf28d77d6e74c636b9df7a62b2b5daa075",
+                    "controlled_score_sha256": "6c2d0b55a388d0a31b4a8b7be566e5a5f4afdc8ad8b226f4b0f0b33f0574de29"
+                }
+            },
+            "pre_closure_decoded_prefix": {
+                "matches_original": true,
+                "utf8_bytes": 3306,
+                "sha256": "3acd1dfc20d76746e8d90b04cf65f9951bb0fc20d0dd31f3e6bc2bca7c1e3557"
+            },
+            "before": {
+                "generated": 2048,
+                "executed_steps": 2048,
+                "truncated": true,
+                "finished_thinking": false,
+                "elapsed_seconds": 40.711291790008545
+            },
+            "after": {
+                "generated": 1167,
+                "executed_steps": 1280,
+                "truncated": false,
+                "finished_thinking": true,
+                "forced_closures": 1,
+                "elapsed_seconds": 27.237814903259277
+            },
+            "original_sha256": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+            "controlled_sha256": "9e11ab7df7bdd223dd375ffc00c0224376118c1f1094ea7017ff79152467d03e"
+        }
+    ],
+    "source_sha256": "4fa3d8c18a0373f1aba9629c57e7df7f3db6fe14c0dd78ff8de599068836bc6f"
+}

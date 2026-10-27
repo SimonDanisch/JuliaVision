@@ -1,0 +1,29 @@
+{
+    "scope": "four authored development GPU-kernel bodies, not held-out/frontier evidence",
+    "execution": "sandboxed llvmpipe software Vulkan, no Radeon candidate execution; neither hardware performance nor formal race freedom",
+    "rows": [
+        {
+            "task": "ki_body_affine",
+            "status": "failed",
+            "truncated": true
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "status": "failed",
+            "truncated": false
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "status": "failed",
+            "truncated": false
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "status": "failed",
+            "truncated": false
+        }
+    ],
+    "passed": 0,
+    "evaluated": 4,
+    "pending": 0
+}

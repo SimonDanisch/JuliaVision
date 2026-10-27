@@ -1,0 +1,15 @@
+{
+    "complete": true,
+    "host_checks": 39,
+    "shared_kernel_checks": 47,
+    "scope": "Host/software Vulkan fixtures only; no full-model use, physical GPU qualification or improved API choice demonstrated",
+    "source_sha256": {
+        "finite_choice_constraint.jl": "fc411b48d71b29056d8f0254b2a7eae69e389b2436e36f5a8c475dbab6d4e63f",
+        "test_finite_choice_constraint_gpu.jl": "791d48aa407701229ed63c024b2f0312077ab80fc8c69c54280776acb1c0eb9e",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "finite_choice_constraint_gpu.jl": "8de7d9c4e935c03bf808d9254401672187fbd79b2222c046a6188257af05566d",
+        "test_finite_choice_constraint.jl": "99e55c601bac5ca41fc2c6f8b0fb72d2eae4667fd54ca5e3e1303e0d097386a8"
+    }
+}

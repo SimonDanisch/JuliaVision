@@ -1,0 +1,282 @@
+{
+    "scope": "POSTHOC SAME8 authored Julia tasks after observing6/8 primary transfer and boundary mistakes. No new neural generations; NOT independent validation/model-only intelligence.",
+    "policy": "Apply uniform literal affirmative boundary-phrase recognizer to EVERY public specification. Unknown/negated/conflicting phrases impose no feature restriction. Retain original neural IR only if it fits public examples AND conservative boundary feature subset. Otherwise first bounded symbolic fit with prohibited boundary pushes excluded. No task-ID matching, hidden values, regenerated neural answers, or private-score candidate selection. Commit ALL8 decisions before grading.",
+    "semantics": "Conservative source-feature admission, not a proof that a program using the other boundary mode is mathematically wrong; valid cancelling programs may be excluded. All arithmetic reuses the same CPU/GPU evaluator.",
+    "jobs": [
+        {
+            "id": "absolute_current",
+            "specification": "Return the absolute value of the current element.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        2,
+                        1,
+                        0.5,
+                        2
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0.75
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "91adbacf729d9eae9f621703affd890f67ca5e8c28ff9824e34b151a164b60e4",
+            "parent_generation_sha256": "3241551fcfc12a1524d24ee0bb3fe2b83385305dc7b3dcdd8bc74f4d34ae4bc8"
+        },
+        {
+            "id": "positive_neighbor_drop",
+            "specification": "Subtract the current element from the previous clamped neighbor; return zero if that difference is negative.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        0,
+                        3,
+                        0,
+                        2.5
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "5cfe21b792a99ac55d8865287154047d786e02d151e60ef3fbe6c05d7deabcf6",
+            "parent_generation_sha256": "8331ec9628e8cdc9fadc919c3a4d6c8bffe8fb8c3f58e334a9641b39ba6dc3a2"
+        },
+        {
+            "id": "periodic_neighbor_midpoint",
+            "specification": "Add the previous and next periodic neighbors, then multiply by one half.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        -1.5,
+                        1.25,
+                        -1.5,
+                        1.25
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "b27e554f8ad3e3a40930682b0140350071b2ff2754e9e308cbe0c0b5042a786b",
+            "parent_generation_sha256": "543c4860362dc6d7f7f3b4a96462abf801923848112ce7c617e8ed2c4fe7cd65"
+        },
+        {
+            "id": "neighbor_box_upper_gap",
+            "specification": "Take the larger of the previous and next clamped neighbors and subtract the current element.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        0,
+                        3,
+                        -1.5,
+                        2.5
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "29d88863b77fad930767ce5ba746876a57ca020aaeadf2f5b6253c748bdef6d6",
+            "parent_generation_sha256": "6a261e2adda57882cf74d319d372191ff9c2e74124766bb5ae70445faa11d9aa"
+        },
+        {
+            "id": "current_neighbor_product",
+            "specification": "Multiply the current element by the next periodic neighbor.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        -2,
+                        -0.5,
+                        -1,
+                        -4
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0.5625
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "ce15b04747302216543387bbdc9e8db9e2ed61188d23166354bfe3987145ca87",
+            "parent_generation_sha256": "edb6c3b9126780034e416856cd62725307ce3214bf07fc6f221923bb8dae6e18"
+        },
+        {
+            "id": "unit_positive_deficit",
+            "specification": "Clamp the current element to the interval zero through one, then subtract that clamped value from one.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        0,
+                        1,
+                        0.5,
+                        1
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        1
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "823eaac3304b22ef93398415048139fcee2894a264542145d7e88373f0733928",
+            "parent_generation_sha256": "2aaf3894192c3814b3ae21bb17c751f5e737c27914d8bcdece1bd882ccf4e6f2"
+        },
+        {
+            "id": "clamped_threeway_minimum",
+            "specification": "Return the minimum of the previous clamped neighbor, current element, and next clamped neighbor.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        -1,
+                        -1,
+                        -2,
+                        -2
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "9ab5ae380b4379eaad54db0e57af17b833b04cdd3b4ec812286c8faac0c8fdf8",
+            "parent_generation_sha256": "1a583951c74887251054e1dee871c5a4566c9f513b02f5400952740aad2d988b"
+        },
+        {
+            "id": "squared_neighbor_maximum",
+            "specification": "Square each of the previous and next periodic neighbors, then return the larger square.",
+            "public_cases": [
+                {
+                    "input": [
+                        2,
+                        -1,
+                        0.5,
+                        -2
+                    ],
+                    "output": [
+                        4,
+                        4,
+                        4,
+                        4
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0.5625
+                    ]
+                },
+                {
+                    "input": [
+                        0.25,
+                        1.5,
+                        -0.5
+                    ],
+                    "output": [
+                        2.25,
+                        0.25,
+                        2.25
+                    ]
+                }
+            ],
+            "parent_selection_sha256": "dbbec3fb6f7588158978d8a9ffec770109b66e314592f379d65e4b9c62a91113",
+            "parent_generation_sha256": "2558856df5db7d35419fe0eb137bd9216dde94abb28f7f12f5442e3ea651917e"
+        }
+    ],
+    "synthesis": {
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10
+    },
+    "parent_summary_sha256": "1ebbc1427be8b2c81090c538630cbb49c625ed15702fde1edf83a62746111095",
+    "observed_parent_results": {
+        "direct_passed": 6,
+        "hybrid_passed": 6,
+        "total": 8
+    },
+    "sources": {
+        "public_example_synthesis.jl": "6b714aa870b1f36be3c50074c73efb00d27442a1fba1ebe1ed4f9b9420f66315",
+        "rpn_example_semantics.jl": "a2834faee31f8ae1e51f811ee6d7ea43250f7ef5c93a153346aecbd1b141b34f",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "boundary_example_synthesis.jl": "8cbb438fc840039ac7e6734c516d2ea0d7d65bda7e4d573439a0093af18b8b19",
+        "rpn_example_constraint.jl": "38c591769bb72fdb97408647b6d4b469d010874f3356e2cf6bdd339a57e92ad3",
+        "stencil_boundary_contract.jl": "91839a6d732f70889324557f20ce7175b88ecd0b6c4e30c4a256701585ea9a44",
+        "stencil_boundary_development.jl": "203537fc165d5e84324764d65018a8e1b5b98bfad36011817c3a4fee0f6edc5e",
+        "public_example_fallback.jl": "875ae17d3fb77f602d654f2ce3ac7785e76d104db2d264d37d22192da8edcdd9"
+    }
+}

@@ -1,0 +1,123 @@
+{
+  "scope": "analytic necessary traffic bounds, NOT measured performance",
+  "assumptions": [
+    "Batch-one decode scans the stated number of weights per token; optimistic ideal bit rate",
+    "Scanned weights are NOT automatically total model parameters: sparse input-embedding lookups must be excluded",
+    "KV traffic assumes exact full-context attention, one read of K and V per step",
+    "No hardware bandwidth claim or throughput prediction is made",
+    "MoE active-weight traffic differs; total parameter count is not active count",
+    "Sparse attention, cache compression, batching and alternative memory architectures can change these assumptions"
+  ],
+  "dense_weights": [
+    {
+      "scanned_weight_parameters_billions": 4,
+      "bits": 4,
+      "tokens_per_second": 50,
+      "minimum_weight_GB_per_second": 100.0
+    },
+    {
+      "scanned_weight_parameters_billions": 4,
+      "bits": 4,
+      "tokens_per_second": 100,
+      "minimum_weight_GB_per_second": 200.0
+    },
+    {
+      "scanned_weight_parameters_billions": 4,
+      "bits": 16,
+      "tokens_per_second": 50,
+      "minimum_weight_GB_per_second": 400.0
+    },
+    {
+      "scanned_weight_parameters_billions": 4,
+      "bits": 16,
+      "tokens_per_second": 100,
+      "minimum_weight_GB_per_second": 800.0
+    },
+    {
+      "scanned_weight_parameters_billions": 12,
+      "bits": 4,
+      "tokens_per_second": 50,
+      "minimum_weight_GB_per_second": 300.0
+    },
+    {
+      "scanned_weight_parameters_billions": 12,
+      "bits": 4,
+      "tokens_per_second": 100,
+      "minimum_weight_GB_per_second": 600.0
+    },
+    {
+      "scanned_weight_parameters_billions": 12,
+      "bits": 16,
+      "tokens_per_second": 50,
+      "minimum_weight_GB_per_second": 1200.0
+    },
+    {
+      "scanned_weight_parameters_billions": 12,
+      "bits": 16,
+      "tokens_per_second": 100,
+      "minimum_weight_GB_per_second": 2400.0
+    },
+    {
+      "scanned_weight_parameters_billions": 20,
+      "bits": 4,
+      "tokens_per_second": 50,
+      "minimum_weight_GB_per_second": 500.0
+    },
+    {
+      "scanned_weight_parameters_billions": 20,
+      "bits": 4,
+      "tokens_per_second": 100,
+      "minimum_weight_GB_per_second": 1000.0
+    },
+    {
+      "scanned_weight_parameters_billions": 20,
+      "bits": 16,
+      "tokens_per_second": 50,
+      "minimum_weight_GB_per_second": 2000.0
+    },
+    {
+      "scanned_weight_parameters_billions": 20,
+      "bits": 16,
+      "tokens_per_second": 100,
+      "minimum_weight_GB_per_second": 4000.0
+    }
+  ],
+  "qwen35_4b_attention_KV": [
+    {
+      "context": 4096,
+      "bytes_per_element": 2,
+      "KV_GiB": 0.125,
+      "minimum_KV_GB_per_second_at_50": 6.7108864
+    },
+    {
+      "context": 4096,
+      "bytes_per_element": 4,
+      "KV_GiB": 0.25,
+      "minimum_KV_GB_per_second_at_50": 13.4217728
+    },
+    {
+      "context": 262144,
+      "bytes_per_element": 2,
+      "KV_GiB": 8.0,
+      "minimum_KV_GB_per_second_at_50": 429.4967296
+    },
+    {
+      "context": 262144,
+      "bytes_per_element": 4,
+      "KV_GiB": 16.0,
+      "minimum_KV_GB_per_second_at_50": 858.9934592
+    },
+    {
+      "context": 1000000,
+      "bytes_per_element": 2,
+      "KV_GiB": 30.517578125,
+      "minimum_KV_GB_per_second_at_50": 1638.4
+    },
+    {
+      "context": 1000000,
+      "bytes_per_element": 4,
+      "KV_GiB": 61.03515625,
+      "minimum_KV_GB_per_second_at_50": 3276.8
+    }
+  ]
+}

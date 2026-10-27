@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 136,
+    "scope": "synthetic shared-kernel reasoning-budget control only, no full model/intelligence claim",
+    "source_sha256": {
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "test_reasoning_budget.jl": "3bdf2bef9d3ce43bf14d229d51b7731fcffd8e7aabd35e699a816d280e3640ca"
+    }
+}

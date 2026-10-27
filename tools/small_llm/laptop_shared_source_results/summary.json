@@ -1,0 +1,101 @@
+{
+    "scope": "Prospective authored interface comparison after development; tasks are related to prior kernel families, NOT independent public held-out/frontier evidence",
+    "migration": "All eight NEVER ATTEMPTED conditions migrated together to Laptop portable exact-tensor loader; direct GPU vs shared CPU-source arms both on SAME host/runtime. Not pooled with Bosgame results.",
+    "grading": "same software-Vulkan functional target; common void-tail normalization. CPU arm must be admitted by frozen lowerer AND pass original CPU tests AND compiled GPU tests. Direct arm must pass GPU tests. Rejection is pipeline failure, not backend inference failure.",
+    "rows": [
+        {
+            "id": "shared_periodic_laplacian_cpu_source",
+            "task": "shared_periodic_laplacian",
+            "arm": "cpu_source",
+            "status": "passed",
+            "stage": "execution",
+            "cpu_passed": true,
+            "gpu_passed": true,
+            "truncated": false,
+            "forced_closures": 1,
+            "generation_sha256": "809dd72347a2ac82991214944faaf794abc51b13edc2122c5ceafd7877dfb6fe"
+        },
+        {
+            "id": "shared_periodic_laplacian_gpu_source",
+            "task": "shared_periodic_laplacian",
+            "arm": "gpu_source",
+            "status": "failed",
+            "stage": "execution",
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "truncated": false,
+            "forced_closures": 1,
+            "generation_sha256": "a27a32333fb2007754a7cd4fa949741e07c665bed503d5b03117c3eeed411a8d"
+        },
+        {
+            "id": "shared_indexed_interpolation_gpu_source",
+            "task": "shared_indexed_interpolation",
+            "arm": "gpu_source",
+            "status": "failed",
+            "stage": "execution",
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "truncated": false,
+            "forced_closures": 0,
+            "generation_sha256": "f555a15732eb0b54145df0fc2b217fea44f9b37d6508b8f6fbaa4bf8ab980a82"
+        },
+        {
+            "id": "shared_indexed_interpolation_cpu_source",
+            "task": "shared_indexed_interpolation",
+            "arm": "cpu_source",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "function syntax required",
+            "generation_sha256": "ebca69c2592d66e1806ed529d6924911294aaa42dbd1e23dc1297df061e62bae"
+        },
+        {
+            "id": "shared_column_bias_clip_cpu_source",
+            "task": "shared_column_bias_clip",
+            "arm": "cpu_source",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "one loop and optional return nothing required",
+            "generation_sha256": "11fc2fb433a8be639fc5468a515967feeed8df2466c917aa08c1598e53c024f9"
+        },
+        {
+            "id": "shared_column_bias_clip_gpu_source",
+            "task": "shared_column_bias_clip",
+            "arm": "gpu_source",
+            "status": "failed",
+            "stage": "execution",
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "truncated": false,
+            "forced_closures": 1,
+            "generation_sha256": "65fa91a8e8a15958325ed9eb2f05b04763700e74476642729c6d73cc8cbef54d"
+        },
+        {
+            "id": "shared_block_reverse_gpu_source",
+            "task": "shared_block_reverse",
+            "arm": "gpu_source",
+            "status": "failed",
+            "stage": "execution",
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "truncated": false,
+            "forced_closures": 1,
+            "generation_sha256": "b87e07bc7cace8ffc67f23f2a1736ab2bb9b3c61a78e357b4e2180d5b180bee1"
+        },
+        {
+            "id": "shared_block_reverse_cpu_source",
+            "task": "shared_block_reverse",
+            "arm": "cpu_source",
+            "status": "passed",
+            "stage": "execution",
+            "cpu_passed": true,
+            "gpu_passed": true,
+            "truncated": false,
+            "forced_closures": 1,
+            "generation_sha256": "92b1c28efb65fd34e2bb8b70c4c7453a349a398353dae01bcf7c2635960c4528"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "113f1677cfa562ae8473a423573f4ec91d40540bbf6e6a006de005d5fa821e2d",
+    "scorer_sha256": "f8eb52eb8b4665bbc477ac4866457fa787df88e2b09cd53abdb203fd1d2df569",
+    "execution": "Sandboxed CPU/software Vulkan only; no generated privileged code"
+}

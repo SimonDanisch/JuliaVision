@@ -1,0 +1,92 @@
+{
+    "scope": "fixed12-task public HumanEval.jl subset, basic tests only, possible training contamination",
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 18.636101961135864
+        },
+        {
+            "task": "039_prime_fib",
+            "status": "failed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 15.321476936340332
+        },
+        {
+            "task": "106_f",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 13.45249605178833
+        },
+        {
+            "task": "162_string_to_md5",
+            "status": "failed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 19.66194796562195
+        },
+        {
+            "task": "104_unique_digits",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 13.7914719581604
+        },
+        {
+            "task": "074_total_match",
+            "status": "failed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 11.621783971786499
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "status": "failed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 31.129914045333862
+        },
+        {
+            "task": "037_sort_even",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 26.018168926239014
+        },
+        {
+            "task": "146_specialFilter",
+            "status": "failed",
+            "truncated": true,
+            "finished_thinking": false,
+            "generation_seconds": 34.52264213562012
+        },
+        {
+            "task": "048_is_palindrome",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 19.657323122024536
+        },
+        {
+            "task": "110_exchange",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 11.564874172210693
+        },
+        {
+            "task": "077_iscube",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 15.65505313873291
+        }
+    ],
+    "passed": 7,
+    "evaluated": 12,
+    "pending": 0
+}

@@ -1,0 +1,40 @@
+{
+    "scope": "Prospective authored interface comparison after development; tasks are related to prior kernel families, NOT independent public held-out/frontier evidence",
+    "policy": "all four tasks/botharms; counterbalanced arm order; immutable attempt before each generation; no retries, seed search, hidden feedback or best-output selection",
+    "rows": [
+        {
+            "id": "shared_periodic_laplacian_cpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_periodic_laplacian_gpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_indexed_interpolation_gpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_indexed_interpolation_cpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_column_bias_clip_cpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_column_bias_clip_gpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_block_reverse_gpu_source",
+            "status": "pending"
+        },
+        {
+            "id": "shared_block_reverse_cpu_source",
+            "status": "pending"
+        }
+    ],
+    "complete": false,
+    "conditions_sha256": "c9aeba5138ce37fde721f6b65f379c9134c164cc1cdfff86ec54ef4ae8bb94eb"
+}

@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "checks": 7,
+    "scope": "Uniform missing-outcome arithmetic frozen before task grading; no changed primary outcome",
+    "source_sha256": {
+        "test_missing_outcome_bounds.jl": "9e4ce932a66d1686fba4a9bae4d957ca56663b430000570155707ca5597daa35",
+        "missing_outcome_bounds.jl": "652dd1ca2e1fbc6d5c73069710ed7dbf215231fa4ad4742078313084dd5f70c4"
+    }
+}

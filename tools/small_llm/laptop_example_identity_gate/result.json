@@ -1,0 +1,82 @@
+{
+    "passed": 12,
+    "original": {
+        "answer": "zero\nhalf\nneg\nadd\nfinish\n",
+        "code": "zero\nhalf\nneg\nadd\nfinish",
+        "input_tokens": 130,
+        "generated_tokens": 10,
+        "budget_tokens": 512,
+        "decode_steps_executed": 64,
+        "decode_submissions": 64,
+        "eos_output_poll_chunk": 64,
+        "finished_thinking": true,
+        "truncated": false,
+        "elapsed_seconds": 13.657845973968506,
+        "input_sha256": "2ed71c9661dbcb55908f4c8a4957682a636383189dfc68cba5e46feb65c1b1e1",
+        "grammar": {
+            "enabled": true,
+            "node": 0,
+            "depth": 1,
+            "operations": 4,
+            "done": 1,
+            "rejected": 0,
+            "operation_budget": 8,
+            "max_depth": 4,
+            "finite_token_bound": 65
+        },
+        "sampling": {
+            "kind": "exact top-k/nucleus",
+            "seed": 20261024,
+            "topk": 20,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "presence": 0,
+            "draws": 65,
+            "policy": "GPU-resident grammar mask/stack transition and sampler; completed-output polling only, no token/state feedback from CPU"
+        }
+    },
+    "pid": 3599076,
+    "conditions_sha256": "7fed5315d8163c07329351336f11533d0da95244a48578296d3287236e343a51",
+    "scope": "Full-model disabled numeric-hook identity ONLY, not a task-quality attempt or trained reasoning module",
+    "complete": true,
+    "disabled": {
+        "answer": "zero\nhalf\nneg\nadd\nfinish\n",
+        "code": "zero\nhalf\nneg\nadd\nfinish",
+        "input_tokens": 130,
+        "generated_tokens": 10,
+        "budget_tokens": 512,
+        "decode_steps_executed": 64,
+        "decode_submissions": 64,
+        "eos_output_poll_chunk": 64,
+        "finished_thinking": true,
+        "truncated": false,
+        "elapsed_seconds": 7.474611043930054,
+        "input_sha256": "2ed71c9661dbcb55908f4c8a4957682a636383189dfc68cba5e46feb65c1b1e1",
+        "constraint": {
+            "enabled": false,
+            "accepted": true,
+            "reason": "completed",
+            "public_examples_matched": false,
+            "raw_status": 0,
+            "sampler_status": 0,
+            "rejected": 0,
+            "done": 1,
+            "depth": 1,
+            "operations": 4,
+            "operation_budget": 8,
+            "max_depth": 4,
+            "finite_token_bound": 65,
+            "examples_sha256": "54db21b6909badf47996a4db8e3948c7f9b24679358a818aed8755cb83206e65"
+        },
+        "sampling": {
+            "seed": 20261024,
+            "topk": 20,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "presence": 0,
+            "draws": 65,
+            "policy": "GPU-resident grammar and public-example mask/state; completed-output polling only; no next-token host feedback. Rejection retained, not repaired."
+        }
+    },
+    "normal_final_waitidle": true
+}

@@ -1,0 +1,134 @@
+{
+    "scope": "POSTHOC symbolic synthesis baseline on SAME4 authored tasks, after partial neural outputs. No new neural attempts, not independent transfer/model intelligence or proof beyond public examples.",
+    "policy": "All4 retained; fixed candidate/state/cost/time limits before search; first public-example match only. No task formula, reference, hidden inputs, model output or grading feedback enters the solver. Independent scoring only after all search outputs committed; no retries/hidden-score selection.",
+    "cases": [
+        {
+            "task": "unit_parabolic_cap",
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        0,
+                        0.75,
+                        0.9375,
+                        0
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0.4375
+                    ]
+                }
+            ]
+        },
+        {
+            "task": "symmetric_unit_projection",
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        -1,
+                        -0.5,
+                        0.25,
+                        1
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ]
+        },
+        {
+            "task": "periodic_gradient_energy",
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        3.125,
+                        2.53125,
+                        3.125,
+                        2.53125
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0
+                    ]
+                }
+            ]
+        },
+        {
+            "task": "clamped_neighbor_contrast",
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        -3.5,
+                        -1.25,
+                        -1.5,
+                        2.0
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ]
+        }
+    ],
+    "options": {
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10
+    },
+    "max_depth": 8,
+    "model_conditions_sha256": "9fd3b267e3d71bd093eac99cdb674015af17bcf8682c9de4193370c19fcc5350",
+    "observed_model_outputs_at_registration": {
+        "unit_parabolic_cap_enabled": "fe3cca043f7fe58bb7bc5a166d3b7836bc657166de76e01194279b08f075bfca",
+        "unit_parabolic_cap_disabled": "9802057089896ca699c97d9a692aac5058f080986dd773327d158bf8afd15aca",
+        "symmetric_unit_projection_enabled": "9335adf999b4bcf5762348c9a465c9be29c49a42bea0a68c951bceaa3a71c882"
+    },
+    "solver_proof_sha256": "5d91f5df1690ad4194a5403411cbf3ff47343ec7a5f623c11f46fdb3761c1cdf",
+    "sources": {
+        "public_example_synthesis.jl": "6b714aa870b1f36be3c50074c73efb00d27442a1fba1ebe1ed4f9b9420f66315",
+        "rpn_example_semantics.jl": "a2834faee31f8ae1e51f811ee6d7ea43250f7ef5c93a153346aecbd1b141b34f",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "public_example_synthesis_experiment.jl": "b597e0e5481376aa263281168e63d8fbe61e35562e40ad8806394e50b6416e88"
+    }
+}

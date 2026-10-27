@@ -1,0 +1,41 @@
+{
+    "scope": "two authored API tasks, equal output budgets, different input lengths; development evidence only",
+    "rows": [
+        {
+            "task": "ki_launch",
+            "arm": "direct",
+            "passed": false,
+            "truncated": false,
+            "input_tokens": 160,
+            "generation_seconds": 18.572566032409668
+        },
+        {
+            "task": "ki_launch",
+            "arm": "api_docs",
+            "passed": false,
+            "truncated": false,
+            "input_tokens": 1194,
+            "generation_seconds": 8.102630138397217
+        },
+        {
+            "task": "makie_update",
+            "arm": "direct",
+            "passed": false,
+            "truncated": false,
+            "input_tokens": 143,
+            "generation_seconds": 3.3146018981933594
+        },
+        {
+            "task": "makie_update",
+            "arm": "api_docs",
+            "passed": false,
+            "truncated": false,
+            "input_tokens": 292,
+            "generation_seconds": 3.7094788551330566
+        }
+    ],
+    "totals": {
+        "direct": 0,
+        "api_docs": 0
+    }
+}

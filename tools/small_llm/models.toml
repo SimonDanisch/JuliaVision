@@ -1,0 +1,16 @@
+# Checkpoint revisions inspected on 2026-10-24. These are upstream weights,
+# not claims of support or measured speed in DNNKernels.
+[[models]]
+id = "Qwen/Qwen3.5-2B"
+revision = "15852e8c16360a2fea060d615a32b45270f8a8fc"
+role = "throughput fallback"
+
+[[models]]
+id = "Qwen/Qwen3.5-4B"
+revision = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+role = "first dense backbone to port"
+
+[[models]]
+id = "Qwen/Qwen3.6-35B-A3B"
+revision = "995ad96eacd98c81ed38be0c5b274b04031597b0"
+role = "MoE comparison after dense baseline"

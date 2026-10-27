@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "scope": "Public context rendering qualification only, not model quality",
+    "passed": 13,
+    "source_sha256": {
+        "public_document_retrieval.jl": "97e6e1c1c36eff91016898a63630e384b46e36bd3b97b573786c0f63ac31b9eb",
+        "julia_public_docs.json": "90211427180a9c84f6ff3169efe6340acc502a8ac5a13c8ac954d670c35c50cf",
+        "public_document_context.jl": "782217bbb94694755c34f6b58fd4f54aa6f9545fb834d6b31576b1affdb09f60",
+        "test_public_document_context.jl": "ad8a38d7d5d14e5a3f0a9be862db7c4b2b376b35c81f0e5c993da2bdca3fdafb"
+    }
+}

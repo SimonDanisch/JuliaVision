@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 12,
+    "scope": "Public AST/dependency analyzer qualification only, not model reasoning gains",
+    "source_sha256": {
+        "test_public_program_diagnostics.jl": "2eb1bd447c0e7a76d61cc6bd76e234d267a994d49d551cccafa4618e11102ee8",
+        "public_program_diagnostics.jl": "e5be1d50ca79dee01b23e57b1041ba65a7a10e88c2de2419a1d1d5bc44f0b51f"
+    }
+}

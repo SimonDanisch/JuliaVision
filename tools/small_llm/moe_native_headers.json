@@ -1,0 +1,96 @@
+{
+  "scope": "bounded native header/layout audit only, not full-model correctness or throughput",
+  "model": {
+    "id": "Qwen/Qwen3.6-35B-A3B",
+    "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+    "role": "MoE comparison after dense baseline"
+  },
+  "config_sha256": "93a4693fa9d8392fbfccd4b3c9873f4bfdcb14fdede978b123d07d19675efe99",
+  "index_sha256": "41b9356101ebf8e7519e150dc811f80c4226e727301fbb032b890f006ed0be83",
+  "shards_inspected": 3,
+  "rows": [
+    {
+      "key": "lm_head.weight",
+      "shard": "model-00026-of-00026.safetensors",
+      "shape": [
+        248320,
+        2048
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.embed_tokens.weight",
+      "shard": "model-00001-of-00026.safetensors",
+      "shape": [
+        248320,
+        2048
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.experts.gate_up_proj",
+      "shard": "model-00001-of-00026.safetensors",
+      "shape": [
+        256,
+        1024,
+        2048
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.experts.down_proj",
+      "shard": "model-00002-of-00026.safetensors",
+      "shape": [
+        256,
+        2048,
+        512
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.gate.weight",
+      "shard": "model-00002-of-00026.safetensors",
+      "shape": [
+        256,
+        2048
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.shared_expert.gate_proj.weight",
+      "shard": "model-00002-of-00026.safetensors",
+      "shape": [
+        512,
+        2048
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.shared_expert.up_proj.weight",
+      "shard": "model-00002-of-00026.safetensors",
+      "shape": [
+        512,
+        2048
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.shared_expert.down_proj.weight",
+      "shard": "model-00002-of-00026.safetensors",
+      "shape": [
+        2048,
+        512
+      ],
+      "dtype": "BF16"
+    },
+    {
+      "key": "model.language_model.layers.0.mlp.shared_expert_gate.weight",
+      "shard": "model-00002-of-00026.safetensors",
+      "shape": [
+        1,
+        2048
+      ],
+      "dtype": "BF16"
+    }
+  ]
+}

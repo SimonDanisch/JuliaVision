@@ -1,0 +1,117 @@
+{
+    "scope": "Migration of six NEVER ATTEMPTED predeclared controller conditions to Laptop8060S, with a separately qualified exact-tensor portable loader. Hardware/driver/package closure differs from Bosgame: NOT a strict same-engine causal comparison with old outputs.",
+    "policy": "same exact original messages/seed/sampling/budget/order; no regeneration; immutable attempt receipts; inference errors separate from code failures; results kept outside original directories",
+    "jobs": [
+        {
+            "id": "transfer_sincos_pair_api_pack",
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out_sin,out_cos,x,n::Int32). Three distinct Float32 device arrays. For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i]. x values lie in[-3,3]. n can be0; preserve padding in BOTH output arrays after n. Compute each valid element once, no atomics.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+                }
+            ],
+            "original_sha256": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674"
+        },
+        {
+            "id": "transfer_sincos_pair_no_addon",
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out_sin,out_cos,x,n::Int32). Three distinct Float32 device arrays. For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i]. x values lie in[-3,3]. n can be0; preserve padding in BOTH output arrays after n. Compute each valid element once, no atomics."
+                }
+            ],
+            "original_sha256": "5ee2897d1944666936d1170ba53a9247ff32700fd9a79f9f7f887ec1fe2db4a1"
+        },
+        {
+            "id": "transfer_flat_transpose_no_addon",
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,rows::Int32,cols::Int32). x is a FLATTENED column-major rows-by-cols Float32 matrix; out is distinct and must hold its transposed cols-by-rows matrix, also flattened COLUMN-MAJOR. rows/cols are positive. Exactly rows*cols valid outputs, followed by padding that must stay unchanged. Handle rectangular matrices, not just squares; no scratch memory."
+                }
+            ],
+            "original_sha256": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef"
+        },
+        {
+            "id": "transfer_flat_transpose_api_pack",
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,rows::Int32,cols::Int32). x is a FLATTENED column-major rows-by-cols Float32 matrix; out is distinct and must hold its transposed cols-by-rows matrix, also flattened COLUMN-MAJOR. rows/cols are positive. Exactly rows*cols valid outputs, followed by padding that must stay unchanged. Handle rectangular matrices, not just squares; no scratch memory.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+                }
+            ],
+            "original_sha256": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6"
+        },
+        {
+            "id": "transfer_atomic_sum_api_pack",
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,labels,x,n::Int32). out/x Float32, labels Int32; all storage is distinct. For every1<=i<=n atomically ADD x[i] into out[labels[i]], retaining out's initial values. labels are valid1-based indices, and many workgroups contend. n can be0. Use Atomix.jl with explicit :monotonic ordering; results are observed only after kernel completion. A separate normal load followed by an atomic STORE is not a valid RMW. No scratch arrays or host reductions.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+                }
+            ],
+            "original_sha256": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21"
+        },
+        {
+            "id": "transfer_atomic_sum_no_addon",
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,labels,x,n::Int32). out/x Float32, labels Int32; all storage is distinct. For every1<=i<=n atomically ADD x[i] into out[labels[i]], retaining out's initial values. labels are valid1-based indices, and many workgroups contend. n can be0. Use Atomix.jl with explicit :monotonic ordering; results are observed only after kernel completion. A separate normal load followed by an atomic STORE is not a valid RMW. No scratch arrays or host reductions."
+                }
+            ],
+            "original_sha256": "6fae32e4d37dd44307cff0f024335cea54712d2dd4cfd1fedfba93f2c5be3151"
+        }
+    ],
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 2048,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "thinking_budget": 1024,
+    "extension_sha256": "61d577c97893ada4dc1f2ada5c067423445066f5f156cf9cf20a805da7df89a5",
+    "gate_sha256": "3eaf18f83b3fb8118e1bb07561e14da7a80f4800ff876bddd943a66a9fb23171",
+    "portable_manifest_sha256": "70199eb4df8d32f9bc1dba8b5db7a480ac58744f2873ffa1c9220f4e29708973",
+    "source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "laptop_pending_study.jl": "dc334926df4f18100bcc30bca0cf00cdbd0ecdba62615d69bf5632005064a8f1",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "portable_qwen35.jl": "f2dcba1bbd31f0d59c5dd37ece99c5c1751123e3610faa0421560d8d02ee613e",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "sampled_safe_budget_julia.jl": "6305b261e76da407a4d820d040636142bfbe924e97879ac9f44c57010dbdcc2e",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d"
+    }
+}

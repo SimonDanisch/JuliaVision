@@ -1,0 +1,15 @@
+{
+    "scope": "POST-HOC typed-array compiler expansion motivated by the controller pilot's host-style gather; NOT neural or independent held-out evidence",
+    "policy": "uniform typed pointwise lowering then unchanged void-tail normalization, no best-score selection; all registered cases retained, no generation or retries",
+    "compiler_qualification_sha256": "8235dee8f30aef12b5f565842a987ef2c280a295ffe3b8ebf42acbe628fc02a0",
+    "source_sha256": {
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0",
+        "typed_pointwise_study.jl": "fdc29c9822325dc681dca8b0975ffaa532190cbc6fbe3b49d10b447f8bc0c074"
+    },
+    "dataset_conditions_sha256": {
+        "safe_budget_transfer_extension_results": "61d577c97893ada4dc1f2ada5c067423445066f5f156cf9cf20a805da7df89a5",
+        "kernel_transfer_results": "4e8a40782cea71f9ed96516ba338b6467e0b585fc614a4db181a676cf663e379",
+        "safe_reasoning_budget_results": "034e3f73080d583f7a44c861676900dea52a13ed8457c75df02ea82de2a87940"
+    }
+}

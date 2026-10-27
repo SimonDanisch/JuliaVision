@@ -1,0 +1,23 @@
+{
+    "complete": true,
+    "scope": "Expanded PUBLIC corpus/grouping/effective namespace and shared CPU/software-Vulkan score qualification ONLY, no new neural quality study or changes to frozen corpus",
+    "records": 2600,
+    "grouped_records": 2038,
+    "corpus_checks": 22,
+    "software_checks": 96,
+    "prior_record_text_changes": [
+        "Makie.RealVector",
+        "CairoMakie.RealVector"
+    ],
+    "capture_seconds": 14.303227431024425,
+    "corpus_sha256": "51083d40b111d7c1e5f2eada66e52af7caca4d0f313c834cfb2f5bd220efea82",
+    "sources": {
+        "alias_document_retrieval.jl": "6c6567718b99fba4135be82aa81c73e04b1f4bfee618bc7ff819ad39e1bb352a",
+        "public_document_retrieval.jl": "97e6e1c1c36eff91016898a63630e384b46e36bd3b97b573786c0f63ac31b9eb",
+        "capture_julia_docs_v2.py": "b96182bbeaf33329df71e0ee9644733297291c4cc18e14abc3dbf92a78b410c9",
+        "alias_document_retrieval_gpu.jl": "a9799ed8d99f1f6ed531695971340d38a0312a8cf2bfb47f425b6c5663c1ca07",
+        "qualified_binding_diagnostics_v2.jl": "cc9ea67542fcedb27a4345d6bbc88da405c505697d217b2acf65dd60e512c1fc",
+        "qualify_julia_docs_v2.jl": "ffe9419d32d9ed366f274ec5f0f5d1721cdf9749a7ac46cc358c824fdd7578e3",
+        "lint_document_context.jl": "4c7c94ac765fa5a3010e47b012715e6cb51a169a54bbe12c4561d0d9b04deea5"
+    }
+}

@@ -1,0 +1,71 @@
+{
+    "complete": true,
+    "checks": 86,
+    "rows": [
+        {
+            "id": 1,
+            "posterior": 0.1538461446762085,
+            "expected": 0.15384615384615385,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 2,
+            "posterior": 0.08695653825998306,
+            "expected": 0.08695652173913043,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 3,
+            "posterior": 0.8750000596046448,
+            "expected": 0.875,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 4,
+            "posterior": 0.3999999761581421,
+            "expected": 0.4,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 5,
+            "posterior": 0.8727272748947144,
+            "expected": 0.8727272727272727,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 6,
+            "posterior": 0.48407644033432007,
+            "expected": 0.4840764331210191,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 7,
+            "posterior": 0.1208791434764862,
+            "expected": 0.12087912087912088,
+            "status": 0,
+            "submissions": 1
+        },
+        {
+            "id": 8,
+            "posterior": 0.7058824896812439,
+            "expected": 0.7058823529411765,
+            "status": 0,
+            "submissions": 1
+        }
+    ],
+    "scope": "Private reference frontend/shared-kernel qualification ONLY. No neural generations or improved extraction demonstrated.",
+    "source_sha256": {
+        "portable_evidence.jl": "bfe5c9ff4f579fb6292e48b55bbdb231aedf712be6631308b598e258a7f92de2",
+        "compact_bayes_json.jl": "c9bfdc46420af71c124e27f6ac7d1110d11a1f1e3bc9d3b0e51985e10b50a914",
+        "bayes_json.jl": "b4a4b1f941670d83af5cf83523e053a147f9ed59066a4251624f1f5bc3ab80f9",
+        "qualify_compact_bayes_json.jl": "638c1feb280cc2b31566ee8bac100538ffe85b501cd4c44682f1061571e1682d",
+        "bayes_extraction_references.jl": "2b170c53cc50ce324d80f5556c4b6e29db70495c48b3e2a3b7cd2c123e13d56f",
+        "test_compact_bayes_json.jl": "55f7e3bf1551f0b163c070cba03139dc0f12c68ad11663145c0eef28704c2950"
+    }
+}

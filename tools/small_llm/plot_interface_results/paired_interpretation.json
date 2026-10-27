@@ -1,0 +1,88 @@
+{
+    "complete": true,
+    "arms": [
+        {
+            "arm": "julia_source",
+            "total": 8,
+            "admitted": 3,
+            "specification_correct": 2,
+            "admission_reasons": {
+                "ArgumentError: unsupported keyword": 3,
+                "ArgumentError: explicit band alpha0.25 required": 1,
+                "admitted restricted Julia-to-plot constructor program": 3,
+                "ArgumentError: legend position": 1
+            },
+            "truncated": 0,
+            "inference_errors": 0
+        },
+        {
+            "arm": "plot_spec",
+            "total": 8,
+            "admitted": 5,
+            "specification_correct": 3,
+            "admission_reasons": {
+                "truncated": 1,
+                "ArgumentError: One or two horizontal axes": 2,
+                "admitted declarative plot specification": 5
+            },
+            "truncated": 1,
+            "inference_errors": 0
+        }
+    ],
+    "comparison": {
+        "before_arm": "julia_source",
+        "after_arm": "plot_spec",
+        "tasks": [
+            "plot_transfer_01",
+            "plot_transfer_02",
+            "plot_transfer_03",
+            "plot_transfer_04",
+            "plot_transfer_05",
+            "plot_transfer_06",
+            "plot_transfer_07",
+            "plot_transfer_08"
+        ],
+        "statistics": {
+            "total": 8,
+            "repairs": 1,
+            "regressions": 0,
+            "discordant": 1,
+            "unchanged_correct": 2,
+            "unchanged_incorrect": 5,
+            "before": {
+                "successes": 2,
+                "total": 8,
+                "estimate": 0.25,
+                "lower": 0.071479212752109,
+                "upper": 0.5907245696898311
+            },
+            "after": {
+                "successes": 3,
+                "total": 8,
+                "estimate": 0.375,
+                "lower": 0.13684428582359742,
+                "upper": 0.6942576053973727
+            },
+            "exact_two_sided_discordance_p": 1,
+            "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+        }
+    },
+    "render": {
+        "status": "resolved",
+        "counts": {
+            "rendered_unclipped": 8,
+            "unsupported_or_truncated_output": 8
+        },
+        "aesthetic_preference_tested": false
+    },
+    "interpretation": "Two output interfaces to the SAME restricted drawing IR/backend, same public requirements. Better admission/specification accuracy would be a SYSTEM/interface benefit, not proof that model weights improved. Native Julia arm is a published constructor subset, NOT unrestricted Julia or arbitrary existing Makie code. JSON is not automatically correct merely because it parses.",
+    "limits": [
+        "Eight authored related-family requests, one seed; not public held-out or contamination-free evidence",
+        "A successful/unclipped image does not establish aesthetic preference, correct scientific interpretation or accessibility",
+        "Renderer was a separate PRE-GRADE development registration after generation began, not original prospective primary score",
+        "No regeneration, hidden-feedback revision, arbitrary candidate-code execution or frontier-level capability claim"
+    ],
+    "primary_summary_sha256": "a9ddddf80fbe84cbc834974d9df8bbbf0d7e2e457d2201511bfc86e6b735c13e",
+    "render_summary_sha256": "26e628a937f86c8d82690436d80ea10eb84dcd51e694b7d5f0bf0b1accabcabf",
+    "source_sha256": "c136ea98eb56ea53cc2cc6e60d4d48970be2f30e5684451446b6ad2c4d8714de"
+}

@@ -1,0 +1,18 @@
+{
+    "device": "Radeon8060S",
+    "scope": "exact top-k/nucleus arithmetic and GPU-state feedback, not model quality",
+    "cases": 20,
+    "draws": 148,
+    "full_vocabulary": 248320,
+    "generation_source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "test_gpu_sampling.jl": "33ee73999fb701f752999380032b909a2c8ddbac126212046dd76c52c3df114d",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93",
+        "run_julia_modes_window.jl": "0d7c978de3c1df6687089d05b2ab3babf1a31baecc572685abcd217f29172fad",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "sampled_julia.jl": "b6872f2bda4dabdda4eed34ac3cc02d58a4d28b2f66f7108d4342acc0e4787e0"
+    }
+}

@@ -1,0 +1,6 @@
+{
+    "passed": true,
+    "cases": 7,
+    "scope": "pinned native plain-text templates only; no GPU or generated-code execution",
+    "source_sha256": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5"
+}

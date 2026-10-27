@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 11,
+    "scope": "private CPU mock artifact tests ONLY, no device/hardware/model evidence",
+    "source_sha256": {
+        "safe_reasoning_budget_study.jl": "7d4542f26b769f4abdf927448222fcc954b4237d2fc2f1e3dbc9b53f638aa539",
+        "test_safe_reasoning_receipts_v2.jl": "8ea58a32c6131ca3e9f7c414060ab55192c68a0bc24f47bad30d1bbb6e646661"
+    }
+}

@@ -1,0 +1,72 @@
+{
+    "scope": "Migration of two NEVER ATTEMPTED6144-token budget diagnostics to Laptop. Old short Bosgame failures retained; different host/capacity means NOT a strict budget-only causal comparison.",
+    "policy": "One fixed-seed attempt per original arm, exact original prompts/6144 budget/sampling. No thinking closure, retries, feedback, seed search or hidden-answer selection. New immutable attempts and source/runtime receipts.",
+    "jobs": [
+        {
+            "id": "transfer_clamped_gather_no_addon",
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,indices,n::Int32,m::Int32). out and x are distinct Float32 device arrays; indices is a separate Int32 device array. For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i]. m is positive and x has at least m entries; n may be0. Preserve out padding past n. Do not assume indices already lie in1:m."
+                }
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather_api_pack",
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "messages": [
+                {
+                    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+                },
+                {
+                    "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,indices,n::Int32,m::Int32). out and x are distinct Float32 device arrays; indices is a separate Int32 device array. For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i]. m is positive and x has at least m entries; n may be0. Preserve out padding past n. Do not assume indices already lie in1:m.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+                }
+            ]
+        }
+    ],
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 6144,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "original_sha256": {
+        "api_pack": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+        "no_addon": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3"
+    },
+    "original_long_conditions_sha256": "71e8d8bce63a7556a0a5409a23077caee30c6daf9f93f8e43464dba306d1090f",
+    "parent_conditions_sha256": "c9aeba5138ce37fde721f6b65f379c9134c164cc1cdfff86ec54ef4ae8bb94eb",
+    "gate_sha256": "3eaf18f83b3fb8118e1bb07561e14da7a80f4800ff876bddd943a66a9fb23171",
+    "portable_manifest_sha256": "70199eb4df8d32f9bc1dba8b5db7a480ac58744f2873ffa1c9220f4e29708973",
+    "source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "laptop_pending_study.jl": "32f3ea94e2fe21ebe0d0ebf31fea61f6456658a7eae0f1749326711627eac83b",
+        "laptop_shared_source.jl": "3126d7f5f09c48517ee7ca6b7d3025c717ace3ba3a0bd41aef5780d940200116",
+        "shared_source_kernel_benchmark.jl": "57b2c1d7cfe1b99141186c239dcc92d75b6a65156bd72789abca9c28ffe945a1",
+        "portable_qwen35.jl": "f2dcba1bbd31f0d59c5dd37ece99c5c1751123e3610faa0421560d8d02ee613e",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "sampled_julia.jl": "b6872f2bda4dabdda4eed34ac3cc02d58a4d28b2f66f7108d4342acc0e4787e0",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "score_kernel_transfer_budget.jl": "891c36b6519bfb34903d53d5330b9f8ff1d9cfaeb3dfdb6cbe0f86d2f14abdfa",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "sampled_safe_budget_julia.jl": "6305b261e76da407a4d820d040636142bfbe924e97879ac9f44c57010dbdcc2e",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "laptop_long_budget.jl": "f744053c35311236fb36f7b12643d759f5e2ab67c0f9403eb0eb2c6469e640d4",
+        "kernel_transfer_budget.jl": "eca17157df0ea6cef3e32e00c97eb25b6416190cb6c18784843e07a50a33459e",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0",
+        "shared_source_kernel_tasks.jl": "9ddf1dd1d1c32a26dd8c6cde593e864c3e02267e0cc36a1b7650ac75cf87ac7b"
+    }
+}

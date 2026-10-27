@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "checks": 8,
+    "run": "r1318",
+    "scope": "Mock paired arithmetic only, NOT actual repairs",
+    "sources": {
+        "test_summarize_plot_validator.jl": "8b8435331e86a7869d528e304ad682ac1cbbacbf838f259f4c65c3f5646be108",
+        "summarize_plot_validator_study.jl": "63515b0d44cf595671455eb1058008beb053bd35a66b90b84fb99b18178a3b4a"
+    }
+}

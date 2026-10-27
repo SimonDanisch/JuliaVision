@@ -1,0 +1,7 @@
+# Study outputs, not sources: logit and token dumps of model comparisons, run
+# logs, and the per-run directories written beside a result JSON.
+*.f32
+*.i32
+*.log
+*.empty-before-recovery
+*.external.*/

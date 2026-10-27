@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "unit_checks": 22,
+    "real_jobs": 16,
+    "scope": "Final cost accounting only, not model quality or steady-state throughput",
+    "sources": {
+        "test_workflow_cost_summary.jl": "a93bddceac36071cd63cd797d0e96b997305d4d58e8410922412d35260772ab8",
+        "workflow_cost_summary.jl": "f55281b429581118f67e5fb2fdc5e84648e50b9dc0573d851b13da528108dba4"
+    }
+}

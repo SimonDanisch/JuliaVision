@@ -1,0 +1,36 @@
+{
+    "scope": "POSTHOC source-token geometry diagnostic only. Even leaving out a token is not held-out language modeling: neighboring records share the teacher-forced source. Cross-document results concern only TWO tiny API sources. No model-task answers, hyperparameter search or quality claim.",
+    "records": 254,
+    "width": 2560,
+    "distinct_labels": 96,
+    "vocabulary": 248320,
+    "vocabulary_label_coverage": 0.0003865979381443299,
+    "hidden_norm_range": [
+        130.11196714549942,
+        162.86211676173343
+    ],
+    "rows": [
+        {
+            "mode": "other_tokens_in_same_corpus",
+            "queries": 254,
+            "top1_correct": 98,
+            "top1_accuracy": 0.3858267716535433,
+            "labels_available_elsewhere": 217,
+            "mean_target_mass_top8_temperature32": 0.38688191770611413,
+            "median_nearest_squared_L2": 8180.678506003074,
+            "median_first_second_gap": 1846.3424038262237
+        },
+        {
+            "mode": "other_document_only",
+            "queries": 254,
+            "top1_correct": 62,
+            "top1_accuracy": 0.2440944881889764,
+            "labels_available_elsewhere": 119,
+            "mean_target_mass_top8_temperature32": 0.24423893125426113,
+            "median_nearest_squared_L2": 16164.169758315282,
+            "median_first_second_gap": 1260.111124507086
+        }
+    ],
+    "datastore_registration_sha256": "1b2e5fde40fe097c960f9c1e84fcb22e998daa03a0dfb588f2944d1df74ac291",
+    "source_sha256": "7fc9958786629c55d28b9d33439957c97b29de0ee1b43861e67b4a93ee0b97fd"
+}

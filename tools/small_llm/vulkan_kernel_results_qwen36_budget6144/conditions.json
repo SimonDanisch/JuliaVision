@@ -1,0 +1,63 @@
+{
+    "scope": "four authored development GPU-kernel bodies, not held-out/frontier evidence; rerun on Qwen3.6-35B-A3B.Q4_K_S.gguf as a new registration",
+    "original_conditions": "vulkan_kernel_results/conditions.json",
+    "original_conditions_sha256": "cbd427e916da0355e9564ab09b081d89a949009aaa8bcfb2e0dcec4996fe63fb",
+    "backbone": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "backbone_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 6144,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "decoding_overrides": {
+        "max_tokens": 6144
+    },
+    "jobs": [
+        {
+            "id": "ki_body_affine",
+            "arm": "sampled_baseline",
+            "messages_sha256": "e4680a234aadde799a7430eb7d01bd4e28a08f1304466913ebcdf7dc0fc53874"
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "arm": "sampled_baseline",
+            "messages_sha256": "62e5eac4f546c5232b8c9059446ba519da7692097340d35c4780cda9b0f27044"
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "arm": "sampled_baseline",
+            "messages_sha256": "f99e3d27500a07abd5ef335e2522d4062ca294809edb454ed3666107bce7c4df"
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "arm": "sampled_baseline",
+            "messages_sha256": "e43e947f04647576704e3ad2e7952e282ce87cc17f21b27768a9e8cae417b751"
+        }
+    ],
+    "source_sha256": {
+        "run_julia_tasks.jl": "b922e0a9c1bf4bfbe09efe3d2a8744d715f43f24f75b61ce1a8d0c50161a1f60",
+        "prefill_qwen35.jl": "1c6cbfdb3e344e01f49e663f74bf52edff89b9c18ad7963e518118aa52be0996",
+        "qwen36_moe_model.jl": "e003d3d17ada4163cca5c0a95b31c972b62f1ad865c624a6dc86938206e4d4ef",
+        "qwen36_gguf_kernels.jl": "1a5023d69f21d525e0b9481050b219c3db028230f4b9f1bea34973844955b596",
+        "moe_qwen35.jl": "135bc80c3a4abb946bb47d49bc979592eed2142af9082a7745b7eccdbc99beb5",
+        "qwen36_prefill.jl": "a8d9e9866da6b6a0d7f2a88a322223c637019c5cf8e7c9054dc44e893133d518",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "moe_quant_qwen35.jl": "2c290c72dc7b634a44afb9917baf11f68047ab869ed57ba1fe77fc25270059fc",
+        "sampled_julia.jl": "0c76722dcf619546049a3c198265fa8cfba6cc58f1200dca6bf91270031e89b5",
+        "vulkan_kernel_benchmark.jl": "14a1c952ea59c970f9496a9bd6d3e7f764816a8fb800df6ea90315e7fc274071",
+        "qwen36_gguf.jl": "d9fd105cf49085e1ae77e06894ad3e3f2ef47b3d09b86216f75ac6bd575b02f9",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "transfer_studies.jl": "9790af58d9148b5d77ecd37b53f8ba2f4ccb147643337dca9b27fa1a62289b03",
+        "text_backbone.jl": "e63d587f3d3627eadc895246baaa37fdcb84a41b52fad028ef8e514b52df0591",
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "qwen35.jl": "66c828214e028d6bb6e1b9fa7ae267628d84adbd159dfca2dfd61f5730180c04",
+        "qwen36_optim.jl": "98c1a6e1887d775cc8174894c788591d89a0d7a27017c5131949f7ce8d548db3",
+        "vulkan_kernel_tasks.jl": "961c5c69317bfbd4cbcda97fba99f14611c27c793428affc820471bd578c823a"
+    }
+}

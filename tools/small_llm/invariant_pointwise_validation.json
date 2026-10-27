@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "scope": "Private compiler admission/differential fixtures only; NOT new model-quality evidence",
+    "passed": 24,
+    "source_sha256": {
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "invariant_pointwise_lowering.jl": "f9836b3d419f5b7802067f992e0c99b8ed518aa78aebc89535367d6f54670354",
+        "test_invariant_pointwise_lowering.jl": "a94b7d5c636af2f91f78a2d8709671e6feabce4109d15a602961651e2086dbeb"
+    }
+}

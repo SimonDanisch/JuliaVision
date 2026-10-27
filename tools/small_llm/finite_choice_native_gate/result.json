@@ -1,0 +1,54 @@
+{
+    "device_checks": 47,
+    "host_checks": 39,
+    "pid": 3750657,
+    "scope": "Finite canonical support fixtures and one-submission mask/sample/advance; no full-model or semantic/API selection quality result",
+    "complete": true,
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/DNNKernels",
+            "git_head": null,
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/BonsaiRunner",
+            "git_head": null,
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    },
+    "normal_final_waitidle": true,
+    "source_sha256": {
+        "finite_choice_constraint.jl": "fc411b48d71b29056d8f0254b2a7eae69e389b2436e36f5a8c475dbab6d4e63f",
+        "test_finite_choice_constraint_gpu.jl": "791d48aa407701229ed63c024b2f0312077ab80fc8c69c54280776acb1c0eb9e",
+        "run_finite_choice_gate.jl": "aac082554dfbb24e76bdd57efead178e259be8dcab6463d19b52354ef8af8b0e",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "finite_choice_constraint_gpu.jl": "8de7d9c4e935c03bf808d9254401672187fbd79b2222c046a6188257af05566d",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "runtime_provenance.jl": "dd08934390cce607a3437f0df0bc377fa7c9f7c4ea054d32aa488f16b744e45b",
+        "gpu_watchdog.py": "60677cf2165ad7e4dc2dcc3b7d9e92c0567f72097bd7a135d43538fb712744c2",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "test_finite_choice_constraint.jl": "99e55c601bac5ca41fc2c6f8b0fb72d2eae4667fd54ca5e3e1303e0d097386a8",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a"
+    }
+}

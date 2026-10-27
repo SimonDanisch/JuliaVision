@@ -1,0 +1,20 @@
+{
+    "scope": "two authored development API tasks; same published sources as probability-space memory, now in prompt",
+    "rows": [
+        {
+            "task": "ki_launch",
+            "status": "failed",
+            "truncated": true,
+            "generation_seconds": 49.511188983917236
+        },
+        {
+            "task": "makie_update",
+            "status": "failed",
+            "truncated": false,
+            "generation_seconds": 24.856108903884888
+        }
+    ],
+    "passed": 0,
+    "pending": 0,
+    "limitations": "Same source content/output cap, but input lengths and decode-graph cost differ; two development tasks only"
+}

@@ -1,0 +1,24 @@
+{
+    "complete": true,
+    "protocol_checks": 26,
+    "runner_checks": 9,
+    "scoring_checks": 6,
+    "snapshot_python_tests": 2,
+    "run_receipts": [
+        "r1121",
+        "r1124",
+        "r1125"
+    ],
+    "scope": "Host protocol/runner/scoring qualification only; shared arithmetic in separate software receipt, no answers yet",
+    "sources": {
+        "test_pubmedqa_retrieval_protocol.jl": "96fb92cb6f4fd86e0c94e6d0380ac3f047398dc256f0293d6d2bfd9a07865353",
+        "pubmedqa_retrieval_protocol.jl": "82353f6dc9092bee2f5a00ab7ca0ad53630f3d5f3226bd9fa79d75a6cd028cce",
+        "test_snapshot_pubmedqa_retrieval.py": "d47a1e3f4a42c2c1aa26fca4d84950c1c9e3e5c2c94e0cd734bdfb86cabc615e",
+        "test_pubmedqa_retrieval_scoring.jl": "1f459367d2488a4c3c8d44bc33fa8e0511a26cabfddc0bd1c5828714cb7d624a",
+        "score_pubmedqa_retrieval.jl": "8e5b65bdf6b41813e877953db27b005ec5ab66674f46c980bcf4bc3d7de31be2",
+        "run_pubmedqa_retrieval.jl": "0604aa618e524a31ee31c3704b63dec9f0a4cefb26bf423b00c799d7158d7aea",
+        "test_pubmedqa_retrieval_runner.jl": "acc806f662beb9525b34bbb80bfd98a1102cd1c8cd15b8180778de1e3d579139",
+        "snapshot_pubmedqa_retrieval.py": "96e6d85d1d2a84cc5c8ccc4239f9a154379938ab163ca614c08ae793a40471c6",
+        "prepare_pubmedqa_retrieval.jl": "67f59f8565e34afdd7bfad2b55d6fc447a6192f72265009cf42806f80a3bc31c"
+    }
+}

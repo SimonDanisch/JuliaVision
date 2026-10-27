@@ -1,0 +1,189 @@
+{
+    "complete": true,
+    "tasks": [
+        "bayes_extract_01",
+        "bayes_extract_02",
+        "bayes_extract_03",
+        "bayes_extract_04",
+        "bayes_extract_05",
+        "bayes_extract_06",
+        "bayes_extract_07",
+        "bayes_extract_08"
+    ],
+    "relative_to_bare_compact": {
+        "total": 8,
+        "repairs": 2,
+        "regressions": 0,
+        "discordant": 2,
+        "unchanged_correct": 0,
+        "unchanged_incorrect": 6,
+        "before": {
+            "successes": 0,
+            "total": 8,
+            "estimate": 0,
+            "lower": 0,
+            "upper": 0.32440756488388023
+        },
+        "after": {
+            "successes": 2,
+            "total": 8,
+            "estimate": 0.25,
+            "lower": 0.071479212752109,
+            "upper": 0.5907245696898311
+        },
+        "exact_two_sided_discordance_p": 0.5,
+        "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+    },
+    "scope": "POSTHOC SAME8 with two public unrelated format examples. Extra context/compute, not independent transfer, weight improvement or frontier evidence.",
+    "complete_case_tasks": [
+        "bayes_extract_01",
+        "bayes_extract_03",
+        "bayes_extract_04",
+        "bayes_extract_05",
+        "bayes_extract_06",
+        "bayes_extract_07",
+        "bayes_extract_08"
+    ],
+    "complete_case_paired": {
+        "total": 7,
+        "repairs": 2,
+        "regressions": 0,
+        "discordant": 2,
+        "unchanged_correct": 0,
+        "unchanged_incorrect": 5,
+        "before": {
+            "successes": 0,
+            "total": 7,
+            "estimate": 0,
+            "lower": 0,
+            "upper": 0.35433043506668743
+        },
+        "after": {
+            "successes": 2,
+            "total": 7,
+            "estimate": 0.2857142857142857,
+            "lower": 0.08221892400405678,
+            "upper": 0.6410655481673808
+        },
+        "exact_two_sided_discordance_p": 0.5,
+        "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+    },
+    "attrition": "Interrupted attempt retained as unavailable, not a semantic model failure or normal waitidle. No regeneration. Report complete-case results and conservative registered-cohort denominator separately.",
+    "lost_attempts": 1,
+    "completed_generations": 7,
+    "completed_generation_costs": {
+        "complete": true,
+        "rows": [
+            {
+                "id": "bayes_extract_01_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 695,
+                "generated_tokens": 49,
+                "decode_steps": 64,
+                "decode_submissions": 64,
+                "generation_timer_seconds": 15.478798866271973,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_03_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "passed",
+                "cost_known": true,
+                "input_tokens": 725,
+                "generated_tokens": 70,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 16.717068195343018,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_04_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 725,
+                "generated_tokens": 70,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 16.649996995925903,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_05_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 743,
+                "generated_tokens": 79,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 16.757449865341187,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_06_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "passed",
+                "cost_known": true,
+                "input_tokens": 736,
+                "generated_tokens": 67,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 16.760854959487915,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_07_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 743,
+                "generated_tokens": 79,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 16.89049983024597,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_08_compact_network_demonstrations",
+                "arm": "compact_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 711,
+                "generated_tokens": 69,
+                "decode_steps": 128,
+                "decode_submissions": 128,
+                "generation_timer_seconds": 16.633623123168945,
+                "truncated": false
+            }
+        ],
+        "arms": [
+            {
+                "arm": "compact_network",
+                "label": "compact_network",
+                "tasks": 7,
+                "passed": 2,
+                "cost_known": 7,
+                "cost_missing": 0,
+                "input_tokens": 5078,
+                "generated_tokens": 483,
+                "decode_steps": 832,
+                "decode_submissions": 832,
+                "generation_timer_seconds": 115.88829183578491,
+                "truncated": 0,
+                "timed_seconds_per_pass": 57.944145917892456
+            }
+        ],
+        "scope": "Descriptive incremental generation costs for exactly the registered jobs; not a pooled intelligence score, throughput benchmark or causal speed comparison.",
+        "timer": "Existing generation timer includes prompt processing, decode and graph/JIT work after session creation; excludes model loading, session creation, worker startup/retirement, sandbox tests and external solvers. Token rate must NOT be reported as steady-state decode throughput.",
+        "baseline_cost": "Revision arms exclude the shared original answer-generation cost; these are incremental costs, NOT end-to-end workflow costs. Missing error costs remain unknown, never zero."
+    },
+    "lost_generation_cost": "Unknown; NOT zero or included in completed timer totals",
+    "solver_seconds": 1.1731796264648438,
+    "primary_summary_sha256": "9b43ff8db60e406c172436bb7e3b779a95325f832e98faaa919ba814d9455a1b",
+    "baseline_summary_sha256": "efb5017396ae36856445d8d1cb53141e2765251b5c043fcf59bb9332d4379b9e",
+    "source_sha256": "f950d4813c7fb0cdbbb0d1ea86d29bf0bf9f6d4f246fccd6a7a3d8b5904bae94",
+    "caveat": "Registered8 conservative comparison counts missing outcome as not passed; complete-case7 is descriptive attrition-affected. Timers exclude load/startup/retirement/solver; not throughput or equal-compute."
+}

@@ -1,0 +1,248 @@
+{
+    "scope": "descriptive budget/lexical audit ONLY; no hidden thinking text reproduced, no correctness or loop classifier",
+    "limitation": "lexical repetition can be legitimate; truncation does not establish quantization error, missing API knowledge, or inability with a larger budget",
+    "model_card": {
+        "url": "https://huggingface.co/Qwen/Qwen3.5-4B#best-practices",
+        "checked": "2026-10-24",
+        "precise_coding": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 20,
+            "presence_penalty": 0,
+            "repetition_penalty": 1
+        },
+        "recommended_most_queries_max_output": 32768,
+        "conclusion": "current sampled coding parameters match the card;2048 and6144 token caps do not reproduce its recommended output budget"
+    },
+    "rows": [
+        {
+            "file": "vulkan_kernel_results/ki_body_affine_baseline.json",
+            "generation_sha256": "f9ef27ef8ce2c332c8fb76659b284d55d995fbfa26cbcde338dc131f684028ae",
+            "task": "ki_body_affine",
+            "arm": "sampled_baseline",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 7685,
+                "words": 1082,
+                "ngram_width": 6,
+                "ngram_windows": 1077,
+                "repeated_window_fraction": 0.05478180129990715,
+                "highest_window_frequency": 3
+            }
+        },
+        {
+            "file": "vulkan_kernel_results/ki_body_atomic_max_baseline.json",
+            "generation_sha256": "a1776f48f0a466334841c8a0d8fdd170b6c35e36526bcb1a258d1a69960c0b3e",
+            "task": "ki_body_atomic_max",
+            "arm": "sampled_baseline",
+            "budget": 2048,
+            "generated": 1185,
+            "truncated": false,
+            "finished_thinking": true,
+            "code_bytes": 387,
+            "lexical": {
+                "characters": 4464,
+                "words": 588,
+                "ngram_width": 6,
+                "ngram_windows": 583,
+                "repeated_window_fraction": 0.22298456260720412,
+                "highest_window_frequency": 5
+            }
+        },
+        {
+            "file": "vulkan_kernel_results/ki_body_clamped_stencil_baseline.json",
+            "generation_sha256": "268ed59aa171ad9e4e7fa2f57a7076d1c28278d045b498489e7a21c0eebede2b",
+            "task": "ki_body_clamped_stencil",
+            "arm": "sampled_baseline",
+            "budget": 2048,
+            "generated": 554,
+            "truncated": false,
+            "finished_thinking": true,
+            "code_bytes": 330,
+            "lexical": {
+                "characters": 1873,
+                "words": 273,
+                "ngram_width": 6,
+                "ngram_windows": 268,
+                "repeated_window_fraction": 0.11940298507462686,
+                "highest_window_frequency": 2
+            }
+        },
+        {
+            "file": "vulkan_kernel_results/ki_body_column_major_scale_baseline.json",
+            "generation_sha256": "304b0a4abe3af7fca2a2c41f07bb3ff878aad7c09f8df09f804e4833d7942b7d",
+            "task": "ki_body_column_major_scale",
+            "arm": "sampled_baseline",
+            "budget": 2048,
+            "generated": 1285,
+            "truncated": false,
+            "finished_thinking": true,
+            "code_bytes": 266,
+            "lexical": {
+                "characters": 4413,
+                "words": 662,
+                "ngram_width": 6,
+                "ngram_windows": 657,
+                "repeated_window_fraction": 0.1308980213089802,
+                "highest_window_frequency": 5
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_atomic_sum_api_pack.json",
+            "generation_sha256": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21",
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 6638,
+                "words": 889,
+                "ngram_width": 6,
+                "ngram_windows": 884,
+                "repeated_window_fraction": 0.029411764705882353,
+                "highest_window_frequency": 3
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_atomic_sum_no_addon.json",
+            "generation_sha256": "6fae32e4d37dd44307cff0f024335cea54712d2dd4cfd1fedfba93f2c5be3151",
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 7445,
+                "words": 1019,
+                "ngram_width": 6,
+                "ngram_windows": 1014,
+                "repeated_window_fraction": 0.03254437869822485,
+                "highest_window_frequency": 4
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_clamped_gather_api_pack.json",
+            "generation_sha256": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 6759,
+                "words": 953,
+                "ngram_width": 6,
+                "ngram_windows": 948,
+                "repeated_window_fraction": 0.028481012658227847,
+                "highest_window_frequency": 3
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_clamped_gather_no_addon.json",
+            "generation_sha256": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3",
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 8593,
+                "words": 1203,
+                "ngram_width": 6,
+                "ngram_windows": 1198,
+                "repeated_window_fraction": 0.019198664440734557,
+                "highest_window_frequency": 2
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_flat_transpose_api_pack.json",
+            "generation_sha256": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6",
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "budget": 2048,
+            "generated": 691,
+            "truncated": false,
+            "finished_thinking": true,
+            "code_bytes": 320,
+            "lexical": {
+                "characters": 2116,
+                "words": 383,
+                "ngram_width": 6,
+                "ngram_windows": 378,
+                "repeated_window_fraction": 0.015873015873015872,
+                "highest_window_frequency": 2
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_flat_transpose_no_addon.json",
+            "generation_sha256": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef",
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 7175,
+                "words": 1054,
+                "ngram_width": 6,
+                "ngram_windows": 1049,
+                "repeated_window_fraction": 0.028598665395614873,
+                "highest_window_frequency": 4
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_sincos_pair_api_pack.json",
+            "generation_sha256": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674",
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 7452,
+                "words": 1047,
+                "ngram_width": 6,
+                "ngram_windows": 1042,
+                "repeated_window_fraction": 0.03166986564299424,
+                "highest_window_frequency": 3
+            }
+        },
+        {
+            "file": "kernel_transfer_results/transfer_sincos_pair_no_addon.json",
+            "generation_sha256": "5ee2897d1944666936d1170ba53a9247ff32700fd9a79f9f7f887ec1fe2db4a1",
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "budget": 2048,
+            "generated": 2048,
+            "truncated": true,
+            "finished_thinking": false,
+            "code_bytes": 0,
+            "lexical": {
+                "characters": 7679,
+                "words": 1063,
+                "ngram_width": 6,
+                "ngram_windows": 1058,
+                "repeated_window_fraction": 0.014177693761814745,
+                "highest_window_frequency": 3
+            }
+        }
+    ],
+    "source_sha256": "64c7620e9f906af52f254d6d135d733d6ce6fb5dac9ab36d45b3961a6800741d"
+}

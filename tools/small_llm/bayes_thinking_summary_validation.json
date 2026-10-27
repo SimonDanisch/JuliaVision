@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 9,
+    "scope": "Mock paired arithmetic only, not model quality",
+    "source_sha256": {
+        "summarize_bayes_thinking.jl": "5cd0cc47afd8424a459ed655d0b4f612a6080334df846dd104be69b5d5541ac0",
+        "test_summarize_bayes_thinking.jl": "19c062cfe674f8072f3a8d427d72b63702086bbb2e5723bc162334ff47e77e36"
+    }
+}

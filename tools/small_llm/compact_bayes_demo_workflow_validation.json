@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "orchestration_checks": 11,
+    "analysis_checks": 6,
+    "scope": "Mock workflow and paired-analysis checks, not neural intelligence",
+    "source_sha256": {
+        "test_compact_bayes_demo_study.jl": "869fc0daabea3c6bea611d2610292d078f9f201183e5555f90d841b55319ac65",
+        "compact_bayes_demo_study.jl": "6973cf2bd26795a3b33c1e40173306c7ff95c8589f5eb0bba49c95552f13c735",
+        "test_summarize_compact_bayes_demo.jl": "4df52bbe5900a38bc13dc3a1ee532daed8e0484e080223f04bbaed2c729cb3ef",
+        "compact_bayes_demo_deploy.jl": "c7401b493d9f704fb0e69266a42991aa65483a245fd916959f8f8d22c23d5e6f",
+        "summarize_compact_bayes_demo.jl": "cfd89d51518c7b701ec35a87e913da9583ba143b0fc758ce2dc93ae4635159d9"
+    }
+}

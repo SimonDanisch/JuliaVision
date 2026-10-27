@@ -1,0 +1,10 @@
+{
+    "passed": true,
+    "checks": 9,
+    "run": "r1271",
+    "scope": "Mock aggregate/interpretation tests, NOT actual model grades",
+    "sources": {
+        "summarize_plot_interface.jl": "c136ea98eb56ea53cc2cc6e60d4d48970be2f30e5684451446b6ad2c4d8714de",
+        "test_summarize_plot_interface.jl": "21776d1be55460b287b46bffa95a9493ed3ed2890d7a146d1d6661f19cf270b2"
+    }
+}

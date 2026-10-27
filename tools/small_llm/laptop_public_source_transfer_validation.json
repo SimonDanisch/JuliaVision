@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 6,
+    "scope": "Public deployment selection/mock byte-integrity tests, not GPU/model quality",
+    "source_sha256": {
+        "laptop_public_source_transfer.jl": "ac63324f1bffaa9b919063023ee06a6fa6f40442dbf0c431c09c4a2d99ba5317",
+        "test_laptop_public_source_transfer.jl": "220826405a3fc565144f6e0f6bece61accd651a82fcec7418597c9a16e57c39e"
+    }
+}

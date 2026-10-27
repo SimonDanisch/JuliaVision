@@ -1,0 +1,108 @@
+{
+    "scope": "paired provenance audit; descriptive, NOT statistical or frontier-level evidence",
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        },
+        {
+            "task": "039_prime_fib",
+            "self_review": "failed",
+            "public_feedback": "failed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "engine identity not recorded in both artifacts"
+        },
+        {
+            "task": "106_f",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        },
+        {
+            "task": "162_string_to_md5",
+            "self_review": "failed",
+            "public_feedback": "failed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "engine identity not recorded in both artifacts"
+        },
+        {
+            "task": "104_unique_digits",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        },
+        {
+            "task": "074_total_match",
+            "self_review": "failed",
+            "public_feedback": "passed",
+            "improvement": true,
+            "regression": false,
+            "engine_identity": "engine identity not recorded in both artifacts"
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "self_review": "failed",
+            "public_feedback": "failed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "engine identity not recorded in both artifacts"
+        },
+        {
+            "task": "037_sort_even",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        },
+        {
+            "task": "146_specialFilter",
+            "self_review": "failed",
+            "public_feedback": "passed",
+            "improvement": true,
+            "regression": false,
+            "engine_identity": "recorded same engine"
+        },
+        {
+            "task": "048_is_palindrome",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        },
+        {
+            "task": "110_exchange",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        },
+        {
+            "task": "077_iscube",
+            "self_review": "passed",
+            "public_feedback": "passed",
+            "improvement": false,
+            "regression": false,
+            "engine_identity": "retained identical baseline"
+        }
+    ],
+    "limitations": [
+        "Twelve public basic-test tasks; contamination possible",
+        "Development extension motivated by earlier observed failures",
+        "No retroactive invention of engine hashes for older outputs",
+        "Do not pool this result with the separate static JET policy or authored pilots"
+    ],
+    "summary_sha256": "b34b03f52aeae8eb011f94cf35a7729376020c98be7e7e074b565ab8aecc0574"
+}

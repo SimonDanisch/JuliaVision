@@ -1,0 +1,23 @@
+{
+  "scope": "POSTHOC mandatory test-blind isolation audit of ALL unchanged external baseline outputs; not new neural attempts or replacement scores. Changed outcomes can reflect isolation/runtime/randomness, not automatically cheating.",
+  "parent_conditions_sha256": "42ba3128b5013d9243c34e65afb7d3898ab4b49bf366018bbf6c405a6076a1dc",
+  "snapshot_manifest_sha256": "cbbfb35177cb9a36b3769a863d5b2b790000e2fca402baaa2bf1d37bcb77b65d",
+  "qualification_sha256": "f77a40badae155a7cd652fa5c8baa70af6da27b5a9c1d098cbb774f82fc4d02d",
+  "ids": [
+    "bcbx_92_baseline",
+    "bcbx_852_baseline",
+    "bcbx_155_baseline",
+    "bcbx_293_baseline",
+    "bcbx_241_baseline",
+    "bcbx_255_baseline",
+    "bcbx_980_baseline",
+    "bcbx_928_baseline"
+  ],
+  "source_sha256": {
+    "run_bigcodebench_x_secure_audit.py": "95ee6dfa525cacdaea98f4c193f22647f25bcd4079d0d059525b212f201fe5b0",
+    "bigcodebench_x_secure_audit.py": "3794b7fdf129ee59355866cbdc2994f1a3f4094fb27aa4a6874fba9019bf9c32",
+    "score_bigcodebench_x.py": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77",
+    "bigcodebench_x_julia_adapter.py": "028925a752ed6f7d497f1963c79f6aa8bc2bd1e7905e6b44d3278d39a7b3e8d2",
+    "qualify_bigcodebench_x_reference.py": "af5474da38ad6fcc19f27dd2091ec385b6d7913fe59a0d3b4db2f9ae3d6214f1"
+  }
+}

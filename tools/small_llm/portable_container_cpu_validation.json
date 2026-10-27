@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 47,
+    "scope": "Tiny PRIVATE CPU CONTAINER fixtures ONLY; not a valid Qwen checkpoint, GPU test or intelligence result",
+    "source_sha256": {
+        "test_portable_qwen35.jl": "e5c17129b8e585c9bf636e3b078b7856e1badecaad2984450508a80b88b23f2b",
+        "portable_qwen35.jl": "f2dcba1bbd31f0d59c5dd37ece99c5c1751123e3610faa0421560d8d02ee613e"
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+  "executable_sha256": "be4bd7cd6d0895eaa0ed0db17e2095701bbc8962d383d5f08e80115326328699",
+  "backend": "Vulkan Radeon; all layers/KV offloaded",
+  "source_sha256": "1f91db49f4d015b70cb48f9ca78e67b7792fb36b435f2902936bffdb907e035a",
+  "logits_sha256": "21b28d8b290743445e3d8a09d96661288d991b668b6072fb146632b489a34447",
+  "returncode": 0,
+  "native_library_sha256": {
+    "libllama.so": "7a9c319efa6351724cc90b396f4aaeb3dd8bc1099c3f3e143903d9e71b59faba",
+    "libggml.so": "62db3bf677588224b97c83f3877e20dda5cf1d7453c498c4eca8fc617def33f8",
+    "libggml-base.so": "f0dc930f46f5b34fe32d2d71e71b0b54970ab127b62276060ccb55f3ed84bb6f",
+    "libggml-vulkan.so": "8b6bb5b1c29270f616778f5d26d13f4aef5ac071ffbc6092cd1afb46206ad562"
+  }
+}

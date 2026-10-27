@@ -1,0 +1,619 @@
+{
+    "scope": "trusted generic Scatter/Lines/Heatmap runtime interface facts, no model output, task assertions, reference solution or correctness labels",
+    "observation": "ComputePipeline _update! checks graph.inputs; readable derived nodes need not be mutable input keywords",
+    "source_url": "https://github.com/MakieOrg/Makie.jl",
+    "fixture_sha256": "812d34c32bad6d42b8e1eb267b4df58b4a3b3dcfc976f640008d7c75ac9df21b",
+    "capture_source_sha256": "18c0afd3721c01ed40e4bc12fec77ec916301c7a01ecb909a0b0c1ee61d2b4d1",
+    "sandbox_sha256": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+    "rows": [
+        {
+            "plot_type": "Scatter{Tuple{Vector{Point{2, Float64}}}}",
+            "mutable_inputs": [
+                {
+                    "name": "alpha",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "arg1",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "arg2",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "clip_planes",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "color",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colormap",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colorrange",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colorscale",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "cycle",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "depth_shift",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "depthsorting",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "dim_conversions",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "distancefield",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "f32c",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "font",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "fxaa",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "glowcolor",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "glowwidth",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "highclip",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "inspectable",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "inspector_label",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "lowclip",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "marker",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "marker_offset",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "markersize",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "markerspace",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "model",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "name",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "nan_color",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "overdraw",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "rasterize",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "rotation",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "space",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "ssao",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "strokecolor",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "strokewidth",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transform_func",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transform_marker",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transparency",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "visible",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                }
+            ],
+            "readable_nodes": [
+                "alpha",
+                "alpha_colormap",
+                "arg1",
+                "arg2",
+                "args",
+                "auto_colorrange",
+                "billboard",
+                "camera_matrix_names",
+                "clip_planes",
+                "color",
+                "color_mapping",
+                "color_mapping_type",
+                "colormap",
+                "colorrange",
+                "colorscale",
+                "convert_kwargs",
+                "converted",
+                "converted_rotation",
+                "cycle",
+                "cycle_index",
+                "data_limits",
+                "depth_shift",
+                "depthsorting",
+                "dim_conversions",
+                "dim_converted",
+                "distancefield",
+                "eyeposition",
+                "f32c",
+                "fetch_pixel",
+                "font",
+                "fxaa",
+                "glowcolor",
+                "glowwidth",
+                "highclip",
+                "highclip_color",
+                "inspectable",
+                "inspector_label",
+                "lowclip",
+                "lowclip_color",
+                "marker",
+                "marker_offset",
+                "markersize",
+                "markerspace",
+                "model",
+                "model_f32c",
+                "name",
+                "nan_color",
+                "overdraw",
+                "positions",
+                "positions_transformed",
+                "positions_transformed_f32c",
+                "preprojection",
+                "projection",
+                "projectionview",
+                "quad_offset",
+                "quad_scale",
+                "rasterize",
+                "raw_color",
+                "raw_colormap",
+                "resolution",
+                "rotation",
+                "scaled_color",
+                "scaled_colorrange",
+                "scene_origin",
+                "space",
+                "ssao",
+                "strokecolor",
+                "strokewidth",
+                "transform_func",
+                "transform_marker",
+                "transparency",
+                "upvector",
+                "view",
+                "view_direction",
+                "viewport",
+                "visible"
+            ]
+        },
+        {
+            "plot_type": "Lines{Tuple{Vector{Point{2, Float64}}}}",
+            "mutable_inputs": [
+                {
+                    "name": "alpha",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "arg1",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "arg2",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "clip_planes",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "color",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colormap",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colorrange",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colorscale",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "cycle",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "depth_shift",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "dim_conversions",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "f32c",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "fxaa",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "highclip",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "inspectable",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "inspector_label",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "joinstyle",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "linecap",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "linestyle",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "linewidth",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "lowclip",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "miter_limit",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "model",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "name",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "nan_color",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "overdraw",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "rasterize",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "space",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "ssao",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transform_func",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transparency",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "visible",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                }
+            ],
+            "readable_nodes": [
+                "alpha",
+                "alpha_colormap",
+                "arg1",
+                "arg2",
+                "args",
+                "auto_colorrange",
+                "camera_matrix_names",
+                "clip_planes",
+                "color",
+                "color_mapping",
+                "color_mapping_type",
+                "colormap",
+                "colorrange",
+                "colorscale",
+                "convert_kwargs",
+                "converted",
+                "cycle",
+                "cycle_index",
+                "data_limits",
+                "depth_shift",
+                "dim_conversions",
+                "dim_converted",
+                "eyeposition",
+                "f32c",
+                "fetch_pixel",
+                "fxaa",
+                "highclip",
+                "highclip_color",
+                "inspectable",
+                "inspector_label",
+                "joinstyle",
+                "linecap",
+                "linestyle",
+                "linewidth",
+                "lowclip",
+                "lowclip_color",
+                "miter_limit",
+                "model",
+                "model_f32c",
+                "name",
+                "nan_color",
+                "overdraw",
+                "positions",
+                "positions_transformed",
+                "positions_transformed_f32c",
+                "projection",
+                "projectionview",
+                "rasterize",
+                "raw_color",
+                "raw_colormap",
+                "resolution",
+                "scaled_color",
+                "scaled_colorrange",
+                "scene_origin",
+                "space",
+                "ssao",
+                "transform_func",
+                "transparency",
+                "uniform_linewidth",
+                "upvector",
+                "view",
+                "view_direction",
+                "viewport",
+                "visible"
+            ]
+        },
+        {
+            "plot_type": "Heatmap{Tuple{Makie.EndPoints{Float32}, Makie.EndPoints{Float32}, Matrix{Float32}}}",
+            "mutable_inputs": [
+                {
+                    "name": "alpha",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "arg1",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "clip_planes",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colormap",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colorrange",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "colorscale",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "cycle",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "depth_shift",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "dim_conversions",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "f32c",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "fxaa",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "highclip",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "inspectable",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "inspector_label",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "interpolate",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "lowclip",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "model",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "name",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "nan_color",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "overdraw",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "rasterize",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "space",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "ssao",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transform_func",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "transparency",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                },
+                {
+                    "name": "visible",
+                    "storage_type": "ComputePipeline.Input{ComputePipeline.ComputeGraph}"
+                }
+            ],
+            "readable_nodes": [
+                "alpha",
+                "alpha_colormap",
+                "arg1",
+                "args",
+                "auto_colorrange",
+                "camera_matrix_names",
+                "clip_planes",
+                "color_mapping",
+                "color_mapping_type",
+                "colormap",
+                "colorrange",
+                "colorscale",
+                "convert_kwargs",
+                "converted",
+                "cycle",
+                "cycle_index",
+                "data_limits",
+                "depth_shift",
+                "dim_conversions",
+                "dim_converted",
+                "eyeposition",
+                "f32c",
+                "fetch_pixel",
+                "fxaa",
+                "highclip",
+                "highclip_color",
+                "image",
+                "inspectable",
+                "inspector_label",
+                "interpolate",
+                "lowclip",
+                "lowclip_color",
+                "model",
+                "name",
+                "nan_color",
+                "overdraw",
+                "projection",
+                "projectionview",
+                "rasterize",
+                "raw_color",
+                "raw_colormap",
+                "resolution",
+                "scaled_color",
+                "scaled_colorrange",
+                "scene_origin",
+                "space",
+                "ssao",
+                "transform_func",
+                "transparency",
+                "upvector",
+                "view",
+                "view_direction",
+                "viewport",
+                "visible",
+                "x",
+                "y"
+            ]
+        }
+    ]
+}

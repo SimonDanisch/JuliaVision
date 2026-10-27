@@ -1,0 +1,48 @@
+{
+    "scope": "development follow-up motivated by observed API errors; two authored tasks, NOT held-out evidence",
+    "policy": "completed public-input diagnostic reports runtime exception; NEVER hidden scores or observed-value correctness judgments",
+    "rows": [
+        {
+            "task": "ki_launch",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true
+        },
+        {
+            "task": "ki_launch",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true
+        },
+        {
+            "task": "makie_update",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true
+        },
+        {
+            "task": "makie_update",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": false
+        }
+    ],
+    "totals": {
+        "runtime_feedback": {
+            "passed": 0,
+            "pending": 0
+        },
+        "self_review": {
+            "passed": 0,
+            "pending": 0
+        }
+    }
+}

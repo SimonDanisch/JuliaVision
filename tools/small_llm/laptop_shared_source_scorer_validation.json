@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "scope": "PRIVATE reference-only CPU/software-Vulkan scorer qualification; no neural generations or model-quality evidence",
+    "passed": 15,
+    "source_sha256": {
+        "test_laptop_shared_source_scoring.jl": "045fa6df379f9ba8f76f7170d4254bc64177247c3219335299d041ecaabe4633",
+        "score_laptop_shared_source.jl": "f8eb52eb8b4665bbc477ac4866457fa787df88e2b09cd53abdb203fd1d2df569",
+        "laptop_shared_source.jl": "3126d7f5f09c48517ee7ca6b7d3025c717ace3ba3a0bd41aef5780d940200116"
+    }
+}

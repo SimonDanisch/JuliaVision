@@ -1,0 +1,17 @@
+{
+    "complete": true,
+    "scope": "Infrastructure only; no neural generation accuracy",
+    "interface_checks": 44,
+    "protocol_checks": 23,
+    "mocked_end_to_end_checks": 6,
+    "reference_tasks": 8,
+    "sources": {
+        "julia_stencil_interface.jl": "4d21c936b422019927000d135e48b1119f913d3fa798cff9d624ef9a7bd61777",
+        "test_julia_stencil_transfer_end_to_end.jl": "98bac252c817e3c97acdd5db63509b1f880a286b626d1c6e2df4320f85366af1",
+        "test_julia_stencil_transfer_study.jl": "4923d2fd03d26fd327d9d7f2bd6a123fc86dc84f3d144f38937adf0166a34356",
+        "test_julia_stencil_interface.jl": "fe56e9da4ee3da8c0226892c7a98e9ec6dbb73ccaf725b7d65ad44072ba4719b",
+        "julia_stencil_transfer_deploy.jl": "b3fb91f0d896c08f3148917a3b808c6db2707bd635a896eb8a5ad0c7552157ea",
+        "julia_stencil_transfer_study.jl": "67895dde2550ed9950db4991628d7c592bcaa6077c8988a4182e829ae92dd096",
+        "score_julia_stencil_transfer.jl": "e6015ae6939de8f9cbbd5302c3331767e056a27387108936c4b43ff2b5a16125"
+    }
+}

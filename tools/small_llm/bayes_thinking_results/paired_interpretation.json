@@ -1,0 +1,334 @@
+{
+    "complete": true,
+    "comparisons": [
+        {
+            "arm": "direct_probability",
+            "relative_to_nonthinking": {
+                "total": 8,
+                "repairs": 2,
+                "regressions": 0,
+                "discordant": 2,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 6,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 2,
+                    "total": 8,
+                    "estimate": 0.25,
+                    "lower": 0.071479212752109,
+                    "upper": 0.5907245696898311
+                },
+                "exact_two_sided_discordance_p": 0.5,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        },
+        {
+            "arm": "bayes_network",
+            "relative_to_nonthinking": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        }
+    ],
+    "thinking_network_vs_direct": {
+        "before_arm": "direct_probability",
+        "after_arm": "bayes_network",
+        "tasks": [
+            "bayes_extract_01",
+            "bayes_extract_02",
+            "bayes_extract_03",
+            "bayes_extract_04",
+            "bayes_extract_05",
+            "bayes_extract_06",
+            "bayes_extract_07",
+            "bayes_extract_08"
+        ],
+        "statistics": {
+            "total": 8,
+            "repairs": 0,
+            "regressions": 2,
+            "discordant": 2,
+            "unchanged_correct": 0,
+            "unchanged_incorrect": 6,
+            "before": {
+                "successes": 2,
+                "total": 8,
+                "estimate": 0.25,
+                "lower": 0.071479212752109,
+                "upper": 0.5907245696898311
+            },
+            "after": {
+                "successes": 0,
+                "total": 8,
+                "estimate": 0,
+                "lower": 0,
+                "upper": 0.32440756488388023
+            },
+            "exact_two_sided_discordance_p": 0.5,
+            "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+        }
+    },
+    "scope": "POSTHOC SAME8 development problems; thinking/template, allowance and controller change together. Extra inference/solver work, not equal compute, isolated mode/weight effect, independent transfer, clinical or frontier intelligence.",
+    "incremental_generation_costs": {
+        "complete": true,
+        "rows": [
+            {
+                "id": "bayes_extract_01_direct_probability",
+                "arm": "direct_probability",
+                "status": "passed",
+                "cost_known": true,
+                "input_tokens": 355,
+                "generated_tokens": 1050,
+                "decode_steps": 1088,
+                "decode_submissions": 1088,
+                "generation_timer_seconds": 31.421857118606567,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_01_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 352,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 47.99852800369263,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_02_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 346,
+                "generated_tokens": 1224,
+                "decode_steps": 1280,
+                "decode_submissions": 1280,
+                "generation_timer_seconds": 34.73324012756348,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_02_direct_probability",
+                "arm": "direct_probability",
+                "status": "passed",
+                "cost_known": true,
+                "input_tokens": 349,
+                "generated_tokens": 1038,
+                "decode_steps": 1088,
+                "decode_submissions": 1088,
+                "generation_timer_seconds": 31.580162048339844,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_03_direct_probability",
+                "arm": "direct_probability",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 385,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 46.926279067993164,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_03_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 382,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 48.230302810668945,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_04_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 382,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 48.15149688720703,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_04_direct_probability",
+                "arm": "direct_probability",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 385,
+                "generated_tokens": 1054,
+                "decode_steps": 1088,
+                "decode_submissions": 1088,
+                "generation_timer_seconds": 30.45967197418213,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_05_direct_probability",
+                "arm": "direct_probability",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 403,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 48.244115114212036,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_05_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 400,
+                "generated_tokens": 1340,
+                "decode_steps": 1344,
+                "decode_submissions": 1344,
+                "generation_timer_seconds": 36.06997299194336,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_06_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 393,
+                "generated_tokens": 1645,
+                "decode_steps": 1664,
+                "decode_submissions": 1664,
+                "generation_timer_seconds": 40.366026878356934,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_06_direct_probability",
+                "arm": "direct_probability",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 396,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 48.16374707221985,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_07_direct_probability",
+                "arm": "direct_probability",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 403,
+                "generated_tokens": 1035,
+                "decode_steps": 1088,
+                "decode_submissions": 1088,
+                "generation_timer_seconds": 31.865293979644775,
+                "truncated": false
+            },
+            {
+                "id": "bayes_extract_07_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 400,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 48.166460037231445,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_08_bayes_network",
+                "arm": "bayes_network",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 368,
+                "generated_tokens": 2048,
+                "decode_steps": 2048,
+                "decode_submissions": 2048,
+                "generation_timer_seconds": 48.009756088256836,
+                "truncated": true
+            },
+            {
+                "id": "bayes_extract_08_direct_probability",
+                "arm": "direct_probability",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 371,
+                "generated_tokens": 1040,
+                "decode_steps": 1088,
+                "decode_submissions": 1088,
+                "generation_timer_seconds": 31.691751956939697,
+                "truncated": false
+            }
+        ],
+        "arms": [
+            {
+                "arm": "direct_probability",
+                "label": "direct_probability",
+                "tasks": 8,
+                "passed": 2,
+                "cost_known": 8,
+                "cost_missing": 0,
+                "input_tokens": 3047,
+                "generated_tokens": 11361,
+                "decode_steps": 11584,
+                "decode_submissions": 11584,
+                "generation_timer_seconds": 300.35287833213806,
+                "truncated": 3,
+                "timed_seconds_per_pass": 150.17643916606903
+            },
+            {
+                "arm": "bayes_network",
+                "label": "bayes_network",
+                "tasks": 8,
+                "passed": 0,
+                "cost_known": 8,
+                "cost_missing": 0,
+                "input_tokens": 3023,
+                "generated_tokens": 14449,
+                "decode_steps": 14528,
+                "decode_submissions": 14528,
+                "generation_timer_seconds": 351.72578382492065,
+                "truncated": 5,
+                "timed_seconds_per_pass": null
+            }
+        ],
+        "scope": "Descriptive incremental generation costs for exactly the registered jobs; not a pooled intelligence score, throughput benchmark or causal speed comparison.",
+        "timer": "Existing generation timer includes prompt processing, decode and graph/JIT work after session creation; excludes model loading, session creation, worker startup/retirement, sandbox tests and external solvers. Token rate must NOT be reported as steady-state decode throughput.",
+        "baseline_cost": "Revision arms exclude the shared original answer-generation cost; these are incremental costs, NOT end-to-end workflow costs. Missing error costs remain unknown, never zero."
+    },
+    "primary_summary_sha256": "2100b4b322eeed83a6e0704ed1833e8d49a57bbc818036daa6230ea68a186aa5",
+    "baseline_summary_sha256": "995853ffda021a0b9bea688d71d1fb2c3320285a4edda7a1f3dbd1e2db47fe8d",
+    "source_sha256": "5cd0cc47afd8424a459ed655d0b4f612a6080334df846dd104be69b5d5541ac0",
+    "caveat": "Generation timers include prefill/JIT/decode but exclude model load/startup and solver. NOT tokens/s or end-to-end latency; preserve nonthinking and native-FP32/greedy controls separately."
+}

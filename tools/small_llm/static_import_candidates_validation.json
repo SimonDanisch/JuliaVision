@@ -1,0 +1,254 @@
+{
+    "complete": true,
+    "unit_checks": 84,
+    "captured_namespace_checks": 6,
+    "scope": "POSTHOC static source inspection of ALL16 completed original external answers, no score/test-trace inputs and no candidate execution. Hints are not demonstrated failures or repairs. NOT used in frozen lint revision prompts; no model-quality claim.",
+    "corpus_sha256": "51083d40b111d7c1e5f2eada66e52af7caca4d0f313c834cfb2f5bd220efea82",
+    "rows": [
+        {
+            "id": "alias3_27_direct",
+            "generation_sha256": "bf7ee3dffac551edab534207dfcf32b48e9e5316a6b20b3cb3c325ae613299a6",
+            "observations": {
+                "suggestions": [
+                    {
+                        "name": "DateTime",
+                        "possible_modules": [
+                            "Dates"
+                        ]
+                    },
+                    {
+                        "name": "format",
+                        "possible_modules": [
+                            "Dates",
+                            "Printf"
+                        ]
+                    },
+                    {
+                        "name": "now",
+                        "possible_modules": [
+                            "Dates"
+                        ]
+                    }
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_27_public_docs",
+            "generation_sha256": "722a53ec19a4a405b343c84dd73203c0f730f6256afeab3a19e4dd6ecc57264b",
+            "observations": {
+                "suggestions": [
+                    {
+                        "name": "DateTime",
+                        "possible_modules": [
+                            "Dates"
+                        ]
+                    },
+                    {
+                        "name": "format",
+                        "possible_modules": [
+                            "Dates",
+                            "Printf"
+                        ]
+                    }
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_309_public_docs",
+            "generation_sha256": "a4aa7984b2cf9abbd18110717cf81b9bd70ebf86f6327ae60037d66bdaf7ad93",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_309_direct",
+            "generation_sha256": "64e07d58eaa1fb069d986acff1c084a8aa5b10cd116f4b29d7fbeeea5f5cf99f",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_939_direct",
+            "generation_sha256": "2041856d2aebaec9baf9041941c5683d18e2852f488e7e38722f74afa8638167",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": false,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_939_public_docs",
+            "generation_sha256": "517b3457c5ff893dddf93c33dffb607611b6b28dad11d6e74b01dd0a02102e64",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_277_public_docs",
+            "generation_sha256": "edcf1e75ed6657ff36a1b57fc233b5e9146aa8bf423e90d8ff45dee1edc2262d",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": false,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_277_direct",
+            "generation_sha256": "42e757f8c453c6e8718322cc28e224090420e60e0062c8a1e428b920b6217dc4",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_311_direct",
+            "generation_sha256": "f8fa208b3feb848ee037071c5272a3dba6096f6df893555f9537d25f08cd6e4b",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_311_public_docs",
+            "generation_sha256": "9c5da6eedf74aa0a3cef8146037f74d8d22df0caf304e7a502ce515b09b3dc3e",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_137_public_docs",
+            "generation_sha256": "3bc12841935a04c6bf346c8006a8184b35711cbda10e0bd66d090f623ddce9cf",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_137_direct",
+            "generation_sha256": "86debd83a1960c35f9a0b894cf94f3b5d5809fc89d38e707d407d8e0f654b0a9",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": true,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_651_direct",
+            "generation_sha256": "40df8d9cc4b508d7ba4ced009cfa3a19e0c45a2413bbac339232583759ba49bb",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_651_public_docs",
+            "generation_sha256": "97f6878787aa55ac76b0d480706a7e6b96bb4e70dcb6fef947535e27e31b67ad",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_1060_public_docs",
+            "generation_sha256": "7208ab9b7e75996a1c5b23544429ded466a1206a1cc606cfe60123484da20b46",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": false,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        },
+        {
+            "id": "alias3_1060_direct",
+            "generation_sha256": "a8c073bb847f298f55d3a022e6b21172a9c2da7a863f8b051fc73c756de9bbd9",
+            "observations": {
+                "suggestions": [
+                ],
+                "source_parse_ok": true,
+                "opaque_metaprogramming": false,
+                "unknown_imports": [
+                ],
+                "scope": "Development source-only import candidates for literal calls. Not missing-binding proof, import recommendation, runtime/type/algorithm validation or quality evidence."
+            }
+        }
+    ],
+    "sources": {
+        "static_import_candidates.jl": "9b17f3bdba20586bd4b28d539f9e52563aa68675ee4ef3f1571deda45b52fda2",
+        "test_static_import_candidates.jl": "35f029495c1dc50ccdd0a60b541a1f787dd2e8438dd1123c3da05f35c0f428cc",
+        "qualify_static_import_candidates.jl": "65129e424df0f66e3ae2a15620124db296d8214dfb0b1123662cc5f7da84f498"
+    }
+}

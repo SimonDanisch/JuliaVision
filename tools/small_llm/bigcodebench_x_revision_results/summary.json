@@ -1,0 +1,154 @@
+{
+  "scope": "POSTHOC workflow development: policy constructed after observing first external baseline API failure, not an independent held-out intervention. ALL8 tasks retained, no selection by hidden scores.",
+  "policy": "One revision per task per arm, counterbalanced, same original task/prior CODE and identical fixed decoding budget. Public-static arm gets syntax/dependency-contract/literal installed-namespace diagnostics; self-review arm gets no diagnostics. Neither reads benchmark tests, expected answers or grading traces. No generated code executed by analyzers. No arithmetic/API replacements inferred.",
+  "rows": [
+    {
+      "id": "bcbx_92_public_static",
+      "task": "BigCodeBench/92",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "47ed846159b5287539249beefddc44996b2d9a033684aba07e2ffeee182eeb0a"
+    },
+    {
+      "id": "bcbx_92_self_review",
+      "task": "BigCodeBench/92",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "cd194989d92b2a39dccb6d1ae86b09b2b570084f0a88c6c5063d3b3a30947ef3"
+    },
+    {
+      "id": "bcbx_852_self_review",
+      "task": "BigCodeBench/852",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": true,
+      "generation_sha256": "cf3948a009531abda32e9311d0f7b8d4965b5f55e1b52adb15e6536da83fad79"
+    },
+    {
+      "id": "bcbx_852_public_static",
+      "task": "BigCodeBench/852",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "ba3737cc9b27030d71c83594dadd874c16ef176f42ac7b10b05376cd0460b66f"
+    },
+    {
+      "id": "bcbx_155_public_static",
+      "task": "BigCodeBench/155",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "278b75a1ac5c413bf6f3329718c3882d2b575e927ae2f658f620343e03fe7bf6"
+    },
+    {
+      "id": "bcbx_155_self_review",
+      "task": "BigCodeBench/155",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": true,
+      "generation_sha256": "927b7dae1ea3b1f45e03f6c8b17f2f39c9bbb506faf66132e09dab10c26cdb62"
+    },
+    {
+      "id": "bcbx_293_self_review",
+      "task": "BigCodeBench/293",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "a19eb43929321f99bdbf3e1c865324f05c571b0087b02c89d2c77be80482daa6"
+    },
+    {
+      "id": "bcbx_293_public_static",
+      "task": "BigCodeBench/293",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "0a63eda637656e26fcfa898968d6dac2004974e49bd3506e80efcf46b564610e"
+    },
+    {
+      "id": "bcbx_241_public_static",
+      "task": "BigCodeBench/241",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "63b8f3816f7d322b79ccb6758009c8cfc10100c094f47c54c9488c646e8b0873"
+    },
+    {
+      "id": "bcbx_241_self_review",
+      "task": "BigCodeBench/241",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "98aeb63ae6b2d3831c365e6805b1bde435aff864c271e2e2bb84f2e6253a5482"
+    },
+    {
+      "id": "bcbx_255_self_review",
+      "task": "BigCodeBench/255",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "0d21a5387c2699c18f9e0e3b5a359cf8553a5123a17005cce81b324364adeb13"
+    },
+    {
+      "id": "bcbx_255_public_static",
+      "task": "BigCodeBench/255",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": true,
+      "generation_sha256": "cca154a194afc2fd750c780b076294b3849b03b2a3d81473faaed427b5cacf01"
+    },
+    {
+      "id": "bcbx_980_public_static",
+      "task": "BigCodeBench/980",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "deb9fd7f13a711256305ba297b0bb288e78ebb4177ba2af3cb09b438574ee863"
+    },
+    {
+      "id": "bcbx_980_self_review",
+      "task": "BigCodeBench/980",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "7ec60e043ab28bb78f7e94b9264c3cd22b34f873a84c4342345b7988eb5d8597"
+    },
+    {
+      "id": "bcbx_928_self_review",
+      "task": "BigCodeBench/928",
+      "arm": "self_review",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "fa38e0bd20f4f585fdea889df3247a01b3cc18e16bef1de10d2265c50f011778"
+    },
+    {
+      "id": "bcbx_928_public_static",
+      "task": "BigCodeBench/928",
+      "arm": "public_static",
+      "status": "failed",
+      "baseline_status": "failed",
+      "truncated": false,
+      "generation_sha256": "89e9a66fb27146fc399b967168301f6a380af4e5462dbc2cf23fa59c180ef901"
+    }
+  ],
+  "complete": true,
+  "conditions_sha256": "785e0475f4b85c347464dfd83eee057aa7176b36ec35c6aab585e62f87622ee4",
+  "scorer_sha256": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c",
+  "runtime": "Qualified test-blind CPU-only Julia jail, unchanged original external tests"
+}

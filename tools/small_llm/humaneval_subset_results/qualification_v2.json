@@ -1,0 +1,67 @@
+{
+    "scope": "same frozen subset, requalification after environment repair; original negative qualification retained",
+    "selected": 12,
+    "qualified": 12,
+    "rows": [
+        {
+            "id": "034_unique_elements",
+            "passed": true,
+            "elapsed_seconds": 0.32369303703308105
+        },
+        {
+            "id": "039_prime_fib",
+            "passed": true,
+            "elapsed_seconds": 0.2811741828918457
+        },
+        {
+            "id": "106_f",
+            "passed": true,
+            "elapsed_seconds": 0.31714487075805664
+        },
+        {
+            "id": "162_string_to_md5",
+            "passed": true,
+            "elapsed_seconds": 0.5615811347961426
+        },
+        {
+            "id": "104_unique_digits",
+            "passed": true,
+            "elapsed_seconds": 0.3045790195465088
+        },
+        {
+            "id": "074_total_match",
+            "passed": true,
+            "elapsed_seconds": 0.3140690326690674
+        },
+        {
+            "id": "010_palindrome_with_append",
+            "passed": true,
+            "elapsed_seconds": 0.3034780025482178
+        },
+        {
+            "id": "037_sort_even",
+            "passed": true,
+            "elapsed_seconds": 0.31061887741088867
+        },
+        {
+            "id": "146_specialFilter",
+            "passed": true,
+            "elapsed_seconds": 0.29413604736328125
+        },
+        {
+            "id": "048_is_palindrome",
+            "passed": true,
+            "elapsed_seconds": 0.2935941219329834
+        },
+        {
+            "id": "110_exchange",
+            "passed": true,
+            "elapsed_seconds": 0.3235960006713867
+        },
+        {
+            "id": "077_iscube",
+            "passed": true,
+            "elapsed_seconds": 0.2962369918823242
+        }
+    ]
+}

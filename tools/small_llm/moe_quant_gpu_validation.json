@@ -1,0 +1,90 @@
+{
+    "device": "Radeon 8060S",
+    "scope": "selected-expert and complete synthetic Q4 block",
+    "rows": [
+        {
+            "k": 256,
+            "m": 17,
+            "experts": 8,
+            "topk": 2,
+            "per_expert": false,
+            "replay": 1,
+            "maxabs": 1.2095019741309443e-6
+        },
+        {
+            "k": 256,
+            "m": 17,
+            "experts": 8,
+            "topk": 2,
+            "per_expert": false,
+            "replay": 2,
+            "maxabs": 6.837636394863011e-7
+        },
+        {
+            "k": 256,
+            "m": 17,
+            "experts": 8,
+            "topk": 2,
+            "per_expert": true,
+            "replay": 1,
+            "maxabs": 9.347767804257501e-7
+        },
+        {
+            "k": 256,
+            "m": 17,
+            "experts": 8,
+            "topk": 2,
+            "per_expert": true,
+            "replay": 2,
+            "maxabs": 8.318813966567973e-7
+        },
+        {
+            "k": 512,
+            "m": 9,
+            "experts": 256,
+            "topk": 8,
+            "per_expert": false,
+            "replay": 1,
+            "maxabs": 1.736419070752504e-6
+        },
+        {
+            "k": 512,
+            "m": 9,
+            "experts": 256,
+            "topk": 8,
+            "per_expert": false,
+            "replay": 2,
+            "maxabs": 1.3345746907589273e-6
+        },
+        {
+            "k": 512,
+            "m": 9,
+            "experts": 256,
+            "topk": 8,
+            "per_expert": true,
+            "replay": 1,
+            "maxabs": 1.3160308309778657e-6
+        },
+        {
+            "k": 512,
+            "m": 9,
+            "experts": 256,
+            "topk": 8,
+            "per_expert": true,
+            "replay": 2,
+            "maxabs": 1.9753070832351227e-6
+        }
+    ],
+    "source_sha256": {
+        "grouped_attention_qwen35.jl": "bcd2fc397bc6471a31aca585e6fdbc19bd1e7d7d060f0b130613aece823bac21",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "moe_qwen35.jl": "289c1d29bb6e4f2e7a551e1243792e7ce68f909698339533d25e233e91357372",
+        "test_attention_cache_qwen35.jl": "9d1b40ab140abc20eb302fd10c70da29c4e9b21e7aefc23c76e98df4e0186d63",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93",
+        "quality_attention_qwen35.jl": "5a1123a606bbfb7d3cb97aed2a8b2b9bf40bbd365c83c1e8e9acaf2ee3a98aa2",
+        "test_moe_quant_qwen35.jl": "e892f5cefd8a4759e401d78e14e29ff4dd857cdf389d2cff0c2fa4d3c3a65344",
+        "test_moe_qwen35.jl": "06b07f44b587cc5603d49971fc34023f6a44251a22f373c0854eb7a6e58b6653",
+        "moe_transformers_reference.json": "7a4396899b64b0b0640dc8842138ed57b01fbf9cde123035cff1e3925aa5e09e",
+        "moe_quant_qwen35.jl": "56fba3baaa89715c226c5e8f95cb7851eec20c253c7c037b80c7548979389e97"
+    }
+}

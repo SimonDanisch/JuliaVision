@@ -1,0 +1,51 @@
+{
+    "scope": "POSTHOC interface simplification on the SAME four authored development tasks, after observing function-level failures; not independent held-out evidence",
+    "policy": "All four tasks, exact original sampling/2048 total/1024 thinking limit/API context. One immutable attempt each; no baseline regeneration or seed selection. Model supplies full expression; adapter only supplies public scaffolding.",
+    "rows": [
+        {
+            "id": "shared_periodic_laplacian_scalar_source",
+            "task": "shared_periodic_laplacian",
+            "status": "passed",
+            "stage": "execution",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "shared_periodic_laplacian",
+                "adapter": "public signature, loop/index and unique output store only; model supplies the complete value expression, with no arithmetic repair"
+            },
+            "truncated": false,
+            "generation_sha256": "a115cee28db8b43e5cd2b99a54d7fbc22c3eaec3fba9b113c394404db86761c1"
+        },
+        {
+            "id": "shared_indexed_interpolation_scalar_source",
+            "status": "failed",
+            "stage": "adapter_admission",
+            "reason": "exactly one scalar expression required"
+        },
+        {
+            "id": "shared_column_bias_clip_scalar_source",
+            "status": "failed",
+            "stage": "adapter_admission",
+            "reason": "unknown/impure expression or loop-carried dependency"
+        },
+        {
+            "id": "shared_block_reverse_scalar_source",
+            "status": "failed",
+            "stage": "adapter_admission",
+            "reason": "unknown/impure expression or loop-carried dependency"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "2021b679332f3f9a2e9d0c0ec2da373def385842b115f1f17ff09368c49c4f90",
+    "scorer_sha256": "0549431ded9ef6c45e3fcafae5a3c4880cf31fb651a840e3fc30516e00077141"
+}

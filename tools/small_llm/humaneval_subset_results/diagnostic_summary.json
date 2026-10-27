@@ -1,0 +1,126 @@
+{
+    "scope": "static-positive policy selection uses public signatures ONLY, never hidden pass/fail scores; tool unavailable retains baseline",
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "unique_elements",
+                "types": "[Tuple{Vector}]"
+            },
+            "elapsed_seconds": 1.1595299243927002
+        },
+        {
+            "task": "039_prime_fib",
+            "status": "tool_unavailable",
+            "positive": false,
+            "public_signature": {
+                "name": "prime_fib",
+                "types": "[Tuple{Int}]"
+            },
+            "elapsed_seconds": 1.3444998264312744
+        },
+        {
+            "task": "106_f",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "f",
+                "types": "[Tuple{Int}]"
+            },
+            "elapsed_seconds": 0.9744820594787598
+        },
+        {
+            "task": "162_string_to_md5",
+            "status": "tool_unavailable",
+            "positive": false,
+            "public_signature": {
+                "name": "string_to_md5",
+                "types": "[Tuple{String}]"
+            },
+            "elapsed_seconds": 1.3283398151397705
+        },
+        {
+            "task": "104_unique_digits",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "unique_digits",
+                "types": "[Tuple{Vector{Int}}]"
+            },
+            "elapsed_seconds": 1.1886451244354248
+        },
+        {
+            "task": "074_total_match",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "total_match",
+                "types": "[Tuple{Vector{String},Vector{String}}]"
+            },
+            "elapsed_seconds": 0.9614450931549072
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "status": "completed",
+            "positive": true,
+            "public_signature": {
+                "name": "palindrome_with_append",
+                "types": "[Tuple{String}]"
+            },
+            "elapsed_seconds": 1.0595488548278809
+        },
+        {
+            "task": "037_sort_even",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "sort_even",
+                "types": "[Tuple{Vector}]"
+            },
+            "elapsed_seconds": 0.9723048210144043
+        },
+        {
+            "task": "146_specialFilter",
+            "status": "completed",
+            "positive": true,
+            "public_signature": {
+                "name": "specialFilter",
+                "types": "[Tuple{Vector{Int}}]"
+            },
+            "elapsed_seconds": 0.7067821025848389
+        },
+        {
+            "task": "048_is_palindrome",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "is_palindrome",
+                "types": "[Tuple{String}]"
+            },
+            "elapsed_seconds": 0.9235949516296387
+        },
+        {
+            "task": "110_exchange",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "exchange",
+                "types": "[Tuple{Vector{Int},Vector{Int}}]"
+            },
+            "elapsed_seconds": 0.9280400276184082
+        },
+        {
+            "task": "077_iscube",
+            "status": "completed",
+            "positive": false,
+            "public_signature": {
+                "name": "iscube",
+                "types": "[Tuple{Int}]"
+            },
+            "elapsed_seconds": 0.9548888206481934
+        }
+    ],
+    "positive": 2
+}

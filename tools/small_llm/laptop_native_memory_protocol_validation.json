@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "scope": "CPU registration/integrity checks only; not a task-quality result",
+    "passed": 0,
+    "source_sha256": {
+        "score_laptop_native_memory.jl": "a3a48feec532ee11d75de4e504df44c0d4a1695beffb9310a20c4c6b2d2540ca",
+        "test_laptop_native_memory_registration.jl": "714a1a403b78a0430f44bf860ab612dffcc40cde03d63482ab610008a35989ad",
+        "laptop_native_memory_study.jl": "bb596425a537689eea3c0da89e934e610d92200f352fd8fb26e2bc2af6f99f36"
+    }
+}

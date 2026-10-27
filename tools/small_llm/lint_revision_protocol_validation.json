@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "protocol_checks": 10,
+    "registration_checks": 9,
+    "scope": "Public-only paired prompt and immutable registration checks, not task quality",
+    "sources": {
+        "lint_revision_study.jl": "cb7ab4d97a6d969ab587c79c8f99d889b5428fb6b0227ff21886cbdadf7087d1",
+        "test_lint_revision_study.jl": "ebaf94ec16185c8688218efb1f8b36519d2886893c416f14a3dd753acfe7f641",
+        "test_lint_revision_protocol.jl": "372a89035f324ebf0498affa87f09c19a30224200c7638bd536f02d135a029cd",
+        "lint_revision_protocol.jl": "827cce4512bb82f948be46ff8f68d34675bcff5d62a0ff32a538387426ea53b0"
+    }
+}

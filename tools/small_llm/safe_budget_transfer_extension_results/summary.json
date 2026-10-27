@@ -1,0 +1,32 @@
+{
+    "scope": "POST-HOC development follow-up on ALL remaining three authored transfer tasks; original outputs already observed, not independent held-out evidence",
+    "policy": "one immutable attempt per registered condition; no regeneration or seed search; retain original outputs and separate backend failures",
+    "rows": [
+        {
+            "id": "transfer_sincos_pair_api_pack",
+            "status": "pending"
+        },
+        {
+            "id": "transfer_sincos_pair_no_addon",
+            "status": "pending"
+        },
+        {
+            "id": "transfer_flat_transpose_no_addon",
+            "status": "pending"
+        },
+        {
+            "id": "transfer_flat_transpose_api_pack",
+            "status": "pending"
+        },
+        {
+            "id": "transfer_atomic_sum_api_pack",
+            "status": "pending"
+        },
+        {
+            "id": "transfer_atomic_sum_no_addon",
+            "status": "pending"
+        }
+    ],
+    "complete": false,
+    "conditions_sha256": "61d577c97893ada4dc1f2ada5c067423445066f5f156cf9cf20a805da7df89a5"
+}

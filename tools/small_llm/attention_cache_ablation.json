@@ -1,0 +1,58 @@
+{
+    "scope": "single-sequence Qwen3.5-4B Q4_K at occupied 4K; experimental opt-in variants, default remains FP32/split",
+    "baseline": 50.51953105633666,
+    "optimized": 61.864813795772754,
+    "speedup": 1.2245722100386174,
+    "caveats": [
+        "Final FP16/grouped variant uses 2 x 64 generated tokens; other variants use 3 x 128. Repeated fixed-work tests, not answer-quality evaluations.",
+        "Initial Q4 near-identity checks failed; unquantized integration passed. Q4 activation quantization makes changed reduction/cache precision numerically non-equivalent. Default not changed.",
+        "24/24 short next-token comparisons agree across candidate variants, insufficient for general quality claims.",
+        "llama.cpp reference is 63.987 t/s using FP16 KV, same checkpoint but non-identical quantization policy."
+    ],
+    "rows": [
+        {
+            "cache": "float32",
+            "attention": "split",
+            "median_decode_tps": 50.51953105633666,
+            "newtokens": 128,
+            "samples": 3,
+            "accepted_samples": 3,
+            "rejected_samples": 0,
+            "median_prefill_seconds": 12.477171468,
+            "file": "dev/JuliaVision/tools/small_llm/qwen4b_float32_split_4096_benchmark.json"
+        },
+        {
+            "cache": "float32",
+            "attention": "grouped",
+            "median_decode_tps": 58.963783387501834,
+            "newtokens": 128,
+            "samples": 3,
+            "accepted_samples": 3,
+            "rejected_samples": 0,
+            "median_prefill_seconds": 10.654049977,
+            "file": "dev/JuliaVision/tools/small_llm/qwen4b_float32_grouped_4096_benchmark.json"
+        },
+        {
+            "cache": "float16",
+            "attention": "split",
+            "median_decode_tps": 56.14901565537906,
+            "newtokens": 128,
+            "samples": 3,
+            "accepted_samples": 3,
+            "rejected_samples": 0,
+            "median_prefill_seconds": 12.160134835,
+            "file": "dev/JuliaVision/tools/small_llm/qwen4b_float16_split_4096_benchmark.json"
+        },
+        {
+            "cache": "float16",
+            "attention": "grouped",
+            "median_decode_tps": 61.864813795772754,
+            "newtokens": 64,
+            "samples": 2,
+            "accepted_samples": 2,
+            "rejected_samples": 0,
+            "median_prefill_seconds": 10.578787671499999,
+            "file": "dev/JuliaVision/tools/small_llm/qwen4b_float16_grouped_4096_benchmark.json"
+        }
+    ]
+}

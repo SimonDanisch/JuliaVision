@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 9,
+    "scope": "CPU option validation before model/device access only, not model identity or quality",
+    "source_sha256": {
+        "test_sampled_example_rpn_options.jl": "2ddbe9d0d96b26dbdbe728acb1bbe24a9fa7b50cb06040483b5e8b9bc45a798c",
+        "sampled_example_rpn_program.jl": "cc7d6c034dc12be88a506bd0439b4d8c281a93aa4e565f701beaa57f38fa3cbf"
+    }
+}

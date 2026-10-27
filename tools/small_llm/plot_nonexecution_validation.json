@@ -1,0 +1,10 @@
+{
+    "passed": true,
+    "checks": 40,
+    "run": "r1266",
+    "scope": "Restricted parser nonexecution tests, NOT arbitrary Julia safety or quality",
+    "sources": {
+        "test_safe_plot_nonexecution.jl": "c33a23dd03c7b688555c77764d863d031ff8483ff891129ccf0d4f0563c392cc",
+        "safe_plot_julia_source.jl": "d20da3d8c2681a5e7c01845ae157c318eacf970d09b898003922764fa9ab5e92"
+    }
+}

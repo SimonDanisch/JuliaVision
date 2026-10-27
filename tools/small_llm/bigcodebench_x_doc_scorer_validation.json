@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "tests": 3,
+    "scope": "PRIVATE mocked16-job scorer/caching/submission/paired-skip checks; NOT model quality",
+    "source_sha256": {
+        "score_bigcodebench_x_doc_study.py": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295",
+        "test_score_bigcodebench_x_doc_study.py": "ba7abccd3cf36cbecdcd8f8f9675c95c959028b6bea5de997c15c8b109967566"
+    }
+}

@@ -1,0 +1,18 @@
+{
+    "complete": true,
+    "scope": "Shared BM25 arithmetic over public installed docs; SOFTWARE Vulkan only, not model quality",
+    "cpu_checks": 21,
+    "device_checks": 32,
+    "documents": 1432,
+    "vocabulary": 5187,
+    "sparse_entries": 86315,
+    "device": "llvmpipe (LLVM 21.1.8, 256 bits)",
+    "source_sha256": {
+        "public_document_retrieval.jl": "97e6e1c1c36eff91016898a63630e384b46e36bd3b97b573786c0f63ac31b9eb",
+        "public_document_retrieval_gpu.jl": "ae964d2be2febf30d3a626e79e92a3a9c5a7897bb82ea50f6ec5501115568ff0",
+        "julia_public_docs.json": "90211427180a9c84f6ff3169efe6340acc502a8ac5a13c8ac954d670c35c50cf",
+        "test_public_document_retrieval.jl": "6ad7ce15bfba89f2fd8588439842bb67c00a40683249ff36bf26de4c559b01a3",
+        "test_public_document_retrieval_gpu.jl": "10c491a31cc82f3929958935c037bb49ebca25650602b5d4257aac67cdd7c506",
+        "capture_julia_public_docs.py": "ce9854bfe7516b7d8e662ff9648eacea5ae4ca13a93676272db15d8e70690461"
+    }
+}

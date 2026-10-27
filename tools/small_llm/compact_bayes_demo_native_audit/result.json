@@ -1,0 +1,101 @@
+{
+    "harness_checks": 13,
+    "privacy": "No-model worker; expectations only in RAM after all8 attempts retired, including lost process. No private arrays written on inference worker.",
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/DNNKernels",
+            "git_head": null,
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/BonsaiRunner",
+            "git_head": null,
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    },
+    "conditions_sha256": "202aa9d6ea2b3799d0283cd4bdc41cafd69f2f9a7aff4b53a6401825d6b36bac",
+    "normal_final_waitidle": true,
+    "pid": 3765678,
+    "scope": "Numerical parity/replay of ALL admitted compact demonstration-generated networks, including incorrect ones. Infrastructure only, no quality-score change.",
+    "input_sha256": "88b6cf1f6c5b329a7426551812c18ba28bffc97aa26a3c9623cfca926deaae17",
+    "primary_summary_sha256": "9b43ff8db60e406c172436bb7e3b779a95325f832e98faaa919ba814d9455a1b",
+    "rows": [
+        {
+            "id": "bayes_extract_01_compact_network_demonstrations",
+            "generation_sha256": "aaddded557d297f65dd43e8665a8595782252b631b22a9fe06284db946b2c82a",
+            "network_sha256": "63b21f604ef2faa6d30d908272bb7c5c3282dfcd73fc808d65064723eba5089f",
+            "result": {
+                "passed": true,
+                "status_match": true,
+                "numeric_match": true,
+                "bitwise_replay": true,
+                "first_submissions": 1,
+                "replay_submissions": 1,
+                "nstates": 4
+            }
+        },
+        {
+            "id": "bayes_extract_03_compact_network_demonstrations",
+            "generation_sha256": "acaee763bda46dee27b129bfdaf5f8c68962ccc2690fb03a8712dc4aef262115",
+            "network_sha256": "082814e9a188a4d6b991be3412eeb05b0dc8ad3e4e9f6dafebc9fe3bccd924b6",
+            "result": {
+                "passed": true,
+                "status_match": true,
+                "numeric_match": true,
+                "bitwise_replay": true,
+                "first_submissions": 1,
+                "replay_submissions": 1,
+                "nstates": 8
+            }
+        },
+        {
+            "id": "bayes_extract_04_compact_network_demonstrations",
+            "generation_sha256": "b6e48d76cf6ce0ff9d8d4730f1f6199488533cc6a7ad3e53cfe6df9090bd857c",
+            "network_sha256": "63b1043f21c3c91f6bc61513d67c1a2e57d8ab95320905538184de1bc989c431",
+            "result": {
+                "passed": true,
+                "status_match": true,
+                "numeric_match": true,
+                "bitwise_replay": true,
+                "first_submissions": 1,
+                "replay_submissions": 1,
+                "nstates": 8
+            }
+        },
+        {
+            "id": "bayes_extract_06_compact_network_demonstrations",
+            "generation_sha256": "aafcc6bc46858edc0ff2a11ead59e417ba1d7d32cf4c220e2b23bfa399d77040",
+            "network_sha256": "757ed820f29c99e2f4eaff437c27b5fbceb15f97a95a89b14e29a764d6b8c0db",
+            "result": {
+                "passed": true,
+                "status_match": true,
+                "numeric_match": true,
+                "bitwise_replay": true,
+                "first_submissions": 1,
+                "replay_submissions": 1,
+                "nstates": 8
+            }
+        }
+    ],
+    "complete": true
+}

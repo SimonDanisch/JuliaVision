@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 29,
+    "scope": "CPU/software-only harness qualification; synthetic correct answers, not model quality",
+    "source_sha256": {
+        "test_bayes_thinking_admission.jl": "73b9e72824363072153459d7a3b2df8fa9c1d0b9c8ee0ecad20f966912f0822d",
+        "bayes_thinking_admission.jl": "96c7b443ba75ba29013d28209ba9d61ce7b45f3fa7be29ff7248c3f7f2065abd"
+    }
+}

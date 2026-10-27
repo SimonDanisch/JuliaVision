@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "passed": 156,
+    "scope": "guarded synthetic budget control only, no full model/intelligence claim",
+    "source_sha256": {
+        "test_reasoning_budget.jl": "3bdf2bef9d3ce43bf14d229d51b7731fcffd8e7aabd35e699a816d280e3640ca",
+        "test_safe_reasoning_budget.jl": "8501817f0c21235ce48933953e4ed973172e933bb57efee453e51f2573a218c3",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec"
+    }
+}

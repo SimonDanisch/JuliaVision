@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 8,
+    "scope": "Trusted reference/scoring qualification only, NOT model intelligence",
+    "source_sha256": {
+        "test_laptop_long_budget.jl": "ec5b5d25764d171caf8eea8d26d765153741013f2bbad0e0b5be724824519a9b",
+        "laptop_long_budget.jl": "2ae8a88add04673c07b70aac34d98b67f8209a0eadc0b3194416c28f5cb75622"
+    }
+}

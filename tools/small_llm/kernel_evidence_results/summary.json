@@ -1,0 +1,3429 @@
+{
+    "scope": "pre-registered evidence/restriction comparison on eight authored kernel tasks; development evidence, not a benchmark",
+    "backbone": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "seeds": [
+        20261024,
+        20261025,
+        20261026,
+        20261027,
+        20261028
+    ],
+    "totals": {
+        "direct": {
+            "passed": 13,
+            "evaluated": 40,
+            "classes": {
+                "passed": 13,
+                "unknown_or_misused_api": 3,
+                "kernel_contract": 4,
+                "no_answer_within_budget": 1,
+                "other": 1,
+                "wrong_result": 1,
+                "syntax": 17
+            },
+            "seconds": 1795.465983390808
+        },
+        "retrieved_docs": {
+            "passed": 15,
+            "evaluated": 40,
+            "classes": {
+                "passed": 15,
+                "unknown_or_misused_api": 4,
+                "kernel_contract": 5,
+                "no_answer_within_budget": 2,
+                "other": 2,
+                "wrong_result": 1,
+                "syntax": 11
+            },
+            "seconds": 2476.1578347682953
+        },
+        "api_pack": {
+            "passed": 20,
+            "evaluated": 40,
+            "classes": {
+                "passed": 20,
+                "unknown_or_misused_api": 1,
+                "kernel_contract": 1,
+                "no_answer_within_budget": 3,
+                "other": 1,
+                "wrong_result": 1,
+                "syntax": 13
+            },
+            "seconds": 2217.0735075473785
+        },
+        "runtime_feedback": {
+            "passed": 20,
+            "evaluated": 40,
+            "classes": {
+                "passed": 20,
+                "unknown_or_misused_api": 8,
+                "kernel_contract": 1,
+                "no_answer_within_budget": 5,
+                "other": 1,
+                "wrong_result": 2,
+                "syntax": 3
+            },
+            "seconds": 1991.559730052948
+        },
+        "feedback_pack": {
+            "passed": 21,
+            "evaluated": 40,
+            "classes": {
+                "passed": 21,
+                "unknown_or_misused_api": 7,
+                "kernel_contract": 1,
+                "no_answer_within_budget": 3,
+                "other": 2,
+                "wrong_result": 2,
+                "syntax": 4
+            },
+            "seconds": 1848.003257036209
+        },
+        "member_mask": {
+            "passed": 13,
+            "evaluated": 40,
+            "classes": {
+                "passed": 13,
+                "unknown_or_misused_api": 1,
+                "kernel_contract": 4,
+                "no_answer_within_budget": 1,
+                "other": 1,
+                "wrong_result": 1,
+                "syntax": 19
+            },
+            "seconds": 1793.472425699234
+        }
+    },
+    "paired": {
+        "retrieved_docs": {
+            "wins": 4,
+            "losses": 2
+        },
+        "api_pack": {
+            "wins": 12,
+            "losses": 5
+        },
+        "runtime_feedback": {
+            "wins": 7,
+            "losses": 0
+        },
+        "feedback_pack": {
+            "wins": 8,
+            "losses": 0
+        },
+        "member_mask": {
+            "wins": 0,
+            "losses": 0
+        }
+    },
+    "pertask": {
+        "ki_body_atomic_max": {
+            "direct": 0,
+            "retrieved_docs": 0,
+            "api_pack": 2,
+            "runtime_feedback": 0,
+            "feedback_pack": 0,
+            "member_mask": 0
+        },
+        "ki_body_clamped_stencil": {
+            "direct": 2,
+            "retrieved_docs": 2,
+            "api_pack": 5,
+            "runtime_feedback": 4,
+            "feedback_pack": 4,
+            "member_mask": 2
+        },
+        "transfer_flat_transpose": {
+            "direct": 1,
+            "retrieved_docs": 2,
+            "api_pack": 0,
+            "runtime_feedback": 3,
+            "feedback_pack": 3,
+            "member_mask": 1
+        },
+        "ki_body_affine": {
+            "direct": 4,
+            "retrieved_docs": 4,
+            "api_pack": 4,
+            "runtime_feedback": 4,
+            "feedback_pack": 4,
+            "member_mask": 4
+        },
+        "transfer_sincos_pair": {
+            "direct": 2,
+            "retrieved_docs": 2,
+            "api_pack": 2,
+            "runtime_feedback": 3,
+            "feedback_pack": 3,
+            "member_mask": 2
+        },
+        "transfer_atomic_sum": {
+            "direct": 0,
+            "retrieved_docs": 0,
+            "api_pack": 2,
+            "runtime_feedback": 0,
+            "feedback_pack": 1,
+            "member_mask": 0
+        },
+        "transfer_clamped_gather": {
+            "direct": 2,
+            "retrieved_docs": 3,
+            "api_pack": 3,
+            "runtime_feedback": 3,
+            "feedback_pack": 3,
+            "member_mask": 2
+        },
+        "ki_body_column_major_scale": {
+            "direct": 2,
+            "retrieved_docs": 2,
+            "api_pack": 2,
+            "runtime_feedback": 3,
+            "feedback_pack": 3,
+            "member_mask": 2
+        }
+    },
+    "rows": [
+        {
+            "id": "ki_body_affine",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3469,
+            "input_tokens": 177,
+            "seconds": 47.76317811012268,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1745,
+            "input_tokens": 1463,
+            "seconds": 29.670429944992065,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 2821,
+            "input_tokens": 2360,
+            "seconds": 49.23578906059265,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3469,
+            "input_tokens": 177,
+            "seconds": 47.8827428817749,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    9.228944691797025e-11,
+                    3.5061673616526567e-12,
+                    1.5228832887255852e-15,
+                    3.704403450655036e-10,
+                    6.252129369777037e-11,
+                    9.147354098140714e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 6,
+                "other_max_share": 2.4480532618414985e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 363,
+            "seconds": 83.44633793830872,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 363,
+            "seconds": 83.44633793830872,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2994,
+            "input_tokens": 190,
+            "seconds": 41.09862208366394,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3969,
+            "input_tokens": 1476,
+            "seconds": 60.62047815322876,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3840,
+            "input_tokens": 1817,
+            "seconds": 60.467020988464355,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2994,
+            "input_tokens": 190,
+            "seconds": 41.19036912918091,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    4.5966327966162623e-11,
+                    8.683957025690248e-11,
+                    4.461671934279142e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 4.335241204651147e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2994,
+            "input_tokens": 190,
+            "seconds": 41.09862208366394,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2994,
+            "input_tokens": 190,
+            "seconds": 41.09862208366394,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 3392,
+            "input_tokens": 184,
+            "seconds": 46.13766694068909,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2552,
+            "input_tokens": 1470,
+            "seconds": 39.902621030807495,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 5150,
+            "input_tokens": 1892,
+            "seconds": 78.89995193481445,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 3392,
+            "input_tokens": 184,
+            "seconds": 46.264528036117554,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    2.1545334960570983e-11,
+                    1.1551325217531994e-12,
+                    9.006373214421703e-16,
+                    1.0060340061013306e-10,
+                    3.1558856222746456e-11,
+                    4.494250566318414e-13
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 4,
+                "other_max_share": 2.2540519797886738e-11,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 2674,
+            "input_tokens": 428,
+            "seconds": 36.98928093910217,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 2674,
+            "input_tokens": 428,
+            "seconds": 36.98928093910217,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 2900,
+            "input_tokens": 226,
+            "seconds": 39.51329517364502,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3229,
+            "input_tokens": 1512,
+            "seconds": 50.3547420501709,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 4450,
+            "input_tokens": 1834,
+            "seconds": 67.61140584945679,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 2900,
+            "input_tokens": 226,
+            "seconds": 39.67973303794861,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    9.639557208007687e-11,
+                    4.5099769188303163e-13,
+                    2.227459058537105e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 2,
+                "other_max_share": 0.9999998807907104,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 5112,
+            "input_tokens": 568,
+            "seconds": 70.23774218559265,
+            "named_modules": [
+                "Atomix"
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "other",
+            "action": "revision",
+            "generated_tokens": 2823,
+            "input_tokens": 1621,
+            "seconds": 45.68378019332886,
+            "named_modules": [
+                "Atomix"
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2883,
+            "input_tokens": 209,
+            "seconds": 39.43937706947327,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4179,
+            "input_tokens": 1495,
+            "seconds": 62.43905210494995,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3038,
+            "input_tokens": 2540,
+            "seconds": 51.85331106185913,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2883,
+            "input_tokens": 209,
+            "seconds": 39.6067168712616,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.212372381988793e-11,
+                    1.1791220127024826e-12,
+                    9.232604067930302e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 1.2332154611729984e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 3420,
+            "input_tokens": 396,
+            "seconds": 47.033833026885986,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 3420,
+            "input_tokens": 396,
+            "seconds": 47.033833026885986,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 1990,
+            "input_tokens": 198,
+            "seconds": 27.751981019973755,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2406,
+            "input_tokens": 1484,
+            "seconds": 38.258841037750244,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4836,
+            "input_tokens": 2583,
+            "seconds": 77.61040592193604,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 1990,
+            "input_tokens": 198,
+            "seconds": 27.842790842056274,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    4.1836870773304113e-11,
+                    2.6905176220629046e-13,
+                    1.3692449587416927e-15,
+                    1.1455494886014606e-10,
+                    3.597534770083399e-11,
+                    2.1787756874277336e-13
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 6,
+                "other_max_share": 3.7820653726872155e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 3263,
+            "input_tokens": 383,
+            "seconds": 45.318427085876465,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 3263,
+            "input_tokens": 383,
+            "seconds": 45.318427085876465,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5235,
+            "input_tokens": 206,
+            "seconds": 70.29712915420532,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5476,
+            "input_tokens": 1492,
+            "seconds": 80.41333794593811,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5033,
+            "input_tokens": 2537,
+            "seconds": 81.14501905441284,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5235,
+            "input_tokens": 206,
+            "seconds": 70.42682695388794,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    4.481574833459234e-11,
+                    3.423953286695036e-13,
+                    3.957642522619924e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 4.3407920487237295e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 6026,
+            "input_tokens": 443,
+            "seconds": 83.93607783317566,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 6026,
+            "input_tokens": 443,
+            "seconds": 83.93607783317566,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261024,
+            "arm": "direct",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 2677,
+            "input_tokens": 232,
+            "seconds": 36.1908860206604,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261024,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4034,
+            "input_tokens": 1518,
+            "seconds": 60.77788496017456,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261024,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4210,
+            "input_tokens": 2492,
+            "seconds": 67.76563692092896,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261024,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2677,
+            "input_tokens": 232,
+            "seconds": 36.30467486381531,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    4.8971229849037456e-11,
+                    3.0410123204316353e-12,
+                    3.297332398170382e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 2,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261024,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 580,
+            "seconds": 84.76312899589539,
+            "named_modules": [
+                "Atomix"
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261024,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 805,
+            "input_tokens": 1633,
+            "seconds": 18.608237981796265,
+            "named_modules": [
+                "Atomix"
+            ]
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2774,
+            "input_tokens": 177,
+            "seconds": 37.62903022766113,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1782,
+            "input_tokens": 1463,
+            "seconds": 29.713376998901367,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2884,
+            "input_tokens": 2360,
+            "seconds": 49.25796985626221,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2774,
+            "input_tokens": 177,
+            "seconds": 37.765116930007935,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.1626496560521744e-11,
+                    1.2963518062833468e-13,
+                    1.1810808246738862e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 3.1365990534049093e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2774,
+            "input_tokens": 177,
+            "seconds": 37.62903022766113,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2774,
+            "input_tokens": 177,
+            "seconds": 37.62903022766113,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 4309,
+            "input_tokens": 190,
+            "seconds": 58.955376863479614,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3936,
+            "input_tokens": 1476,
+            "seconds": 59.03591513633728,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 4030,
+            "input_tokens": 1817,
+            "seconds": 63.08606505393982,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 4309,
+            "input_tokens": 190,
+            "seconds": 58.785239934921265,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.840610468541783e-11,
+                    4.70017687964619e-13,
+                    3.558517760313324e-16
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 6.033945045003097e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 1415,
+            "input_tokens": 415,
+            "seconds": 21.95048499107361,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 1415,
+            "input_tokens": 415,
+            "seconds": 21.95048499107361,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 2882,
+            "input_tokens": 184,
+            "seconds": 39.354825019836426,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3292,
+            "input_tokens": 1470,
+            "seconds": 50.14961910247803,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "wrong_result",
+            "generated_tokens": 3659,
+            "input_tokens": 1892,
+            "seconds": 57.42990303039551,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 2882,
+            "input_tokens": 184,
+            "seconds": 39.82355499267578,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    2.109158334095973e-11,
+                    1.0395243693617218e-12,
+                    3.5858572309936144e-15,
+                    3.98524442613013e-11,
+                    3.1370763192012374e-12,
+                    3.2132228735409774e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 2,
+                "other_max_share": 7.710115532133521e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "wrong_result",
+            "action": "revision",
+            "generated_tokens": 2050,
+            "input_tokens": 424,
+            "seconds": 30.287834882736206,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "wrong_result",
+            "action": "revision",
+            "generated_tokens": 2050,
+            "input_tokens": 424,
+            "seconds": 30.287834882736206,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3758,
+            "input_tokens": 226,
+            "seconds": 53.766669034957886,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 1512,
+            "seconds": 93.64258313179016,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 1834,
+            "seconds": 92.22128105163574,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3758,
+            "input_tokens": 226,
+            "seconds": 53.755374908447266,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    1.0914694148489446e-10,
+                    2.285307793697955e-12,
+                    7.0713283522433855e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 5,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 4457,
+            "input_tokens": 410,
+            "seconds": 60.811572790145874,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 4457,
+            "input_tokens": 410,
+            "seconds": 60.811572790145874,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2672,
+            "input_tokens": 209,
+            "seconds": 37.0009229183197,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3280,
+            "input_tokens": 1495,
+            "seconds": 52.60747504234314,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3293,
+            "input_tokens": 2540,
+            "seconds": 58.1370849609375,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2672,
+            "input_tokens": 209,
+            "seconds": 37.48386311531067,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    7.646994842902544e-11,
+                    1.4744607444716618e-12,
+                    4.343432487589546e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 9.098197726892937e-14,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2672,
+            "input_tokens": 209,
+            "seconds": 37.0009229183197,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2672,
+            "input_tokens": 209,
+            "seconds": 37.0009229183197,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2833,
+            "input_tokens": 198,
+            "seconds": 40.17431998252869,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2123,
+            "input_tokens": 1484,
+            "seconds": 35.56691908836365,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2474,
+            "input_tokens": 2583,
+            "seconds": 45.83032202720642,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2833,
+            "input_tokens": 198,
+            "seconds": 39.77978801727295,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    7.908388388599974e-10,
+                    1.697341404796951e-13,
+                    5.647837815372751e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 1.5600100421522822e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 3593,
+            "input_tokens": 383,
+            "seconds": 50.34924006462097,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 3593,
+            "input_tokens": 383,
+            "seconds": 50.34924006462097,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4475,
+            "input_tokens": 206,
+            "seconds": 60.431889057159424,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5479,
+            "input_tokens": 1492,
+            "seconds": 80.83792614936829,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5151,
+            "input_tokens": 2537,
+            "seconds": 82.80189394950867,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4475,
+            "input_tokens": 206,
+            "seconds": 60.540058851242065,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    5.183924123297601e-11,
+                    3.010448487716921e-11,
+                    8.334461152638677e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 2.194275577210858e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 3168,
+            "input_tokens": 436,
+            "seconds": 43.831849098205566,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 3168,
+            "input_tokens": 436,
+            "seconds": 43.831849098205566,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261025,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3810,
+            "input_tokens": 232,
+            "seconds": 51.666505098342896,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261025,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3972,
+            "input_tokens": 1518,
+            "seconds": 61.33991718292236,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261025,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 3317,
+            "input_tokens": 2492,
+            "seconds": 55.0707368850708,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261025,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3810,
+            "input_tokens": 232,
+            "seconds": 51.70014309883118,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.6040261053305045e-11,
+                    4.542542015283091e-13,
+                    7.015602054643525e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 5,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261025,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "other",
+            "action": "revision",
+            "generated_tokens": 4828,
+            "input_tokens": 417,
+            "seconds": 65.97801399230957,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261025,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "other",
+            "action": "revision",
+            "generated_tokens": 4828,
+            "input_tokens": 417,
+            "seconds": 65.97801399230957,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2418,
+            "input_tokens": 177,
+            "seconds": 32.515408992767334,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1929,
+            "input_tokens": 1463,
+            "seconds": 33.06714200973511,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2661,
+            "input_tokens": 2360,
+            "seconds": 45.8827178478241,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2418,
+            "input_tokens": 177,
+            "seconds": 32.88860297203064,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    1.411152028563123e-10,
+                    1.886826849276102e-12,
+                    9.31041992600337e-16
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 3.5855893991756926e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2418,
+            "input_tokens": 177,
+            "seconds": 32.515408992767334,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2418,
+            "input_tokens": 177,
+            "seconds": 32.515408992767334,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4082,
+            "input_tokens": 190,
+            "seconds": 54.67026710510254,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2901,
+            "input_tokens": 1476,
+            "seconds": 45.042919874191284,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3367,
+            "input_tokens": 1817,
+            "seconds": 53.48467183113098,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4082,
+            "input_tokens": 190,
+            "seconds": 55.114574909210205,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    5.215576581729664e-11,
+                    1.4683227507125696e-12,
+                    1.071634638767974e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 3.7883587868277335e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "kernel_contract",
+            "action": "revision",
+            "generated_tokens": 2677,
+            "input_tokens": 388,
+            "seconds": 36.837762117385864,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "kernel_contract",
+            "action": "revision",
+            "generated_tokens": 2677,
+            "input_tokens": 388,
+            "seconds": 36.837762117385864,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 4406,
+            "input_tokens": 184,
+            "seconds": 59.81920599937439,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 2593,
+            "input_tokens": 1470,
+            "seconds": 41.55476498603821,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3489,
+            "input_tokens": 1892,
+            "seconds": 55.57777690887451,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 4406,
+            "input_tokens": 184,
+            "seconds": 59.910244941711426,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.184819769019853e-11,
+                    7.506488377932719e-13,
+                    9.651022250247929e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 1.5122874740675085e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 4406,
+            "input_tokens": 184,
+            "seconds": 59.81920599937439,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 4406,
+            "input_tokens": 184,
+            "seconds": 59.81920599937439,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5029,
+            "input_tokens": 226,
+            "seconds": 68.67123007774353,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "other",
+            "generated_tokens": 5989,
+            "input_tokens": 1512,
+            "seconds": 87.95519089698792,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 3835,
+            "input_tokens": 1834,
+            "seconds": 58.7766649723053,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5029,
+            "input_tokens": 226,
+            "seconds": 68.84665203094482,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    4.158127314690674e-11,
+                    1.3611005768646156e-12,
+                    2.0228737084791162e-15,
+                    3.157669254960638e-7,
+                    5.356924903665572e-10,
+                    3.0349686522615493e-13
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 8,
+                "other_max_share": 0.9999998807907104,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 4732,
+            "input_tokens": 420,
+            "seconds": 64.24864912033081,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 4732,
+            "input_tokens": 420,
+            "seconds": 64.24864912033081,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3418,
+            "input_tokens": 209,
+            "seconds": 46.22743892669678,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2371,
+            "input_tokens": 1495,
+            "seconds": 38.27898287773132,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3774,
+            "input_tokens": 2540,
+            "seconds": 62.611454010009766,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3418,
+            "input_tokens": 209,
+            "seconds": 46.35941195487976,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    6.432772370335016e-11,
+                    3.1825648887096047e-12,
+                    5.5780245128271046e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 2,
+                "other_max_share": 1.1568498166792535e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 2847,
+            "input_tokens": 397,
+            "seconds": 40.262535095214844,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 2847,
+            "input_tokens": 397,
+            "seconds": 40.262535095214844,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3247,
+            "input_tokens": 198,
+            "seconds": 44.54531693458557,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2167,
+            "input_tokens": 1484,
+            "seconds": 34.84933686256409,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2059,
+            "input_tokens": 2583,
+            "seconds": 39.941258907318115,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3247,
+            "input_tokens": 198,
+            "seconds": 44.63766002655029,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    5.825660787106557e-11,
+                    2.39794729212095e-12,
+                    3.3818309226808134e-15,
+                    4.256030024407664e-6,
+                    1.8915179145206906e-10,
+                    5.448714830019741e-12
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 6,
+                "other_max_share": 7.2883796220502e-11,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 4197,
+            "input_tokens": 391,
+            "seconds": 57.29182410240173,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 4197,
+            "input_tokens": 391,
+            "seconds": 57.29182410240173,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 206,
+            "seconds": 82.57686495780945,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 1492,
+            "seconds": 89.75901794433594,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 2537,
+            "seconds": 96.53449010848999,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 206,
+            "seconds": 82.72740483283997,
+            "constraint": {
+                "member_steps": 0,
+                "removed_share": [
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 0,
+                "other_max_share": 0,
+                "answered": false
+            }
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 4731,
+            "input_tokens": 298,
+            "seconds": 63.73581004142761,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 4731,
+            "input_tokens": 298,
+            "seconds": 63.73581004142761,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261026,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2024,
+            "input_tokens": 232,
+            "seconds": 27.895730018615723,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261026,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3322,
+            "input_tokens": 1518,
+            "seconds": 50.36397981643677,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261026,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 4371,
+            "input_tokens": 2492,
+            "seconds": 71.45843386650085,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261026,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2024,
+            "input_tokens": 232,
+            "seconds": 27.93282413482666,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    1.7947465735801416e-10,
+                    2.0797713551345964e-10,
+                    1.3584401852906932e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 5,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261026,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 3718,
+            "input_tokens": 423,
+            "seconds": 52.204740047454834,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261026,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 3718,
+            "input_tokens": 423,
+            "seconds": 52.204740047454834,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2458,
+            "input_tokens": 177,
+            "seconds": 34.30026698112488,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 1989,
+            "input_tokens": 1463,
+            "seconds": 33.05612301826477,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2089,
+            "input_tokens": 2360,
+            "seconds": 39.70116591453552,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2458,
+            "input_tokens": 177,
+            "seconds": 34.48936605453491,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    2.4365075929067004e-11,
+                    1.0461434236247458e-12,
+                    6.09958970878015e-15,
+                    5.983052248081933e-11,
+                    3.3426685031034964e-11,
+                    3.235080389338285e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 6,
+                "other_max_share": 4.480198330381047e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2458,
+            "input_tokens": 177,
+            "seconds": 34.30026698112488,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2458,
+            "input_tokens": 177,
+            "seconds": 34.30026698112488,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2515,
+            "input_tokens": 190,
+            "seconds": 37.69005608558655,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3603,
+            "input_tokens": 1476,
+            "seconds": 57.708836793899536,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 4490,
+            "input_tokens": 1817,
+            "seconds": 70.3334469795227,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2515,
+            "input_tokens": 190,
+            "seconds": 36.8266019821167,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    5.430599026023941e-11,
+                    5.134635338438498e-12,
+                    8.719124754370865e-16
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 2.9842607877049454e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2515,
+            "input_tokens": 190,
+            "seconds": 37.69005608558655,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 2515,
+            "input_tokens": 190,
+            "seconds": 37.69005608558655,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "failed",
+            "class": "wrong_result",
+            "generated_tokens": 1965,
+            "input_tokens": 184,
+            "seconds": 28.12756896018982,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "wrong_result",
+            "generated_tokens": 4237,
+            "input_tokens": 1470,
+            "seconds": 68.44616413116455,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3834,
+            "input_tokens": 1892,
+            "seconds": 60.957010984420776,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "wrong_result",
+            "generated_tokens": 1965,
+            "input_tokens": 184,
+            "seconds": 27.974905014038086,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    1.8552914760050498e-10,
+                    3.636418423325072e-12,
+                    5.46593748994989e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 2.0905152608996502e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "wrong_result",
+            "action": "retain_direct",
+            "generated_tokens": 1965,
+            "input_tokens": 184,
+            "seconds": 28.12756896018982,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "wrong_result",
+            "action": "retain_direct",
+            "generated_tokens": 1965,
+            "input_tokens": 184,
+            "seconds": 28.12756896018982,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 3400,
+            "input_tokens": 226,
+            "seconds": 51.54567098617554,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "generated_tokens": 6144,
+            "input_tokens": 1512,
+            "seconds": 92.58982300758362,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "other",
+            "generated_tokens": 4457,
+            "input_tokens": 1834,
+            "seconds": 67.98854994773865,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3400,
+            "input_tokens": 226,
+            "seconds": 46.4130961894989,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    3.9301437104732884e-11,
+                    5.758720757198521e-12,
+                    2.3360270830349514e-15,
+                    9.047273485940366e-10,
+                    2.1863463817162199e-10,
+                    5.226576116346138e-12
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 584,
+            "seconds": 84.60089087486267,
+            "named_modules": [
+                "KernelInterface"
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "syntax",
+            "action": "revision",
+            "generated_tokens": 2091,
+            "input_tokens": 768,
+            "seconds": 31.753270864486694,
+            "named_modules": [
+                "KernelInterface"
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3280,
+            "input_tokens": 209,
+            "seconds": 44.40862989425659,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2299,
+            "input_tokens": 1495,
+            "seconds": 38.00289988517761,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2760,
+            "input_tokens": 2540,
+            "seconds": 48.38798689842224,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3280,
+            "input_tokens": 209,
+            "seconds": 44.53109288215637,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    5.778782660725845e-11,
+                    7.542324512339882e-13,
+                    1.1938182308489885e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 1.679166110627947e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3280,
+            "input_tokens": 209,
+            "seconds": 44.40862989425659,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3280,
+            "input_tokens": 209,
+            "seconds": 44.40862989425659,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3445,
+            "input_tokens": 198,
+            "seconds": 46.95623183250427,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3402,
+            "input_tokens": 1484,
+            "seconds": 51.951207876205444,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2568,
+            "input_tokens": 2583,
+            "seconds": 46.922749042510986,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3445,
+            "input_tokens": 198,
+            "seconds": 46.29457902908325,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    1.684376249588837e-11,
+                    5.634734215678727e-13,
+                    2.558718609373448e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 2.487409963333048e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3445,
+            "input_tokens": 198,
+            "seconds": 46.95623183250427,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3445,
+            "input_tokens": 198,
+            "seconds": 46.95623183250427,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5917,
+            "input_tokens": 206,
+            "seconds": 81.6122510433197,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5232,
+            "input_tokens": 1492,
+            "seconds": 76.76727604866028,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 5341,
+            "input_tokens": 2537,
+            "seconds": 85.05886602401733,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 5917,
+            "input_tokens": 206,
+            "seconds": 81.53892707824707,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    2.6938531266784693e-11,
+                    8.630858072504466e-13,
+                    3.792146599583242e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 2.2615713284306754e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 425,
+            "seconds": 83.76528191566467,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 425,
+            "seconds": 83.76528191566467,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261027,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3768,
+            "input_tokens": 232,
+            "seconds": 51.56226205825806,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261027,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3107,
+            "input_tokens": 1518,
+            "seconds": 48.78213691711426,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261027,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "other",
+            "generated_tokens": 3216,
+            "input_tokens": 2492,
+            "seconds": 55.42154502868652,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261027,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3768,
+            "input_tokens": 232,
+            "seconds": 52.32820415496826,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    2.5065016728831324e-9,
+                    9.412233145655868e-12,
+                    9.467951325291962e-15,
+                    2.1375740066886806e-10,
+                    1.2974381291552817e-10,
+                    2.227692509626511e-11
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 10,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261027,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 4669,
+            "input_tokens": 417,
+            "seconds": 64.34605598449707,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261027,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 4669,
+            "input_tokens": 417,
+            "seconds": 64.34605598449707,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3197,
+            "input_tokens": 177,
+            "seconds": 44.39098620414734,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 2151,
+            "input_tokens": 1463,
+            "seconds": 36.51224613189697,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1994,
+            "input_tokens": 2360,
+            "seconds": 39.482815980911255,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3197,
+            "input_tokens": 177,
+            "seconds": 44.285547971725464,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    2.172843675818381e-11,
+                    2.3015328792092005e-12,
+                    1.3555165663699503e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 3,
+                "other_max_share": 6.234174011439733e-14,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3197,
+            "input_tokens": 177,
+            "seconds": 44.39098620414734,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_affine",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3197,
+            "input_tokens": 177,
+            "seconds": 44.39098620414734,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 3913,
+            "input_tokens": 190,
+            "seconds": 54.177029848098755,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 4296,
+            "input_tokens": 1476,
+            "seconds": 66.89973378181458,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 3029,
+            "input_tokens": 1817,
+            "seconds": 50.31885600090027,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 3913,
+            "input_tokens": 190,
+            "seconds": 54.59759306907654,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.150098931703482e-11,
+                    2.098129179076147e-12,
+                    3.2339512520679478e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 2.0262193615658286e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 2111,
+            "input_tokens": 407,
+            "seconds": 30.22953200340271,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "revision",
+            "generated_tokens": 2111,
+            "input_tokens": 407,
+            "seconds": 30.22953200340271,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1459,
+            "input_tokens": 184,
+            "seconds": 21.39252996444702,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3435,
+            "input_tokens": 1470,
+            "seconds": 52.45204401016235,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "kernel_contract",
+            "generated_tokens": 3466,
+            "input_tokens": 1892,
+            "seconds": 56.24193596839905,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1459,
+            "input_tokens": 184,
+            "seconds": 21.40194797515869,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    6.4279137568235e-10,
+                    4.337561559930592e-12,
+                    1.5572138305393335e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 1.0362156011717305e-12,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 1459,
+            "input_tokens": 184,
+            "seconds": 21.39252996444702,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 1459,
+            "input_tokens": 184,
+            "seconds": 21.39252996444702,
+            "named_modules": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2590,
+            "input_tokens": 226,
+            "seconds": 36.4462890625,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 4708,
+            "input_tokens": 1512,
+            "seconds": 70.0383780002594,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "generated_tokens": 5601,
+            "input_tokens": 1834,
+            "seconds": 83.99096989631653,
+            "constraint": null
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2590,
+            "input_tokens": 226,
+            "seconds": 36.77718806266785,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    8.283259633756757e-10,
+                    8.919770304316454e-13,
+                    3.445932300898298e-14
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 5,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 2545,
+            "input_tokens": 411,
+            "seconds": 35.20527505874634,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 2545,
+            "input_tokens": 411,
+            "seconds": 35.20527505874634,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "failed",
+            "class": "other",
+            "generated_tokens": 766,
+            "input_tokens": 209,
+            "seconds": 11.260077953338623,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3246,
+            "input_tokens": 1495,
+            "seconds": 50.54434108734131,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3039,
+            "input_tokens": 2540,
+            "seconds": 51.743982791900635,
+            "constraint": null
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "other",
+            "generated_tokens": 766,
+            "input_tokens": 209,
+            "seconds": 11.278443098068237,
+            "constraint": {
+                "member_steps": 0,
+                "removed_share": [
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 0,
+                "other_max_share": 0,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 411,
+            "seconds": 83.65431380271912,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "no_answer_within_budget",
+            "action": "revision",
+            "generated_tokens": 6144,
+            "input_tokens": 411,
+            "seconds": 83.65431380271912,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3326,
+            "input_tokens": 198,
+            "seconds": 44.81031584739685,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1524,
+            "input_tokens": 1484,
+            "seconds": 26.611602783203125,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3549,
+            "input_tokens": 2583,
+            "seconds": 59.78942108154297,
+            "constraint": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 3326,
+            "input_tokens": 198,
+            "seconds": 44.66187286376953,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    2.8050648609445616e-11,
+                    9.91519193138668e-12,
+                    1.0729494456603495e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 1,
+                "other_max_share": 1.2464641406702281e-13,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3326,
+            "input_tokens": 198,
+            "seconds": 44.81031584739685,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 3326,
+            "input_tokens": 198,
+            "seconds": 44.81031584739685,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1057,
+            "input_tokens": 206,
+            "seconds": 16.379416942596436,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 6144,
+            "input_tokens": 1492,
+            "seconds": 90.13979482650757,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 5720,
+            "input_tokens": 2537,
+            "seconds": 90.6998291015625,
+            "constraint": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "passed",
+            "class": "passed",
+            "generated_tokens": 1057,
+            "input_tokens": 206,
+            "seconds": 16.356075048446655,
+            "constraint": {
+                "member_steps": 6,
+                "removed_share": [
+                    7.120044109854007e-9,
+                    1.7110690642141435e-9,
+                    6.920775584562389e-12,
+                    3.1350860796308666e-10,
+                    3.128587319767284e-11,
+                    2.218845072954334e-11
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 2,
+                "other_max_share": 2.8024247811231362e-8,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 1057,
+            "input_tokens": 206,
+            "seconds": 16.379416942596436,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "passed",
+            "class": "passed",
+            "action": "retain_direct",
+            "generated_tokens": 1057,
+            "input_tokens": 206,
+            "seconds": 16.379416942596436,
+            "named_modules": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261028,
+            "arm": "direct",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3387,
+            "input_tokens": 232,
+            "seconds": 46.313262939453125,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261028,
+            "arm": "api_pack",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3325,
+            "input_tokens": 1518,
+            "seconds": 50.36844491958618,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261028,
+            "arm": "retrieved_docs",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 2682,
+            "input_tokens": 2492,
+            "seconds": 46.42743706703186,
+            "constraint": null
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261028,
+            "arm": "member_mask",
+            "status": "failed",
+            "class": "syntax",
+            "generated_tokens": 3387,
+            "input_tokens": 232,
+            "seconds": 46.46808695793152,
+            "constraint": {
+                "member_steps": 3,
+                "removed_share": [
+                    3.4327339581974314e-11,
+                    4.2729491819826215e-13,
+                    2.536608720109506e-15
+                ],
+                "removed_log_truncated": false,
+                "other_refusing_steps": 5,
+                "other_max_share": 1,
+                "answered": true
+            }
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261028,
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 3155,
+            "input_tokens": 419,
+            "seconds": 43.724043130874634,
+            "named_modules": [
+            ]
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "seed": 20261028,
+            "arm": "feedback_pack",
+            "status": "failed",
+            "class": "unknown_or_misused_api",
+            "action": "revision",
+            "generated_tokens": 3155,
+            "input_tokens": 419,
+            "seconds": 43.724043130874634,
+            "named_modules": [
+            ]
+        }
+    ]
+}

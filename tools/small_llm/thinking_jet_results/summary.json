@@ -1,0 +1,41 @@
+{
+    "scope": "matched2048-token thinking revision arms on2 authored development tasks; original thinking baselines0/2",
+    "rows": [
+        {
+            "task": "missing_windows",
+            "arm": "self_review",
+            "passed": false,
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 28.397581100463867
+        },
+        {
+            "task": "missing_windows",
+            "arm": "jet_feedback",
+            "passed": true,
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 25.54209589958191
+        },
+        {
+            "task": "alias_stencil",
+            "arm": "self_review",
+            "passed": false,
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 17.849851846694946
+        },
+        {
+            "task": "alias_stencil",
+            "arm": "jet_feedback",
+            "passed": false,
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_seconds": 18.672439098358154
+        }
+    ],
+    "totals": {
+        "self_review": 0,
+        "jet_feedback": 1
+    }
+}

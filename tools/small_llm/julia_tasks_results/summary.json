@@ -1,0 +1,211 @@
+{
+    "scope": "small authored Julia diagnostic, single greedy non-thinking candidate; not held-out evidence of frontier intelligence",
+    "qualified_tasks": [
+        "stable_groups",
+        "missing_windows",
+        "alias_stencil",
+        "makie_link",
+        "makie_band"
+    ],
+    "excluded_unqualified_reference": [
+        "ka_tail"
+    ],
+    "baseline_passed": 0,
+    "conditions": [
+        {
+            "arm": "baseline",
+            "passed": 0,
+            "total": 5,
+            "pending": 0,
+            "complete": true,
+            "accuracy": 0,
+            "net_extra_tasks_solved": 0,
+            "generation_seconds": 49.322918176651,
+            "public_probe_seconds": 0,
+            "input_tokens": 637,
+            "budget_tokens": 2560,
+            "truncated": 1,
+            "rows": [
+                {
+                    "task": "stable_groups",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "missing_windows",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "alias_stencil",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "retained_baseline": false
+                }
+            ]
+        },
+        {
+            "arm": "review",
+            "passed": 0,
+            "total": 5,
+            "pending": 0,
+            "complete": true,
+            "accuracy": 0,
+            "net_extra_tasks_solved": 0,
+            "generation_seconds": 60.231006145477295,
+            "public_probe_seconds": 0,
+            "input_tokens": 2015,
+            "budget_tokens": 2560,
+            "truncated": 1,
+            "rows": [
+                {
+                    "task": "stable_groups",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "missing_windows",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "alias_stencil",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "retained_baseline": false
+                }
+            ]
+        },
+        {
+            "arm": "feedback",
+            "passed": 0,
+            "total": 5,
+            "pending": 0,
+            "complete": true,
+            "accuracy": 0,
+            "net_extra_tasks_solved": 0,
+            "generation_seconds": 56.786046743392944,
+            "public_probe_seconds": 123.1674587726593,
+            "input_tokens": 4579,
+            "budget_tokens": 2560,
+            "truncated": 0,
+            "rows": [
+                {
+                    "task": "stable_groups",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "missing_windows",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "alias_stencil",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "retained_baseline": false
+                }
+            ]
+        },
+        {
+            "arm": "feedback_docs",
+            "passed": 0,
+            "total": 5,
+            "pending": 0,
+            "complete": true,
+            "accuracy": 0,
+            "net_extra_tasks_solved": 0,
+            "generation_seconds": 68.1950478553772,
+            "public_probe_seconds": 123.1674587726593,
+            "input_tokens": 8039,
+            "budget_tokens": 2560,
+            "truncated": 1,
+            "rows": [
+                {
+                    "task": "stable_groups",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "missing_windows",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "alias_stencil",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "retained_baseline": false
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "retained_baseline": false
+                }
+            ]
+        }
+    ],
+    "native": [
+        {
+            "task": "stable_groups",
+            "passed": false,
+            "precision": "FP32 over native BF16 checkpoint",
+            "scope": "independent native control; different precision and output cap, not a paired quantization ablation"
+        },
+        {
+            "task": "makie_band",
+            "passed": false,
+            "precision": "FP32 over native BF16 checkpoint",
+            "scope": "independent native control; different precision and output cap, not a paired quantization ablation"
+        }
+    ],
+    "repair_policy": "one 512-token revision per arm; self-review vs public-probe feedback vs feedback plus docs; private scoring assertions never enter repair prompts",
+    "timing_policy": "generation times include prefill/fixed-budget decode/readback but exclude model load; public probe cold-process CPU cost recorded separately; not matched total wall time",
+    "not_evaluated": [
+        "rendered Makie aesthetic quality",
+        "full Radeon generated-kernel execution",
+        "broad held-out Julia ability",
+        "medical/legal/tax advice quality"
+    ],
+    "provenance_note": "Raw prompts, supplied evidence and generated responses are retained per candidate. The following hashes describe the analysis-time source snapshot, not a claim that every earlier long-lived worker loaded that exact snapshot.",
+    "analysis_source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "julia_tasks.jl": "718253a91a77f895c918b6fce2ff9377db2b0cb8df90d1cb5cdcd8784393fe74",
+        "julia_eval.jl": "18b62dda21593e38100f9d75013540e2f3ab424a3d032bcd45f32be24df7ad1a",
+        "julia_sandbox.sh": "4d6313bcba300ab51e177cb87e7406fdfddb5c050a9c717eea1971c625728044",
+        "julia_docs_retrieval.jl": "22f7d868c65ce61900ec1967c9da93f004ba020ddb9b40144969e3a648ee7dbe"
+    }
+}

@@ -1,0 +1,158 @@
+{
+    "scope": "post-hoc AST advisories; does NOT alter frozen functional scores or select revisions",
+    "limitations": "No warnings does not establish valid RMW semantics, race freedom or general correctness",
+    "source_sha256": {
+        "kernel_bounds_advisory.jl": "203e6cdd09dbd9d28a7eac4626636292a435cbdc655a886c7fb3f41ba3e9aacb",
+        "kernel_candidate_audit.jl": "155d40c1adcca389a89b46c01ced15d6e7a64d518e9c34c05e55faed345d18aa",
+        "julia_kernel_lint.jl": "04b584c745a165d7bf4a9a1783549820186f87ffd85c0351ec7d362680b1e5e3"
+    },
+    "rows": [
+        {
+            "task": "ki_body_affine",
+            "file": "vulkan_kernel_results/ki_body_affine_baseline.json",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "parse_problem": false,
+            "has_executable_code": false,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "file": "vulkan_kernel_results/ki_body_atomic_max_baseline.json",
+            "code_sha256": "c2df20c472aa69fd984409df94cafce8e9409058315eae6cd59bb7a9f7d016de",
+            "parse_problem": false,
+            "has_executable_code": true,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 1,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "file": "vulkan_kernel_results/ki_body_clamped_stencil_baseline.json",
+            "code_sha256": "b379aa789cfc643a9c4ee6b0a9ee8bac604a4c969eafd3938f7bb0c03dc5cd2a",
+            "parse_problem": false,
+            "has_executable_code": true,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+                {
+                    "line": 9,
+                    "kind": "unrecognized_global_store_upper_guard",
+                    "severity": "advisory",
+                    "expression": "out[idx] = (neighbor1 + neighbor2 + neighbor3) / 3.0f0",
+                    "message": "Direct global-index output store has no recognized enclosing upper-bound guard. A rounded-up dispatch may overwrite padding or access beyond allocation. This syntax-only warning may miss other guards or unsafe computed indices."
+                }
+            ],
+            "global_index_calls": 1,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "file": "vulkan_kernel_results/ki_body_column_major_scale_baseline.json",
+            "code_sha256": "a187f24ab066afe3b3f04cee93b9b3a3941eac4e7ff3fb81c4cf8f3d8cdf2489",
+            "parse_problem": false,
+            "has_executable_code": true,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": true,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_affine",
+            "file": "kernel_runtime_feedback_results/ki_body_affine_runtime_feedback.json",
+            "code_sha256": "95637e7c0297b1850d9a763d4ed56b8fc002af597cade131d53953f5d1222456",
+            "parse_problem": false,
+            "has_executable_code": true,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 1,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_affine",
+            "file": "kernel_runtime_feedback_results/ki_body_affine_self_review.json",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "parse_problem": false,
+            "has_executable_code": false,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "file": "kernel_runtime_feedback_results/ki_body_atomic_max_runtime_feedback.json",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "parse_problem": false,
+            "has_executable_code": false,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "file": "kernel_runtime_feedback_results/ki_body_atomic_max_self_review.json",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "parse_problem": false,
+            "has_executable_code": false,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "file": "kernel_runtime_feedback_results/ki_body_column_major_scale_runtime_feedback.json",
+            "code_sha256": "014da2b978dcf1b890837f324c04d0a7af96c93ab160092eac097dcab960129c",
+            "parse_problem": false,
+            "has_executable_code": true,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": true,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "file": "kernel_runtime_feedback_results/ki_body_column_major_scale_self_review.json",
+            "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "parse_problem": false,
+            "has_executable_code": false,
+            "atomic_advisories": [
+            ],
+            "bounds_advisories": [
+            ],
+            "global_index_calls": 0,
+            "partitioning_review": false,
+            "partitioning_limitation": "No recognized global-index call merits inspection, not automatic failure: helper calls/aliases or manually derived indices may partition work correctly. Numerical agreement alone does not exclude racing serial writes by every invocation."
+        }
+    ]
+}

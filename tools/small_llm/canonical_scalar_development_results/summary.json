@@ -1,0 +1,89 @@
+{
+    "scope": "POSTHOC exact global-x alias normalization and pure locals over ALL four frozen scalar outputs; no model regeneration, arithmetic/type repair or changed original scores. Not held-out evidence. Compiler separately frozen for prospective transfer2.",
+    "rows": [
+        {
+            "id": "shared_periodic_laplacian_scalar_source",
+            "status": "passed",
+            "stage": "execution",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "shared_periodic_laplacian",
+                "adapter": "public signature, loop/index and unique output store only; model supplies the complete value expression, with no arithmetic repair",
+                "global_x_alias_substitutions": 0,
+                "index_alias_proof": "Wrapper i is exactly KI.get_global_id().x for this one-dimensional guarded invocation. Preserve Int32 casts; no arithmetic or unknown API repair."
+            },
+            "generation_sha256": "a115cee28db8b43e5cd2b99a54d7fbc22c3eaec3fba9b113c394404db86761c1"
+        },
+        {
+            "id": "shared_indexed_interpolation_scalar_source",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "cannot mutate arguments or induction variable",
+            "generation_sha256": "f5bef10bf3c637e366f8132b3c777339a9b3fb68849582243737f92b286e43cc"
+        },
+        {
+            "id": "shared_column_bias_clip_scalar_source",
+            "status": "passed",
+            "stage": "execution",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "rows * cols",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "shared_column_bias_clip",
+                "adapter": "public signature, loop/index and unique output store only; model supplies the complete value expression, with no arithmetic repair",
+                "global_x_alias_substitutions": 2,
+                "index_alias_proof": "Wrapper i is exactly KI.get_global_id().x for this one-dimensional guarded invocation. Preserve Int32 casts; no arithmetic or unknown API repair."
+            },
+            "generation_sha256": "e7aaddda1ddbd9f97d6446c80cb18d2285b2d0b06b02da2fe777d9a2246a3ef1"
+        },
+        {
+            "id": "shared_block_reverse_scalar_source",
+            "status": "passed",
+            "stage": "execution",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "shared_block_reverse",
+                "adapter": "public signature, loop/index and unique output store only; model supplies the complete value expression, with no arithmetic repair",
+                "global_x_alias_substitutions": 2,
+                "index_alias_proof": "Wrapper i is exactly KI.get_global_id().x for this one-dimensional guarded invocation. Preserve Int32 casts; no arithmetic or unknown API repair."
+            },
+            "generation_sha256": "043febf3897ef89a5d30289e26b16568a13539b432cf7ce0e51528f2a2999201"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "2021b679332f3f9a2e9d0c0ec2da373def385842b115f1f17ff09368c49c4f90",
+    "baseline_summary_sha256": "49272161ef729c568fbf048d9b592e56c869bbc8cec9a4fc0a637fb38a8669e1",
+    "frozen_compiler_sha256": "0d3051d0c8b0f28f8480efb21ed474a98668d4e0eb529b526c90c2c4f13ede27",
+    "source_sha256": "bc91986ed869f1a664bf97888cf8a677b31916dce5ac4ac3932b8d492d50b73e"
+}

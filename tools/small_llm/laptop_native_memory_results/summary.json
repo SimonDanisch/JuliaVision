@@ -1,0 +1,100 @@
+{
+    "scope": "Two authored DEVELOPMENT API tasks already used in earlier pilots. Same Laptop runtime and exact published-source corpus; NOT independent held-out/frontier evidence.",
+    "design": "Native final-RMSNorm kNN probability mixture vs zero/shuffled labels/source-in-context; all ten fixed conditions, no arm/seed selection. No tool request or textual memory feedback inside decode.",
+    "rows": [
+        {
+            "id": "ki_launch_zero",
+            "task": "ki_launch",
+            "arm": "zero",
+            "status": "failed",
+            "truncated": true,
+            "generated_tokens": 512,
+            "generation_sha256": "0fcc74e941bdac3c362fdb1a155521ac5d859698f15c438e495b73241acf5bf6"
+        },
+        {
+            "id": "ki_launch_memory_10",
+            "task": "ki_launch",
+            "arm": "memory_10",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 192,
+            "generation_sha256": "4b806a9bd09d7b84a1902bbc4bbfc3f01370fe4ac054868bd93ba91561120a6b"
+        },
+        {
+            "id": "ki_launch_memory_25",
+            "task": "ki_launch",
+            "arm": "memory_25",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 174,
+            "generation_sha256": "9bbd2edcb82be1c12de81a29930971141f7de5260240877adb3c4517f3d13614"
+        },
+        {
+            "id": "ki_launch_shuffled_25",
+            "task": "ki_launch",
+            "arm": "shuffled_25",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 337,
+            "generation_sha256": "a3c9f32eefd121681577e8e1c93a62e49d4be1f09aa42a647c65ab396a6096f8"
+        },
+        {
+            "id": "ki_launch_source_context",
+            "task": "ki_launch",
+            "arm": "source_context",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 170,
+            "generation_sha256": "18900210a1281e15ba529d8cfec23dcadafa973f2995d29164d766dfc56be223"
+        },
+        {
+            "id": "makie_update_source_context",
+            "task": "makie_update",
+            "arm": "source_context",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 52,
+            "generation_sha256": "99cb9562b2b198f9ad3e9ff3f6b126eac3815511be0ad394f9fe7650b457f6da"
+        },
+        {
+            "id": "makie_update_shuffled_25",
+            "task": "makie_update",
+            "arm": "shuffled_25",
+            "status": "failed",
+            "truncated": true,
+            "generated_tokens": 512,
+            "generation_sha256": "6f4c1389d7224431daa8435031babad5fc00c0903342ea0d72662bc093d1a3a5"
+        },
+        {
+            "id": "makie_update_memory_25",
+            "task": "makie_update",
+            "arm": "memory_25",
+            "status": "failed",
+            "truncated": true,
+            "generated_tokens": 512,
+            "generation_sha256": "48da01e3c8806ad15311845f50dcabac92b1ed76bb4733f650d6765b0a070994"
+        },
+        {
+            "id": "makie_update_memory_10",
+            "task": "makie_update",
+            "arm": "memory_10",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 135,
+            "generation_sha256": "28cb1e8ab93701daf439a4535194ad2b45f708013669a014c56b020f3e98f22e"
+        },
+        {
+            "id": "makie_update_zero",
+            "task": "makie_update",
+            "arm": "zero",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 146,
+            "generation_sha256": "5108115d4e364f43ac8bb90d6a1159ad13ae66f8694713299833fdedb346c0c1"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "c59afd1e953344f19f7c10302cd4a053545824937ad72a9f8e617cb6755e7c8a",
+    "scorer_sha256": "a3a48feec532ee11d75de4e504df44c0d4a1695beffb9310a20c4c6b2d2540ca",
+    "execution": "Only original sandboxed CPU/Makie evaluator, no generated privileged code"
+}

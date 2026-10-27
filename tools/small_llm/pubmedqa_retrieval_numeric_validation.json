@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "software_checks": 130,
+    "scope": "CPU/software Vulkan BM25 math/ranking on actual unlabelled corpus, not medical answer quality or physical GPU retrieval timing",
+    "corpus_sha256": "7144c3c76979d44c333d4f12e4053cfe4d2ce30df28d460169b6e6985b4d259d",
+    "tasks_sha256": "fcd1dda12ea387f503c2faaccfb208a1fb2376a0ccd10a2fa773ff88d9641881",
+    "sources": {
+        "qualify_pubmedqa_retrieval.jl": "5d8bf372fa2dd8ad3044f15bcdfa8a0df08b5057f22378d94e51a3e44e966633",
+        "public_document_retrieval.jl": "97e6e1c1c36eff91016898a63630e384b46e36bd3b97b573786c0f63ac31b9eb",
+        "public_document_retrieval_gpu.jl": "ae964d2be2febf30d3a626e79e92a3a9c5a7897bb82ea50f6ec5501115568ff0",
+        "pubmedqa_retrieval_protocol.jl": "82353f6dc9092bee2f5a00ab7ca0ad53630f3d5f3226bd9fa79d75a6cd028cce"
+    }
+}

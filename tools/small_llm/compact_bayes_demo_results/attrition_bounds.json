@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "passed": 2,
+    "completed": 7,
+    "total": 8,
+    "missing": 1,
+    "complete_case_rate": 0.2857142857142857,
+    "registered_cohort_lower": 0.25,
+    "registered_cohort_upper": 0.375,
+    "scope": "All missing outcomes might fail or pass. Identification bounds, not confidence intervals or a claim that process loss is a reasoning failure.",
+    "summary_sha256": "9b43ff8db60e406c172436bb7e3b779a95325f832e98faaa919ba814d9455a1b",
+    "qualification_sha256": "75d248397fb1a95f35c42ff45213faaeb7d47e4e771464e343b92ce2c7eb43b5"
+}

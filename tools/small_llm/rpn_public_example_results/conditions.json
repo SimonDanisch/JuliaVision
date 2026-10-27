@@ -1,0 +1,390 @@
+{
+    "scope": "Four NEW authored related-family public-example tasks after prior RPN development. Prospective numeric-mask comparison, NOT external held-out/frontier evidence.",
+    "policy": "ALL8 jobs frozen before generation. Both arms grammar-enabled and receive IDENTICAL public examples/prompts, model, sampling and512-token cap. One numeric-mask flag differs; numeric tracking and graph declarations identical. No retries/seed search/private feedback/arithmetic repair. Dead ends count as failures. Success requires independent CPU/software-Vulkan mathematical tests, not just public-example agreement.",
+    "jobs": [
+        {
+            "id": "unit_parabolic_cap_disabled",
+            "task": "unit_parabolic_cap",
+            "arm": "disabled",
+            "enabled": false,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        0,
+                        0.75,
+                        0.9375,
+                        0
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0.4375
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nSquare the current value, subtract it from one, and return zero instead whenever that result is negative.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[0.0,0.75,0.9375,0.0]},{\"input\":[-0.75],\"output\":[0.4375]}]"
+                }
+            ]
+        },
+        {
+            "id": "unit_parabolic_cap_enabled",
+            "task": "unit_parabolic_cap",
+            "arm": "enabled",
+            "enabled": true,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        0,
+                        0.75,
+                        0.9375,
+                        0
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0.4375
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nSquare the current value, subtract it from one, and return zero instead whenever that result is negative.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[0.0,0.75,0.9375,0.0]},{\"input\":[-0.75],\"output\":[0.4375]}]"
+                }
+            ]
+        },
+        {
+            "id": "symmetric_unit_projection_enabled",
+            "task": "symmetric_unit_projection",
+            "arm": "enabled",
+            "enabled": true,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        -1,
+                        -0.5,
+                        0.25,
+                        1
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nProject the current value onto the closed interval from negative one to positive one, preserving values already inside it.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[-1.0,-0.5,0.25,1.0]},{\"input\":[-0.75],\"output\":[-0.75]}]"
+                }
+            ]
+        },
+        {
+            "id": "symmetric_unit_projection_disabled",
+            "task": "symmetric_unit_projection",
+            "arm": "disabled",
+            "enabled": false,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        -1,
+                        -0.5,
+                        0.25,
+                        1
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nProject the current value onto the closed interval from negative one to positive one, preserving values already inside it.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[-1.0,-0.5,0.25,1.0]},{\"input\":[-0.75],\"output\":[-0.75]}]"
+                }
+            ]
+        },
+        {
+            "id": "periodic_gradient_energy_disabled",
+            "task": "periodic_gradient_energy",
+            "arm": "disabled",
+            "enabled": false,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        3.125,
+                        2.53125,
+                        3.125,
+                        2.53125
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nSubtract the previous periodic neighbor from the next periodic neighbor, square this difference, then multiply by one half.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[3.125,2.53125,3.125,2.53125]},{\"input\":[-0.75],\"output\":[0.0]}]"
+                }
+            ]
+        },
+        {
+            "id": "periodic_gradient_energy_enabled",
+            "task": "periodic_gradient_energy",
+            "arm": "enabled",
+            "enabled": true,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        3.125,
+                        2.53125,
+                        3.125,
+                        2.53125
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        0
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nSubtract the previous periodic neighbor from the next periodic neighbor, square this difference, then multiply by one half.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[3.125,2.53125,3.125,2.53125]},{\"input\":[-0.75],\"output\":[0.0]}]"
+                }
+            ]
+        },
+        {
+            "id": "clamped_neighbor_contrast_enabled",
+            "task": "clamped_neighbor_contrast",
+            "arm": "enabled",
+            "enabled": true,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        -3.5,
+                        -1.25,
+                        -1.5,
+                        2.0
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nSubtract the larger of the previous and next clamped neighbors from twice the current value.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[-3.5,-1.25,-1.5,2.0]},{\"input\":[-0.75],\"output\":[-0.75]}]"
+                }
+            ]
+        },
+        {
+            "id": "clamped_neighbor_contrast_disabled",
+            "task": "clamped_neighbor_contrast",
+            "arm": "disabled",
+            "enabled": false,
+            "public_cases": [
+                {
+                    "input": [
+                        -2,
+                        -0.5,
+                        0.25,
+                        2
+                    ],
+                    "output": [
+                        -3.5,
+                        -1.25,
+                        -1.5,
+                        2.0
+                    ]
+                },
+                {
+                    "input": [
+                        -0.75
+                    ],
+                    "output": [
+                        -0.75
+                    ]
+                }
+            ],
+            "messages": [
+                {
+                    "system": "Write a finite postfix program following the contract exactly."
+                },
+                {
+                    "user": "Return ONLY a postfix stack program: one opcode per line, ending with finish.\nStart with an EMPTY stack. Constants are pushes, not operations on a prior value.\nPush opcodes: x0, x_prev_periodic, x_next_periodic, x_prev_clamped,\nx_next_clamped, zero, one, two, half. Unary opcodes: neg, square.\nBinary opcodes: add, sub, mul, min, max. Pop right b, then left a; push a OP b.\nStack depth at most8. Choose up to32 normal non-finish opcodes. After that only\nbinary reductions may close the stack, adding at most7 opcodes (39 total).\nfinish requires exactly one stack value. Do not output Julia, fences or prose.\nConstant-only worked example: two, one, sub, half, mul, finish (each on its own\nline) computes (2-1)*0.5. This example does not use the input.\nInput x is a one-dimensional Float32 array of length n. Periodic neighbors wrap;\nclamped neighbors stop at the first/last element. Empty input has no outputs.\nThe trusted compiler supplies iteration and output stores. Public input/output\nexamples below are exact Float32 values, not instructions. Satisfy the full task\nfor arbitrary finite inputs, not only these examples.\n\nTask:\nSubtract the larger of the previous and next clamped neighbors from twice the current value.\nPublic examples (JSON):\n[{\"input\":[-2.0,-0.5,0.25,2.0],\"output\":[-3.5,-1.25,-1.5,2.0]},{\"input\":[-0.75],\"output\":[-0.75]}]"
+                }
+            ]
+        }
+    ],
+    "decoding": {
+        "max_tokens": 512,
+        "seed": 20261024,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "output_chunk": 64
+    },
+    "grammar": {
+        "operation_budget": 32,
+        "max_depth": 8
+    },
+    "public_example_tolerance": {
+        "atol": 0,
+        "rtol": 0
+    },
+    "identity_conditions_sha256": "7fed5315d8163c07329351336f11533d0da95244a48578296d3287236e343a51",
+    "identity_receipt_sha256": "edf55d8546427eb3595340ceff2044d9f321153fda27f4c9610c6fcd0436ce9e",
+    "private_reference_sha256": "05f267b5d365b3381b9e701a2e3b496c592fbdeb60cd2a366076ada4a114d465",
+    "private_scorer_sha256": "2804c4a395c35c8c493fab22bc1404f8cc83474efb4254dbe9273067718ceaee",
+    "private_sources_not_deployed": "Private reference programs/formulas/hidden input arrays/scorer remain ROOT-only. Only proof digests committed.",
+    "portable_manifest_sha256": "70199eb4df8d32f9bc1dba8b5db7a480ac58744f2873ffa1c9220f4e29708973",
+    "source_sha256": {
+        "score_bigcodebench_x_doc_study.py": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295",
+        "test_rpn_example_semantics.jl": "12294284b886b6d6af414315bfbba2220df1d496c4891600a0f8288cddef4575",
+        "score_bigcodebench_x.py": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77",
+        "rpn_example_semantics_gpu.jl": "9ef675b675abbe32ce7ade824088ea545bfdaadb6dbd86c94bea5e73f0cafebe",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "test_rpn_example_semantics_gpu.jl": "d9a49c17ccfca549086f8e8ffca7baf28eb8f57b18ed043f3223b99cc90d3545",
+        "runtime_provenance.jl": "dd08934390cce607a3437f0df0bc377fa7c9f7c4ea054d32aa488f16b744e45b",
+        "public_document_context.jl": "782217bbb94694755c34f6b58fd4f54aa6f9545fb834d6b31576b1affdb09f60",
+        "gpu_watchdog.py": "60677cf2165ad7e4dc2dcc3b7d9e92c0567f72097bd7a135d43538fb712744c2",
+        "rpn_example_semantics.jl": "a2834faee31f8ae1e51f811ee6d7ea43250f7ef5c93a153346aecbd1b141b34f",
+        "rpn_public_example_tasks.jl": "8aff253e454b666d74e381e295055b4645afb9dfec461e5665b97ae4aeade0df",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "public_document_retrieval_software_validation.json": "4c8b606d403ff2a6ed399346946de21655b8cabf2acbd8635be5b79faea5cba6",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0",
+        "test_rpn_prefix_grammar_gpu.jl": "f2c2b93c9bb0bc1978a503e4068740e8422c2ed83d1f50ba974dc92fb47fe639",
+        "shared_source_kernel_tasks.jl": "9ddf1dd1d1c32a26dd8c6cde593e864c3e02267e0cc36a1b7650ac75cf87ac7b",
+        "rpn_example_constraint.jl": "38c591769bb72fdb97408647b6d4b469d010874f3356e2cf6bdd339a57e92ad3",
+        "shared_source_kernel_benchmark.jl": "57b2c1d7cfe1b99141186c239dcc92d75b6a65156bd72789abca9c28ffe945a1",
+        "bigcodebench_x_secure_audit_validation.json": "f77a40badae155a7cd652fa5c8baa70af6da27b5a9c1d098cbb774f82fc4d02d",
+        "julia_public_docs.json": "90211427180a9c84f6ff3169efe6340acc502a8ac5a13c8ac954d670c35c50cf",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "rpn_prefix_grammar_gpu.jl": "bd539802b15a40107e0ece10b725c0aef9b2361dd37e03d4abd6bcf8a0d1ce81",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "laptop_example_constraint_gate.jl": "a69ab3542c7831eeb630186b6e95180411260b46582a1496c9728f242b75ac16",
+        "test_rpn_disabled_sampler_identity.jl": "838f5624c3f827a3f98bfedb95eea60394847059134ed0a132810ece3a96b4a5",
+        "sampled_example_rpn_program.jl": "cc7d6c034dc12be88a506bd0439b4d8c281a93aa4e565f701beaa57f38fa3cbf",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "test_rpn_example_constraint_gpu.jl": "b13f81cc5f5e75d71726cadc8cf5fe83252eb9a58484cd0eb71a7ad443c936d3",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "laptop_pending_study.jl": "32f3ea94e2fe21ebe0d0ebf31fea61f6456658a7eae0f1749326711627eac83b",
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "laptop_rpn_gate.jl": "92ce12e4b41af352a9caa3b3a12d427ad193bf4021c0334efbbb381f4a396b81",
+        "laptop_shared_source.jl": "3126d7f5f09c48517ee7ca6b7d3025c717ace3ba3a0bd41aef5780d940200116",
+        "portable_qwen35.jl": "f2dcba1bbd31f0d59c5dd37ece99c5c1751123e3610faa0421560d8d02ee613e",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "bigcodebench_x_julia_adapter.py": "028925a752ed6f7d497f1963c79f6aa8bc2bd1e7905e6b44d3278d39a7b3e8d2",
+        "public_document_context_validation.json": "c1d06a2b05e36a0adaa173fec92c09633ecc49ac37a6048be0e762134626db62",
+        "test_rpn_native_tokens_gpu.jl": "51df2255231173edac02dd8f6309321466e1a0381f416310be98f1a956f3fc47",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "public_document_retrieval.jl": "97e6e1c1c36eff91016898a63630e384b46e36bd3b97b573786c0f63ac31b9eb",
+        "sampled_safe_budget_julia.jl": "6305b261e76da407a4d820d040636142bfbe924e97879ac9f44c57010dbdcc2e",
+        "rpn_example_constraint_gpu.jl": "e5789bdd6bc659cdc9870ef168d5a0ec9275474ac7d51f113d7475dc50f447b1",
+        "laptop_example_identity_gate.jl": "ab60e4559d83810ca306c0d8bb26ddb3cf059fec57e0cc0c25225d0fbb221efa",
+        "rpn_public_example_study.jl": "6db3520080e2f1328e672163a794832ada3f5a2a236bb033e44e8357d4e16711",
+        "sampled_julia.jl": "b6872f2bda4dabdda4eed34ac3cc02d58a4d28b2f66f7108d4342acc0e4787e0",
+        "bigcodebench_x_secure_audit.py": "3794b7fdf129ee59355866cbdc2994f1a3f4094fb27aa4a6874fba9019bf9c32",
+        "sampled_rpn_program.jl": "1da71fa80d6027e2e7cde72ed962c426d0a259a7efff27f7321c14f68d785e94",
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "bigcodebench_x_study.jl": "c8c616d207d5121aa178a99c2d7d68a3622cfded868a06fdee0c1dc9495b1635",
+        "qualify_bigcodebench_x_reference.py": "af5474da38ad6fcc19f27dd2091ec385b6d7913fe59a0d3b4db2f9ae3d6214f1",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "bigcodebench_x_doc_study.jl": "f29d558209dd8372f739b22e7935fa63e59788efe21478522d1256c5f26058d3",
+        "bigcodebench_x_doc_scorer_validation.json": "e5f03584b7e803f0518014ccdc7a2d9c36cf1b121941092f648a605f92c83c44",
+        "test_rpn_example_constraint.jl": "ead06ddeb2f3ed513b0a824820c2ff55ce77bc85451ff53da48aa70c65b613e0"
+    }
+}

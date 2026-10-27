@@ -1,0 +1,40 @@
+{
+    "ready": true,
+    "registered_utc": "2026-10-25T13:21:14.389",
+    "primary_conditions_sha256": "a702d1b8613890d45dfed9f86dd086036800f04fea05bd9009f18363afe337d8",
+    "scope": "Separate uniform PRE-GRADE render/layout development audit. Implementation registered AFTER plot generation began, not part of the original prospective primary score; no hidden grade seen/used. Not an aesthetic preference score.",
+    "policy": "Wait for ALL16 primary grades after model-worker retirement. Attempt every admitted nontruncated plan on SAME64-point private positive data, whether specification-correct or wrong. Generated Julia NEVER executes: render only trusted builder+serialized checked IR in existing CPU-only networkless Cairo jail. Keep first render attempt, no silent rerenders. Preserve unsupported, failure, clipping and interrupted outcomes separately. Unchanged180s wall/150CPU/12GiB jail bounds.",
+    "jobs": [
+        "plot_transfer_01_julia_source",
+        "plot_transfer_01_plot_spec",
+        "plot_transfer_02_plot_spec",
+        "plot_transfer_02_julia_source",
+        "plot_transfer_03_julia_source",
+        "plot_transfer_03_plot_spec",
+        "plot_transfer_04_plot_spec",
+        "plot_transfer_04_julia_source",
+        "plot_transfer_05_julia_source",
+        "plot_transfer_05_plot_spec",
+        "plot_transfer_06_plot_spec",
+        "plot_transfer_06_julia_source",
+        "plot_transfer_07_julia_source",
+        "plot_transfer_07_plot_spec",
+        "plot_transfer_08_plot_spec",
+        "plot_transfer_08_julia_source"
+    ],
+    "existing_generation_sha256": {
+        "plot_transfer_01_julia_source": "d3e33e51af16bcc0f9fc2184eadb9a8211a2250b1220f04a92b724706211f024",
+        "plot_transfer_01_plot_spec": "9cca6134172671011e9ae122724da8fba02c020ff2578100cbfbda79625947e9",
+        "plot_transfer_02_plot_spec": "755c187be799279777cc8b0dc82c0dc86e9fa5efdb6dd2efcacb3512b096af0b"
+    },
+    "probe_sha256": "55e3f3547cc256f709d0669c70c6ef6a12b43d2fc411cb3e19b9adc49d02eac4",
+    "sources": {
+        "render_plot_interface_audit.jl": "aca4e70c6223a9885716afc5e0dfc38921ef82e8824bdde3723153c520b9e582",
+        "safe_plot_builder.jl": "1e099b935c08b9c644c42281717430d802313286c2a2ffc8c9748731e6dc1e09",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec",
+        "plot_interface_admission.jl": "27a53ff73e5a697a1b3f53f3db5967660e326d5c7ecd29d6072764747079cce3",
+        "safe_plot_julia_source.jl": "d20da3d8c2681a5e7c01845ae157c318eacf970d09b898003922764fa9ab5e92",
+        "julia_render.jl": "20350157de8962bd192ac87cde0550482da7894563799042c43003d8543207f9"
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "checks": 8,
+    "run": "r1356",
+    "scope": "CPU/SOFTWARE infrastructure only, NOT hardware or neural quality",
+    "sources": {
+        "prepare_bayes_native_audit.jl": "cbbca4ef29a417bd1d2a173f0cd9ceaf71a34b18b8ca6a8d696504035e91ced5",
+        "test_prepare_bayes_native_audit.jl": "ed8a65886b3653e295c19057daf168207f16b4131e6fbafa2ceb0f3d8eea71ec",
+        "run_bayes_native_audit.jl": "9668d1e31a2569af097d4d40ac7672de0da9525b41831615fa89454654981710"
+    }
+}
