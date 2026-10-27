@@ -221,6 +221,39 @@ function dualcontour(dev::Mantle.Device, grid::SparseGrid, cornerof::Mantle.Buff
     return V, F
 end
 
+"""
+    meshdual(dev, grid, dual, crossing) -> (V, F)
+
+The mesh of a dual grid whose vertices the caller placed, as Hermite dual contouring does
+([`qefsolve`](@ref)): `dual` `(3, n)` Float32 holds each voxel's vertex where the mesh wants
+it, and `crossing` `(3, n)` Int32 the sign change along each voxel's three far edges, as
+[`dualcontour`](@ref) records it (1 from negative to positive, -1 the other way, 0 none). A
+quad of the four voxels around every crossed edge whose voxels are all present, split and
+wound as [`dualcontour`](@ref)'s; the voxels no quad reaches drop out. `Mantle.Buffer`s
+`(3, V)` Float32 and `(3, F)` Int32; `dual` and `crossing` stay the caller's.
+"""
+function meshdual(dev::Mantle.Device, grid::SparseGrid, dual::Mantle.Buffer, crossing::Mantle.Buffer)
+    n = grid.n
+    quads, qflag = edgequads(dev, grid, crossing)
+    ns = 3n
+    used = fill!(Mantle.Buffer(dev, Int32, n), 0)
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, markusedquads!, (used, quads, qflag, ns), ns; name = "meshdual/used")
+    runonce!(g)
+    qpos = prefixsum(dev, qflag)
+    nq = lastentry(qpos)
+    vpos = prefixsum(dev, used)
+    nvert = lastentry(vpos)
+    V = Mantle.Buffer(dev, Float32, (3, max(nvert, 1)))
+    F = Mantle.Buffer(dev, Int32, (3, 2 * max(nq, 1)))
+    g = Mantle.Graph(dev)
+    Mantle.dispatch!(g, compactdual!, (V, dual, used, vpos, 1f0, 0f0, 0f0, 0f0, n), n; name = "meshdual/vertices")
+    Mantle.dispatch!(g, splitquads!, (F, quads, crossing, qflag, qpos, vpos, V, ns), ns; name = "meshdual/triangles")
+    runonce!(g)
+    foreach(Mantle.free!, (quads, qflag, qpos, used, vpos))
+    return V, F
+end
+
 """The field at voxel `v`'s corner at offset `o`, through [`voxelcorners`](@ref)' `cornerof`."""
 @inline cornervalue(value, cornerof, v, o) = @inbounds value[cornerof[cornerrow(o[1], o[2], o[3]), v]]
 
