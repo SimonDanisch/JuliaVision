@@ -1,0 +1,10 @@
+{
+    "passed": true,
+    "checks": 21,
+    "run": "r1250",
+    "scope": "Descriptive arithmetic only, NOT confirmatory significance or neural quality",
+    "sources": {
+        "test_paired_workflow_uncertainty.jl": "49254e52141a64390de1c491872e0db40c0b38d272a225ffa519185a6cf82565",
+        "paired_workflow_uncertainty.jl": "08548da94a8ed73b8fe103df48e4274a5b247e363145328cfa4e096df31c5778"
+    }
+}

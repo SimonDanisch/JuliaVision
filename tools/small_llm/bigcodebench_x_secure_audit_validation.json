@@ -1,0 +1,9 @@
+{
+  "complete": true,
+  "tests": 4,
+  "scope": "Private test-blind sandbox qualification, NOT model scores",
+  "source_sha256": {
+    "bigcodebench_x_secure_audit.py": "3794b7fdf129ee59355866cbdc2994f1a3f4094fb27aa4a6874fba9019bf9c32",
+    "test_bigcodebench_x_secure_audit.py": "559d5d6188e7611b45327a33fbd07506b464ce4761fbeb5b47954d71e1b75ec1"
+  }
+}

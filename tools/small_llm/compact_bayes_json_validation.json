@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 62,
+    "scope": "Host packing equivalence and rejection only; same existing solver, no neural quality claim",
+    "source_sha256": {
+        "compact_bayes_json.jl": "c9bfdc46420af71c124e27f6ac7d1110d11a1f1e3bc9d3b0e51985e10b50a914",
+        "bayes_json.jl": "b4a4b1f941670d83af5cf83523e053a147f9ed59066a4251624f1f5bc3ab80f9",
+        "test_compact_bayes_json.jl": "55f7e3bf1551f0b163c070cba03139dc0f12c68ad11663145c0eef28704c2950"
+    }
+}

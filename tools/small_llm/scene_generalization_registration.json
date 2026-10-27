@@ -1,0 +1,17 @@
+{
+    "scope": "two fresh authored combinations, not a broad held-out benchmark; freeze v2 before generation",
+    "policy": "one non-thinking greedy attempt per case per arm, 512 output tokens; same model/cache; schema supplies extra input tokens/compiler; no retuning after results",
+    "schema_sha256": "24e870eb43b67fb24ea5bc9cd2f74f2838f6a57c6ecb210c9701bad07b029e09",
+    "cases": [
+        {
+            "id": "scene_ratio",
+            "prompt_sha256": "6c2f3cea3166e9e3d5ca1f6a5e538ac7b001a8ebc96ea4b324838ff7a63c3e6e",
+            "contract_sha256": "bb767fcfd52df78e83c8669834cca6e8c063de70105c5f8698b3e8ac33ba0c3c"
+        },
+        {
+            "id": "scene_shared_y",
+            "prompt_sha256": "9c4f9e64798273ffeee398d6b706bbeef8567e4c13cf7a3ebb6fe72d87719ea6",
+            "contract_sha256": "1f0aef71ccd004bbdd55b3d8412e555fa735313949a1190b2f96350a2e0179cf"
+        }
+    ]
+}

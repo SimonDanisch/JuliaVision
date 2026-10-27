@@ -1,0 +1,84 @@
+{
+    "scope": "authored development tasks; paired single-shot direct vs installed API docs; not held-out or rendered aesthetics",
+    "frozen_before_generation": true,
+    "budget_tokens": 512,
+    "thinking": false,
+    "rows": [
+        {
+            "id": "ki_launch",
+            "category": "base",
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+                }
+            ],
+            "cards": [
+                {
+                    "package": "KernelInterface",
+                    "name": "Kernel",
+                    "defined": true,
+                    "documented": true,
+                    "text": "  Kernel{Backend, Kern}\n\n  A kernel compiled by kernel_function for backend, wrapping the backend's own\n  kernel object kern. kernel.backend is the backend value that was passed to\n  kernel_function.\n\n  Calling a Kernel launches it:\n\n  (kernel::Kernel)(args...; numgroups=(), workgroupsize=(), ndrange=(),\n                   max_work_group_size=typemax(Int), kwargs...)\n\n  args are the host-side arguments, e.g. a CuArray rather than a\n  CuDeviceArray. The backend converts them with argconvert, and the converted\n  types have to match the argument types the kernel was compiled for.\n\n  The launch geometry is given in one of three ways:\n\n    •  numgroups and workgroupsize: launch exactly that many work-groups\n       of that many work-items. Either defaults to 1.\n    •  ndrange and workgroupsize: launch cld.(ndrange, workgroupsize)\n       work-groups.\n    •  ndrange alone: the work-group size is chosen with\n       launch_configuration, bounded by max_work_group_size and by\n       max_work_group_dims, and filled first dimension first.\n\n  Each is an Integer or a tuple of up to 3 Integers; missing dimensions are 1.\n  ndrange and numgroups are mutually exclusive.\n\n  ndrange is rounded up to whole work-groups and is not masked: the kernel\n  runs for every work-item of every launched group, and get_global_size\n  returns the padded size. Kernels have to check their own bounds.\n\n  A zero anywhere in ndrange or numgroups launches nothing. Work-group sizes\n  must be positive and fit max_work_group_dims and\n  max_work_group_size(kernel), and the number of work-items in each dimension\n  must fit an Int; anything else throws an ArgumentError before the backend\n  sees it. The number of work-groups is validated by the backend.\n\n  Other keyword arguments are passed to launch unchanged. They are\n  backend-specific: a backend throws an error for keywords it doesn't support.\n\n  A launch is queued on the calling task's queue of the active device, and\n  returns nothing.",
+                    "truncated": false,
+                    "full_document_sha256": "260f699db36c6ecfff541f1e741a68dbe87b4cfdc9e38a7fd3428d09b2d611a0"
+                },
+                {
+                    "package": "KernelInterface",
+                    "name": "launch",
+                    "defined": true,
+                    "documented": true,
+                    "text": "  launch(kernel::Kernel, groups::Dims{3}, items::Dims{3}, args::Tuple; kwargs...)\n\n  Launch kernel with groups work-groups of items work-items each, passing the\n  host-side arguments args, a tuple. This is what calling a Kernel does after\n  validating and normalizing the launch geometry; users call the kernel\n  instead.\n\n  groups and items are positive, items fits max_work_group_dims and\n  max_work_group_size(kernel), and groups .* items doesn't overflow Int.\n  kwargs are the keyword arguments of the call that KernelInterface doesn't\n  know.\n\n  │ Note\n  │\n  │  Backend implementations must implement:\n  │\n  │  launch(kernel::Kernel{<:NewBackend}, groups::Dims{3}, items::Dims{3}, args::Tuple; kwargs...)\n  │\n  │  It converts args with argconvert (or lets its native launcher do\n  │  so), and queues the launch on the calling task's queue; it doesn't\n  │  have to wait for the kernel to complete. To keep launches with\n  │  many arguments cheap, it should pass args on as a tuple rather\n  │  than splatting it: Julia doesn't turn a splat of more than 32\n  │  elements into a direct call. It must throw for keywords it does\n  │  not support, and may throw for a number of work-groups the device\n  │  cannot launch, or for a geometry that backend-specific compiler\n  │  options of the kernel don't allow.\n\n  │ KernelInterface 0.4\n  │\n  │  Before KernelInterface 0.4, launch received the arguments as\n  │  varargs, launch(kernel, groups, items, args...; kwargs...).",
+                    "truncated": false,
+                    "full_document_sha256": "36268b38168ea26a73f923ebb9070d351f7a8d54a3b1d6299540c9e677988262"
+                },
+                {
+                    "package": "KernelInterface",
+                    "name": "synchronize",
+                    "defined": true,
+                    "documented": true,
+                    "text": "  synchronize(::Backend)\n\n  Block the calling task until all work it has queued on the active device of\n  backend has completed.\n\n  │ Note\n  │\n  │  Backend implementations must implement this function\n  │  cooperatively, yielding to the Julia scheduler while waiting\n  │  rather than blocking inside a driver call. It must not wait for\n  │  work on other queues that the current queue is not ordered after,\n  │  e.g., by wait_event. See the notes for backend implementations for\n  │  why.",
+                    "truncated": false,
+                    "full_document_sha256": "84c4d9a36e67b2e42bef615addf550d201337d682293fd2db7265cb0f64a1739"
+                }
+            ],
+            "evidence": "API documentation for KernelInterface.Kernel; defined=true, documented=true, truncated=false\n  Kernel{Backend, Kern}\n\n  A kernel compiled by kernel_function for backend, wrapping the backend's own\n  kernel object kern. kernel.backend is the backend value that was passed to\n  kernel_function.\n\n  Calling a Kernel launches it:\n\n  (kernel::Kernel)(args...; numgroups=(), workgroupsize=(), ndrange=(),\n                   max_work_group_size=typemax(Int), kwargs...)\n\n  args are the host-side arguments, e.g. a CuArray rather than a\n  CuDeviceArray. The backend converts them with argconvert, and the converted\n  types have to match the argument types the kernel was compiled for.\n\n  The launch geometry is given in one of three ways:\n\n    •  numgroups and workgroupsize: launch exactly that many work-groups\n       of that many work-items. Either defaults to 1.\n    •  ndrange and workgroupsize: launch cld.(ndrange, workgroupsize)\n       work-groups.\n    •  ndrange alone: the work-group size is chosen with\n       launch_configuration, bounded by max_work_group_size and by\n       max_work_group_dims, and filled first dimension first.\n\n  Each is an Integer or a tuple of up to 3 Integers; missing dimensions are 1.\n  ndrange and numgroups are mutually exclusive.\n\n  ndrange is rounded up to whole work-groups and is not masked: the kernel\n  runs for every work-item of every launched group, and get_global_size\n  returns the padded size. Kernels have to check their own bounds.\n\n  A zero anywhere in ndrange or numgroups launches nothing. Work-group sizes\n  must be positive and fit max_work_group_dims and\n  max_work_group_size(kernel), and the number of work-items in each dimension\n  must fit an Int; anything else throws an ArgumentError before the backend\n  sees it. The number of work-groups is validated by the backend.\n\n  Other keyword arguments are passed to launch unchanged. They are\n  backend-specific: a backend throws an error for keywords it doesn't support.\n\n  A launch is queued on the calling task's queue of the active device, and\n  returns nothing.\n\nAPI documentation for KernelInterface.launch; defined=true, documented=true, truncated=false\n  launch(kernel::Kernel, groups::Dims{3}, items::Dims{3}, args::Tuple; kwargs...)\n\n  Launch kernel with groups work-groups of items work-items each, passing the\n  host-side arguments args, a tuple. This is what calling a Kernel does after\n  validating and normalizing the launch geometry; users call the kernel\n  instead.\n\n  groups and items are positive, items fits max_work_group_dims and\n  max_work_group_size(kernel), and groups .* items doesn't overflow Int.\n  kwargs are the keyword arguments of the call that KernelInterface doesn't\n  know.\n\n  │ Note\n  │\n  │  Backend implementations must implement:\n  │\n  │  launch(kernel::Kernel{<:NewBackend}, groups::Dims{3}, items::Dims{3}, args::Tuple; kwargs...)\n  │\n  │  It converts args with argconvert (or lets its native launcher do\n  │  so), and queues the launch on the calling task's queue; it doesn't\n  │  have to wait for the kernel to complete. To keep launches with\n  │  many arguments cheap, it should pass args on as a tuple rather\n  │  than splatting it: Julia doesn't turn a splat of more than 32\n  │  elements into a direct call. It must throw for keywords it does\n  │  not support, and may throw for a number of work-groups the device\n  │  cannot launch, or for a geometry that backend-specific compiler\n  │  options of the kernel don't allow.\n\n  │ KernelInterface 0.4\n  │\n  │  Before KernelInterface 0.4, launch received the arguments as\n  │  varargs, launch(kernel, groups, items, args...; kwargs...).\n\nAPI documentation for KernelInterface.synchronize; defined=true, documented=true, truncated=false\n  synchronize(::Backend)\n\n  Block the calling task until all work it has queued on the active device of\n  backend has completed.\n\n  │ Note\n  │\n  │  Backend implementations must implement this function\n  │  cooperatively, yielding to the Julia scheduler while waiting\n  │  rather than blocking inside a driver call. It must not wait for\n  │  work on other queues that the current queue is not ordered after,\n  │  e.g., by wait_event. See the notes for backend implementations for\n  │  why.",
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480",
+            "prompt_sha256": "fae097934050b50ee709fccd7d6b33a09ef2c034dd714b7436d420fae9cc9cc8"
+        },
+        {
+            "id": "makie_update",
+            "category": "makie",
+            "messages": [
+                {
+                    "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+                },
+                {
+                    "user": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports."
+                }
+            ],
+            "cards": [
+                {
+                    "package": "Makie",
+                    "name": "update!",
+                    "defined": true,
+                    "documented": true,
+                    "text": "  update!(graph; kwargs...)\n  update!(graph, pairs::Pair{Symbol, Any}...)\n\n  Updates any number of inputs in the graph based on the passed key = value\n  keyword arguments. The key refers to the name of the input and the value is\n  the new value.\n\n  Example:\n  ========\n\n  graph = ComputeGraph()\n  add_input!(graph, :first_node, 1)\n  update!(graph, first_node = 2)\n  update!(graph, :first_node => 2)",
+                    "truncated": false,
+                    "full_document_sha256": "168726bf53f56d74e17b217b08f821d80f0de5c4f7f9a87ad283e6b7c76e3614"
+                }
+            ],
+            "evidence": "API documentation for Makie.update!; defined=true, documented=true, truncated=false\n  update!(graph; kwargs...)\n  update!(graph, pairs::Pair{Symbol, Any}...)\n\n  Updates any number of inputs in the graph based on the passed key = value\n  keyword arguments. The key refers to the name of the input and the value is\n  the new value.\n\n  Example:\n  ========\n\n  graph = ComputeGraph()\n  add_input!(graph, :first_node, 1)\n  update!(graph, first_node = 2)\n  update!(graph, :first_node => 2)",
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb",
+            "prompt_sha256": "b58a8f7d20f68b0fa1f4e7a58f4eddb0465ef1b4f176f5074622a9b2e4427320"
+        }
+    ],
+    "source_sha256": {
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "julia_api_cards.jl": "fcfd0159d07e397f2cf6cd3540aba988779eeb711b570b1e47838fcc1f38de8a",
+        "julia_advanced_tasks.jl": "2fd263b00bff024b107f6061c49875811b51e6ce7694b13ed882fc3222e34ed8",
+        "run_api_generalization.jl": "8fca50de68b4e7c8625e848707aac2edb19dcfdc989b0e200fb9e6cab55bf6f9"
+    }
+}

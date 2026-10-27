@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "scope": "PRIVATE index-alias compiler admission/software-Vulkan differential checks; not model-quality evidence",
+    "passed": 16,
+    "source_sha256": {
+        "canonical_scalar_interface.jl": "930be4cf0fe07153b8355b96f5464473856ba86fe51ca96e7044620aac895a9a",
+        "scalar_program_interface.jl": "96c1a3a17bb40c81d08c9beb24d98501000089962048698139e8a900189249dc",
+        "scalar_kernel_interface.jl": "866774d3e01bc8c6354584cc11fde8d0701b90c7bc9e815be1d0443819725266",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "test_canonical_scalar_interface.jl": "60c3a93ef0275f4d4241a80fc68909fde012e8bb56b6ae7fdf34a7b00969469d"
+    }
+}

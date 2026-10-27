@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU-only early option validation; full-model RPN helper NOT YET qualified",
+    "passed": 10,
+    "source_sha256": {
+        "sampled_rpn_program.jl": "1da71fa80d6027e2e7cde72ed962c426d0a259a7efff27f7321c14f68d785e94",
+        "test_sampled_rpn_options.jl": "8a84148bb116cbc54dd3df53b64032e24ec1a95e7d23abf2f8c09c03df18716c"
+    }
+}

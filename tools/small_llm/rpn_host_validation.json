@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "scope": "Pure grammar and compiler admission CPU checks, NOT model quality",
+    "grammar_checks": 7700,
+    "interface_checks": 44,
+    "source_sha256": {
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "test_rpn_pointwise_interface.jl": "5dcdd8e3e92f6e03f0466185abf47f492584adcc46871cf3f29fb548fa7619e6",
+        "test_rpn_prefix_grammar.jl": "39ac77a79a441b06bedd9b21da48abe39acb1f329af57f6834eb5be450bf518e",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17"
+    }
+}

@@ -1,0 +1,138 @@
+{
+  "scope": "POSTHOC SAME8 external tasks after negative original direct/docs study. Not held-out or a replacement score. All baselines retained, all tasks used.",
+  "policy": "One counterbalanced revision per task/arm from SAME original DIRECT code: self-review vs static unlisted-name observations + automatically retrieved expanded public docs. Same4096 nonthinking token cap/seed/sampler. Internal arm direct MEANS self-review; public_docs MEANS lint-plus-expanded-doc revision, not new baselines. No private tests/expected outputs/grading traces in messages or query; no task-ID rules, retries or score-selected tasks. Bundled tool/context change, not isolated causal evidence for any one component.",
+  "rows": [
+    {
+      "id": "alias3_27_direct",
+      "task": "BigCodeBench/27",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "98921fe8e37e4d16b7f6f3db821e1178a7b857b3b4c31971bfc5570140dd9851"
+    },
+    {
+      "id": "alias3_27_public_docs",
+      "task": "BigCodeBench/27",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "45ddb9bf4732ca198fbb4ee4ff393c629ea2a19ab1e53acf5691d32d93b54801"
+    },
+    {
+      "id": "alias3_309_public_docs",
+      "task": "BigCodeBench/309",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "3956b111554f2f012fe7cfceb231095ee5b06bc57c3342ff7b2f31aec723a939"
+    },
+    {
+      "id": "alias3_309_direct",
+      "task": "BigCodeBench/309",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "d062052a4c58cdefcd24e9b74d0709f222b994d8d31ab700f31bf1581ce67fa5"
+    },
+    {
+      "id": "alias3_939_direct",
+      "task": "BigCodeBench/939",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "472fc6d3d31b9da281fbe35a24e7fea4992efb73cef11d4994ca20de7fb92c83"
+    },
+    {
+      "id": "alias3_939_public_docs",
+      "task": "BigCodeBench/939",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "ab483f5be020c63f65ecaa641023907449f8898c2dfd51eb0124f9385c340a68"
+    },
+    {
+      "id": "alias3_277_public_docs",
+      "task": "BigCodeBench/277",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "ce27ba89fed8afe217a982ce9a4dba1d4ca8a654eff46b84ae0ee97c7a8f2383"
+    },
+    {
+      "id": "alias3_277_direct",
+      "task": "BigCodeBench/277",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "679a94bc8ff3c7e8f444a8d7c8ed0df1df7ed76dfc090a23a93ced9cb1cd60da"
+    },
+    {
+      "id": "alias3_311_direct",
+      "task": "BigCodeBench/311",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "d72e652632a331aa81d82e82dc8b16bec8eb7f860992bfe77aac298315cb86eb"
+    },
+    {
+      "id": "alias3_311_public_docs",
+      "task": "BigCodeBench/311",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "10dcdfe5d7a296872d3842cb0118b843d150909d38c6d695782a6ce7aad7ec12"
+    },
+    {
+      "id": "alias3_137_public_docs",
+      "task": "BigCodeBench/137",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "8e8a6b12f1409baf8e280bea4e2344233e37a6cd68ec258865f01003a9c7e675"
+    },
+    {
+      "id": "alias3_137_direct",
+      "task": "BigCodeBench/137",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "27c9b03ca87fe045a5ae9c54465f5518d9e3f230d3cb9eed74e6dcd3b461acdd"
+    },
+    {
+      "id": "alias3_651_direct",
+      "task": "BigCodeBench/651",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "36e123fa7f75d319a07b0e3940fbe3adf612977ccb99a03a4e1d74879d52d9e5"
+    },
+    {
+      "id": "alias3_651_public_docs",
+      "task": "BigCodeBench/651",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "fdcf1b525528070b9ae456122691ab39c5b8f844bd42c5083f0e36a44b1fcda0"
+    },
+    {
+      "id": "alias3_1060_public_docs",
+      "task": "BigCodeBench/1060",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "220a8a52a5f99c463fadca8789fb9ebf7becaaa1f39e26f530eb4e1c23fe72e0"
+    },
+    {
+      "id": "alias3_1060_direct",
+      "task": "BigCodeBench/1060",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "7f7dac62b2bd0b80ebd825972bc08985d4fffc68bf6e37533218451e7fb97033"
+    }
+  ],
+  "complete": true,
+  "conditions_sha256": "258f78714bb0bff26415619098fd4149cf4ad26740e71c5b75230a555fe69b50",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "runtime": "Unchanged external tests, qualified CPU-only test-blind jail; no plot-aesthetics claim"
+}

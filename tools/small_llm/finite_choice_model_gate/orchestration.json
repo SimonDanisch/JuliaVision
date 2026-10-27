@@ -1,0 +1,13 @@
+{
+  "run_id": "r1551",
+  "tool_status": "failed_during_result_formatting",
+  "tool_error": "JSON3.Object iterate method too new in BonitoMCP result_repr/show world context",
+  "durable_result_complete": true,
+  "durable_result_passed": true,
+  "durable_normal_final_waitidle": true,
+  "durable_report_sha256": "763a4fe1f4465c17946ebea177ba438c65f65c1c0110f67d03a720a0b75a3377",
+  "regenerated_or_repeated": false,
+  "cleanup": "External shared flock acquired, idle own worker retired, process absence verified, holder released",
+  "future_call_surface": "Suppress large newly loaded JSON3-bearing return values with a trailing nothing; consume the durable validated result instead",
+  "scope": "Preserves both orchestration error and independently validated saved computation result; not a task-quality improvement"
+}

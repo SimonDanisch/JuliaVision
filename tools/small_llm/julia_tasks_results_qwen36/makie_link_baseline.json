@@ -1,0 +1,47 @@
+{
+    "task": "makie_link",
+    "category": "makie",
+    "arm": "baseline",
+    "model": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+    "cache": "Float32 grouped",
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2",
+        "no_alias",
+        "paired_expert_rows",
+        "capability_swiglu_q8"
+    ],
+    "thinking": false,
+    "contract_sha256": "6e32636ca9696d7455069a0ef7ea4df4535465aab29edd71b8e83b954902fc0d",
+    "prompt_sha256": "8ee9632b6a52849ed02110d2dd7ae45d537b009dd0882c57e1549eed76e2ef83",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using Makie (not GLMakie), write function makeplot(x,y) returning (fig, ax1, ax2). Figure size (720,480), two vertically stacked Axis objects; plot y versus x as lines on ax1 and abs.(y) versus x as scatter on ax2. Link only x axes with linkxaxes!. Upper title: Signal; upper ylabel: Amplitude; lower xlabel: Time (s); lower ylabel: Magnitude. No display, save, or backend activation. Code only, including imports."
+        }
+    ],
+    "answer": "```julia\nusing Makie\n\nfunction makeplot(x, y)\n    fig = Figure(size = (720, 480))\n    \n    ax1 = Axis(fig[1, 1], title = \"Signal\", ylabel = \"Amplitude\")\n    ax2 = Axis(fig[2, 1], xlabel = \"Time (s)\", ylabel = \"Magnitude\")\n    \n    lines!(ax1, x, y)\n    scatter!(ax2, x, abs.(y))\n    \n    linkxaxes!(ax1, ax2)\n    \n    return (fig, ax1, ax2)\nend\n```",
+    "code": "using Makie\n\nfunction makeplot(x, y)\n    fig = Figure(size = (720, 480))\n    \n    ax1 = Axis(fig[1, 1], title = \"Signal\", ylabel = \"Amplitude\")\n    ax2 = Axis(fig[2, 1], xlabel = \"Time (s)\", ylabel = \"Magnitude\")\n    \n    lines!(ax1, x, y)\n    scatter!(ax2, x, abs.(y))\n    \n    linkxaxes!(ax1, ax2)\n    \n    return (fig, ax1, ax2)\nend\n",
+    "input_tokens": 154,
+    "generated_tokens": 137,
+    "budget_tokens": 512,
+    "decode_steps_executed": 512,
+    "decode_submissions": 512,
+    "eos_output_poll_chunk": null,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.7817909717559814,
+    "input_sha256": "eb521b27b0d37ace1ca2ad51c45d4e3d640590776edacfe85d5b0361c37aa477"
+}

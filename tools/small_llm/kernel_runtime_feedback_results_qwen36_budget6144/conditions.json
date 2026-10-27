@@ -1,0 +1,76 @@
+{
+    "scope": "pre-registered development extension on four authored kernel tasks, NOT held-out/frontier evidence; rerun on Qwen3.6-35B-A3B.Q4_K_S.gguf as a new registration",
+    "original_conditions": "kernel_runtime_feedback_results/conditions.json",
+    "original_conditions_sha256": "58282cf60651389847dc6966c84b50a83ddfa6a680448017a080cd4386705058",
+    "backbone": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "backbone_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 6144,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "decoding_overrides": {
+        "max_tokens": 6144
+    },
+    "jobs": [
+        {
+            "id": "ki_body_affine",
+            "arm": "self_review",
+            "messages_sha256": "21f34332f80dde15dd818e6dc721b19af505aa2498898b9e548587580e403a80"
+        },
+        {
+            "id": "ki_body_affine",
+            "arm": "runtime_feedback",
+            "messages_sha256": "714377b58112ba20cb3c47832b7d9994c6f3ff3e2d7a32963261e15ca9b5236e"
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "arm": "self_review",
+            "messages_sha256": "dafc695f1e6532f7f3b0dcd4fada697d516d81a6466f7d556470d0645fc1c95f"
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "arm": "runtime_feedback",
+            "messages_sha256": "3b0314f6c8040e9b00f512d072ca732494eb0e72045644f8d572c3ffacc32f21"
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "arm": "runtime_feedback",
+            "messages_sha256": "2aa2c4d420e19b36a8cdcf02e1cd5b288c6b6b84c953eb40aefc0e6e7f3642f7"
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "arm": "self_review",
+            "messages_sha256": "88305aa01e545ec969b2f030765e7cd22f31118bc0bd4db08387c1635962f80a"
+        }
+    ],
+    "source_sha256": {
+        "prefill_qwen35.jl": "1c6cbfdb3e344e01f49e663f74bf52edff89b9c18ad7963e518118aa52be0996",
+        "qwen36_moe_model.jl": "e003d3d17ada4163cca5c0a95b31c972b62f1ad865c624a6dc86938206e4d4ef",
+        "kernel_runtime_feedback.jl": "66c5f1a873a362a5a07e8de5c8a645326e4be0315e5fda0a381466eae4f27049",
+        "kernel_public_smoke.jl": "bff8d95eb6fc61a13c8b30e1eabe18b77b0c1dbcd726b473acd0a5cedb8652f6",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "moe_quant_qwen35.jl": "2c290c72dc7b634a44afb9917baf11f68047ab869ed57ba1fe77fc25270059fc",
+        "sampled_julia.jl": "0c76722dcf619546049a3c198265fa8cfba6cc58f1200dca6bf91270031e89b5",
+        "transfer_kernel_studies.jl": "dad5c94be9c607fd75a772d72ca0e259f3e1159951859ed3e7ddcfbe53ce2fd4",
+        "vulkan_kernel_benchmark.jl": "14a1c952ea59c970f9496a9bd6d3e7f764816a8fb800df6ea90315e7fc274071",
+        "transfer_studies.jl": "7f566bd14bd6908f341edba75c015645d285c47188a254012870c1104f91f13c",
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "vulkan_kernel_tasks.jl": "961c5c69317bfbd4cbcda97fba99f14611c27c793428affc820471bd578c823a",
+        "run_julia_tasks.jl": "b922e0a9c1bf4bfbe09efe3d2a8744d715f43f24f75b61ce1a8d0c50161a1f60",
+        "qwen36_gguf_kernels.jl": "1a5023d69f21d525e0b9481050b219c3db028230f4b9f1bea34973844955b596",
+        "moe_qwen35.jl": "135bc80c3a4abb946bb47d49bc979592eed2142af9082a7745b7eccdbc99beb5",
+        "qwen36_prefill.jl": "a8d9e9866da6b6a0d7f2a88a322223c637019c5cf8e7c9054dc44e893133d518",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "qwen36_gguf.jl": "d9fd105cf49085e1ae77e06894ad3e3f2ef47b3d09b86216f75ac6bd575b02f9",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "text_backbone.jl": "e63d587f3d3627eadc895246baaa37fdcb84a41b52fad028ef8e514b52df0591",
+        "qwen35.jl": "66c828214e028d6bb6e1b9fa7ae267628d84adbd159dfca2dfd61f5730180c04",
+        "qwen36_optim.jl": "98c1a6e1887d775cc8174894c788591d89a0d7a27017c5131949f7ce8d548db3"
+    }
+}

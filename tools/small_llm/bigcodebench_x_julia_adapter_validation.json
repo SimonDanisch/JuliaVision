@@ -1,0 +1,10 @@
+{
+  "complete": true,
+  "tests": 3,
+  "scope": "Trusted Julia stdin/stdout, negative-control and headless PNG adapter qualification only; NOT model performance",
+  "source_sha256": {
+    "bigcodebench_x_julia_adapter.py": "028925a752ed6f7d497f1963c79f6aa8bc2bd1e7905e6b44d3278d39a7b3e8d2",
+    "qualify_bigcodebench_x_reference.py": "af5474da38ad6fcc19f27dd2091ec385b6d7913fe59a0d3b4db2f9ae3d6214f1",
+    "test_bigcodebench_x_julia_adapter.py": "6a85290f75d0d840e77aadd0688f2a0f008bfc58e0c78da0e7d89b7fd019609f"
+  }
+}

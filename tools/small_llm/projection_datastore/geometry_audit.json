@@ -1,0 +1,15 @@
+{
+    "scope": "CPU feature-geometry diagnostics, NOT model intelligence/retrieval quality",
+    "width": 512,
+    "records": 254,
+    "unique_labels": 96,
+    "effective_rank": 16.715637224727864,
+    "maximum_mean_error": 1.1494603313622065e-7,
+    "maximum_rms_error": 8.858484390472654e-8,
+    "nearest_other_distance": {
+        "minimum": 22.16472104428415,
+        "median": 154.03225275014353
+    },
+    "nearest_other_same_label": 99,
+    "datastore_registration_sha256": "a9d535dd7d5b0f088bfb6f50664f3fd1dad3e93d383fbbdb47b5bb0b41860407"
+}

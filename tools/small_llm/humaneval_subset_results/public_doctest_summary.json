@@ -1,0 +1,65 @@
+{
+    "scope": "public prompt doctest diagnostics, no hidden scoring or model revisions",
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        },
+        {
+            "task": "039_prime_fib",
+            "analysis_completed": false,
+            "failed_public_examples": null
+        },
+        {
+            "task": "106_f",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        },
+        {
+            "task": "162_string_to_md5",
+            "analysis_completed": false,
+            "failed_public_examples": null
+        },
+        {
+            "task": "104_unique_digits",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        },
+        {
+            "task": "074_total_match",
+            "analysis_completed": true,
+            "failed_public_examples": 1
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "analysis_completed": true,
+            "failed_public_examples": 1
+        },
+        {
+            "task": "037_sort_even",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        },
+        {
+            "task": "146_specialFilter",
+            "analysis_completed": true,
+            "failed_public_examples": 2
+        },
+        {
+            "task": "048_is_palindrome",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        },
+        {
+            "task": "110_exchange",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        },
+        {
+            "task": "077_iscube",
+            "analysis_completed": true,
+            "failed_public_examples": 0
+        }
+    ]
+}

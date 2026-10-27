@@ -1,0 +1,169 @@
+{
+    "scope": "authored diagnostic, not held-out/frontier evidence; pending cases are not scored failures",
+    "comparison": "original non-thinking direct code and all three revision arms solved 0/5 qualified contracts; see julia_tasks_results/summary.json",
+    "limitations": [
+        "schema and prompt are extra workflow resources even when output cap matches",
+        "Makie contracts test construction/data/style attributes, not rendered aesthetics",
+        "sampled and greedy modes have different output lengths and compute costs"
+    ],
+    "conditions": [
+        {
+            "directory": "julia_thinking_results",
+            "scope": "greedy thinking, 2048-token cap; more compute than original baseline, not a tool gain",
+            "passed": 1,
+            "evaluated": 5,
+            "planned": 5,
+            "pending": 0,
+            "rows": [
+                {
+                    "task": "stable_groups",
+                    "status": "passed",
+                    "generated_tokens": 622,
+                    "budget_tokens": 2048,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 34.04662895202637
+                },
+                {
+                    "task": "missing_windows",
+                    "status": "failed",
+                    "generated_tokens": 1126,
+                    "budget_tokens": 2048,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 19.25633192062378
+                },
+                {
+                    "task": "alias_stencil",
+                    "status": "failed",
+                    "generated_tokens": 814,
+                    "budget_tokens": 2048,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 15.21200704574585
+                },
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "generated_tokens": 908,
+                    "budget_tokens": 2048,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 17.38582706451416
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "generated_tokens": 1226,
+                    "budget_tokens": 2048,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 21.38692283630371
+                }
+            ]
+        },
+        {
+            "directory": "julia_sampled_results",
+            "scope": "one predeclared seed, thinking, 2048-token cap; no seed selection",
+            "passed": 0,
+            "evaluated": 1,
+            "planned": 1,
+            "pending": 0,
+            "rows": [
+                {
+                    "task": "stable_groups",
+                    "status": "failed",
+                    "generated_tokens": 2048,
+                    "budget_tokens": 2048,
+                    "truncated": true,
+                    "finished_thinking": false,
+                    "generation_seconds": 40.91245794296265
+                }
+            ]
+        },
+        {
+            "directory": "julia_scene_results",
+            "scope": "non-thinking scene schema plus trusted compiler, 512-token cap; constrained workflow, not intrinsic coding",
+            "passed": 0,
+            "evaluated": 2,
+            "planned": 2,
+            "pending": 0,
+            "rows": [
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "generated_tokens": 311,
+                    "budget_tokens": 512,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 7.717214822769165
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "generated_tokens": 294,
+                    "budget_tokens": 512,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 7.693399906158447
+                }
+            ]
+        },
+        {
+            "directory": "julia_scene_v2_results",
+            "scope": "clarified schema after v1 format failures, 512-token cap; development result, not held-out",
+            "passed": 1,
+            "evaluated": 2,
+            "planned": 2,
+            "pending": 0,
+            "rows": [
+                {
+                    "task": "makie_link",
+                    "status": "passed",
+                    "generated_tokens": 310,
+                    "budget_tokens": 512,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 8.115875005722046
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "generated_tokens": 374,
+                    "budget_tokens": 512,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 8.03902792930603
+                }
+            ]
+        },
+        {
+            "directory": "julia_api_v2_results",
+            "scope": "one-shot scoped/diverse public API-doc retrieval, 512-token cap; revised development policy",
+            "passed": 0,
+            "evaluated": 2,
+            "planned": 2,
+            "pending": 0,
+            "rows": [
+                {
+                    "task": "makie_link",
+                    "status": "failed",
+                    "generated_tokens": 287,
+                    "budget_tokens": 512,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 12.127393007278442
+                },
+                {
+                    "task": "makie_band",
+                    "status": "failed",
+                    "generated_tokens": 161,
+                    "budget_tokens": 512,
+                    "truncated": false,
+                    "finished_thinking": true,
+                    "generation_seconds": 8.516671180725098
+                }
+            ]
+        }
+    ]
+}

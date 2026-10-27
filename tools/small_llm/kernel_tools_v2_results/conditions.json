@@ -1,0 +1,156 @@
+{
+    "scope": "the eight authored kernel tasks: compile/run tool and per-round thinking budget, with control arms; pairs with the evidence and first tools studies by task and seed",
+    "hypotheses": [
+        "the thinking budget turns out-of-budget answers into answers (direct_budget vs direct, tools_budget vs tools_parse_lookup)",
+        "run_julia removes kernel-contract failures (tools_run_budget vs tools_budget)"
+    ],
+    "backbone": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "backbone_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 6144,
+        "output_chunk": 128,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "seeds": [
+        20261024,
+        20261025,
+        20261026,
+        20261027,
+        20261028
+    ],
+    "maxcalls": 6,
+    "think_budget": 3072,
+    "think_close": "\n\nConsidering the limited time, I have to give the solution based on the thinking directly now.\n</think>\n\n",
+    "budget": "max_tokens bounds the tokens generated over all rounds; tool responses and forced closes are context, not budget",
+    "arms": [
+        {
+            "name": "tools_run_budget",
+            "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+            "tools": [
+                "{\"type\": \"function\", \"function\": {\"name\": \"check_syntax\", \"description\": \"Parse Julia code and report its first syntax error. Does not run the code.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"code\": {\"type\": \"string\", \"description\": \"Complete Julia source to parse.\"}}, \"required\": [\"code\"]}}}",
+                "{\"type\": \"function\", \"function\": {\"name\": \"lookup\", \"description\": \"Documentation of an installed Julia name: a module (`Atomix`, `KernelInterface`), function, macro (`Atomix.@atomic`) or type. For a name that does not exist it says so and lists what the module defines.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\", \"description\": \"The name as written in code, e.g. `KI.get_global_id` or `Base.@atomic`.\"}}, \"required\": [\"name\"]}}}",
+                "{\"type\": \"function\", \"function\": {\"name\": \"run_julia\", \"description\": \"Run Julia code in a sandbox with a software Vulkan GPU, to test a kernel. `using Mantle`, `import KernelInterface as KI` and `import Atomix` are already done, and `__bench_launch__(kernel!, out, args...; threads=n)` launches `kernel!` on `n` invocations over device copies of the arrays and returns `out` after the kernel. Returns what the code printed and the value of its last expression, or the error. For testing only: your final answer must not call `__bench_launch__`.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"code\": {\"type\": \"string\", \"description\": \"Julia code that defines kernel! and tests it.\"}}, \"required\": [\"code\"]}}}"
+            ]
+        },
+        {
+            "name": "tools_budget",
+            "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+            "tools": [
+                "{\"type\": \"function\", \"function\": {\"name\": \"check_syntax\", \"description\": \"Parse Julia code and report its first syntax error. Does not run the code.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"code\": {\"type\": \"string\", \"description\": \"Complete Julia source to parse.\"}}, \"required\": [\"code\"]}}}",
+                "{\"type\": \"function\", \"function\": {\"name\": \"lookup\", \"description\": \"Documentation of an installed Julia name: a module (`Atomix`, `KernelInterface`), function, macro (`Atomix.@atomic`) or type. For a name that does not exist it says so and lists what the module defines.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\", \"description\": \"The name as written in code, e.g. `KI.get_global_id` or `Base.@atomic`.\"}}, \"required\": [\"name\"]}}}"
+            ]
+        },
+        {
+            "name": "direct_budget",
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code.",
+            "tools": [
+            ]
+        }
+    ],
+    "comparison": {
+        "evidence": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+        "first_tools": "98eac8919ad3f942521afbe3e9d833f06b2d554a53b594ac9fe58a6bcc5b1c9a"
+    },
+    "tasks": [
+        {
+            "id": "ki_body_affine",
+            "prompt_sha256": "032ec2e81f3d56938ceb231cdad93e4564ce1417f5d6fb7306fe3008900cdeb0",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "67e80907296bbd7c3ef272d02d9360e9c4cf37e8de445c565f4ea7190225e92d",
+            "reference_sha256": "7ded78d7d89f16ba7e6813e4b8f02dc0dc26c60d97de7eb42dd5d3564fdbe833",
+            "probe": "__bench_launch__(kernel!,fill(-9f0,5),Float32[2,-3,1,8,4],2f0,1f0,Int32(3);threads=3)"
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "prompt_sha256": "e542adb56c4469df6d3cc8fbfe43321ac757a9d9d95bfa024195f3c34f8490a8",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "e56d3f1de17329fdc3ac1f9aaa1605098f35e70f8df1c87177a03a3f03cdf2ae",
+            "reference_sha256": "1522b2e9329d4ce2a737fc4ef2e1ea10df27f2692ffbbaa97db39370000289c3",
+            "probe": "__bench_launch__(kernel!,fill(-9f0,5),Float32[2,-3,1,8,4],Int32(3);threads=3)"
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "prompt_sha256": "a830b88eacf165cacaf8c5754fa1eec93e7e6a1f927aa32f87415c81e6ee1b1e",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "41a5e91e073a8f3d4c0f8cd1500f554d658a2e17274f816b37c36c37ba235225",
+            "reference_sha256": "63dbefa3b56d5d72e8b6ee0d34d15cb81081a1f0c0061beb2d50f2a476046643",
+            "probe": "__bench_launch__(kernel!,fill(-9f0,8),Float32[2,-3,1,8,4,7,0,0],Float32[2,4],Int32(2),Int32(3);threads=6)"
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "prompt_sha256": "48c281996b9e7cb046da8eb28ead76b62300a25ce30f12cf7fa2ac54878e0a78",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "36cccf2b20e13055c5dafbfba13eec03b1e93e78e7aa57040ec19981736881ba",
+            "reference_sha256": "6c407a88894dfe320c9a7b7364451ef48871a25a223eb41943576285505c0a86",
+            "probe": "__bench_launch__(kernel!,fill(-Inf32,2),Int32[1,2,1,2],Float32[2,-3,1,8],Int32(4);threads=4)"
+        },
+        {
+            "id": "transfer_clamped_gather",
+            "prompt_sha256": "0013abda235b5414838dd52a47917bd42f47bca13020042a5c8f7f6c43c8f41e",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "4569982705962b29b1fbd4f9dc4f03e48394e748e0e7317af83895e2b3a4764e",
+            "reference_sha256": "180957e388e2f73aeda6904f65df408551f120dafe342b0af5f5a784363af64d",
+            "probe": "__bench_launch__(kernel!,fill(-9f0,5),Float32[2,-3,1,8],Int32[0,2,9],Int32(3),Int32(4);threads=3)"
+        },
+        {
+            "id": "transfer_sincos_pair",
+            "prompt_sha256": "81325585fdde56b12d20603cf2a689b6e24e52b2504c191fc93a69db5199e756",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "0c460a62dcb1736c90206b0ca482a21f74ad1020eb5543854798f1688743d837",
+            "reference_sha256": "5495bf74374667269c87663bccde3acb7da3a51314711f04e72faec41269e8e6",
+            "probe": "__bench_launch__(kernel!,fill(-9f0,4),fill(-9f0,4),Float32[0,1,-1],Int32(3);threads=3)"
+        },
+        {
+            "id": "transfer_flat_transpose",
+            "prompt_sha256": "ec8f6c2badcea6042e84b09f5d98a16d2e91fa3c5bbd747dd5bd4b34708c3792",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "ee1449bb042d0c852294de3fa118538282a9d35c5ecb00748357ff3035a2b090",
+            "reference_sha256": "94fa8fb3cfbe635e783c509578bef480df19a8916d6058c700f17bc9202587c5",
+            "probe": "__bench_launch__(kernel!,fill(-9f0,8),Float32[1,2,3,4,5,6,0,0],Int32(2),Int32(3);threads=6)"
+        },
+        {
+            "id": "transfer_atomic_sum",
+            "prompt_sha256": "28196199163dbd4ae67eb5eba824ee29dbf5c0ef5723dbcadf88a536ac688a08",
+            "setup_sha256": "7e2985b45641437a4fe0fe3ad6f22b6923849e6504ca660780747a380e66a1ca",
+            "tests_sha256": "ae5dc594a7195256a13f8da79f7f12cefd2684e688fcf8cbacee142cc432d72e",
+            "reference_sha256": "8df013908b74b6d808f6920f1abd4c38b07a8317570676ddcb5a1fdc957b38ba",
+            "probe": "__bench_launch__(kernel!,zeros(Float32,2),Int32[1,2,1],Float32[1,2,3],Int32(3);threads=3)"
+        }
+    ],
+    "source_sha256": {
+        "prefill_qwen35.jl": "1c6cbfdb3e344e01f49e663f74bf52edff89b9c18ad7963e518118aa52be0996",
+        "qwen36_moe_model.jl": "e003d3d17ada4163cca5c0a95b31c972b62f1ad865c624a6dc86938206e4d4ef",
+        "qwen_tools.jl": "f8801c810f28e6da918b3785be38574a23d3b1da1240b242f56f60e17d7ae082",
+        "kernel_public_smoke.jl": "087414053923cfb8ef54059be78fa4a48bbfe7783e221a974918b2999649589b",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "moe_quant_qwen35.jl": "2c290c72dc7b634a44afb9917baf11f68047ab869ed57ba1fe77fc25270059fc",
+        "sampled_julia.jl": "caf4c7ccc4c2c641f3447eca196507b9cd32d1b812d15049f65440ba87279ab4",
+        "transfer_studies.jl": "7f566bd14bd6908f341edba75c015645d285c47188a254012870c1104f91f13c",
+        "kernel_transfer_tasks.jl": "ce2f5eb1238f9d7828b5d2eff7e135d59a19476d984225fff4597bc0f5103ae4",
+        "qwen_tools_template_fixture.json": "2c7f59985ceb68e5a47fa05fdcc076c6627450de62953edcdecd93e72358f3e2",
+        "vulkan_kernel_tasks.jl": "961c5c69317bfbd4cbcda97fba99f14611c27c793428affc820471bd578c823a",
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "kernel_tools_v2_study.jl": "d79942ac68154f251aaa8065b68c5085aeb3967ed630c1a5ad17a1ebcbbfd4a1",
+        "run_julia_tasks.jl": "f7391d463e01b29c2f7b6befec6799b84730a85cb5a9c1b0cc9f70b0bba02328",
+        "qwen36_gguf_kernels.jl": "1a5023d69f21d525e0b9481050b219c3db028230f4b9f1bea34973844955b596",
+        "moe_qwen35.jl": "135bc80c3a4abb946bb47d49bc979592eed2142af9082a7745b7eccdbc99beb5",
+        "kernel_tools_study.jl": "e85fddefc364e5f016fbe3c31860e229e8b3a15e73eb3ff23de79d3b9369d893",
+        "qwen36_prefill.jl": "a8d9e9866da6b6a0d7f2a88a322223c637019c5cf8e7c9054dc44e893133d518",
+        "julia_docs_retrieval.jl": "127ef4db4a5553e3f4f4ab3e4436b4677a3cd151fd511614444baeeafd20e67f",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "member_name_constraint.jl": "107a01c2b6964568ed13b01beaf187b2e5ee4eb842fb3f837acc88e004ad9ee0",
+        "qwen36_gguf.jl": "d9fd105cf49085e1ae77e06894ad3e3f2ef47b3d09b86216f75ac6bd575b02f9",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "text_backbone.jl": "3df2270fb906e6a296abf6d3518dc9369316418bb0c5c8b7a321e87f8754d361",
+        "qwen35.jl": "66c828214e028d6bb6e1b9fa7ae267628d84adbd159dfca2dfd61f5730180c04",
+        "qwen36_optim.jl": "98c1a6e1887d775cc8174894c788591d89a0d7a27017c5131949f7ce8d548db3",
+        "kernel_api_pack.json": "f873054bbe4962b668588c68b9647c695244bf195ddc69a71cc1c2d662c0bd17",
+        "tool_julia.jl": "0d76c4683fa416e7e86335b7a859883a4c20607fbec43590c92645b685296815",
+        "julia_worker.jl": "78d92328fbdcd5f38b71ee6996176e2ccc393fd25e29a14908be9e68b479a72d",
+        "kernel_evidence_study.jl": "1a67a1d18117372d575f7bc69d833057e88b246a2ef0f4bb8f3f044529b25b8b"
+    }
+}

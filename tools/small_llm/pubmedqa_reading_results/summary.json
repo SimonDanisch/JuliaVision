@@ -1,0 +1,597 @@
+{
+    "complete": true,
+    "scope": "Fixed-hash16 public expert-labeled PubMedQA items; corresponding context is oracle evidence. Not official split/leaderboard, contamination-free or clinical competence.",
+    "policy": "ALL48 conditions frozen before generation. Same seed/sampler/max128 nonthinking tokens, counterbalanced three-arm order; one raw answer per arm/task, no retries/hidden feedback. Strict trimmed case-normalized yes/no/maybe only; punctuation/explanations/truncation/errors invalid. Corresponding vs next-item context vs question-only diagnostic. maybe is a study label, not calibrated uncertainty. Private gold and conclusions NEVER deployed.",
+    "rows": [
+        {
+            "id": "pubmed_27615402_question_only",
+            "task": "27615402",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "b817787b807c5c54b66045349f04aac2fdad9229422f9cebcb3d266f79c8560b",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_27615402_corresponding_context",
+            "task": "27615402",
+            "arm": "corresponding_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "cdc479a808c1d1221492b88b9a916c4a675569072a100cd13a87f6b200e572be",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_27615402_mismatched_context",
+            "task": "27615402",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "c97e6890282baba01827ebed8b8533753774d64862a663ab857a858781f751bf",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_11799314_corresponding_context",
+            "task": "11799314",
+            "arm": "corresponding_context",
+            "status": "failed",
+            "prediction": "maybe",
+            "generation_sha256": "1c390b25103fb189e1695759f4b6a702272857f663e7c54e3f2355de345e0ef7",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_11799314_mismatched_context",
+            "task": "11799314",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "535dfd80f4c1ca455febc6b94186d1b940cace78ff0a604e579ec1625256bcb1",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_11799314_question_only",
+            "task": "11799314",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "372a7a5f246fdfe4c1f9c2d2a3aef2825e860103e16d0b2c93e834587bb4811c",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_16968183_mismatched_context",
+            "task": "16968183",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "9856fb387498acda5807145811861bc56e4ee3f6325a01a95fd5f762945b2c1b",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_16968183_question_only",
+            "task": "16968183",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "4873156ebf4e8cf8cca1f8ee41182fa7246f371b30428bc094033d549896c963",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_16968183_corresponding_context",
+            "task": "16968183",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "cba9b6b8a14654858187444be00d40ced5b783ba265a59ef5ef3edcb13e00d28",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_23736032_question_only",
+            "task": "23736032",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "afaef7dd9ff7a4fd1af6816137e6c99beec0d1d18c3f60e5d4216c2de567ec4a",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_23736032_corresponding_context",
+            "task": "23736032",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "445825e303905524de1668e61ae8a8f494d661711b89e9b9ff75998070b49819",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_23736032_mismatched_context",
+            "task": "23736032",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "e8e1dd4b92cbabbaa86c95c19e23d86eef92e31ee60378aa57c038bc752fb3ec",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_22108230_corresponding_context",
+            "task": "22108230",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "e10b300dd60ca86566112815d4b6f182eae1077444657975318fb93c131a6477",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_22108230_mismatched_context",
+            "task": "22108230",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "598b01fe805e24a6bcfbbc28419bd0c38cb7cca9593b017245f5b44ae3e2f78b",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_22108230_question_only",
+            "task": "22108230",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "caf1af850cd39ffaabc42c475906e68b99a907d4f7516149f53d8340acd32e0e",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_28247485_mismatched_context",
+            "task": "28247485",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "920ecc71573ac8be1e2c31b1e7d0eeae743234d80d875839d6f828689f154e37",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_28247485_question_only",
+            "task": "28247485",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "33373dd35814e97f597ec5cebf95f72cc616e62c9214c0add0c845a955354eb2",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_28247485_corresponding_context",
+            "task": "28247485",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "0d80fb63bcf13bd7a23650f68bb36967f03c4e5ce060d8aeb24363a7f1a2f8e2",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_23234860_question_only",
+            "task": "23234860",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "94942778019be6d7c79275ca583309a3054fad936999eba28f666eb3ffb12444",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_23234860_corresponding_context",
+            "task": "23234860",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "597d9587b06afb9b6bc3c28eb57666e9f43f6b29e1964ea51081cd5a1b233c70",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_23234860_mismatched_context",
+            "task": "23234860",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "cedc3a32663f190ee65b232b1ff16669f476f861c14ef95e3b22805438c0f510",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_16778275_corresponding_context",
+            "task": "16778275",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "b903492977c1ca9b9150585b8f4dad80b1a39ae98c7c50369963fe9e4392ad66",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_16778275_mismatched_context",
+            "task": "16778275",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "b8a2d4544cbcc3e7bf947714f2010a9000d59ed4fa21bbda03493b5a0787faa4",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_16778275_question_only",
+            "task": "16778275",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "6438220ddff2f29f45ea0a746a6edbbad811b73c313b63a68d198986423f68df",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_27040842_mismatched_context",
+            "task": "27040842",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "919236241cb29d9b60fa88cbfba28c5d29bf0366848660cf6dfb7217ee3a19de",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_27040842_question_only",
+            "task": "27040842",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "032d66b0a51f93a123da1c0eb05ed5fdb7264a624855904d939a933a23296762",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_27040842_corresponding_context",
+            "task": "27040842",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "3321a0b0a6ddfbb7b91178979a872d84db01a1447c9a4db0839039439a0477a4",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_19925761_question_only",
+            "task": "19925761",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "83373a20cf4a8f8d9552d7bd490510c653b88efa83b52c069edb21229da0416e",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_19925761_corresponding_context",
+            "task": "19925761",
+            "arm": "corresponding_context",
+            "status": "failed",
+            "prediction": "maybe",
+            "generation_sha256": "67e931866de3bc3b8c8643695974009b45a95f6b6bd53a3887217bcbb17c250c",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_19925761_mismatched_context",
+            "task": "19925761",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "794dd013117fbcbb98350ef84d45a56d9118bbd8a4f850a36213e76445957730",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_25150098_corresponding_context",
+            "task": "25150098",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "6915f42402e90753af712059f214e0b4762a3610849411a2a865385a9e4073bf",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_25150098_mismatched_context",
+            "task": "25150098",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "2ba790c976dbc54a4a3f99d3562cfebdbed09e81e82d3404fdf66754912201a2",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_25150098_question_only",
+            "task": "25150098",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "76b1a747ecc3ccd38e1db12e9aa2a33dcd4a2404fba6f7292e8e4d3da73e22d8",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_19712912_mismatched_context",
+            "task": "19712912",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "2bedf9efa6982f5c8c38683029c5195db3392556bee508bc291a98b63705d4ee",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_19712912_question_only",
+            "task": "19712912",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "4df365f61d3e2a12fb2bf82f1591cc3bd8273829fcf5ca94e66b40e1e6522482",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_19712912_corresponding_context",
+            "task": "19712912",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "62e491b741fb0c87faea799224e93035947ed6fe003d3535f7303e2cc23ec4a9",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_7664228_question_only",
+            "task": "7664228",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "52c8b1b18937e2b9a7cef0a67b93d6c584fa8ac0a90c4d05bc6cc118c05e49ea",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_7664228_corresponding_context",
+            "task": "7664228",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "f9884b2ce386e1d01ed16f9ed2a72d9510a712d3e62cde604424882f301a92ec",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_7664228_mismatched_context",
+            "task": "7664228",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "2f20fc7aa8c68f895a1b4406f083282747351103bd160e27bd9083b9bf6951ed",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_8566975_corresponding_context",
+            "task": "8566975",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "8374aa7f6c0f96c05de6158b34307a568a34cb1bffe3ee55000338c2f24befcc",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_8566975_mismatched_context",
+            "task": "8566975",
+            "arm": "mismatched_context",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "74a90a4e665767e20ebfb4e25e94d996aea458790aea2422101967267f320dfc",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_8566975_question_only",
+            "task": "8566975",
+            "arm": "question_only",
+            "status": "passed",
+            "prediction": "no",
+            "generation_sha256": "a6685644bb75ab69fc245cf98f324a24e3b549c5956063b69bf066bbc7851dc3",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_24614789_mismatched_context",
+            "task": "24614789",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "374de98f5eda8d6492f61d4418bc47cf5670d90b455ab8a587f6ef39f20a10e2",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_24614789_question_only",
+            "task": "24614789",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "403db00eb4dd5edb4097ee1153069b85d3270ee7471a13dbe113d79211db53c4",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_24614789_corresponding_context",
+            "task": "24614789",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "adbc515e17865f0e8e5e27c6ede0b22980b14747851f5d309fc9840b3e808f36",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_8245806_question_only",
+            "task": "8245806",
+            "arm": "question_only",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "5ea7ff681e3d3b0b07490fd6fd7149a452505cde902098d95280e84ee0cbed61",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_8245806_corresponding_context",
+            "task": "8245806",
+            "arm": "corresponding_context",
+            "status": "passed",
+            "prediction": "yes",
+            "generation_sha256": "477420b5015578200e14d7264d02d193a3bb76e2cd0a2aa3c403fdb23fbb86ff",
+            "truncated": false
+        },
+        {
+            "id": "pubmed_8245806_mismatched_context",
+            "task": "8245806",
+            "arm": "mismatched_context",
+            "status": "failed",
+            "prediction": "no",
+            "generation_sha256": "4dffbf6ab03bb39a242032f2ccf0352c899f04d173e25ec48a91714dc66772cc",
+            "truncated": false
+        }
+    ],
+    "arms": [
+        {
+            "arm": "question_only",
+            "total": 16,
+            "correct": 7,
+            "accuracy": 0.4375,
+            "macro_f1": 0.2028985507246377,
+            "invalid": 0,
+            "per_class": [
+                {
+                    "label": "yes",
+                    "tp": 0,
+                    "fp": 0,
+                    "fn": 8,
+                    "f1": 0
+                },
+                {
+                    "label": "no",
+                    "tp": 7,
+                    "fp": 9,
+                    "fn": 0,
+                    "f1": 0.6086956521739131
+                },
+                {
+                    "label": "maybe",
+                    "tp": 0,
+                    "fp": 0,
+                    "fn": 1,
+                    "f1": 0
+                }
+            ],
+            "confusion": {
+                "yes": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 8
+                },
+                "maybe": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 1
+                },
+                "no": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 7
+                }
+            }
+        },
+        {
+            "arm": "corresponding_context",
+            "total": 16,
+            "correct": 13,
+            "accuracy": 0.8125,
+            "macro_f1": 0.5968253968253968,
+            "invalid": 0,
+            "per_class": [
+                {
+                    "label": "yes",
+                    "tp": 7,
+                    "fp": 0,
+                    "fn": 1,
+                    "f1": 0.9333333333333333
+                },
+                {
+                    "label": "no",
+                    "tp": 6,
+                    "fp": 1,
+                    "fn": 1,
+                    "f1": 0.8571428571428571
+                },
+                {
+                    "label": "maybe",
+                    "tp": 0,
+                    "fp": 2,
+                    "fn": 1,
+                    "f1": 0
+                }
+            ],
+            "confusion": {
+                "yes": {
+                    "yes": 7,
+                    "maybe": 1,
+                    "invalid": 0,
+                    "no": 0
+                },
+                "maybe": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 1
+                },
+                "no": {
+                    "yes": 0,
+                    "maybe": 1,
+                    "invalid": 0,
+                    "no": 6
+                }
+            }
+        },
+        {
+            "arm": "mismatched_context",
+            "total": 16,
+            "correct": 7,
+            "accuracy": 0.4375,
+            "macro_f1": 0.2028985507246377,
+            "invalid": 0,
+            "per_class": [
+                {
+                    "label": "yes",
+                    "tp": 0,
+                    "fp": 0,
+                    "fn": 8,
+                    "f1": 0
+                },
+                {
+                    "label": "no",
+                    "tp": 7,
+                    "fp": 9,
+                    "fn": 0,
+                    "f1": 0.6086956521739131
+                },
+                {
+                    "label": "maybe",
+                    "tp": 0,
+                    "fp": 0,
+                    "fn": 1,
+                    "f1": 0
+                }
+            ],
+            "confusion": {
+                "yes": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 8
+                },
+                "maybe": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 1
+                },
+                "no": {
+                    "yes": 0,
+                    "maybe": 0,
+                    "invalid": 0,
+                    "no": 7
+                }
+            }
+        }
+    ],
+    "conditions_sha256": "65a31750c6ba28a41a5e3336c7b8e290e3b2e5dbd0b1d0cdb565b8d555340f4d",
+    "scorer_sha256": "4b33d5ff039499ac0b6770cb1454e9ff8abb78218b4b6047208ba8f1db023591",
+    "caveats": "16 public old papers, one seed, oracle source arm and unrelated-context control; not current medical consensus, patient advice, calibrated uncertainty or a complete retriever. Invalid/truncated/error answers retained in denominators; no frontier claim."
+}

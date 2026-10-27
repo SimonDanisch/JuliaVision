@@ -1,0 +1,129 @@
+{
+    "scope": "Posthoc same-Laptop disabled-controller controls for ALL six frozen migrated outputs; not an independent held-out benchmark. No selective task/arm exclusions.",
+    "rows": [
+        {
+            "id": "transfer_sincos_pair_api_pack",
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "4ab9d5cd9f386a021415eb9a5939870d1afa6e7b9ca00b8e28dc5b2d75e6bea7"
+        },
+        {
+            "id": "transfer_sincos_pair_api_pack",
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "4ab9d5cd9f386a021415eb9a5939870d1afa6e7b9ca00b8e28dc5b2d75e6bea7"
+        },
+        {
+            "id": "transfer_sincos_pair_no_addon",
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "214ad2633c435f8586669aca0f934e16d72c08fee74b0258a676aea8c5a5de4a"
+        },
+        {
+            "id": "transfer_sincos_pair_no_addon",
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "214ad2633c435f8586669aca0f934e16d72c08fee74b0258a676aea8c5a5de4a"
+        },
+        {
+            "id": "transfer_flat_transpose_no_addon",
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": false,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "9e3f2b47d54f7c2d6f7a0f2063b2b5cf338a74d040d66c330a9eedb25377d1fc"
+        },
+        {
+            "id": "transfer_flat_transpose_no_addon",
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": false,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "9e3f2b47d54f7c2d6f7a0f2063b2b5cf338a74d040d66c330a9eedb25377d1fc"
+        },
+        {
+            "id": "transfer_flat_transpose_api_pack",
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "308e5135ba02eb4218d2c8ca5b3cc781eabf704710f271f5c0557db449a942e5"
+        },
+        {
+            "id": "transfer_flat_transpose_api_pack",
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "308e5135ba02eb4218d2c8ca5b3cc781eabf704710f271f5c0557db449a942e5"
+        },
+        {
+            "id": "transfer_atomic_sum_api_pack",
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "fe9ee3a35bdb28d2b392c010aa4d828979ba00c8be2235c3ab773ae5623e867d"
+        },
+        {
+            "id": "transfer_atomic_sum_api_pack",
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "fe9ee3a35bdb28d2b392c010aa4d828979ba00c8be2235c3ab773ae5623e867d"
+        },
+        {
+            "id": "transfer_atomic_sum_no_addon",
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "fb4bb87ad4b753f7419482bf5ce86a25080f2dcda74f273eb77f62356c0192ff"
+        },
+        {
+            "id": "transfer_atomic_sum_no_addon",
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": true,
+            "pre_closure_prefix_matches_pilot": true,
+            "generation_sha256": "fb4bb87ad4b753f7419482bf5ce86a25080f2dcda74f273eb77f62356c0192ff"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "db2134e673908de21cbed72b7d39d7446cdd47e6ef8fc9ed53118b87c857ba3a",
+    "scorer_sha256": "1369bc995fe46d93fb54a2b0d8c0d9571b5ecdc6fd338020f5624a31d9f9a4a1",
+    "execution": "Original sandboxed software-Vulkan evaluator only"
+}

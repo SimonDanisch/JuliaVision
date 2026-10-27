@@ -1,0 +1,54 @@
+{
+    "complete": true,
+    "host_checks": 17,
+    "reference_pixel_parity": true,
+    "render": {
+        "rendered": true,
+        "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/safe_plot_builder_artifacts/julia_frontend_reference_v2.png",
+        "dimensions": {
+            "width": 960,
+            "height": 480
+        },
+        "elapsed_seconds": 64.98880696296692,
+        "sha256": "4704c81899b878d63b776fb062e30238feb146c91ef2662a038045c0f8800948",
+        "layout": {
+            "canvas": [
+                960,
+                480
+            ],
+            "axes": [
+                {
+                    "title": "Signal and envelope",
+                    "decorated_bounds": [
+                        16,
+                        16,
+                        467.0931,
+                        464
+                    ],
+                    "within_canvas": true
+                },
+                {
+                    "title": "Positive response",
+                    "decorated_bounds": [
+                        485.09308,
+                        16.0,
+                        944.0,
+                        464.0
+                    ],
+                    "within_canvas": true
+                }
+            ]
+        },
+        "diagnostic": "REFERENCE_PHASE=native_build\nREFERENCE_PHASE=lowered_build\nREFERENCE_PHASE=native_pixels\nREFERENCE_PHASE=lowered_pixels\nREFERENCE_PHASE=compare\nREFERENCE_PIXEL_PARITY=true\nLAYOUT_REPORT={\"canvas\":[960,480],\"axes\":[{\"title\":\"Signal and envelope\",\"decorated_bounds\":[16.0,16.0,467.0931,464.0],\"within_canvas\":true},{\"title\":\"Positive response\",\"decorated_bounds\":[485.09308,16.0,944.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+    },
+    "scope": "Trusted two-panel native Julia reference vs restricted source-to-IR construction pixel equality, CPU-only networkless Cairo jail. Not arbitrary Julia equivalence, general compiler correctness, neural task accuracy or aesthetic preference.",
+    "sources": {
+        "qualify_safe_plot_julia_source.jl": "59ed360eb4dd2b51a72ae2a524f49f1e32af4fd6aa42e417a1b50d8246f3a9fb",
+        "safe_plot_builder.jl": "1e099b935c08b9c644c42281717430d802313286c2a2ffc8c9748731e6dc1e09",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "test_safe_plot_julia_source.jl": "29ca6d58b093439ff8fb86299d5e7a89cafd08143f7aa795dece340eb33e8d3d",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec",
+        "safe_plot_julia_source.jl": "d20da3d8c2681a5e7c01845ae157c318eacf970d09b898003922764fa9ab5e92",
+        "julia_render.jl": "20350157de8962bd192ac87cde0550482da7894563799042c43003d8543207f9"
+    }
+}

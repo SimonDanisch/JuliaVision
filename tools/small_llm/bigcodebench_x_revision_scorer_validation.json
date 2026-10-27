@@ -1,0 +1,10 @@
+{
+  "complete": true,
+  "tests": 1,
+  "scope": "PRIVATE mocked all16 receipt/cache checks only, NOT neural/model scores",
+  "source_sha256": {
+    "score_bigcodebench_x_revisions.py": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c",
+    "test_score_bigcodebench_x_revisions.py": "f20e45d8a476cd253c94eae7d0cb003fcd638401a4790a675ffd838032f2cbdd",
+    "bigcodebench_x_revisions.jl": "6aef3a198bdb8fa74e0bb9261da7c1508e21fe4e1f9a3255e29666029df97a57"
+  }
+}

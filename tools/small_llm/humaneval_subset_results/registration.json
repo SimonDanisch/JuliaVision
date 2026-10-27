@@ -1,0 +1,108 @@
+{
+    "repository": "https://github.com/01-ai/HumanEval.jl",
+    "revision": "52b58aa40d63b1a6c08ac910b798229b36f5c24f",
+    "license": "MIT; Copyright(c)2024 01.AI; original LICENSE retained in pinned checkout",
+    "selection": "first12 filenames sorted by SHA256(small-llm-julia-external-v1:<filename>), frozen before model generation",
+    "limitations": [
+        "public benchmark, training contamination possible",
+        "basic upstream tests only, NOT evalplus or full164-task benchmark"
+    ],
+    "rows": [
+        {
+            "id": "034_unique_elements",
+            "filename": "034_unique_elements.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    unique_elements(l::Vector)\n\nReturn sorted unique elements in a list.\n\n# Examples\n\n```jldoctest\njulia> unique_elements([5, 3, 5, 2, 3, 3, 9, 0, 123])\n6-element Vector{Int64}:\n   0\n   2\n   3\n   5\n   9\n 123\n```\n",
+            "source_sha256": "dfe738ecc3c37d729d00930929f47a005bee6bddd7fa069ced4563fcee02e39a",
+            "original_tests_sha256": "530c2a772e6b18e21d342f38776c9b82a219cad7f67bb6af69177c043b0237ea",
+            "adapter_tests_sha256": "b34aa9739f2d0cb95100c2b41136ab07a0592bbf316478d8d1a22d4859c29bec"
+        },
+        {
+            "id": "039_prime_fib",
+            "filename": "039_prime_fib.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    prime_fib(n::Int)::Int\n\nReturns n-th number that is a Fibonacci number and it's also prime.\n\n```jldoctest\njulia> prime_fib(1)\n2\n\njulia> prime_fib(2)\n3\n\njulia> prime_fib(3)\n5\n\njulia> prime_fib(4)\n13\n\njulia> prime_fib(5)\n89\n```\n",
+            "source_sha256": "76e9bfda65c5d873e8ffa9b3f853eaf89f106ce491694b8731a0e41eff5df242",
+            "original_tests_sha256": "64c777923a0eef10e6323aa796327e39259f83331cb61c3b83ae8264d4383e13",
+            "adapter_tests_sha256": "52e1e9b504d2d0d6dc635415e59e6b6d5181f46df8344b06fe87bee84d6cff99"
+        },
+        {
+            "id": "106_f",
+            "filename": "106_f.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    f(n::Int)::Vector{Int}\n\nImplement the function `f` that takes `n` as a parameter, and returns a list of\nsize n, such that the value of the element at index `i` is the factorial of `i`\nif `i` is even or the sum of numbers from 1 to `i` otherwise. `i` starts from 1.\nThe factorial of `i` is the multiplication of the numbers from 1 to i (1 * 2 *\n... * i).\n\n# Examples\n\n```jldoctest\njulia> f(5)\n5-element Vector{Int64}:\n  1\n  2\n  6\n 24\n 15\n```\n",
+            "source_sha256": "f5e1de848519ebc83d19f20f41dea40ad82f9f9a1972daa5aae1e4de42ea93b9",
+            "original_tests_sha256": "82c6a8d3d19200ec5dbf54d66ecddb30cbaf8b9fef385ba8a8be70429685b119",
+            "adapter_tests_sha256": "4e2fda3ba0f96406f9262a9dc33e0de457835c54c4eb874786548e3f0fb5f1d1"
+        },
+        {
+            "id": "162_string_to_md5",
+            "filename": "162_string_to_md5.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    string_to_md5(text::String)::Union{Nothing,String}\n\nGiven a string `text`, return its md5 hash equivalent string. If \"text\" is an\nempty string, return `nothing`.\n\n# Examples\n\n```jldoctest\njulia> string_to_md5(\"Hello world\")\n\"3e25960a79dbc69b674cd4ec67a72c62\"\n```\n",
+            "source_sha256": "4a16b0e8d83a27ae362f62ab2fa7b28036a87789fac504c36e1f5baac5f54e0a",
+            "original_tests_sha256": "fe84efa1004c8aea4644fc2c8e21cd188f4a2bae2858b9e2f56836deed4b64c1",
+            "adapter_tests_sha256": "1db4a2aa72f7a143094dd4063f48d42f22f12f415e293b9b3f3fc2dda6241de9"
+        },
+        {
+            "id": "104_unique_digits",
+            "filename": "104_unique_digits.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    unique_digits(xs::Vector{Int})::Vector{Int}\n\nGiven a list of positive integers `xs`. Return a sorted list of all\nelements that hasn't any even digit.\n\n!!! note\n\n    Returned list should be sorted in increasing order.\n\n# Examples\n\n```jldoctest\njulia> unique_digits([15, 33, 1422, 1])\n3-element Vector{Int64}:\n  1\n 15\n 33\n\njulia> unique_digits([152, 313, 1422, 10])\n1-element Vector{Int64}:\n 313\n```\n",
+            "source_sha256": "3579bf3f99d16583d415a1e20d7609c96cf93dd71ac04be2361e33ca67615049",
+            "original_tests_sha256": "7c43fa15e0652db547474aae5edefc2f8633862d14d7c91448bce95d843704c2",
+            "adapter_tests_sha256": "4af37da935bab39cd1291b66400fa63d66f547ae0eed7eb45cfeeeb2f7143678"
+        },
+        {
+            "id": "074_total_match",
+            "filename": "074_total_match.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    total_match(xs::Vector{String}, ys::Vector{String})::Vector{String}\n\nWrite a function that accepts two lists of strings and returns the list that has\ntotal number of chars in the all strings of the list less than the other list.\n\nIf the two lists have the same number of chars, return the first list.\n\n# Examples\n\n```jldoctest\njulia> total_match(String[], String[])\nString[]\n\njulia> total_match([\"hi\", \"admin\"], [\"hI\", \"Hi\"])\n2-element Vector{String}:\n \"hI\"\n \"Hi\"\n\njulia> total_match([\"hi\", \"admin\"], [\"hi\", \"hi\", \"admin\", \"project\"])\n2-element Vector{String}:\n \"hi\"\n \"admin\"\n\njulia> total_match([\"hi\", \"admin\"], [\"hI\", \"hi\", \"hi\"])\n3-element Vector{String}:\n \"hI\"\n \"hi\"\n \"hi\"\n\njulia> total_match([\"4\"], [\"1\", \"2\", \"3\", \"4\", \"5\"])\n1-element Vector{String}:\n \"4\"\n```\n",
+            "source_sha256": "e306bf4fd4f27b4e252d26d89bc1776106b3bd88460fa2e7a4bcee0a82d8d2b3",
+            "original_tests_sha256": "da77a9bf6e25951d80e47ede881875e9c7d726bc8652063d70f4c3cda805b563",
+            "adapter_tests_sha256": "34f02e8bfb8b14f1cf959791b00eb415b219aa0ef4f5cdd52ecf90e5d0ed7acd"
+        },
+        {
+            "id": "010_palindrome_with_append",
+            "filename": "010_palindrome_with_append.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    palindrome_with_append(s::String)::String\n\nFind the shortest palindrome that begins with a supplied string. Algorithm idea\nis simple:\n\n  - Find the longest postfix of supplied string that is a palindrome.\n  - Append to the end of the string reverse of a string prefix that comes before\n    the palindromic suffix.\n\n# Examples\n\n```jldoctest\njulia> palindrome_with_append(\"\")\n\"\"\n\njulia> palindrome_with_append(\"cat\")\n\"catac\"\n\njulia> palindrome_with_append(\"cata\")\n\"catac\"\n```\n",
+            "source_sha256": "86203cb3711064289ba961dc212caf63fb4e2b26b38af0dddda9a05c180bfcc3",
+            "original_tests_sha256": "1631d7e9982c52c056efcc93b4e1f72d9515a3262d0c7606d9a8de6ecbefb887",
+            "adapter_tests_sha256": "5c1d0ff1e6f41017516004affeda416edfed5b6f34d0a101fb26e62bbc4605d8"
+        },
+        {
+            "id": "037_sort_even",
+            "filename": "037_sort_even.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    sort_even(l::Vector)::Vector\n\nThis function takes a list l and returns a list l' such that l' is identical to\nl in the odd indicies, while its values at the even indicies are equal to the\nvalues of the even indicies of l, but sorted.\n\n# Examples\n\n```jldoctest\njulia> sort_even([1, 2, 3]) == [1, 2, 3]\ntrue\n\njulia> sort_even([5, 6, 3, 4]) == [5, 4, 3, 6]\ntrue\n```\n",
+            "source_sha256": "56b7c6e353ce99f5c40d7fe322ab40e7fca9ecf467272ba859c56250bec948e0",
+            "original_tests_sha256": "da743d36b3a122f763cc0caca99a45e83eb210dfc8cf4e482cb7fc64b267e254",
+            "adapter_tests_sha256": "84ae10bcf0bb25060abb82b3d4ec559d3adb1c5695862264939ea11fb82b9b10"
+        },
+        {
+            "id": "146_specialFilter",
+            "filename": "146_specialFilter.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    specialFilter(nums::Vector{Int})::Int\n\nWrite a function that takes an array of numbers as input and returns the number\nof elements in the array that are greater than 10 and both first and last digits\nof a number are odd (1, 3, 5, 7, 9).\n\n# Example\n\n```jldoctest\njulia> specialFilter([15, -73, 14, -15])\n1\n\njulia> specialFilter([33, -2, -3, 45, 21, 109])\n2\n```\n",
+            "source_sha256": "759b247626c043f52b60be9d782661ce3ab1aad488e5730f06768f3b893771a3",
+            "original_tests_sha256": "83d2f1383398330d8d94bf243e046989724afcc12391d6b56fd0a87acfc74702",
+            "adapter_tests_sha256": "1a2fa345165fc1e9d8a559f476d1b532e6b8a5a8f9c76e96685459b76b3f52dd"
+        },
+        {
+            "id": "048_is_palindrome",
+            "filename": "048_is_palindrome.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    is_palindrome(text::String)::Bool\n\nChecks if given string is a palindrome\n\n# Examples\n\n```jldoctest\njulia> is_palindrome(\"\")\ntrue\n\njulia> is_palindrome(\"aba\")\ntrue\n\njulia> is_palindrome(\"aaaaa\")\ntrue\n\njulia> is_palindrome(\"zbcd\")\nfalse\n```\n",
+            "source_sha256": "348773ece808de4d66c55a6b870b718c4d998882b86b4b1193364a6f3c8a057c",
+            "original_tests_sha256": "8b19d20251d6d70fc4dbb6f2353c0d1f0aba2b5aaeda4ef541f0592932fe7707",
+            "adapter_tests_sha256": "d1e1aebb84730a72a1e9f7fd2eee36f317885e995ccc2353593f501ba8dfa5c4"
+        },
+        {
+            "id": "110_exchange",
+            "filename": "110_exchange.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    exchange(lst1::Vector{Int}, lst2::Vector{Int})::String\n\nIn this problem, you will implement a function that takes two lists of numbers,\nand determines whether it is possible to perform an exchange of elements between\nthem to make lst1 a list of only even numbers. There is no limit on the number\nof exchanged elements between lst1 and lst2. If it is possible to exchange\nelements between the lst1 and lst2 to make all the elements of lst1 to be even,\nreturn \"YES\". Otherwise, return \"NO\".\n\n!!! note\n\n    It is assumed that the input lists will be non-empty.\n\n# Example\n\n```jldoctest\njulia> exchange([1, 2, 3, 4], [1, 2, 3, 4])\n\"YES\"\n\njulia> exchange([1, 2, 3, 4], [1, 5, 3, 4])\n\"NO\"\n```\n",
+            "source_sha256": "cc9c2dcb4af313c8dce22b2e55d0d4a61ca24908520f048d284c3ace4796fa07",
+            "original_tests_sha256": "af190b00967207a495f0595062efd57a04c10f3e87d2b27f0f7361eb2f00f45a",
+            "adapter_tests_sha256": "73ba46a70e305b3ff8421f0d77d696c8bd97a3d76a8a16d38a6ee8e244a54b38"
+        },
+        {
+            "id": "077_iscube",
+            "filename": "077_iscube.jl",
+            "prompt": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    iscube(a::Int)::Bool\n\nWrite a function that takes an integer `a` and returns `true` if this ingeger is a\ncube of some integer number.\n\nNote: you may assume the input is always valid.\n\n# Examples\n\n```jldoctest\njulia> iscube(1)\ntrue\n\njulia> iscube(2)\nfalse\n\njulia> iscube(-1)\ntrue\n\njulia> iscube(64)\ntrue\n\njulia> iscube(0)\ntrue\n\njulia> iscube(180)\nfalse\n```\n",
+            "source_sha256": "75eff285a053e09fff0db7d880ae653329834796585445c7a55e977f19fc7059",
+            "original_tests_sha256": "a35f4c46d483f5e7d79d18ba0844999748d9dbe35c8b3ca78e0f3b98d55c430d",
+            "adapter_tests_sha256": "d20ca2596e7e7bd981fb0cc418d7a7d05717a7bc4b7ab03604914d9409ebe1fe"
+        }
+    ]
+}

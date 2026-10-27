@@ -1,0 +1,145 @@
+{
+    "scope": "POSTHOC uniform compiler admission expansion motivated by one observed scalar-alias failure. Same compiler route for BOTH arms; no model regeneration, arithmetic repair or replacement of frozen interface scores. NOT held-out/model-only evidence.",
+    "rows": [
+        {
+            "id": "shared_periodic_laplacian_cpu_source",
+            "arm": "cpu_source",
+            "task": "shared_periodic_laplacian",
+            "status": "passed",
+            "compiler_applied": true,
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            },
+            "cpu_passed": true,
+            "gpu_passed": true,
+            "generation_sha256": "809dd72347a2ac82991214944faaf794abc51b13edc2122c5ceafd7877dfb6fe"
+        },
+        {
+            "id": "shared_periodic_laplacian_gpu_source",
+            "arm": "gpu_source",
+            "task": "shared_periodic_laplacian",
+            "status": "failed",
+            "compiler_applied": false,
+            "certificate": null,
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "generation_sha256": "a27a32333fb2007754a7cd4fa949741e07c665bed503d5b03117c3eeed411a8d"
+        },
+        {
+            "id": "shared_indexed_interpolation_gpu_source",
+            "arm": "gpu_source",
+            "task": "shared_indexed_interpolation",
+            "status": "failed",
+            "compiler_applied": false,
+            "certificate": null,
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "generation_sha256": "f555a15732eb0b54145df0fc2b217fea44f9b37d6508b8f6fbaa4bf8ab980a82"
+        },
+        {
+            "id": "shared_indexed_interpolation_cpu_source",
+            "arm": "cpu_source",
+            "task": "shared_indexed_interpolation",
+            "status": "failed",
+            "compiler_applied": false,
+            "certificate": null,
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "generation_sha256": "ebca69c2592d66e1806ed529d6924911294aaa42dbd1e23dc1297df061e62bae"
+        },
+        {
+            "id": "shared_column_bias_clip_cpu_source",
+            "arm": "cpu_source",
+            "task": "shared_column_bias_clip",
+            "status": "passed",
+            "compiler_applied": true,
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "rows * cols",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "invariant_aliases": [
+                    "N"
+                ],
+                "original_source_sha256": "277ea45aee60b213516bf901a62944eeb4758d69ce44946bad1b1e5add6ef5d7",
+                "expansion": "pure integer aliases over immutable scalar arguments substituted before the unchanged admission checker; no task recognition or arithmetic repair"
+            },
+            "cpu_passed": true,
+            "gpu_passed": true,
+            "generation_sha256": "11fc2fb433a8be639fc5468a515967feeed8df2466c917aa08c1598e53c024f9"
+        },
+        {
+            "id": "shared_column_bias_clip_gpu_source",
+            "arm": "gpu_source",
+            "task": "shared_column_bias_clip",
+            "status": "failed",
+            "compiler_applied": false,
+            "certificate": null,
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "generation_sha256": "65fa91a8e8a15958325ed9eb2f05b04763700e74476642729c6d73cc8cbef54d"
+        },
+        {
+            "id": "shared_block_reverse_gpu_source",
+            "arm": "gpu_source",
+            "task": "shared_block_reverse",
+            "status": "failed",
+            "compiler_applied": false,
+            "certificate": null,
+            "cpu_passed": null,
+            "gpu_passed": false,
+            "generation_sha256": "b87e07bc7cace8ffc67f23f2a1736ab2bb9b3c61a78e357b4e2180d5b180bee1"
+        },
+        {
+            "id": "shared_block_reverse_cpu_source",
+            "arm": "cpu_source",
+            "task": "shared_block_reverse",
+            "status": "passed",
+            "compiler_applied": true,
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            },
+            "cpu_passed": true,
+            "gpu_passed": true,
+            "generation_sha256": "92b1c28efb65fd34e2bb8b70c4c7453a349a398353dae01bcf7c2635960c4528"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "113f1677cfa562ae8473a423573f4ec91d40540bbf6e6a006de005d5fa821e2d",
+    "validation_sha256": "83482a87e9c260456e35492b0ac4f028d84cff287f835db51041542ace8501be",
+    "source_sha256": {
+        "invariant_pointwise_study.jl": "135771df4db69bde1c7092e4ba1d92056609d83962ae05bbf40b5debeffacf7a",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "invariant_pointwise_lowering.jl": "f9836b3d419f5b7802067f992e0c99b8ed518aa78aebc89535367d6f54670354"
+    }
+}

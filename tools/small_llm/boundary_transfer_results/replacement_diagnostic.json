@@ -1,0 +1,127 @@
+{
+    "complete": true,
+    "scope": "Supplementary POSTHOC explanation of conservative contract rejections; no primary score changes/neural regeneration or new quality cohort",
+    "rows": [
+        {
+            "id": "previous_clamped_square",
+            "replaced": false,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "4dc14c9fa695f2390e03872bf8c4b37011eedf2786dfc0fc9949404099004c7a"
+        },
+        {
+            "id": "next_periodic_square",
+            "replaced": true,
+            "original_passed": false,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "47514bde6111189fa4cc364a5bf7a2fdbc2d07778395e5ba3521099dbfe836f6"
+        },
+        {
+            "id": "current_above_previous_clamped",
+            "replaced": false,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "32b4d26afcedbaef6793d91ca28d7464e64310eb7c974983567a2cb732cc3b41"
+        },
+        {
+            "id": "periodic_neighbor_minimum",
+            "replaced": false,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "db20580ad2bd8a64d42a0e2b8d3282de79233abd75a8d651d983788bc268eb73"
+        },
+        {
+            "id": "clamped_neighbor_product",
+            "replaced": false,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "ad1b6f80e01dabbc0cdbfa0dbac211fd815a9fdab800effa83d3fec32b6f4bc7"
+        },
+        {
+            "id": "periodic_threepoint_curvature",
+            "replaced": false,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "7aa332d0ce78f303e668625707fc4c0cb10f1be8ca6bc41acbe6dac06c1faddf"
+        },
+        {
+            "id": "clamped_neighbor_separation",
+            "replaced": false,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "existing_syntactic_contract",
+                "rules": [
+                ]
+            },
+            "selection_sha256": "eea1e07d289b85914a48c0b68177fbbaaa11c36875d973592b496d745a43d36b"
+        },
+        {
+            "id": "periodic_threepoint_upper_envelope",
+            "replaced": true,
+            "original_passed": true,
+            "example_passed": true,
+            "boundary_passed": true,
+            "proof": {
+                "accepted": true,
+                "reason": "redundant_clamped_leaves_in_periodic_max",
+                "rules": [
+                    "clamped_previous belongs to {current, periodic_previous}; max already covers both",
+                    "clamped_next belongs to {current, periodic_next}; max already covers both"
+                ]
+            },
+            "selection_sha256": "4377a49c09d3307af29108ec4bf5b491ac0229f449c1107ce411368c0b70a077"
+        }
+    ],
+    "primary_summary_sha256": "e5abf2f69518445af981774c5a0c9d6bfc39eca109fefaa0f81297c8f434750e",
+    "observed_replacements": 2,
+    "replacements_of_originally_passing_programs": 1,
+    "sources": {
+        "audit_boundary_transfer_replacements.jl": "fb5cfc3536cf07477ae685c7f8819a7f367f5c3818a846deb6b104b05146a08b",
+        "stencil_boundary_max_proof.jl": "8097770ee91a9fc967d2a14cfb3e1780b0d321c641f76b32a4bb74e94776d252"
+    }
+}

@@ -1,0 +1,336 @@
+{
+    "complete": true,
+    "scope": "Next disjoint fixed-hash16 public PubMedQA questions, not the official split or contamination-free clinical evaluation",
+    "conditions_sha256": "444c4cea2bf02427f3ee179b29e6c2389847b634d9fad07257ccff7716c7baa5",
+    "summary_sha256": "aa723f6c87cf4e0bfd2bc3e024941ff856de543ee949ab236f25ffdb7df88cc9",
+    "retrieval_source_hits": 15,
+    "retrieval_total": 16,
+    "question_vs_retrieval": {
+        "control": "question_only",
+        "treatment": "retrieved_context",
+        "total": 16,
+        "repairs": 10,
+        "regressions": 0,
+        "prediction_changes": 12,
+        "pairs": [
+            {
+                "task": "21865668",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23517744",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23806388",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "17715311",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "22867778",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "10605400",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "25311479",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "20497146",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "10927144",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "26194560",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "15223725",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "7482275",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "17444776",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": false
+            },
+            {
+                "task": "26237424",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "24153338",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "19130332",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            }
+        ]
+    },
+    "mismatch_vs_retrieval": {
+        "control": "mismatched_context",
+        "treatment": "retrieved_context",
+        "total": 16,
+        "repairs": 10,
+        "regressions": 0,
+        "prediction_changes": 12,
+        "pairs": [
+            {
+                "task": "21865668",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23517744",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23806388",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "17715311",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "22867778",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "10605400",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "25311479",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "20497146",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "10927144",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "26194560",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "15223725",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "7482275",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "17444776",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": false
+            },
+            {
+                "task": "26237424",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "24153338",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "19130332",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            }
+        ]
+    },
+    "oracle_vs_retrieval": {
+        "control": "corresponding_context",
+        "treatment": "retrieved_context",
+        "total": 16,
+        "repairs": 0,
+        "regressions": 0,
+        "prediction_changes": 1,
+        "pairs": [
+            {
+                "task": "21865668",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "23517744",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "23806388",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "17715311",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "22867778",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": false
+            },
+            {
+                "task": "10605400",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "25311479",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "20497146",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "10927144",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "26194560",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "15223725",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "7482275",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "17444776",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": false
+            },
+            {
+                "task": "26237424",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "24153338",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "19130332",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            }
+        ]
+    },
+    "identical_prompt_groups": 15,
+    "all_identical_prompts_agree": true,
+    "class_counts": {
+        "yes": 11,
+        "maybe": 2,
+        "no": 3
+    },
+    "best_constant_accuracy": 0.6875,
+    "interpretation": "NEW16 same-seed source-reading/retrieval workflow comparison, separate from prior16. Baseline/control all-no behavior is weak and not evidence of substantive medical knowledge. Compare also with the best constant label. Body-only1000-abstract retrieval is not general web search. All maybe items must be reported; no calibrated uncertainty, clinical, frontier, model-weight or pooled-cohort claim.",
+    "source_sha256": "9aaa106c51ca8610045debf958862b391123604ad01951f4198ebfca0dd78212"
+}

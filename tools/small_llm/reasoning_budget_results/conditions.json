@@ -1,0 +1,34 @@
+{
+    "scope": "POST-HOC first-task budget-controller diagnostic after both original arms truncated empty; not independent held-out or knowledge-gain evidence",
+    "task": "transfer_clamped_gather",
+    "arms": [
+        "no_addon",
+        "api_pack"
+    ],
+    "thinking_budget": 1024,
+    "rule": "same original messages/seed/sampling/2048 total allowance; reserve answer space by forcing the native closing-think token once after1024 thinking draws if not already closed",
+    "policy": "one fixed attempt per arm; every registered outcome retained, no retries or hidden-score eligibility; original failures unchanged",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 2048,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "transfer_conditions_sha256": "4e8a40782cea71f9ed96516ba338b6467e0b585fc614a4db181a676cf663e379",
+    "original_sha256": {
+        "api_pack": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+        "no_addon": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3"
+    },
+    "software_qualification_sha256": "3df83a950ab2c4dd8a5bb63b01526cdb1167349855e6e19f2d04bcbf36f497eb",
+    "required_hardware_gate": "reasoning_budget_full_model_validation.json",
+    "source_sha256": {
+        "sampled_budget_julia.jl": "c3ea7ebd9ae1f3b50b5ed32e622153fd40bad0520f56435063d89abeb1cb8a05",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "reasoning_budget_study.jl": "a5db197b543d05f9433b138b919f558963843afaf6062dc29f8935dadc23f5ff",
+        "qualify_reasoning_budget_full_model.jl": "3e0731ee549718ffc022e9f4d4f1d8ba5771518797fe6c0ac856897a650ecdec"
+    }
+}

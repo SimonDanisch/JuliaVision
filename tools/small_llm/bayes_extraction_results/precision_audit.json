@@ -1,0 +1,283 @@
+{
+    "complete": true,
+    "strict_primary_comparison": {
+        "before_arm": "direct_probability",
+        "after_arm": "bayes_network",
+        "tasks": [
+            "bayes_extract_01",
+            "bayes_extract_02",
+            "bayes_extract_03",
+            "bayes_extract_04",
+            "bayes_extract_05",
+            "bayes_extract_06",
+            "bayes_extract_07",
+            "bayes_extract_08"
+        ],
+        "statistics": {
+            "total": 8,
+            "repairs": 0,
+            "regressions": 0,
+            "discordant": 0,
+            "unchanged_correct": 0,
+            "unchanged_incorrect": 8,
+            "before": {
+                "successes": 0,
+                "total": 8,
+                "estimate": 0,
+                "lower": 0,
+                "upper": 0.32440756488388023
+            },
+            "after": {
+                "successes": 0,
+                "total": 8,
+                "estimate": 0,
+                "lower": 0,
+                "upper": 0.32440756488388023
+            },
+            "exact_two_sided_discordance_p": 1,
+            "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+        }
+    },
+    "curve": [
+        {
+            "absolute_tolerance": 1.0e-5,
+            "direct_numeric": 0,
+            "network_numeric": 0,
+            "network_faithful_and_numeric": 0,
+            "paired_faithful_workflow": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            },
+            "paired_numeric_only": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        },
+        {
+            "absolute_tolerance": 0.0001,
+            "direct_numeric": 0,
+            "network_numeric": 0,
+            "network_faithful_and_numeric": 0,
+            "paired_faithful_workflow": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            },
+            "paired_numeric_only": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        },
+        {
+            "absolute_tolerance": 0.001,
+            "direct_numeric": 0,
+            "network_numeric": 0,
+            "network_faithful_and_numeric": 0,
+            "paired_faithful_workflow": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            },
+            "paired_numeric_only": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        },
+        {
+            "absolute_tolerance": 0.01,
+            "direct_numeric": 0,
+            "network_numeric": 0,
+            "network_faithful_and_numeric": 0,
+            "paired_faithful_workflow": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            },
+            "paired_numeric_only": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 8,
+                "before": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "after": {
+                    "successes": 0,
+                    "total": 8,
+                    "estimate": 0,
+                    "lower": 0,
+                    "upper": 0.32440756488388023
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        }
+    ],
+    "errors": [
+        {
+            "arm": "direct_probability",
+            "total": 8,
+            "measured": 8,
+            "unavailable": 0,
+            "mean_absolute_error": 0.5012951703297761,
+            "max_absolute_error": 0.8691208791208791,
+            "faithful_networks": 0
+        },
+        {
+            "arm": "bayes_network",
+            "total": 8,
+            "measured": 1,
+            "unavailable": 7,
+            "mean_absolute_error": 0.11229940021739282,
+            "max_absolute_error": 0.11229940021739282,
+            "faithful_networks": 0
+        }
+    ],
+    "caveat": "Secondary uniform precision diagnostic, NOT changed primary scores or selected best threshold. Solver arithmetic accuracy is not problem-extraction faithfulness; numeric-only success can occur for an unfaithful network. Fixed8 authored tasks, extra solver compute; no clinical/frontier/calibration claim.",
+    "registration_scope": "Secondary PRE-GRADE diagnostic registered AFTER generation began, not original primary registration. No private grades seen; all fixed tolerance levels retained.",
+    "primary_summary_sha256": "995853ffda021a0b9bea688d71d1fb2c3320285a4edda7a1f3dbd1e2db47fe8d",
+    "registration_sha256": "fe9de8e1af18a308bc207b6a5315328412348997dd2662438727150673dc3c4b"
+}

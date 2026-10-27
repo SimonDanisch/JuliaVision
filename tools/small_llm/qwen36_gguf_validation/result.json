@@ -1,0 +1,47 @@
+{
+    "session_build_seconds": 8.773823022842407,
+    "source_sha256": {
+        "qwen36_moe_model.jl": "67d6f69c8cfd20ee571e66a9b3eff87f46b2d6639cb80ade2a5cfe0612042361",
+        "qwen36_gguf_kernels.jl": "8ee926f1f163f4e5e593f6a67e742feb4e45c29383c4325baefbed0797756bbd",
+        "qwen36_gguf.jl": "d9fd105cf49085e1ae77e06894ad3e3f2ef47b3d09b86216f75ac6bd575b02f9",
+        "run_qwen36_gguf_validation.jl": "d83d80ef10d6c0a83de652e40b0a0033f65cd3aaeac7724638e564e3b3466948"
+    },
+    "reference_provenance": {
+        "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+        "executable_sha256": "41f8be288a9e2f1f3dee72a60526a43ee4df80e91a2f0b77fd14a022b9529b4d",
+        "backend": "Vulkan Radeon; all layers/KV offloaded",
+        "source_sha256": "bdd128b3c02ebb4d6982714a4acff5647522769c823499553af4643adf0f11a0",
+        "logits_sha256": "f851d162fceb6afe7ce84c10f0a0da0455f6c3429ceff70cb1345b9370f683c5",
+        "returncode": 0,
+        "native_library_sha256": {
+            "libllama.so": "7a9c319efa6351724cc90b396f4aaeb3dd8bc1099c3f3e143903d9e71b59faba",
+            "libggml.so": "62db3bf677588224b97c83f3877e20dda5cf1d7453c498c4eca8fc617def33f8",
+            "libggml-base.so": "f0dc930f46f5b34fe32d2d71e71b0b54970ab127b62276060ccb55f3ed84bb6f",
+            "libggml-vulkan.so": "8b6bb5b1c29270f616778f5d26d13f4aef5ac071ffbc6092cd1afb46206ad562"
+        }
+    },
+    "device": "LavaDevice(\"Radeon 8060S Graphics (RADV STRIX_HALO)\")",
+    "load_seconds": 12.685632944107056,
+    "model_and_session_load_seconds": 21.459912061691284,
+    "normal_final_waitidle": true,
+    "pid": 35281,
+    "scope": "Full quantized35B numerical parity and short-context decode; NOT intelligence benchmark or4K throughput",
+    "error": "Full-model numerical parity gate failed",
+    "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "project": "/home/sim/Programmieren/VulkanDev/Project.toml",
+    "host": "sim-bosgame",
+    "rows": [
+        {
+            "position": 1,
+            "token": 27175,
+            "submissions": 2,
+            "finite": true,
+            "max_logit_error": 1.8227749,
+            "rmse": 0.2536358,
+            "cosine": 0.99648196,
+            "next_token": 1068,
+            "reference_next_token": 1068
+        }
+    ],
+    "complete": false
+}

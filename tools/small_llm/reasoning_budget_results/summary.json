@@ -1,0 +1,18 @@
+{
+    "scope": "POST-HOC first-task budget-controller diagnostic after both original arms truncated empty; not independent held-out or knowledge-gain evidence",
+    "policy": "one fixed attempt per arm; every registered outcome retained, no retries or hidden-score eligibility; original failures unchanged",
+    "rows": [
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "status": "pending"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "status": "pending"
+        }
+    ],
+    "complete": false,
+    "conditions_sha256": "76df7ba3762f3776cb2450202a5c6a2efdd5b3fe5a9acaf094347ad2cd4ae373"
+}

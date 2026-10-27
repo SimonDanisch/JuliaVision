@@ -1,0 +1,22 @@
+{
+    "registered_utc": "2026-10-25T14:16:26.766",
+    "primary_conditions_sha256": "609b30c8e260891735d413bc783bdf62c7432c7f5627b06418a279cf2c6d1b4b",
+    "scope": "Secondary PRE-GRADE diagnostic registered AFTER generation began, not original primary registration. No private grades seen; all fixed tolerance levels retained.",
+    "absolute_tolerances": [
+        1.0e-5,
+        0.0001,
+        0.001,
+        0.01
+    ],
+    "existing_generation_sha256": {
+        "bayes_extract_01_bayes_network": "cca98918a556a30ccc9e5c09cf23f418e64dbb59d5ea1e695d56f0cdf8f97499",
+        "bayes_extract_02_bayes_network": "966e709fdca147ee87f8c2d0bb8b58ea56d69908d69c4ae3d7e718da8f018a8e",
+        "bayes_extract_03_bayes_network": "04a422ea1b6fc87f88e4834ce75623570652dbae50f03a85ffb59505a5895e76",
+        "bayes_extract_04_bayes_network": "d3cbb16fe08cfbbcbfe3e3ea772ffeea82eccf218925fd0b5ec4f5561a3c60b4",
+        "bayes_extract_01_direct_probability": "bd58022a67a9e9d337b1f08d6f2cf91b5db7d04db8a701ed38fa5016ddfc4f84",
+        "bayes_extract_02_direct_probability": "980a90dd728008010092e7b135568c9d82f7865244454dfaa76c9946033586cb",
+        "bayes_extract_03_direct_probability": "1ad5b6c050c6b0ca3f3692fb9d9a27c3227b27807a9cf689aa6c06b2532357d8"
+    },
+    "source_sha256": "cf4e5079179d8f5849248779c0f65179520b51d7064886cdfce74ef8327df8fd",
+    "statistics_source_sha256": "08548da94a8ed73b8fe103df48e4274a5b247e363145328cfa4e096df31c5778"
+}

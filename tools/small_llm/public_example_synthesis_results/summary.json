@@ -1,0 +1,52 @@
+{
+    "complete": true,
+    "scope": "POSTHOC symbolic synthesis baseline on SAME4 authored tasks, after partial neural outputs. No new neural attempts, not independent transfer/model intelligence or proof beyond public examples.",
+    "policy": "All4 retained; fixed candidate/state/cost/time limits before search; first public-example match only. No task formula, reference, hidden inputs, model output or grading feedback enters the solver. Independent scoring only after all search outputs committed; no retries/hidden-score selection.",
+    "rows": [
+        {
+            "task": "unit_parabolic_cap",
+            "status": "passed",
+            "stage": "independent_mathematical_execution",
+            "public_examples_matched": true,
+            "generation_sha256": "3517d20e3f9068f403a1380d3423614af0339f873d0074454abbccecd824300e",
+            "operations": 6,
+            "candidates": 44280,
+            "total_call_seconds_including_jit": 0.2823939323425293
+        },
+        {
+            "task": "symmetric_unit_projection",
+            "status": "passed",
+            "stage": "independent_mathematical_execution",
+            "public_examples_matched": true,
+            "generation_sha256": "26dc82347c69dc9acc9ccc8c48332f15d6b7bebc39417945480c93d51eefb579",
+            "operations": 6,
+            "candidates": 45849,
+            "total_call_seconds_including_jit": 0.006885051727294922
+        },
+        {
+            "task": "periodic_gradient_energy",
+            "status": "passed",
+            "stage": "independent_mathematical_execution",
+            "public_examples_matched": true,
+            "generation_sha256": "4ec33cea29bd65ff7e02387c7ab076a60125208d422967f62e3dd60f4d6dc661",
+            "operations": 6,
+            "candidates": 49553,
+            "total_call_seconds_including_jit": 0.006890058517456055
+        },
+        {
+            "task": "clamped_neighbor_contrast",
+            "status": "failed",
+            "stage": "independent_mathematical_execution",
+            "public_examples_matched": true,
+            "generation_sha256": "c6270163cb8f5c9e99e3961caf45da183cbc18d3258c5512f99eac1cd77a03f3",
+            "operations": 5,
+            "candidates": 2991,
+            "total_call_seconds_including_jit": 0.0004248619079589844
+        }
+    ],
+    "passed": 3,
+    "total": 4,
+    "conditions_sha256": "7108a0a776d594792781cb43cd30e02e2ac4b0ed1908a2113b12900470be177e",
+    "scorer_sha256": "e39f24989a57f46de8e399807e1276a3a772f8fef238068e7c82ac1d60c52de9",
+    "limits": "Symbolic-only baseline, zero neural calls; not an equal-compute comparison or an improvement in model intelligence. Public-example fits may fail unseen inputs. Related authored development tasks, not external frontier evidence."
+}

@@ -1,0 +1,87 @@
+{
+    "scope": "Physical parity of SAME8 baseline/posthoc boundary workflow pairs. NOT independent transfer, new model attempts or a pooled intelligence score",
+    "rows": [
+        {
+            "id": "absolute_current_direct",
+            "primary_status": "passed",
+            "generation_sha256": "3241551fcfc12a1524d24ee0bb3fe2b83385305dc7b3dcdd8bc74f4d34ae4bc8"
+        },
+        {
+            "id": "absolute_current_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "ff3edc4fe1c6bd5211b018fb24f38d357c373385b172839ba55d5f0a37e5e53e"
+        },
+        {
+            "id": "positive_neighbor_drop_direct",
+            "primary_status": "failed",
+            "generation_sha256": "8331ec9628e8cdc9fadc919c3a4d6c8bffe8fb8c3f58e334a9641b39ba6dc3a2"
+        },
+        {
+            "id": "positive_neighbor_drop_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "b1f58c8e82430eb0c8968ed641f6a16de52b1e1a9b1e51e944edc9fd305dce5b"
+        },
+        {
+            "id": "periodic_neighbor_midpoint_direct",
+            "primary_status": "passed",
+            "generation_sha256": "543c4860362dc6d7f7f3b4a96462abf801923848112ce7c617e8ed2c4fe7cd65"
+        },
+        {
+            "id": "periodic_neighbor_midpoint_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "64ab66628f5a0af442033a7b22f78f4ce4be911807a170f7db7e43ac6b42ce80"
+        },
+        {
+            "id": "neighbor_box_upper_gap_direct",
+            "primary_status": "passed",
+            "generation_sha256": "6a261e2adda57882cf74d319d372191ff9c2e74124766bb5ae70445faa11d9aa"
+        },
+        {
+            "id": "neighbor_box_upper_gap_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "1460ba5e039824bfa2a4070e4cee127b31e7e64e2813d27941ff4db11e9c7479"
+        },
+        {
+            "id": "current_neighbor_product_direct",
+            "primary_status": "passed",
+            "generation_sha256": "edb6c3b9126780034e416856cd62725307ce3214bf07fc6f221923bb8dae6e18"
+        },
+        {
+            "id": "current_neighbor_product_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "c61510436aa31990f1c10404eb6b20af5b3571239f84f4eaaec587726a1f9a08"
+        },
+        {
+            "id": "unit_positive_deficit_direct",
+            "primary_status": "passed",
+            "generation_sha256": "2aaf3894192c3814b3ae21bb17c751f5e737c27914d8bcdece1bd882ccf4e6f2"
+        },
+        {
+            "id": "unit_positive_deficit_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "de9a6ae23a8224a17aa787f51d809a3870abe7bfa1795936833000af57f65775"
+        },
+        {
+            "id": "clamped_threeway_minimum_direct",
+            "primary_status": "passed",
+            "generation_sha256": "1a583951c74887251054e1dee871c5a4566c9f513b02f5400952740aad2d988b"
+        },
+        {
+            "id": "clamped_threeway_minimum_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "b2a613bfaeb8ceaa95c500ce8e5f51cb49edee0c3d0f3d8aae89e8a1280e5f4c"
+        },
+        {
+            "id": "squared_neighbor_maximum_direct",
+            "primary_status": "failed",
+            "generation_sha256": "2558856df5db7d35419fe0eb137bd9216dde94abb28f7f12f5442e3ea651917e"
+        },
+        {
+            "id": "squared_neighbor_maximum_boundary",
+            "primary_status": "passed",
+            "generation_sha256": "f8e85339ce4cf2cfa21f99d51ecc40fc7642a44dd27357a574b18f74305a7cbb"
+        }
+    ],
+    "posthoc_summary_sha256": "3f5a32a0febd7080a8ed156ed02dbf38d31f5452004eff274bd376d41711a34f",
+    "prior_native_result_sha256": "09596003eea0d5c745a74ee493a872983d9b0997abc241c7da18afa7db5768ab"
+}

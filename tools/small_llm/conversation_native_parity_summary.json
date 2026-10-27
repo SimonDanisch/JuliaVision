@@ -1,0 +1,42 @@
+{
+    "passed": true,
+    "rows": [
+        {
+            "id": "baseline_short",
+            "input_tokens": 98,
+            "relative_rms": 1.3259925532104528e-6,
+            "maxabs": 1.52587890625e-5,
+            "greedy_tokens_matched": 8,
+            "decode_submissions": 8,
+            "source_report": "conversation_gpu_baseline_recovery_r82.json",
+            "source_sha256": "d5a2bbab0044637cea8f62d18b822fa5e2fa899cfa5bc0ad89ab51ab774eac63"
+        },
+        {
+            "id": "missing_repair",
+            "input_tokens": 434,
+            "relative_rms": 1.61622310202157e-6,
+            "maxabs": 2.002716064453125e-5,
+            "greedy_tokens_matched": 8,
+            "decode_submissions": 8,
+            "source_report": "conversation_gpu_partial_r86.json",
+            "source_sha256": "e6a946d85b44277336ae843a270ceb697912c3ee8490f5f73fcc3582bf711149"
+        },
+        {
+            "id": "kernel_repair",
+            "input_tokens": 1910,
+            "relative_rms": 4.1595585339466535e-6,
+            "maxabs": 5.900859832763672e-5,
+            "greedy_tokens_matched": 8,
+            "decode_submissions": 8,
+            "source_report": "conversation_gpu_kernel_parity_r93.json",
+            "source_sha256": "bb59be03188e297a7189baa9e9449e626df17ffaa8d5c4938a5cd7456234c9a0"
+        }
+    ],
+    "scope": "three exact retained prompts: full-vocabulary FP32 prefix logits and8greedy next tokens vs independent CPU Transformers",
+    "limitations": [
+        "not a full-generation equivalence proof",
+        "not an intelligence or production throughput benchmark",
+        "successful recovery tests used synchronized8-token prompt chunks; prior32-token run had one device-loss event with unproven cause"
+    ],
+    "separate_quality_control": "native CPU FP32 and Q4 produced identical failing152-token extracted repair code; see native_missing_repair_512_comparison.json"
+}

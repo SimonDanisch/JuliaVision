@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 14,
+    "scope": "Public name-inventory analyzer qualification only, NOT model-quality evidence",
+    "source_sha256": {
+        "julia_namespace_contract.json": "0778ca4cb94fbfb9d1c1a2c41bbef42de8e6931a9ff867f6fd32dc00fbc35295",
+        "qualified_binding_diagnostics.jl": "f685e684ac540fa222a0d26f0ee4c7c201096921e40cf63b0fe14dbb996ef32a",
+        "test_qualified_binding_diagnostics.jl": "4fd871ce60056e8564700acb7ac12da2c0d5bc6ca8209596ef981a6bdc0f6e0e"
+    }
+}

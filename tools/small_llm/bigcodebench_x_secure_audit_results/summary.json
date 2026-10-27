@@ -1,0 +1,63 @@
+{
+  "scope": "POSTHOC mandatory test-blind isolation audit of ALL unchanged external baseline outputs; not new neural attempts or replacement scores. Changed outcomes can reflect isolation/runtime/randomness, not automatically cheating.",
+  "conditions_sha256": "0c3ae94aa062347592da5d1dd36b4ec42f61c72beffd8a37248e81b47c402d79",
+  "rows": [
+    {
+      "id": "bcbx_92_baseline",
+      "task": "BigCodeBench/92",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_852_baseline",
+      "task": "BigCodeBench/852",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_155_baseline",
+      "task": "BigCodeBench/155",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_293_baseline",
+      "task": "BigCodeBench/293",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_241_baseline",
+      "task": "BigCodeBench/241",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_255_baseline",
+      "task": "BigCodeBench/255",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_980_baseline",
+      "task": "BigCodeBench/980",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    },
+    {
+      "id": "bcbx_928_baseline",
+      "task": "BigCodeBench/928",
+      "status": "failed",
+      "original_status": "failed",
+      "same_outcome": true
+    }
+  ],
+  "complete": true
+}

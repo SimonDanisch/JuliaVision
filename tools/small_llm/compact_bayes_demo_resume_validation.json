@@ -1,0 +1,18 @@
+{
+    "complete": true,
+    "lost_process_checks": 8,
+    "score_analysis_checks": 10,
+    "artifact_copy_checks": 10,
+    "generation_body_byte_identity": true,
+    "scope": "Operational interruption/collection qualification ONLY; no neural quality gain",
+    "source_sha256": {
+        "score_compact_bayes_demo_resume.jl": "42e4faaec87ae5bca81921db07b3776ee17b84255eaa52adedd09b34be29a8fa",
+        "collect_compact_bayes_demo_resume.jl": "8a1c63f15dabfcf2dfd4d45dd4ed7c7f6f191b70006401d872bb2b3f00a66547",
+        "test_verified_demo_artifacts.jl": "fd2642905b5b886b67ad5de82a9873c020fbcf6baaec34071df4ddacd17b3031",
+        "test_compact_bayes_demo_interruption.jl": "94c5c2ec7101e3017928224b92dbfdce01779bd579ca70b07fe25e9a17749f1d",
+        "test_compact_bayes_demo_resume.jl": "7fa8be220e186b02d599c3fa052649d41754ee480c9ff2e4cf7c340edfaa48d7",
+        "run_compact_bayes_demo_resume.jl": "07edbd0f3e3d309c03d625c8a4929762f5345ec4d7a1c49acc4218827bfd1fd5",
+        "summarize_compact_bayes_demo_resume.jl": "f950d4813c7fb0cdbbb0d1ea86d29bf0bf9f6d4f246fccd6a7a3d8b5904bae94",
+        "compact_bayes_demo_interruption.jl": "e1f7c08f87b457c4a0f214633802f7f96ac4862dc7bd76ef9fd91add1c617755"
+    }
+}

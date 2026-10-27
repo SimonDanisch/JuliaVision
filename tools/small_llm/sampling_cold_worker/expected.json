@@ -1,0 +1,82 @@
+{
+    "producer_pid": 894905,
+    "position": 12,
+    "resources": [
+        {
+            "name": "session.token",
+            "file": "expected_001.bin",
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "session.position",
+            "file": "expected_002.bin",
+            "sha256": "42f4aeb81c1ef81f771f3de8abca9dcf66901c575530e7672e4b1146474ae650"
+        },
+        {
+            "name": "session.logits",
+            "file": "expected_003.bin",
+            "sha256": "ddc73c72627d5716e8c91f79ea1c2195e330eccbe0379c0daaaca77616848bdf"
+        },
+        {
+            "name": "session.best",
+            "file": "expected_004.bin",
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "session.predictions",
+            "file": "expected_005.bin",
+            "sha256": "bd5cd2e868b71acee6909ffa36c5fabca45c63d88fd40a81958a370e7784787e"
+        },
+        {
+            "name": "recurrent.0.history",
+            "file": "expected_006.bin",
+            "sha256": "baeaa8664b9509115c2c41223354cd6e9fd8227c64ab76f075875685861c736f"
+        },
+        {
+            "name": "recurrent.0.state",
+            "file": "expected_007.bin",
+            "sha256": "25cd3ceefb5eac40206445567df0d4deda09cd097e69a5350778e592c685d9d8"
+        },
+        {
+            "name": "kv.1.key",
+            "file": "expected_008.bin",
+            "sha256": "7e266b8f515344992d31b77d06fadbf4ee2ffaecd9d55af78a957ea5ef9c9838"
+        },
+        {
+            "name": "kv.1.value",
+            "file": "expected_009.bin",
+            "sha256": "842aac78829889c417a23f5b72ceff21d80878ce5870169ef6ebaada5b2545c0"
+        },
+        {
+            "name": "sampler.active",
+            "file": "expected_010.bin",
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "sampler.counter",
+            "file": "expected_011.bin",
+            "sha256": "42f4aeb81c1ef81f771f3de8abca9dcf66901c575530e7672e4b1146474ae650"
+        },
+        {
+            "name": "sampler.seen",
+            "file": "expected_012.bin",
+            "sha256": "ae4fd05a76de4ef6de995c40c37171c5ba0e9272f3880b0cc25063f47ebec732"
+        },
+        {
+            "name": "sampler.selected",
+            "file": "expected_013.bin",
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "sampler.status",
+            "file": "expected_014.bin",
+            "sha256": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119"
+        }
+    ],
+    "source_sha256": {
+        "sampling_checkpoint.jl": "b19be6fd2defddc8c9b2b9415795fe0564cd119c770a27e0537b0da6b41c1bcf",
+        "test_sampling_checkpoint_device.jl": "e93d3d2c0100d8aad0856c3f72cec13960097e1dba64f2c6a0499ddb8b7aa88d",
+        "qualify_sampling_cold_worker.jl": "23146bae39b5c32d9436c1fdbf1b5aa23135c742e1ee24793495397b9d35abfe"
+    },
+    "checkpoint_sha256": "f6769fc97b5e90d9972f8a6f2695c5cf602f2c83ee55cd4f3130277f9f1afa94"
+}

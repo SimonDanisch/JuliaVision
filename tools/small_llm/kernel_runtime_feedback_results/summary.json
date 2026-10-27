@@ -1,0 +1,72 @@
+{
+    "scope": "pre-registered development extension on four authored kernel tasks, NOT held-out/frontier evidence",
+    "policy": "public smoke reports syntax/compiler/runtime exception; no private assertion, reference output or observed-value correctness used for eligibility",
+    "rows": [
+        {
+            "task": "ki_body_affine",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true
+        },
+        {
+            "task": "ki_body_affine",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": false
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "retain_baseline",
+            "truncated": false
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "retain_baseline",
+            "truncated": false
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": false
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true
+        }
+    ],
+    "totals": {
+        "runtime_feedback": {
+            "passed": 0,
+            "pending": 0
+        },
+        "self_review": {
+            "passed": 0,
+            "pending": 0
+        }
+    }
+}

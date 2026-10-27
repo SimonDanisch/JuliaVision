@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 35,
+    "scope": "Public unrelated examples, shared solver and original-prompt preservation; no neural gain",
+    "source_sha256": {
+        "compact_bayes_demonstrations.jl": "0b42bd1c1f9475c4d1aca79020ed4c1c9b2b83aae67cb5782a45c8525b2496ea",
+        "test_compact_bayes_demonstrations.jl": "e1d4e763b347c6ef243e8d0441bcae35a669c6e5f12e726c9bd10482d215199a"
+    }
+}

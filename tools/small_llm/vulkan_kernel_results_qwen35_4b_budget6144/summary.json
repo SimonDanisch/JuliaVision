@@ -1,0 +1,37 @@
+{
+    "scope": "four authored development GPU-kernel bodies, not held-out/frontier evidence; rerun on qwen35-4b as a new registration",
+    "backbone": "qwen35-4b",
+    "rows": [
+        {
+            "id": "ki_body_affine",
+            "arm": "sampled_baseline",
+            "status": "failed",
+            "truncated": true,
+            "generated_tokens": 6144
+        },
+        {
+            "id": "ki_body_clamped_stencil",
+            "arm": "sampled_baseline",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 554
+        },
+        {
+            "id": "ki_body_column_major_scale",
+            "arm": "sampled_baseline",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 1285
+        },
+        {
+            "id": "ki_body_atomic_max",
+            "arm": "sampled_baseline",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 1185
+        }
+    ],
+    "passed": 0,
+    "evaluated": 4,
+    "pending": 0
+}

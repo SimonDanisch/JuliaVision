@@ -1,0 +1,63 @@
+{
+    "complete": true,
+    "checks": 65,
+    "rows": [
+        {
+            "id": "bayes_extract_01",
+            "answer": 0.15384615384615385,
+            "shared_kernel_probability": 0.15384614,
+            "network_sha256": "ae09a71c4777d355ed299e85667e369d218ee8a7c11664d93011201b044f8653"
+        },
+        {
+            "id": "bayes_extract_02",
+            "answer": 0.08695652173913043,
+            "shared_kernel_probability": 0.08695654,
+            "network_sha256": "24829929c29d9452a95c988df4206dcdd489c9d5d7c6d451e3f394692b567636"
+        },
+        {
+            "id": "bayes_extract_03",
+            "answer": 0.875,
+            "shared_kernel_probability": 0.87500006,
+            "network_sha256": "082814e9a188a4d6b991be3412eeb05b0dc8ad3e4e9f6dafebc9fe3bccd924b6"
+        },
+        {
+            "id": "bayes_extract_04",
+            "answer": 0.4,
+            "shared_kernel_probability": 0.39999998,
+            "network_sha256": "b45f1c276ca53ac7342650816efb83eda27bc11c67c42f5309fbe6eb461caee2"
+        },
+        {
+            "id": "bayes_extract_05",
+            "answer": 0.8727272727272727,
+            "shared_kernel_probability": 0.8727273,
+            "network_sha256": "80fa21c1553ce11ff37446974b7cb241c7e519eb31ac265ebe09a3230f1d27d5"
+        },
+        {
+            "id": "bayes_extract_06",
+            "answer": 0.4840764331210191,
+            "shared_kernel_probability": 0.48407644,
+            "network_sha256": "757ed820f29c99e2f4eaff437c27b5fbceb15f97a95a89b14e29a764d6b8c0db"
+        },
+        {
+            "id": "bayes_extract_07",
+            "answer": 0.12087912087912088,
+            "shared_kernel_probability": 0.12087914,
+            "network_sha256": "405c86562ed89494118045c31e85f04b0df84d0de4f487c07bec35beaebd123c"
+        },
+        {
+            "id": "bayes_extract_08",
+            "answer": 0.7058823529411765,
+            "shared_kernel_probability": 0.7058825,
+            "network_sha256": "aaacafe65a70079113259dd5dd799e041b57efa60bfd1bcdd4f29bcadb69b9ca"
+        }
+    ],
+    "scope": "REFERENCE/schema/software-Vulkan arithmetic qualification ONLY; no neural extraction/quality result. Same inference kernels as hardware GPUs, one replay/one submission before explicit grading readback.",
+    "sources": {
+        "qualify_bayes_extraction.jl": "5405f72e5fbda973924c4e1435aa99f9d9509258104791762bf78f4817513958",
+        "portable_evidence.jl": "bfe5c9ff4f579fb6292e48b55bbdb231aedf712be6631308b598e258a7f92de2",
+        "bayes_extraction_references.jl": "2b170c53cc50ce324d80f5556c4b6e29db70495c48b3e2a3b7cd2c123e13d56f",
+        "bayes_json.jl": "b4a4b1f941670d83af5cf83523e053a147f9ed59066a4251624f1f5bc3ab80f9",
+        "bayes_extraction_admission.jl": "f13db27f0d4bf2d0e7fa80fc6f3b46e195abe37447e96d32dda60e5e9947b1b7",
+        "bayes_extraction_tasks.jl": "419657f9659b5870c4edc10d7235f405528e7fa7d9b2d4073ad7bb5fc5aeb9b4"
+    }
+}

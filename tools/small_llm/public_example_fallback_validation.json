@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "passed": 11,
+    "scope": "Infrastructure/mock selection, NOT neural quality",
+    "sources": {
+        "rpn_example_semantics.jl": "a2834faee31f8ae1e51f811ee6d7ea43250f7ef5c93a153346aecbd1b141b34f",
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "rpn_example_constraint.jl": "38c591769bb72fdb97408647b6d4b469d010874f3356e2cf6bdd339a57e92ad3",
+        "test_public_example_fallback.jl": "001526a0a0914e481ee4ca9a65a89b4f8e6223f0c89ac17e27a152810c23bc4c",
+        "public_example_fallback.jl": "875ae17d3fb77f602d654f2ce3ac7785e76d104db2d264d37d22192da8edcdd9"
+    }
+}

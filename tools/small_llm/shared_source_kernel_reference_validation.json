@@ -1,0 +1,214 @@
+{
+    "complete": true,
+    "scope": "Four trusted authored reference fixtures, each CPU+software Vulkan+wrong-arithmetic mutant. NO model outputs or quality evidence.",
+    "passed": 28,
+    "rows": [
+        {
+            "id": "shared_periodic_laplacian",
+            "cpu": {
+                "id": "shared_periodic_laplacian_cpu",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 0.5740959644317627,
+                "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    6      6  0.2s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "9c30ab962101919fe8b61c55ce5ddb08274f1e425bc392a10528b775a3d7438d"
+            },
+            "gpu": {
+                "id": "shared_periodic_laplacian",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 25.206603050231934,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    6      6  15.3s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "4f56cf1dd7f2337ceff2e2a77713925e207adb1b229ea69ff323d613a0886ad9"
+            },
+            "mutant": {
+                "id": "shared_periodic_laplacian",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 26.57433795928955,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 2 passed, 4 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, Int32(n); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-0.46629286, 0.46629286, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[0.46629286, -0.46629286, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, Int32(n); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-0.13994789, 0.082571864, 0.10158229, 0.11258209, 0.11433983, 0.10646272, -0.3775909, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[0.13994789, -0.082571864, -0.10158229, -0.11258209, -0.11433983, -0.10646272, 0.3775909, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, Int32(n); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-0.26627445, 0.082571864, 0.10158229, 0.11258209, 0.11433983, 0.10646272, 0.08943963, 0.064602464, 0.034007855, 0.00024932623  …  0.051855803, 0.07639933, 0.09343839, 0.10167408, 0.13513887, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[0.26627445, -0.082571864, -0.10158229, -0.11258209, -0.11433983, -0.10646272, -0.08943963, -0.064602464, -0.034007855, -0.00024932623  …  -0.051855803, -0.07639933, -0.09343839, -0.10167408, -0.13513887, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, Int32(n); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[1.0425878, 0.082571864, 0.10158229, 0.11258209, 0.11433983, 0.10646272, 0.08943963, 0.064602464, 0.034007855, 0.00024932623  …  -0.023297906, -0.043910023, -0.058620065, -0.065905705, -1.2618737, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[-1.0425878, -0.082571864, -0.10158229, -0.11258209, -0.11433983, -0.10646272, -0.08943963, -0.064602464, -0.034007855, -0.00024932623  …  0.023297906, 0.043910023, 0.058620065, 0.065905705, 1.2618737, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nTest Summary: | Pass  Fail  Total   Time\ncontract      |    2     4      6  16.1s\nRNG of the outermost testset: Random.Xoshiro(0x3d634a6899b2fc57, 0xbacf5a008af8e1d1, 0x3c2c44b6f484576c, 0xd60e8b11b1a38561, 0x75147d78dcabfc8d)\n",
+                "log_truncated": false,
+                "code_sha256": "e7d773da73444aafc7767dfb060b94d1140f0c3d09c9789d188f4941a2bedcfc"
+            },
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            }
+        },
+        {
+            "id": "shared_indexed_interpolation",
+            "cpu": {
+                "id": "shared_indexed_interpolation_cpu",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 0.6409099102020264,
+                "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    5      5  0.2s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "36b18617669607f9fa42cc6b3e0262568f081163fa3473e9f23504eb4ddcb5d4"
+            },
+            "gpu": {
+                "id": "shared_indexed_interpolation",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 25.51062798500061,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    5      5  15.0s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "a9b63d2ceac8248e78224fba4efdcff004fb2623535837002f533043a764d5fb"
+            },
+            "mutant": {
+                "id": "shared_indexed_interpolation",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 26.25264596939087,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 1 passed, 4 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Test Failed at /input/runner.jl:32\n  Expression: ≈(__bench_launch__(kernel!, initial, x, indices, t, Int32(n), Int32(m); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-0.40589482, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[0.40589482, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:32\n  Expression: ≈(__bench_launch__(kernel!, initial, x, indices, t, Int32(n), Int32(m); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-0.40589482, -0.27986404, -0.42689997, -0.30086917, -0.44790506, -0.32187426, -0.7098468, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[0.40589482, 0.27986404, 0.42689997, 0.30086917, 0.44790506, 0.32187426, 0.7098468, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:32\n  Expression: ≈(__bench_launch__(kernel!, initial, x, indices, t, Int32(n), Int32(m); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-1.5600032, -1.1771837, -0.42689997, -1.5877728, -1.6049225, -0.32187426, -1.5433414, -1.6251032, -1.1472077, -0.36388457  …  -1.6382146, -0.8592768, -0.2588589, -1.5600032, -1.3396765, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[1.5600032, 1.1771837, 0.42689997, 1.5877728, 1.6049225, 0.32187426, 1.5433414, 1.6251032, 1.1472077, 0.36388457  …  1.6382146, 0.8592768, 0.2588589, 1.5600032, 1.3396765, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:32\n  Expression: ≈(__bench_launch__(kernel!, initial, x, indices, t, Int32(n), Int32(m); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-1.5600032, -1.1550354, -1.4169767, -0.6719687, -0.44790506, -1.0725746, -1.2994822, -1.6251032, -1.3155318, -1.2322564  …  -1.6436049, -1.1253985, -1.0499606, -0.6784031, -0.38488966, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[1.5600032, 1.1550354, 1.4169767, 0.6719687, 0.44790506, 1.0725746, 1.2994822, 1.6251032, 1.3155318, 1.2322564  …  1.6436049, 1.1253985, 1.0499606, 0.6784031, 0.38488966, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nTest Summary: | Pass  Fail  Total   Time\ncontract      |    1     4      5  15.5s\nRNG of the outermost testset: Random.Xoshiro(0x2d55fd1b54b27906, 0x661eb27dd4df5f47, 0x16e75d4a5d468ad4, 0x7276223fe5ac4b3a, 0xf371d6c7ed675b95)\n",
+                "log_truncated": false,
+                "code_sha256": "11b03697fdd6de146ff301f0b46bf4a0862512a68542ce2ce065002e0ee2320e"
+            },
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            }
+        },
+        {
+            "id": "shared_column_bias_clip",
+            "cpu": {
+                "id": "shared_column_bias_clip_cpu",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 0.616786003112793,
+                "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    4      4  0.2s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "62aefe35201079c6aba77f88b9b28efcea1dfea4239d9ad33920200bc37f96f0"
+            },
+            "gpu": {
+                "id": "shared_column_bias_clip",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 25.10975480079651,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    4      4  14.5s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "9ee3796461f9a6091504e0df98e9bb69ac6632c849c1a9a2f590e3cd4d2996b6"
+            },
+            "mutant": {
+                "id": "shared_column_bias_clip",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 26.26006817817688,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 0 passed, 4 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, bias, Int32(rows), Int32(cols); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-1.0, -0.8631599, -0.49670005, -0.32367098, -0.5381628, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[1.0, 0.8631599, 0.49670005, 0.32367098, 0.5381628, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, bias, Int32(rows), Int32(cols); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-1.0, -1.0, -1.0, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[1.0, 1.0, 1.0, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, bias, Int32(rows), Int32(cols); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -0.5252335  …  1.0, 1.0, 1.0, 1.0, 1.0, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5252335  …  -1.0, -1.0, -1.0, -1.0, -1.0, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:29\n  Expression: ≈(__bench_launch__(kernel!, initial, x, bias, Int32(rows), Int32(cols); threads = n), expected, atol = 2.0f-6, rtol = 2.0f-6)\n   Evaluated: Float32[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0  …  -1.0, -1.0, -1.0, -1.0, -1.0, -789.0, -789.0, -789.0, -789.0, -789.0] ≈ Float32[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0  …  1.0, 1.0, 1.0, 1.0, 1.0, -789.0, -789.0, -789.0, -789.0, -789.0] (atol=2.0e-6, rtol=2.0e-6)\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nTest Summary: | Fail  Total   Time\ncontract      |    4      4  15.8s\nRNG of the outermost testset: Random.Xoshiro(0x63e00266e7f2afc8, 0x73f7ca54a1eb554b, 0xae1f4b4f96009cef, 0xe2ec3296ba066833, 0x5ad93c11d1e499b9)\n",
+                "log_truncated": false,
+                "code_sha256": "46cb6576f5811973894b55e9aae1e443bf5100fda028399c85b3e0dc5c14c3f7"
+            },
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "rows * cols",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            }
+        },
+        {
+            "id": "shared_block_reverse",
+            "cpu": {
+                "id": "shared_block_reverse_cpu",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 0.40426087379455566,
+                "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    6      6  0.0s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "09d4a72432170959e4679e356d4000cc1de78108d0d13c88724e764e434172a1"
+            },
+            "gpu": {
+                "id": "shared_block_reverse",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 24.676099061965942,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    6      6  14.5s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "021479f1f0b2c2457085410f1c919cb7fa352f0114e2734202342a763f802261"
+            },
+            "mutant": {
+                "id": "shared_block_reverse",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 26.515830039978027,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 1 passed, 5 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n), Int32(width); threads = n) == expected\n   Evaluated: Float32[-0.14285715, -789.0, -789.0, -789.0, -789.0, -789.0] == Float32[0.14285715, -789.0, -789.0, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n), Int32(width); threads = n) == expected\n   Evaluated: Float32[-0.14285715, -0.2857143, -0.42857143, -0.5714286, -0.71428573, -0.85714287, -1.0, -789.0, -789.0, -789.0, -789.0, -789.0] == Float32[0.14285715, 0.2857143, 0.42857143, 0.5714286, 0.71428573, 0.85714287, 1.0, -789.0, -789.0, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n), Int32(width); threads = n) == expected\n   Evaluated: Float32[-1.0, -0.85714287, -0.71428573, -0.5714286, -0.42857143, -0.2857143, -0.14285715, -789.0, -789.0, -789.0, -789.0, -789.0] == Float32[1.0, 0.85714287, 0.71428573, 0.5714286, 0.42857143, 0.2857143, 0.14285715, -789.0, -789.0, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n), Int32(width); threads = n) == expected\n   Evaluated: Float32[-0.71428573, -0.5714286, -0.42857143, -0.2857143, -0.14285715, -1.4285715, -1.2857143, -1.1428572, -1.0, -0.85714287  …  -9.285714, -9.142858, -9.0, -8.857142, -8.714286, -789.0, -789.0, -789.0, -789.0, -789.0] == Float32[0.71428573, 0.5714286, 0.42857143, 0.2857143, 0.14285715, 1.4285715, 1.2857143, 1.1428572, 1.0, 0.85714287  …  9.285714, 9.142858, 9.0, 8.857142, 8.714286, -789.0, -789.0, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n), Int32(width); threads = n) == expected\n   Evaluated: Float32[-1.0, -0.85714287, -0.71428573, -0.5714286, -0.42857143, -0.2857143, -0.14285715, -2.0, -1.8571428, -1.7142857  …  -36.714287, -36.57143, -36.42857, -36.285713, -36.142857, -789.0, -789.0, -789.0, -789.0, -789.0] == Float32[1.0, 0.85714287, 0.71428573, 0.5714286, 0.42857143, 0.2857143, 0.14285715, 2.0, 1.8571428, 1.7142857  …  36.714287, 36.57143, 36.42857, 36.285713, 36.142857, -789.0, -789.0, -789.0, -789.0, -789.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nTest Summary: | Pass  Fail  Total   Time\ncontract      |    1     5      6  15.9s\nRNG of the outermost testset: Random.Xoshiro(0xc9ad5bb3cb220539, 0x67de4b328c633259, 0xecc7715180d1f10d, 0x8ecfccae7270cf56, 0x88dc0ca8157afcdf)\n",
+                "log_truncated": false,
+                "code_sha256": "536bd3b91c22b50b34ce55ee24c5c38ccc97035c0a09cda66a47b249df7e68e1"
+            },
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+            }
+        }
+    ],
+    "source_sha256": {
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "qualify_shared_source_kernel_tasks.jl": "3f60b7ca1d7c60138d4fc7beb4a25dd918774673651f53b52c4d74384133012f",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "shared_source_kernel_tasks.jl": "9ddf1dd1d1c32a26dd8c6cde593e864c3e02267e0cc36a1b7650ac75cf87ac7b"
+    }
+}

@@ -1,0 +1,27 @@
+{
+    "task": "ka_tail",
+    "category": "kernel",
+    "arm": "baseline",
+    "model": "Qwen3.5-4B",
+    "quantization": "Q4_K/Q8 activations; Q6_K head",
+    "cache": "Float32 split",
+    "thinking": false,
+    "contract_sha256": "5405654371d200dfcda9d3980c8dc974a7a01f13a770f2c2b651f464229d08c9",
+    "prompt_sha256": "7eab99ced85d90a1ede7fa63298c7e4293ee2d84b17fbfa7b8266e3200ba9e86",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using KernelAbstractions, write an @kernel named axpby_kernel!(y,x,a,b) and function solve!(y,x,a,b). Launch it using get_backend(y), workgroup size 64, ndrange=length(y), and synchronize the backend before returning y. Kernel computes y[i]=a*x[i]+b*y[i], has an explicit bounds guard, and must work on CPU arrays with lengths 0,1,63,65,129. Inputs are separate Float32 vectors; a,b Float32. Skip launch for empty vectors. Use the standard KernelAbstractions API; code only, including imports."
+        }
+    ],
+    "answer": "```julia\nusing KernelAbstractions\n\nfunction axpby_kernel!(y, x, a, b)\n    @kernel begin\n        y[i] = a * x[i] + b * y[i]\n    end\nend\n\nfunction solve!(y, x, a, b)\n    if length(y) == 0\n        return y\n    end\n    backend = get_backend(y)\n    ndrange = length(y)\n    workgroup_size = 64\n    axpby_kernel!(y, x, a, b; ndrange=ndrange, workgroup_size=workgroup_size)\n    synchronize(backend)\n    return y\nend\n```",
+    "code": "using KernelAbstractions\n\nfunction axpby_kernel!(y, x, a, b)\n    @kernel begin\n        y[i] = a * x[i] + b * y[i]\n    end\nend\n\nfunction solve!(y, x, a, b)\n    if length(y) == 0\n        return y\n    end\n    backend = get_backend(y)\n    ndrange = length(y)\n    workgroup_size = 64\n    axpby_kernel!(y, x, a, b; ndrange=ndrange, workgroup_size=workgroup_size)\n    synchronize(backend)\n    return y\nend\n",
+    "input_tokens": 172,
+    "generated_tokens": 146,
+    "budget_tokens": 512,
+    "truncated": false,
+    "elapsed_seconds": 9.570496082305908,
+    "input_sha256": "585e4f6cbc191b07d3eac7474b4db8a5e065a6d9e5912156a41415a7a8e17db9"
+}

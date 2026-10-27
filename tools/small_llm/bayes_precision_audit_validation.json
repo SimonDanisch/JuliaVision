@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "checks": 13,
+    "run": "r1333",
+    "scope": "CPU/SOFTWARE infrastructure only, NOT hardware or neural quality",
+    "sources": {
+        "bayes_precision_audit.jl": "cf4e5079179d8f5849248779c0f65179520b51d7064886cdfce74ef8327df8fd",
+        "test_bayes_precision_audit.jl": "55a946d23bf8d3768bac3fc286275444c68a9c373968f4784ed810c919afccde"
+    }
+}

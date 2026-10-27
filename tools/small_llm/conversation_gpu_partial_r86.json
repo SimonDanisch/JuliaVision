@@ -1,0 +1,57 @@
+{
+    "scope": "full-model FP32 native-HF parity for retained 98/434/1910-token prompts; exact Julia input IDs, not an intelligence benchmark",
+    "complete": false,
+    "rows": [
+        {
+            "id": "missing_repair",
+            "input_tokens": 434,
+            "maxabs": 2.002716064453125e-5,
+            "relative_rms": 1.61622310202157e-6,
+            "finite": true,
+            "prefix_argmax": 71093,
+            "native_prefix_argmax": 71093,
+            "generated_ids": [
+                71093,
+                73,
+                67383,
+                198,
+                1628,
+                11290,
+                2007,
+                476
+            ],
+            "native_ids": [
+                71093,
+                73,
+                67383,
+                198,
+                1628,
+                11290,
+                2007,
+                476
+            ],
+            "exact_greedy": true,
+            "decode_submissions": 8,
+            "elapsed_seconds": 40.863709926605225
+        }
+    ],
+    "elapsed_seconds": 215.49665594100952,
+    "phase": "prefill batch completed",
+    "current_case": "kernel_repair",
+    "completed_input_tokens": 1888,
+    "prompt_chunk": 8,
+    "synchronize_chunks": true,
+    "selected_cases": [
+        "missing_repair",
+        "kernel_repair"
+    ],
+    "timing_scope": "diagnostic per-chunk waits, NOT a production throughput measurement",
+    "reference_sha256": "82f39359b7467ab8dd717f291d3ec45e46ead51b67ecb650496b7fa99a33f979",
+    "source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "verify_native_conversations.jl": "51aa3f53da4b74baaf91bc3df9c8a2b2d9792dc197fc65a4ef25bc8f496ec80d",
+        "grouped_attention_qwen35.jl": "bcd2fc397bc6471a31aca585e6fdbc19bd1e7d7d060f0b130613aece823bac21",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93"
+    }
+}

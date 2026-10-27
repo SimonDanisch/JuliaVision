@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "checks": 11,
+    "run": "r1288",
+    "scope": "Mock study/schema/solver tests ONLY; no model quality",
+    "sources": {
+        "test_bayes_extraction_study.jl": "e26e7ded127c93da4b1f1f941abcf815c7ded4f29cc2694a3617d07d2409df57",
+        "score_bayes_extraction.jl": "70180bd200ca0ad1b1a96e82503f6baba53bf61c8030189f86df6f7db77f6457",
+        "bayes_extraction_study.jl": "a3a20adbbefe74145fcc12e934517817e0e6b1cc029760ff7e27ee123a6b957a",
+        "bayes_extraction_admission.jl": "f13db27f0d4bf2d0e7fa80fc6f3b46e195abe37447e96d32dda60e5e9947b1b7"
+    }
+}

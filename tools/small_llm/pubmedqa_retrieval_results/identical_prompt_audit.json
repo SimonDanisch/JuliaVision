@@ -1,0 +1,132 @@
+{
+    "complete": true,
+    "groups": [
+        {
+            "ids": [
+                "pubmed_23517744_corresponding_context",
+                "pubmed_23517744_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_21865668_corresponding_context",
+                "pubmed_21865668_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_24153338_retrieved_context",
+                "pubmed_24153338_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_23806388_retrieved_context",
+                "pubmed_23806388_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_20497146_retrieved_context",
+                "pubmed_20497146_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_25311479_retrieved_context",
+                "pubmed_25311479_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_22867778_corresponding_context",
+                "pubmed_22867778_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_17715311_retrieved_context",
+                "pubmed_17715311_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_26194560_corresponding_context",
+                "pubmed_26194560_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_15223725_retrieved_context",
+                "pubmed_15223725_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_26237424_corresponding_context",
+                "pubmed_26237424_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_10927144_corresponding_context",
+                "pubmed_10927144_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_7482275_retrieved_context",
+                "pubmed_7482275_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_17444776_corresponding_context",
+                "pubmed_17444776_retrieved_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        },
+        {
+            "ids": [
+                "pubmed_19130332_retrieved_context",
+                "pubmed_19130332_corresponding_context"
+            ],
+            "same_prompt_and_sampling": true,
+            "answer_agreement": true
+        }
+    ],
+    "group_count": 15,
+    "all_agree": true,
+    "comparisons": 15,
+    "conditions_sha256": "444c4cea2bf02427f3ee179b29e6c2389847b634d9fad07257ccff7716c7baa5",
+    "summary_sha256": "aa723f6c87cf4e0bfd2bc3e024941ff856de543ee949ab236f25ffdb7df88cc9",
+    "scope": "Within-study repeated exact prompt/sampling output agreement ONLY. Different contexts are not compared. Not FP32/reference logit parity, broad determinism, medical reliability or a changed score.",
+    "source_sha256": "997d8f5a632449c0ab69f31bca9068b84abfa84369adba7f224568d7ea6a6281"
+}

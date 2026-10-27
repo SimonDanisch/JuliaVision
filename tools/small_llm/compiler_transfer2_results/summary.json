@@ -1,0 +1,81 @@
+{
+    "scope": "PROSPECTIVE authored related-family transfer after compiler development; four NEW arithmetic/indexing tasks. Not independent public held-out/frontier evidence.",
+    "policy": "Frozen compiler and ALL eight conditions before generation; no compiler/task/grader changes during study, retries, seed search or hidden feedback. Counterbalanced direct-GPU vs scalar-program arms; same model, sampling, total/thinking cap, API pack. Scalar arm has extra compiler/scaffolding; not model-only comparison.",
+    "rows": [
+        {
+            "id": "transfer2_backward_gradient_scalar_program",
+            "task": "transfer2_backward_gradient",
+            "arm": "scalar_program",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "last statement is not a value"
+        },
+        {
+            "id": "transfer2_backward_gradient_direct_gpu",
+            "task": "transfer2_backward_gradient",
+            "arm": "direct_gpu",
+            "status": "passed",
+            "stage": "execution",
+            "truncated": false,
+            "certificate": null,
+            "generation_sha256": "a43b0e466f870b7df6a709513582b45950bfc18ea0eaa9f9a89f7f3ab3481733"
+        },
+        {
+            "id": "transfer2_weighted_forward_drop_direct_gpu",
+            "task": "transfer2_weighted_forward_drop",
+            "arm": "direct_gpu",
+            "status": "passed",
+            "stage": "execution",
+            "truncated": false,
+            "certificate": null,
+            "generation_sha256": "f95d407a85b44550123f9ea5e1a448acbf49e9ad112127120bd8837f0c4b624b"
+        },
+        {
+            "id": "transfer2_weighted_forward_drop_scalar_program",
+            "task": "transfer2_weighted_forward_drop",
+            "arm": "scalar_program",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "last statement is not a value"
+        },
+        {
+            "id": "transfer2_column_difference_squares_scalar_program",
+            "task": "transfer2_column_difference_squares",
+            "arm": "scalar_program",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "last statement is not a value"
+        },
+        {
+            "id": "transfer2_column_difference_squares_direct_gpu",
+            "task": "transfer2_column_difference_squares",
+            "arm": "direct_gpu",
+            "status": "passed",
+            "stage": "execution",
+            "truncated": false,
+            "certificate": null,
+            "generation_sha256": "e5b9cf3f78e9cd16cbb6834050bd1035b9e19a69ea8394214ebed247c4140f5d"
+        },
+        {
+            "id": "transfer2_block_left_rotate_direct_gpu",
+            "task": "transfer2_block_left_rotate",
+            "arm": "direct_gpu",
+            "status": "failed",
+            "stage": "execution",
+            "truncated": false,
+            "certificate": null,
+            "generation_sha256": "aeae82c66e9dfdd49e55d94cece925ab7b318005816a001b19341c63ef4f0216"
+        },
+        {
+            "id": "transfer2_block_left_rotate_scalar_program",
+            "task": "transfer2_block_left_rotate",
+            "arm": "scalar_program",
+            "status": "failed",
+            "stage": "compiler_admission",
+            "reason": "unknown/impure expression or loop-carried dependency"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "b84536585f899186bd480a025907ae285746a8b3cd09394820ff0339a38c006e",
+    "scorer_sha256": "e946941a53234d82a42dfd0d0262ac540a97b0c70299a4211857b1e2f79d5df6"
+}

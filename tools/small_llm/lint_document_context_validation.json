@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 16,
+    "scope": "CPU static/source-only infrastructure, no neural quality improvement claim or frozen-study changes",
+    "sources": {
+        "qualified_binding_diagnostics_v2.jl": "cc9ea67542fcedb27a4345d6bbc88da405c505697d217b2acf65dd60e512c1fc",
+        "test_lint_document_context.jl": "9c5d24fe1e9bf38c29a134bdbe8de5f10cb7ddc3df9c8d401675d62cef2e87d5",
+        "lint_document_context.jl": "4c7c94ac765fa5a3010e47b012715e6cb51a169a54bbe12c4561d0d9b04deea5"
+    }
+}

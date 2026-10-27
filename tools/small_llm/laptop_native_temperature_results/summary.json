@@ -1,0 +1,64 @@
+{
+    "scope": "POSTHOC source-only temperature calibration after a negative tiny native-memory pilot; same two already-used development tasks, NOT held-out evidence",
+    "design": "Same six nonzero/shuffled interventions, but temperature is nearest power of two to median nearest-neighbor distance GAP across the TWO source documents. No task-answer/score/seed sweep. Original zero/source-context controls retained, not regenerated.",
+    "rows": [
+        {
+            "id": "ki_launch_memory_10_source_scaled",
+            "task": "ki_launch",
+            "arm": "memory_10",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 192,
+            "generation_sha256": "c1b554160d9f8fda32b99beb575d779521887e175390a66ab3d3847acd4dedec"
+        },
+        {
+            "id": "ki_launch_memory_25_source_scaled",
+            "task": "ki_launch",
+            "arm": "memory_25",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 310,
+            "generation_sha256": "9e5bf77b405d28d670aaafad7ead6c882da5129156341ad4251c66dfe92fb0d2"
+        },
+        {
+            "id": "ki_launch_shuffled_25_source_scaled",
+            "task": "ki_launch",
+            "arm": "shuffled_25",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 172,
+            "generation_sha256": "928df639cd7802bddfbabaf0fc21079d06f8b37c26176cdda5272406f1bacf2e"
+        },
+        {
+            "id": "makie_update_shuffled_25_source_scaled",
+            "task": "makie_update",
+            "arm": "shuffled_25",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 137,
+            "generation_sha256": "34dee96aea349bb88c0ad603eb060897c8c3e0357deee07bf6c48d96e227a5d9"
+        },
+        {
+            "id": "makie_update_memory_25_source_scaled",
+            "task": "makie_update",
+            "arm": "memory_25",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 146,
+            "generation_sha256": "ef2919ef094fabfc3b13fe4d64a7ee9d34ed055005a9423dd4664113dda55a9c"
+        },
+        {
+            "id": "makie_update_memory_10_source_scaled",
+            "task": "makie_update",
+            "arm": "memory_10",
+            "status": "failed",
+            "truncated": false,
+            "generated_tokens": 142,
+            "generation_sha256": "00c3f99abaf91bc2f330e476b2754655e91666ceac933d4709a243e5231be5d2"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "007ccc0c0d80f06c300183152869436b8363f442c859fb7c8cd741203514b77d",
+    "scorer_sha256": "a3a48feec532ee11d75de4e504df44c0d4a1695beffb9310a20c4c6b2d2540ca",
+    "execution": "Only original sandboxed CPU/Makie evaluator, no generated privileged code"
+}

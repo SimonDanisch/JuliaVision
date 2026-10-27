@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU source/registration checks only; not device capture or model quality",
+    "passed": 0,
+    "source_sha256": {
+        "laptop_native_datastore.jl": "0cfee407c822ae3e58de602b4f95d12e8f138f5ab0935057cd3799a0f28f2fb5",
+        "test_laptop_native_datastore_registration.jl": "852aa6c40831eb63552d817b9aace825dfdaa5854c4aeab4e20ea53ea2c09f27"
+    }
+}

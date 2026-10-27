@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "checks": 13,
+    "run": "r1302",
+    "scope": "CPU/mock conditional workflow qualification, NOT neural improvement",
+    "sources": {
+        "plot_validator_policy.jl": "705d14cb1d4f3068698d317d7d1f905a77c5f346a1c813c88698db070c665d93",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec",
+        "plot_interface_admission.jl": "27a53ff73e5a697a1b3f53f3db5967660e326d5c7ecd29d6072764747079cce3",
+        "safe_plot_julia_source.jl": "d20da3d8c2681a5e7c01845ae157c318eacf970d09b898003922764fa9ab5e92",
+        "test_plot_validator_policy.jl": "29f09a15465f77f6bfda3683938dd3c1394643139fbf933f4b84e6020cb10019"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "scope": "CPU registration/integrity only, not model-quality evidence",
+    "passed": 0,
+    "source_sha256": {
+        "laptop_scalar_kernel_study.jl": "0549431ded9ef6c45e3fcafae5a3c4880cf31fb651a840e3fc30516e00077141",
+        "scalar_kernel_interface.jl": "866774d3e01bc8c6354584cc11fde8d0701b90c7bc9e815be1d0443819725266",
+        "test_laptop_scalar_protocol.jl": "28eef5e7c8fc666f2e1a4e760446148270ff368d23bba30aded71a669bac8669"
+    }
+}

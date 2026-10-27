@@ -1,0 +1,338 @@
+{
+    "scope": "Prospective authored related-family stencil ablation, NOT external held-out/frontier evidence; no speed/aesthetic/general Julia claim.",
+    "policy": "All8 new tasks and16 counterbalanced jobs frozen before generation. Identical prompts/model/sampler/nonthinking512token cap/seed; only grammar enabled device flag changes. No retries, hidden feedback, arithmetic lookup/repair or compiler changes. Success requires BOTH raw postfix admission and independent CPU/software-Vulkan mathematical tests. Syntax-only improvement is reported separately from mathematical success.",
+    "rows": [
+        {
+            "id": "central_periodic_gradient_disabled",
+            "task": "central_periodic_gradient",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "central_periodic_gradient_enabled",
+            "task": "central_periodic_gradient",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "d5b97d14c4c391c90ecd3cacf0ad09be5eaa979bbc7698dceb21bbe33b3570db",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 39,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "half_diffusion_update_enabled",
+            "task": "half_diffusion_update",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "0dc7aae32ce268250fadf088d2c7a67be344295189e13a42d2d0bfa5f45f3027",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 10,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "half_diffusion_update_disabled",
+            "task": "half_diffusion_update",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "clamped_neighbor_energy_disabled",
+            "task": "clamped_neighbor_energy",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "clamped_neighbor_energy_enabled",
+            "task": "clamped_neighbor_energy",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "86580632b1ab743b0ec37dc7aade0da81013949df96caf9f8e21bdb76c11e512",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 11,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "positive_forward_increment_enabled",
+            "task": "positive_forward_increment",
+            "arm": "enabled",
+            "status": "passed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "8755a794f046ad61b3bf3a961e0d4151b427e4dd4f90d1054caaabffd56cfd7e",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 6,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "positive_forward_increment_disabled",
+            "task": "positive_forward_increment",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "unit_interval_projection_disabled",
+            "task": "unit_interval_projection",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "unit_interval_projection_enabled",
+            "task": "unit_interval_projection",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "a16aac05064c93cc4437fd267c8eb63e32de7f7d774aab855a6b3e4ddb4ee754",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 5,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "clamped_morphological_range_enabled",
+            "task": "clamped_morphological_range",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "92f5ef0b48211dfc46c99afceed94444de017b254ce2feacddfcd08305d2edfc",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 22,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "clamped_morphological_range_disabled",
+            "task": "clamped_morphological_range",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "nonnegative_limited_slope_disabled",
+            "task": "nonnegative_limited_slope",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        },
+        {
+            "id": "nonnegative_limited_slope_enabled",
+            "task": "nonnegative_limited_slope",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "8b2df74f24d0ce8f6e72c6eeea28eee7bf155f2fbf1b2d94dafb11219e592510",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 32,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "periodic_neighbor_sum_energy_enabled",
+            "task": "periodic_neighbor_sum_energy",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "mathematical_execution",
+            "syntax_accepted": true,
+            "truncated": false,
+            "generation_sha256": "63dc5f3bce0d4e3e9df0b9d604efd416666e1f9f8660ef34af0004205754655b",
+            "certificate": {
+                "output": "out",
+                "induction": "i",
+                "stores_per_invocation": 1,
+                "limit": "n",
+                "preconditions": [
+                    "distinct input/output storage",
+                    "original serial accesses are in bounds",
+                    "Float32 output and Float32/Int32 input vectors, Int/Int32 scalars, ordinary Base arithmetic bindings",
+                    "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+                ],
+                "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+                "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings",
+                "interface": "Pure finite postfix program over ONE Float32 input vector",
+                "operations": 34,
+                "additional_preconditions": [
+                    "ordinary one-based arrays",
+                    "0<=n<=length(x) and n<=length(out)",
+                    "distinct input/output storage"
+                ],
+                "arithmetic_policy": "Exactly the model-selected actions in order; no task matching, arithmetic repair, hidden-answer lookup, or unconstrained Julia evaluation"
+            }
+        },
+        {
+            "id": "periodic_neighbor_sum_energy_disabled",
+            "task": "periodic_neighbor_sum_energy",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "syntax_admission",
+            "syntax_accepted": false,
+            "reason": "arity/stack/budget violation"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "918bf54d9022ec8d0e3b18478653933ae8986529534842c9e74b13e4e790de8c",
+    "scorer_sha256": "223e7a051fc4c6d9665000d87b075decad43bce6b7609a765bc88b8942b94122",
+    "scoring_policy": "Raw strict postfix admission, then independent numerical CPU/software-Vulkan tests; syntax and math reported separately. No timing/frontier inference."
+}

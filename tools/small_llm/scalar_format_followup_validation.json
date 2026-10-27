@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 8,
+    "scope": "CPU protocol only, not model performance",
+    "source_sha256": {
+        "scalar_format_followup.jl": "5ee8607b0cce967695bbd71da009906eb37de02eaf08daff9044c0c22b37dbf7",
+        "test_scalar_format_followup.jl": "6952fcf5692da6df201d53a38ed1c16517612cf64a24b8fcb5971e45b3d85ae1"
+    }
+}

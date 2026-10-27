@@ -1,0 +1,73 @@
+{
+  "scope": "Fixed-hash eight-task public BigCodeBench-X subset, local Julia1.12/package-contract adaptation. NOT official upstream-container score, private/contamination-free benchmark, Makie aesthetics metric or frontier equivalence.",
+  "policy": "ALL eight fixed tasks retained, one fixed-seed attempt each, no feedback/retries/selection. Original external test suites unchanged. Correctness judged by stdin/stdout tests, not code style or plot aesthetics.",
+  "rows": [
+    {
+      "id": "bcbx_92_baseline",
+      "task": "BigCodeBench/92",
+      "status": "failed",
+      "truncated": false,
+      "generated_tokens": 5252,
+      "generation_sha256": "88b5c24183755809931ded796162d1121f5b8fb9ee6545b7f2059712cd9ff315"
+    },
+    {
+      "id": "bcbx_852_baseline",
+      "task": "BigCodeBench/852",
+      "status": "failed",
+      "truncated": false,
+      "generated_tokens": 4490,
+      "generation_sha256": "9474b3285cb09420ccd165ab1e2eaab499e766b6d5d63032651b2668f52b0ae4"
+    },
+    {
+      "id": "bcbx_155_baseline",
+      "task": "BigCodeBench/155",
+      "status": "failed",
+      "truncated": false,
+      "generated_tokens": 4360,
+      "generation_sha256": "a3474be145557d399cc6bd3b58c2e61308a2b653c0395a2820dc4479858258b4"
+    },
+    {
+      "id": "bcbx_293_baseline",
+      "task": "BigCodeBench/293",
+      "status": "failed",
+      "truncated": false,
+      "generated_tokens": 4918,
+      "generation_sha256": "adf50de6af973f8e75816c7e1d570ad4606376632ac32fa6f9eeca155001d585"
+    },
+    {
+      "id": "bcbx_241_baseline",
+      "task": "BigCodeBench/241",
+      "status": "failed",
+      "truncated": true,
+      "generated_tokens": 6144,
+      "generation_sha256": "3d3a2ff19eac20646f3f413d74ae4d145f9ac5bc5968c84a6b64e6ad36b71604"
+    },
+    {
+      "id": "bcbx_255_baseline",
+      "task": "BigCodeBench/255",
+      "status": "failed",
+      "truncated": false,
+      "generated_tokens": 4330,
+      "generation_sha256": "bc8ad7fcd5c923ea033f3db476820c7966e4e27afb38441106b564220f7f0f50"
+    },
+    {
+      "id": "bcbx_980_baseline",
+      "task": "BigCodeBench/980",
+      "status": "failed",
+      "truncated": false,
+      "generated_tokens": 5032,
+      "generation_sha256": "b590b3c7f6814b322997d9d8d699075e9a15030c64383fafb54feb93331224c2"
+    },
+    {
+      "id": "bcbx_928_baseline",
+      "task": "BigCodeBench/928",
+      "status": "failed",
+      "truncated": true,
+      "generated_tokens": 6144,
+      "generation_sha256": "abac19b841ba64bd21edb301fab18faf4961b87f12f1ac3cd3371c56a08266a2"
+    }
+  ],
+  "complete": true,
+  "conditions_sha256": "42ba3128b5013d9243c34e65afb7d3898ab4b49bf366018bbf6c405a6076a1dc",
+  "scorer_sha256": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77"
+}

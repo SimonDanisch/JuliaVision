@@ -1,0 +1,253 @@
+{
+    "complete": true,
+    "scope": "Posthoc parser-extent audit only; original registrations/results unchanged. JSON3 can ignore trailing bytes. New thinking grader independently requires entire object before parsing.",
+    "rows": [
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_01_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "bd58022a67a9e9d337b1f08d6f2cf91b5db7d04db8a701ed38fa5016ddfc4f84"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_01_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": true,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "cca98918a556a30ccc9e5c09cf23f418e64dbb59d5ea1e695d56f0cdf8f97499"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_02_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": true,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "966e709fdca147ee87f8c2d0bb8b58ea56d69908d69c4ae3d7e718da8f018a8e"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_02_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "980a90dd728008010092e7b135568c9d82f7865244454dfaa76c9946033586cb"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_03_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "1ad5b6c050c6b0ca3f3692fb9d9a27c3227b27807a9cf689aa6c06b2532357d8"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_03_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": true,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "04a422ea1b6fc87f88e4834ce75623570652dbae50f03a85ffb59505a5895e76"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_04_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": true,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "d3cbb16fe08cfbbcbfe3e3ea772ffeea82eccf218925fd0b5ec4f5561a3c60b4"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_04_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "2d843858da6582589d85acf550b55cc00a40f91f073d484fbf50b2fb25b4896c"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_05_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "b7a5fe085f282067f53b2e054b5733c0c0b9a4591315c401ff35ae21326a83f1"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_05_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": false,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "53fdb54a23d4af7933ed136e958ba87ecf53b05d60afd236d08bdf438d505167"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_06_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": false,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "1fb8812c2e7ec7e4a249ebfc7d3cf463e67325c8ee5d9aa28e50b3e8b0ed2864"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_06_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "cc0d79d045e38fc14e1660eabb1bf66e7246908b9bb2e4573b47aeaedd94cab9"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_07_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "b7e69eb266bac121104566a64e2125c75fee4c33fc54281904edc0837f70d9e5"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_07_bayes_network",
+            "legacy_admitted": false,
+            "whole_object": false,
+            "strict_admitted": false,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "cf0f7041850d6c7baceb3f8b28966c6fc0636fa6d0dbf1ce689c85191de3d4e1"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_08_bayes_network",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "a5e95a1fcb83c254e0dd6b819ed45f946d7b78c56449b4801fc4db16eaac408b"
+        },
+        {
+            "study": "bayes_extraction_results",
+            "id": "bayes_extract_08_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "4c7577384db25c7fb610d5aa1f0e594aba1bd265e6365a2185ad1c7a530ff579"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_01_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "a2795c571fcd005b6873758d5e67435a7ce5bff8e2391ad8ddb9ec664fb174ec"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_02_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "753731afdd73b9627cd4118f4c99e9408ee2c70cd51cdea37a577a5802a49dc9"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_03_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "7b9a6df3956aee7cd364afebadf5fdb48a1c307a0fa235ab4c75c31c89aa24de"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_04_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "251f21aaff2e2d798aa285418dea7919df17b6d7b71847d34ceb22e4fbb67095"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_05_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "b148f57c5e7360790c75679e5f6b969c2034ec6b301b873c8b0a2d6289d9f080"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_06_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "57e5279091af0b23d74fcaccd488476967bb5b131e220c1766d0f2f912ff8b50"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_07_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "6750f3b068dad4bf3a4ae58ac7e4f82b9d75fd14fd19b523d840be48c5abaf0f"
+        },
+        {
+            "study": "bayes_cpu_reference_results",
+            "id": "bayes_extract_08_direct_probability",
+            "legacy_admitted": true,
+            "whole_object": true,
+            "strict_admitted": true,
+            "admission_changed": false,
+            "original_status": "failed",
+            "generation_sha256": "fd3545056f3fd75e23e8b9fb1e7149e753bed889d9d37b46a4ad139b7c911984"
+        }
+    ],
+    "changed_admissions": 0,
+    "prior_passes_invalidated": 0,
+    "sources": {
+        "audit_bayes_json_extent.jl": "07e1350233fe72f1b2a7f4e11e977a7e22c1cfe200592a0dbef43c21fa3417c6",
+        "bayes_extraction_admission.jl": "f13db27f0d4bf2d0e7fa80fc6f3b46e195abe37447e96d32dda60e5e9947b1b7",
+        "bayes_thinking_admission.jl": "96c7b443ba75ba29013d28209ba9d61ce7b45f3fa7be29ff7248c3f7f2065abd"
+    }
+}

@@ -1,0 +1,158 @@
+{
+    "complete": true,
+    "scope": "Historical generation-slot closure only. Separate posthoc compiler analyses can still remain unfinished; consult their own summaries.",
+    "rows": [
+        {
+            "original": "safe_budget_transfer_extension_results",
+            "migrated": "laptop_pending_results",
+            "audit": {
+                "complete": true,
+                "old_conditions_sha256": "61d577c97893ada4dc1f2ada5c067423445066f5f156cf9cf20a805da7df89a5",
+                "new_conditions_sha256": "1691c3dde59845f7ae81d80b1be9f0ec7c5ffbeea729b42bcb2ceb7cdd0e25ff",
+                "new_summary_sha256": "21101c9396decc4e5c5df866d2cafda03654b04960b8e769f87080f2d171bd3b",
+                "rows": [
+                    {
+                        "id": "transfer_sincos_pair_api_pack",
+                        "generation_sha256": "ed283a9bee2c94c3af1eedc8ac2e813f88302d930b13568e821b37779eb75b93",
+                        "attempt_sha256": "24caba71fc5ba431731b1e12b6ccb0ce9809c19ae3382965727bfca5fbc43250",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "transfer_sincos_pair_no_addon",
+                        "generation_sha256": "bb53b2e983f843610755402cdc285537405c2b6850889d4e4225b7cc83d26fa7",
+                        "attempt_sha256": "e4e806154cf7cab97fccb834edc3b5c23a5fe43f6a4ce920cfc27933838930a1",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "transfer_flat_transpose_no_addon",
+                        "generation_sha256": "942f29a0a729b40e0fdcce51b8c046502f4e849173e640812c89939b009d4292",
+                        "attempt_sha256": "1ef1f3f274ca564093cbef7a0240a935400fa26f1f6deb545b8ee5898f4af817",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "transfer_flat_transpose_api_pack",
+                        "generation_sha256": "6b427e1f3f879ee2644c55e22592a64dcf25b1e18054c5c69436734e1f972ced",
+                        "attempt_sha256": "6273de6a38ee87173ab20724041d32d3d3621525e933d627d3f8eb58866a37b5",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "transfer_atomic_sum_api_pack",
+                        "generation_sha256": "7a35ff0df0e3a45f4a4676b7648ea1c9e2ab5719955349ea0cffa82cbcb7a090",
+                        "attempt_sha256": "59b0508bdbdca226dc4208b67bb443dd857b8137e06a5ef47b311d43ed87a20f",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "transfer_atomic_sum_no_addon",
+                        "generation_sha256": "a41297c2fadd79c3ee713d6ae9c8ce0ee8450b39caa0caf3cdf507005e42b13c",
+                        "attempt_sha256": "5a72773129f0ba50a63579a148988d78b7ed835b2611d4f4a6c48fbb914d6d05",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    }
+                ],
+                "scope": "Migration bookkeeping/provenance, not new generations or a model-quality improvement. Do not pool old/new runtime scores or regenerate historical slots."
+            }
+        },
+        {
+            "original": "shared_source_kernel_results",
+            "migrated": "laptop_shared_source_results",
+            "audit": {
+                "complete": true,
+                "old_conditions_sha256": "c9aeba5138ce37fde721f6b65f379c9134c164cc1cdfff86ec54ef4ae8bb94eb",
+                "new_conditions_sha256": "113f1677cfa562ae8473a423573f4ec91d40540bbf6e6a006de005d5fa821e2d",
+                "new_summary_sha256": "bbf19e3f48aeb2e4d057361778200e40e82aae6fe64d0d74694a935de942f626",
+                "rows": [
+                    {
+                        "id": "shared_periodic_laplacian_cpu_source",
+                        "generation_sha256": "809dd72347a2ac82991214944faaf794abc51b13edc2122c5ceafd7877dfb6fe",
+                        "attempt_sha256": "4fccdf54415746cd0430100243d5210151fafc34eb87a836dbdc10115a1cdb61",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_periodic_laplacian_gpu_source",
+                        "generation_sha256": "a27a32333fb2007754a7cd4fa949741e07c665bed503d5b03117c3eeed411a8d",
+                        "attempt_sha256": "c8cfd9d13612f9f099f1c68a5fd31746f1d3c7890f4c3b7e9405e575ea2885d6",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_indexed_interpolation_gpu_source",
+                        "generation_sha256": "f555a15732eb0b54145df0fc2b217fea44f9b37d6508b8f6fbaa4bf8ab980a82",
+                        "attempt_sha256": "0d280b0b66867a2e791efed689c30796fe18a5304b3098da56ccd845f80f233e",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_indexed_interpolation_cpu_source",
+                        "generation_sha256": "ebca69c2592d66e1806ed529d6924911294aaa42dbd1e23dc1297df061e62bae",
+                        "attempt_sha256": "d4ecf7158782e704c3de3de0bc5825bd258c44d67a7a1c029dca08b0653d0ccd",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_column_bias_clip_cpu_source",
+                        "generation_sha256": "11fc2fb433a8be639fc5468a515967feeed8df2466c917aa08c1598e53c024f9",
+                        "attempt_sha256": "00aa6979fdc0768db6b0a36ba67da7f02e542a5b1ab50f8eacb878ccbcd59e16",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_column_bias_clip_gpu_source",
+                        "generation_sha256": "65fa91a8e8a15958325ed9eb2f05b04763700e74476642729c6d73cc8cbef54d",
+                        "attempt_sha256": "07274637d694cb14414394ae3a4bfa3db2c090b2c53d793f326b2d1869ee04d7",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_block_reverse_gpu_source",
+                        "generation_sha256": "b87e07bc7cace8ffc67f23f2a1736ab2bb9b3c61a78e357b4e2180d5b180bee1",
+                        "attempt_sha256": "6762b16af17a2af6f674772c55436a0801022ae306e34f53a602fa13b6a664ab",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "shared_block_reverse_cpu_source",
+                        "generation_sha256": "92b1c28efb65fd34e2bb8b70c4c7453a349a398353dae01bcf7c2635960c4528",
+                        "attempt_sha256": "9cb41e0c0080d888d77ad6bbd1ef1f3efb1bd7dcebe546d6a3c48a40b41f3aab",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    }
+                ],
+                "scope": "Migration bookkeeping/provenance, not new generations or a model-quality improvement. Do not pool old/new runtime scores or regenerate historical slots."
+            }
+        },
+        {
+            "original": "kernel_transfer_budget_results",
+            "migrated": "laptop_long_budget_v2_results",
+            "audit": {
+                "complete": true,
+                "old_conditions_sha256": "71e8d8bce63a7556a0a5409a23077caee30c6daf9f93f8e43464dba306d1090f",
+                "new_conditions_sha256": "5530e751a3517d8ef4a9fd6ce95f62699ef114e77e9633b3cf0744fc703aaa48",
+                "new_summary_sha256": "a49ee86836f1c25a29c5b8bd8c34382230c7179839f4f1facb8a9a9920b848d1",
+                "rows": [
+                    {
+                        "id": "transfer_clamped_gather_no_addon",
+                        "generation_sha256": "1a2daa3e0753c485c6926b81f43437b41b4e8a64f696a3da3dd7c7ead81f9942",
+                        "attempt_sha256": "f14380ae52c1f4ae49842bcd6cdd1ae73ac9a3fc46733e080416e52b56344982",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    },
+                    {
+                        "id": "transfer_clamped_gather_api_pack",
+                        "generation_sha256": "8c6a455ad13e5ff60e736200da9c10ae1f98b570cce855b9a57d3b495656e529",
+                        "attempt_sha256": "246ab412c15d9c84cb8d53dd74652e8f3c3dc720cc89cf37d2ed7cc2ed9dcbbf",
+                        "old_slot": "unattempted_preserved",
+                        "new_slot": "scored_on_different_qualified_runtime"
+                    }
+                ],
+                "scope": "Migration bookkeeping/provenance, not new generations or a model-quality improvement. Do not pool old/new runtime scores or regenerate historical slots."
+            }
+        }
+    ],
+    "source_sha256": "f46a4bf9a44a9b5c25d07bf7264a2ce7ee6613090cf1eab7ffdd439856b5d36b"
+}

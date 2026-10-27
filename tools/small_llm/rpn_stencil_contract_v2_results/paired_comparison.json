@@ -1,0 +1,82 @@
+{
+    "scope": "POSTHOC prompt-format development on SAME8 authored stencil tasks, after observing partial original outputs. Not independent transfer, external held-out, or model-only/frontier evidence. Original cohort retained unchanged.",
+    "policy": "All16 follow-up conditions frozen before ANY follow-up generation. Same16 paired jobs/order/model/sampler/nonthinking512token cap/grammar/compiler/tests. Identical revised prompt in both arms: correct32-normal-plus-up-to7-closure wording, empty-stack explanation, ONE generic constant-only worked example. No task-answer example, hidden-test feedback, retries or seed search. All original generations must finish first.",
+    "complete": true,
+    "by_arm": {
+        "disabled": {
+            "conditions": 8,
+            "completed": 8,
+            "syntax_accepted": 1,
+            "mathematical_passes": 0,
+            "inference_errors": 0
+        },
+        "enabled": {
+            "conditions": 8,
+            "completed": 8,
+            "syntax_accepted": 8,
+            "mathematical_passes": 0,
+            "inference_errors": 0
+        }
+    },
+    "pairs": [
+        {
+            "task": "central_periodic_gradient",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "half_diffusion_update",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "clamped_neighbor_energy",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "positive_forward_increment",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "unit_interval_projection",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "clamped_morphological_range",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "nonnegative_limited_slope",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        },
+        {
+            "task": "periodic_neighbor_sum_energy",
+            "outcome": "neither_pass",
+            "enabled": "failed",
+            "disabled": "failed"
+        }
+    ],
+    "paired_counts": {
+        "both_pass": 0,
+        "pending": 0,
+        "enabled_only": 0,
+        "neither_pass": 8,
+        "disabled_only": 0
+    },
+    "conditions_sha256": "69dc7e90257ae43baff8de85f9dedee2592496c2a2f3b8a66704a275484683b2",
+    "primary_summary_sha256": "fcb7b3e1a7c11edf895c6d55383690b95b0eb31358b2de7da9eeaf31ded67cff",
+    "analyst_sha256": "1cc7c7e3b2e1f86637796451cbbf8557081d3127e78b41f8557f697b44704b70",
+    "limits": "Small authored related-family cohort, one seed/attempt each. Syntax admission is not arithmetic success; no frontier/equivalence/significance or independent transfer claim. Original prompt has a separate literal32-operation audit; corrected-prompt follow-up is posthoc development."
+}

@@ -1,0 +1,164 @@
+{
+    "complete": true,
+    "scope": "POSTHOC SAME12 migrated controller/control answers, compiler admission expansion ONLY; not new neural attempts or same-engine equivalence with historical Bosgame outputs",
+    "policy": "All12 decisions frozen before grade lookup. Uniform typed pointwise lowering then frozen void-tail normalization, no task-ID rules or arithmetic repair. Reuse a prior grade ONLY for exactly equal source bytes; otherwise ungraded here, never silently call it a failure/pass.",
+    "rows": [
+        {
+            "dataset": "laptop_pending_results",
+            "id": "transfer_sincos_pair_api_pack",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "6808c499f0e30fd860e5ef6d41c38f88a77280243e8efd4c584574c0ae1bde74",
+            "reused_grade_sha256": [
+                "82cf0fa37370cd43437edd3f0d87a44f777b17242635c7f345515113d96efbf7",
+                "82f1f7fdadd97b1912c0d82ccff46ea783a39859c5ec1373926fc801bf604e94"
+            ]
+        },
+        {
+            "dataset": "laptop_pending_results",
+            "id": "transfer_sincos_pair_no_addon",
+            "status": "passed",
+            "raw_passed": true,
+            "lowered": false,
+            "admission": "explicit simple argument types required",
+            "selected_code_sha256": "410cd8485f58e9a281305a132097744b13e5605fe505fad104cfcaa9b2926326",
+            "reused_grade_sha256": [
+                "aae942437aaf4ca521c045fe29adc493b6a119bdd5f064a9a9b46766e72c27f6"
+            ]
+        },
+        {
+            "dataset": "laptop_pending_results",
+            "id": "transfer_flat_transpose_no_addon",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "function syntax required",
+            "selected_code_sha256": "d55b90e0642b15af054d6665744c4ceed3e53a884707f96c30ed0e707b32e54d",
+            "reused_grade_sha256": [
+                "35bccfa37e6a2dc0d676000c1f28e325e8f65c8221eeb13e1bdcccfc3cf4aef8",
+                "536e9f6af2d969345e164ae6b369be3e00046536dc12c6980f63af14ec89d497"
+            ]
+        },
+        {
+            "dataset": "laptop_pending_results",
+            "id": "transfer_flat_transpose_api_pack",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "d523221e8e9070c288f4206a6edb003e7e34bd66554b3cf896f11803a7684c7c",
+            "reused_grade_sha256": [
+                "6a2fc19a2e9c60a4088d1c4e811174fd606d5db275c73c067c08197d2dd940d1",
+                "5c345d77b4a42c27523bcc2e26c2ea9b9f93dd57f3315cafeaaea99b10d154e4"
+            ]
+        },
+        {
+            "dataset": "laptop_pending_results",
+            "id": "transfer_atomic_sum_api_pack",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "function syntax required",
+            "selected_code_sha256": "1b864fdcd1febac6155637652f1659fb791cb542b72100412eeedff5994160b2",
+            "reused_grade_sha256": [
+                "506f177f7328deab47feae03883c9593beeba0cdb2ecb26c74e3e64470c7bfef",
+                "163de7a332798b9da5e40b94aceeea7b0a471513524ae362a03dae0716efb3c9"
+            ]
+        },
+        {
+            "dataset": "laptop_pending_results",
+            "id": "transfer_atomic_sum_no_addon",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "unknown import binding",
+            "selected_code_sha256": "7b230bff48d01bf80162b8714e843011bce2c0dbe0626412d93f2041b66b5b4a",
+            "reused_grade_sha256": [
+                "12b9b1acab90fc0a91de18a38f823d65e606f4f4205ac88f67ff4281874e11e8",
+                "c62f866115ef84b5d411c73487fb72d92aba6a43dccc140d19d85316deff36b9"
+            ]
+        },
+        {
+            "dataset": "laptop_controller_controls_results",
+            "id": "transfer_sincos_pair_api_pack",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "reused_grade_sha256": [
+                "3201ec03e773808ee78e81fa9ea2348fec3de32b206a01ab5c549b12ce357aeb",
+                "953f1ca22365f8313db4043351950167ddd6c929396746b6472ef2cd53da5201"
+            ]
+        },
+        {
+            "dataset": "laptop_controller_controls_results",
+            "id": "transfer_sincos_pair_no_addon",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "reused_grade_sha256": [
+                "db250bb62757482bb1de89276584707fd2f240bb474ba4fbdd49c7546812f2e8",
+                "90929fb5b646ca67313f45fa597a0acecc6124bd996f224f8a170e81d29a9c89"
+            ]
+        },
+        {
+            "dataset": "laptop_controller_controls_results",
+            "id": "transfer_flat_transpose_no_addon",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "function syntax required",
+            "selected_code_sha256": "d55b90e0642b15af054d6665744c4ceed3e53a884707f96c30ed0e707b32e54d",
+            "reused_grade_sha256": [
+                "36e3bc11fe3ed2bcefadaa27d924b8820c3b9c6a74dab3d6b46ac7b1d17f4839",
+                "be68b23bf499d87138676575d2312228f85142563d0e94dfa9b00323b0e2171f"
+            ]
+        },
+        {
+            "dataset": "laptop_controller_controls_results",
+            "id": "transfer_flat_transpose_api_pack",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "reused_grade_sha256": [
+                "35dcd7f9e32963b8d43c659bd601b1e1e00fd41f8323c4f4e963e7f64103c622",
+                "f5add3257721b421a8149bce3d0afb3aa30135d36a7d6383f924a7bad5b1492c"
+            ]
+        },
+        {
+            "dataset": "laptop_controller_controls_results",
+            "id": "transfer_atomic_sum_api_pack",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "reused_grade_sha256": [
+                "9aba1ed560611b277589d10ba12c30b3cf9fcb2edab005055b4de951f7d4604e",
+                "9f8f5ebdaaccfd0f797ecf155bd16a3e9899e8b93196b286ad6dd39f95258db9"
+            ]
+        },
+        {
+            "dataset": "laptop_controller_controls_results",
+            "id": "transfer_atomic_sum_no_addon",
+            "status": "failed",
+            "raw_passed": false,
+            "lowered": false,
+            "admission": "one function definition required",
+            "selected_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "reused_grade_sha256": [
+                "e2e96e81ecf57cca8c3f15f52362f4245f4ac7dfd06a898adde525b2f847954d",
+                "f294b7197ea62ff6ebf31df62448448ed4a9854869f2d61f458b44658a2ed99f"
+            ]
+        }
+    ],
+    "conditions_sha256": "9b073596648a4141cadcf929bd6dcb896c91d102ce4f325cb3b4113ed3893fd7",
+    "interpretation": "Exact existing source-score reuse, not new execution/hardware qualification. Earlier software-jail tests are ordinary nonadversarial functional checks, NOT the later external test-blind audit or independent held-out evidence."
+}

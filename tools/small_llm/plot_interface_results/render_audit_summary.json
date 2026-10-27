@@ -1,0 +1,458 @@
+{
+    "complete": true,
+    "scope": "Separate uniform PRE-GRADE render/layout development audit. Implementation registered AFTER plot generation began, not part of the original prospective primary score; no hidden grade seen/used. Not an aesthetic preference score.",
+    "policy": "Wait for ALL16 primary grades after model-worker retirement. Attempt every admitted nontruncated plan on SAME64-point private positive data, whether specification-correct or wrong. Generated Julia NEVER executes: render only trusted builder+serialized checked IR in existing CPU-only networkless Cairo jail. Keep first render attempt, no silent rerenders. Preserve unsupported, failure, clipping and interrupted outcomes separately. Unchanged180s wall/150CPU/12GiB jail bounds.",
+    "rows": [
+        {
+            "id": "plot_transfer_01_julia_source",
+            "arm": "julia_source",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_01_julia_source.png",
+                "dimensions": {
+                    "width": 720,
+                    "height": 480
+                },
+                "elapsed_seconds": 31.973050832748413,
+                "sha256": "03a0da6f9953dfdffafea02c2554b958eb5354f568b66cdea0db1ca51db23c31",
+                "layout": {
+                    "canvas": [
+                        720,
+                        480
+                    ],
+                    "axes": [
+                        {
+                            "title": "Calibration",
+                            "decorated_bounds": [
+                                16.000004,
+                                16.0,
+                                704.0,
+                                464.0
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[720,480],\"axes\":[{\"title\":\"Calibration\",\"decorated_bounds\":[16.000004,16.0,704.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "d3e33e51af16bcc0f9fc2184eadb9a8211a2250b1220f04a92b724706211f024",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_01_plot_spec",
+            "arm": "plot_spec",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_01_plot_spec.png",
+                "dimensions": {
+                    "width": 720,
+                    "height": 480
+                },
+                "elapsed_seconds": 32.91870594024658,
+                "sha256": "03a0da6f9953dfdffafea02c2554b958eb5354f568b66cdea0db1ca51db23c31",
+                "layout": {
+                    "canvas": [
+                        720,
+                        480
+                    ],
+                    "axes": [
+                        {
+                            "title": "Calibration",
+                            "decorated_bounds": [
+                                16.000004,
+                                16.0,
+                                704.0,
+                                464.0
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[720,480],\"axes\":[{\"title\":\"Calibration\",\"decorated_bounds\":[16.000004,16.0,704.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "9cca6134172671011e9ae122724da8fba02c020ff2578100cbfbda79625947e9",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_02_plot_spec",
+            "arm": "plot_spec",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_02_plot_spec.png",
+                "dimensions": {
+                    "width": 800,
+                    "height": 500
+                },
+                "elapsed_seconds": 37.98489999771118,
+                "sha256": "f0a2d42e5847e6f7299c129d869d8e7619bba83bd4a692113dfd494848a3a407",
+                "layout": {
+                    "canvas": [
+                        800,
+                        500
+                    ],
+                    "axes": [
+                        {
+                            "title": "Samples",
+                            "decorated_bounds": [
+                                16.000004,
+                                16.0,
+                                784.0,
+                                484.0
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[800,500],\"axes\":[{\"title\":\"Samples\",\"decorated_bounds\":[16.000004,16.0,784.0,484.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "755c187be799279777cc8b0dc82c0dc86e9fa5efdb6dd2efcacb3512b096af0b",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_02_julia_source",
+            "arm": "julia_source",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_02_julia_source.png",
+                "dimensions": {
+                    "width": 800,
+                    "height": 500
+                },
+                "elapsed_seconds": 37.53665494918823,
+                "sha256": "f0a2d42e5847e6f7299c129d869d8e7619bba83bd4a692113dfd494848a3a407",
+                "layout": {
+                    "canvas": [
+                        800,
+                        500
+                    ],
+                    "axes": [
+                        {
+                            "title": "Samples",
+                            "decorated_bounds": [
+                                16.000004,
+                                16.0,
+                                784.0,
+                                484.0
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[800,500],\"axes\":[{\"title\":\"Samples\",\"decorated_bounds\":[16.000004,16.0,784.0,484.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "cb0f44b804c3fc64eccf32b9729b1429e5999d3976b1657fdf13556428d1b98e",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_03_julia_source",
+            "arm": "julia_source",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "dc312d88311bee342226b9e603f73be6777fd496ee845df59f689213de47d7ea",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_03_plot_spec",
+            "arm": "plot_spec",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "9bf7b8375122127be410cddc6183d6868ea0248f692ab69faed8f8037ad91a50",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_04_plot_spec",
+            "arm": "plot_spec",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_04_plot_spec.png",
+                "dimensions": {
+                    "width": 1000,
+                    "height": 480
+                },
+                "elapsed_seconds": 46.330240964889526,
+                "sha256": "6b27edf89f17131e81baa3f8cb61c3b42e8b7c248c465b79e05302d9ab29a905",
+                "layout": {
+                    "canvas": [
+                        1000,
+                        480
+                    ],
+                    "axes": [
+                        {
+                            "title": "Two sensors",
+                            "decorated_bounds": [
+                                16.000004,
+                                16.0,
+                                491.0,
+                                464.0
+                            ],
+                            "within_canvas": true
+                        },
+                        {
+                            "title": "Replicates",
+                            "decorated_bounds": [
+                                509,
+                                16,
+                                984,
+                                464
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[1000,480],\"axes\":[{\"title\":\"Two sensors\",\"decorated_bounds\":[16.000004,16.0,491.0,464.0],\"within_canvas\":true},{\"title\":\"Replicates\",\"decorated_bounds\":[509.0,16.0,984.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "823a80916e230634c69ebb3d0e68558299c3b82333b427325eaf154fe7d56632",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_04_julia_source",
+            "arm": "julia_source",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "bea7186c5cc16f4ec6836d26e4d0eba88ff83ed599075c507c1368c2ad342f62",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_05_julia_source",
+            "arm": "julia_source",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_05_julia_source.png",
+                "dimensions": {
+                    "width": 760,
+                    "height": 500
+                },
+                "elapsed_seconds": 36.63332009315491,
+                "sha256": "1b7de9e1b16ae89274fa227809ecbcc59dc7b3fdc492ae51a2ec547043334eab",
+                "layout": {
+                    "canvas": [
+                        760,
+                        500
+                    ],
+                    "axes": [
+                        {
+                            "title": "Positive signals",
+                            "decorated_bounds": [
+                                16,
+                                16,
+                                374.08353,
+                                484
+                            ],
+                            "within_canvas": true
+                        },
+                        {
+                            "title": "Positive signals",
+                            "decorated_bounds": [
+                                392.08356,
+                                16.0,
+                                744.0,
+                                484.0
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[760,500],\"axes\":[{\"title\":\"Positive signals\",\"decorated_bounds\":[16.0,16.0,374.08353,484.0],\"within_canvas\":true},{\"title\":\"Positive signals\",\"decorated_bounds\":[392.08356,16.0,744.0,484.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "cba13f89df39c1ead8df20b59dedda3251593acdc92d177ed40d86d7663b06f8",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_05_plot_spec",
+            "arm": "plot_spec",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "1125c31bfd94b37aac8f90034726da5e98d122ff95cd09f1ffab2e35c9a95138",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_06_plot_spec",
+            "arm": "plot_spec",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_06_plot_spec.png",
+                "dimensions": {
+                    "width": 1000,
+                    "height": 500
+                },
+                "elapsed_seconds": 48.88074707984924,
+                "sha256": "0eabebfa53a60cd91ba0d97cbed862dfb72d6089ddd3d50d061d6d427aca5b2c",
+                "layout": {
+                    "canvas": [
+                        1000,
+                        500
+                    ],
+                    "axes": [
+                        {
+                            "title": "Log-x A",
+                            "decorated_bounds": [
+                                16.000004,
+                                16.0,
+                                491.0,
+                                484.0
+                            ],
+                            "within_canvas": true
+                        },
+                        {
+                            "title": "Log-x B",
+                            "decorated_bounds": [
+                                509,
+                                16,
+                                984,
+                                484
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[1000,500],\"axes\":[{\"title\":\"Log-x A\",\"decorated_bounds\":[16.000004,16.0,491.0,484.0],\"within_canvas\":true},{\"title\":\"Log-x B\",\"decorated_bounds\":[509.0,16.0,984.0,484.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "b18594b62cec83541ea286ba1fa9c8cd619976458bf6cbed577ccd1867fb2339",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_06_julia_source",
+            "arm": "julia_source",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "10f68ba6e5cddf4254ce006e7b496e754abc9fd833173a19923390cd272c9a91",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_07_julia_source",
+            "arm": "julia_source",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "31965af6f5fb0066af1feb43ff532957f325ee8e60cda2968ac3fbecfd4eeb73",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_07_plot_spec",
+            "arm": "plot_spec",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "287af2bfab20c8fc48d23b6175ed2bc171ed5de66b6e1837fbd683056ec36ec6",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_08_plot_spec",
+            "arm": "plot_spec",
+            "status": "rendered_unclipped",
+            "attempted": true,
+            "rendered": true,
+            "within_canvas": true,
+            "render": {
+                "rendered": true,
+                "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_08_plot_spec.png",
+                "dimensions": {
+                    "width": 800,
+                    "height": 500
+                },
+                "elapsed_seconds": 39.98835897445679,
+                "sha256": "32d0210821831452cf9ca6905cc39c28f3f2be8e3a7fc3745c239bb324db69bc",
+                "layout": {
+                    "canvas": [
+                        800,
+                        500
+                    ],
+                    "axes": [
+                        {
+                            "title": "Double log",
+                            "decorated_bounds": [
+                                16,
+                                16,
+                                407.22354,
+                                484
+                            ],
+                            "within_canvas": true
+                        },
+                        {
+                            "title": "",
+                            "decorated_bounds": [
+                                425.22354,
+                                37.64,
+                                784.0,
+                                461.36
+                            ],
+                            "within_canvas": true
+                        }
+                    ]
+                },
+                "diagnostic": "LAYOUT_REPORT={\"canvas\":[800,500],\"axes\":[{\"title\":\"Double log\",\"decorated_bounds\":[16.0,16.0,407.22354,484.0],\"within_canvas\":true},{\"title\":\"\",\"decorated_bounds\":[425.22354,37.64,784.0,461.36],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+            },
+            "generation_sha256": "b562365530b272380304579257bf881b26aabc298d66d414f96792fbfcfcebe6",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        },
+        {
+            "id": "plot_transfer_08_julia_source",
+            "arm": "julia_source",
+            "status": "unsupported_or_truncated_output",
+            "attempted": false,
+            "rendered": false,
+            "within_canvas": null,
+            "generation_sha256": "5b44821046845d568270e58790ac1b282ab260a445977d883ff2ae86af4738c3",
+            "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+            "aesthetic_score": null
+        }
+    ],
+    "primary_summary_sha256": "a9ddddf80fbe84cbc834974d9df8bbbf0d7e2e457d2201511bfc86e6b735c13e",
+    "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+    "caveat": "Actual images/layout only. This post-registration stage does not alter primary specification grades. Renderability/unclipped labels do NOT establish aesthetic quality or scientific validity."
+}

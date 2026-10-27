@@ -1,0 +1,14 @@
+{
+    "scope": "single retained repair prompt, native CPU FP32 vs existing Q4; development control, no seed or prompt search",
+    "inference": "independent Transformers CPU eager FP32, same512-token greedy output cap; generated code executed ONLY in restricted Julia sandbox",
+    "native_passed": false,
+    "answer": "```julia\nfunction solve(x::Vector{Union{Missing, Float64}}, width::Int)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    if width > length(x)\n        return missing\n    end\n    \n    result = []\n    for i in 1:(length(x) - width + 1)\n        window = x[i:i+width-1]\n        if all(ismissing, window)\n            push!(result, missing)\n        else\n            mean_val = mean(filter(!ismissing, window))\n            push!(result, mean_val)\n        end\n    end\n    \n    return result\nend\n```<|im_end|>\n<|endoftext|>",
+    "code": "function solve(x::Vector{Union{Missing, Float64}}, width::Int)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    if width > length(x)\n        return missing\n    end\n    \n    result = []\n    for i in 1:(length(x) - width + 1)\n        window = x[i:i+width-1]\n        if all(ismissing, window)\n            push!(result, missing)\n        else\n            mean_val = mean(filter(!ismissing, window))\n            push!(result, mean_val)\n        end\n    end\n    \n    return result\nend\n",
+    "generated_tokens": 152,
+    "native_inference_seconds": 99.59524042194244,
+    "quantized_inference_seconds": 5.843415975570679,
+    "identical_extracted_code": true,
+    "control_sha256": "22223d6e61e2994aa6046453476bc36ca976515ceb49f723fb97f9dd401123c0",
+    "quantized_candidate_sha256": "f7312971c55931f06f823826d995c5b7c862cf512806cc19639277e9c2b1769e",
+    "original_contract_sha256": "6d609483fa54d267a62183aebef9385a3967bdc0d0cfb78ee02f2ca5a0209604"
+}

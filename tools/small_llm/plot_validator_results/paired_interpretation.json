@@ -1,0 +1,216 @@
+{
+    "complete": true,
+    "baseline_correct": 3,
+    "total": 8,
+    "comparisons": [
+        {
+            "arm": "self_review",
+            "relative_to_original": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 3,
+                "unchanged_incorrect": 5,
+                "before": {
+                    "successes": 3,
+                    "total": 8,
+                    "estimate": 0.375,
+                    "lower": 0.13684428582359742,
+                    "upper": 0.6942576053973727
+                },
+                "after": {
+                    "successes": 3,
+                    "total": 8,
+                    "estimate": 0.375,
+                    "lower": 0.13684428582359742,
+                    "upper": 0.6942576053973727
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        },
+        {
+            "arm": "validator_feedback",
+            "relative_to_original": {
+                "total": 8,
+                "repairs": 0,
+                "regressions": 0,
+                "discordant": 0,
+                "unchanged_correct": 3,
+                "unchanged_incorrect": 5,
+                "before": {
+                    "successes": 3,
+                    "total": 8,
+                    "estimate": 0.375,
+                    "lower": 0.13684428582359742,
+                    "upper": 0.6942576053973727
+                },
+                "after": {
+                    "successes": 3,
+                    "total": 8,
+                    "estimate": 0.375,
+                    "lower": 0.13684428582359742,
+                    "upper": 0.6942576053973727
+                },
+                "exact_two_sided_discordance_p": 1,
+                "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+            }
+        }
+    ],
+    "feedback_vs_review": {
+        "before_arm": "self_review",
+        "after_arm": "validator_feedback",
+        "tasks": [
+            "plot_transfer_01",
+            "plot_transfer_02",
+            "plot_transfer_03",
+            "plot_transfer_04",
+            "plot_transfer_05",
+            "plot_transfer_06",
+            "plot_transfer_07",
+            "plot_transfer_08"
+        ],
+        "statistics": {
+            "total": 8,
+            "repairs": 0,
+            "regressions": 0,
+            "discordant": 0,
+            "unchanged_correct": 3,
+            "unchanged_incorrect": 5,
+            "before": {
+                "successes": 3,
+                "total": 8,
+                "estimate": 0.375,
+                "lower": 0.13684428582359742,
+                "upper": 0.6942576053973727
+            },
+            "after": {
+                "successes": 3,
+                "total": 8,
+                "estimate": 0.375,
+                "lower": 0.13684428582359742,
+                "upper": 0.6942576053973727
+            },
+            "exact_two_sided_discordance_p": 1,
+            "caveat": "POSTHOC descriptive arithmetic, unadjusted for MANY experiments. Authored/public fixed cohorts need not be representative or independent; intervals/tests cannot establish frontier, clinical or held-out generalization. No optional stopping or output selection is authorized."
+        }
+    },
+    "scope": "POSTHOC SAME8 conditional workflows. Original grades never routed revisions. No independent transfer, model-weight/frontier gain, or aesthetic score.",
+    "incremental_generation_costs": {
+        "complete": true,
+        "rows": [
+            {
+                "id": "plot_transfer_03_self_review",
+                "arm": "self_review",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 1067,
+                "generated_tokens": 145,
+                "decode_steps": 192,
+                "decode_submissions": 192,
+                "generation_timer_seconds": 18.75532293319702,
+                "truncated": false
+            },
+            {
+                "id": "plot_transfer_03_validator_feedback",
+                "arm": "validator_feedback",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 1078,
+                "generated_tokens": 145,
+                "decode_steps": 192,
+                "decode_submissions": 192,
+                "generation_timer_seconds": 18.798796892166138,
+                "truncated": false
+            },
+            {
+                "id": "plot_transfer_05_self_review",
+                "arm": "self_review",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 1069,
+                "generated_tokens": 145,
+                "decode_steps": 192,
+                "decode_submissions": 192,
+                "generation_timer_seconds": 18.777018070220947,
+                "truncated": false
+            },
+            {
+                "id": "plot_transfer_05_validator_feedback",
+                "arm": "validator_feedback",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 1080,
+                "generated_tokens": 145,
+                "decode_steps": 192,
+                "decode_submissions": 192,
+                "generation_timer_seconds": 18.778197050094604,
+                "truncated": false
+            },
+            {
+                "id": "plot_transfer_07_self_review",
+                "arm": "self_review",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 1944,
+                "generated_tokens": 1024,
+                "decode_steps": 1024,
+                "decode_submissions": 1024,
+                "generation_timer_seconds": 36.22902703285217,
+                "truncated": true
+            },
+            {
+                "id": "plot_transfer_07_validator_feedback",
+                "arm": "validator_feedback",
+                "status": "failed",
+                "cost_known": true,
+                "input_tokens": 1960,
+                "generated_tokens": 1024,
+                "decode_steps": 1024,
+                "decode_submissions": 1024,
+                "generation_timer_seconds": 36.25487184524536,
+                "truncated": true
+            }
+        ],
+        "arms": [
+            {
+                "arm": "self_review",
+                "label": "conditional_one_self_review",
+                "tasks": 3,
+                "passed": 0,
+                "cost_known": 3,
+                "cost_missing": 0,
+                "input_tokens": 4080,
+                "generated_tokens": 1314,
+                "decode_steps": 1408,
+                "decode_submissions": 1408,
+                "generation_timer_seconds": 73.76136803627014,
+                "truncated": 1,
+                "timed_seconds_per_pass": null
+            },
+            {
+                "arm": "validator_feedback",
+                "label": "conditional_one_public_schema_feedback_revision",
+                "tasks": 3,
+                "passed": 0,
+                "cost_known": 3,
+                "cost_missing": 0,
+                "input_tokens": 4118,
+                "generated_tokens": 1314,
+                "decode_steps": 1408,
+                "decode_submissions": 1408,
+                "generation_timer_seconds": 73.8318657875061,
+                "truncated": 1,
+                "timed_seconds_per_pass": null
+            }
+        ],
+        "scope": "Descriptive incremental generation costs for exactly the registered jobs; not a pooled intelligence score, throughput benchmark or causal speed comparison.",
+        "timer": "Existing generation timer includes prompt processing, decode and graph/JIT work after session creation; excludes model loading, session creation, worker startup/retirement, sandbox tests and external solvers. Token rate must NOT be reported as steady-state decode throughput.",
+        "baseline_cost": "Revision arms exclude the shared original answer-generation cost; these are incremental costs, NOT end-to-end workflow costs. Missing error costs remain unknown, never zero."
+    },
+    "primary_summary_sha256": "f8bb10eb8ead4fd8de17a47b2b2a45fc51fdf54dd80fb20e5c42561917bc0da2",
+    "baseline_summary_sha256": "a9ddddf80fbe84cbc834974d9df8bbbf0d7e2e457d2201511bfc86e6b735c13e",
+    "source_sha256": "63515b0d44cf595671455eb1058008beb053bd35a66b90b84fb99b18178a3b4a",
+    "caveat": "Both branches share the original8 JSON generations. Costs here are ONLY additional triggered revisions, excluding original generation/model loads/worker startup/validator/render time. Timer is NOT end-to-end latency or steady-state decode throughput. Rendering of original admitted plans does NOT establish new revision renderability/aesthetics."
+}

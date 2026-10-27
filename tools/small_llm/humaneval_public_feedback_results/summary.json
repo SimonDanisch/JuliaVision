@@ -1,0 +1,210 @@
+{
+    "scope": "development extension motivated by observed loading/empty-input failures; NOT a preregistered held-out transfer result",
+    "policy": "public candidate-loading rejection, runtime error, or mismatch with a prompt example's displayed output; no hidden scores",
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "034_unique_elements",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "039_prime_fib",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true,
+            "generation_seconds": 35.07392716407776
+        },
+        {
+            "task": "039_prime_fib",
+            "arm": "public_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true,
+            "generation_seconds": 37.44355297088623
+        },
+        {
+            "task": "106_f",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "106_f",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "162_string_to_md5",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": false,
+            "generation_seconds": 13.770913124084473
+        },
+        {
+            "task": "162_string_to_md5",
+            "arm": "public_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": false,
+            "generation_seconds": 24.859978914260864
+        },
+        {
+            "task": "104_unique_digits",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "104_unique_digits",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "074_total_match",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": false,
+            "generation_seconds": 11.86185097694397
+        },
+        {
+            "task": "074_total_match",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": false,
+            "generation_seconds": 10.039757013320923
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true,
+            "generation_seconds": 35.48989391326904
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "arm": "public_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true,
+            "generation_seconds": 48.17649698257446
+        },
+        {
+            "task": "037_sort_even",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "037_sort_even",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "146_specialFilter",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": true,
+            "generation_seconds": 44.368577003479004
+        },
+        {
+            "task": "146_specialFilter",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "single_revision",
+            "baseline_passed": false,
+            "truncated": false,
+            "generation_seconds": 38.531615018844604
+        },
+        {
+            "task": "048_is_palindrome",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "048_is_palindrome",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "110_exchange",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "110_exchange",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "077_iscube",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        },
+        {
+            "task": "077_iscube",
+            "arm": "public_feedback",
+            "status": "passed",
+            "action": "no_public_failure_retain_baseline",
+            "baseline_passed": true
+        }
+    ],
+    "totals": {
+        "self_review": {
+            "passed": 7,
+            "evaluated": 12,
+            "pending": 0,
+            "improvements": 0,
+            "regressions": 0
+        },
+        "public_feedback": {
+            "passed": 9,
+            "evaluated": 12,
+            "pending": 0,
+            "improvements": 2,
+            "regressions": 0
+        }
+    }
+}

@@ -1,0 +1,61 @@
+{
+    "scope": "POST-HOC development follow-up on ALL remaining three authored transfer tasks; original outputs already observed, not independent held-out evidence",
+    "rationale": "Test fixed1024 thinking reservation beyond the initial gather diagnostic, without selecting favorable remaining tasks",
+    "policy": "one immutable attempt per registered condition; no regeneration or seed search; retain original outputs and separate backend failures",
+    "order": [
+        {
+            "task": "transfer_sincos_pair",
+            "arm": "api_pack",
+            "id": "transfer_sincos_pair_api_pack"
+        },
+        {
+            "task": "transfer_sincos_pair",
+            "arm": "no_addon",
+            "id": "transfer_sincos_pair_no_addon"
+        },
+        {
+            "task": "transfer_flat_transpose",
+            "arm": "no_addon",
+            "id": "transfer_flat_transpose_no_addon"
+        },
+        {
+            "task": "transfer_flat_transpose",
+            "arm": "api_pack",
+            "id": "transfer_flat_transpose_api_pack"
+        },
+        {
+            "task": "transfer_atomic_sum",
+            "arm": "api_pack",
+            "id": "transfer_atomic_sum_api_pack"
+        },
+        {
+            "task": "transfer_atomic_sum",
+            "arm": "no_addon",
+            "id": "transfer_atomic_sum_no_addon"
+        }
+    ],
+    "thinking_budget": 1024,
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 2048,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "parent_conditions_sha256": "034e3f73080d583f7a44c861676900dea52a13ed8457c75df02ea82de2a87940",
+    "pilot_summary_sha256": "00b3816f51e9825d964d6b7cf2c4a02eedc4030df8e590b91d7c2929dba82fe4",
+    "original_sha256": {
+        "transfer_flat_transpose_api_pack": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6",
+        "transfer_atomic_sum_no_addon": "6fae32e4d37dd44307cff0f024335cea54712d2dd4cfd1fedfba93f2c5be3151",
+        "transfer_sincos_pair_no_addon": "5ee2897d1944666936d1170ba53a9247ff32700fd9a79f9f7f887ec1fe2db4a1",
+        "transfer_atomic_sum_api_pack": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21",
+        "transfer_flat_transpose_no_addon": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef",
+        "transfer_sincos_pair_api_pack": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674"
+    },
+    "source_sha256": {
+        "safe_budget_transfer_extension.jl": "b54c4efbaa345230f14c7200fc9c299353b0c692790f22b731a86e42f02aabfa"
+    }
+}

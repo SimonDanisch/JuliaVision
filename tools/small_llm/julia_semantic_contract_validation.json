@@ -1,0 +1,41 @@
+{
+    "scope": "evaluator qualification only; original strict model scores remain intact",
+    "reason": "Prompt requests a band between two bounds; swapping both complete bound curves fills the same region. Public Makie docs use swapped order too.",
+    "original_contract_sha256": "d4a7929939849bc09deaf0cc5cccfd8de3959b02367e585795c8de97f0b3ce27",
+    "semantic_contract_sha256": "ce55a4089c58b692874b6138442d8a66527f7e2e5210e41fe8f5be50cce67604",
+    "results": [
+        {
+            "name": "canonical",
+            "expected": true,
+            "id": "makie_band",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 49.21217107772827,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  4.5s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "8341a9336e8768217cce4c75d8c8551e0aeab3b583265a8b3a8032fc61168525"
+        },
+        {
+            "name": "swapped_equivalent_bounds",
+            "expected": true,
+            "id": "makie_band",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 53.053136110305786,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  4.7s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "d06bffb03846485cbdbbca21cd568793fa95427cc64d727db63c6f2d5ba4c2ef"
+        },
+        {
+            "name": "zero_width_mutant",
+            "expected": false,
+            "id": "makie_band",
+            "passed": false,
+            "exitcode": 1,
+            "elapsed_seconds": 60.45330095291138,
+            "diagnostic": "ERROR: LoadError: Some tests did not pass: 15 passed, 1 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Test Failed at /input/runner.jl:14\n  Expression: bounds == [lo, hi] || bounds == [hi, lo]\n\nStacktrace:\n [1] top-level scope\n   @ /input/runner.jl:5\n [2] macro expansion\n   @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n [3] macro expansion\n   @ /input/runner.jl:14 [inlined]\n [4] macro expansion\n   @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:680 [inlined]\nTest Summary: | Pass  Fail  Total  Time\ncontract      |   15     1     16  4.2s\nRNG of the outermost testset: Random.Xoshiro(0x16c4c80185bd811a, 0x6bd586671736587d, 0x529170a8827cec11, 0x3b9f429782e269ae, 0x987760a5ec020aa8)\n",
+            "log_truncated": false,
+            "code_sha256": "1d3498c82627aa41246d7f62278110761da5e5a584fe4f7808650299b6bd573f"
+        }
+    ]
+}

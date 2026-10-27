@@ -1,0 +1,138 @@
+{
+  "scope": "Prospective next-eight fixed-hash public BigCodeBench-X cohort. Local Julia1.12/package-contract adaptation, NOT contamination-free or official upstream score; no frontier/aesthetic/style claim.",
+  "policy": "ALL8 new tasks, direct vs automatic BM25 public installed-doc context, counterbalanced, equal4096-token output/2048thinking and fixed sampling. No prior generated code, tests, hidden answers, score feedback, retries or model-formulated retrieval queries. Both arms retained; paired capacity skips kept. Context length differs, so any gain is a retrieval-workflow gain, not isolated proof of semantic relevance.",
+  "rows": [
+    {
+      "id": "doc_588_direct",
+      "task": "BigCodeBench/588",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "518dd92f7f72b44352b069524c1e5b95579dc1aeaa942ab814faa54cf568dc4e"
+    },
+    {
+      "id": "doc_588_public_docs",
+      "task": "BigCodeBench/588",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "7423dea54ac9e3094720b2957a98dd3e1668436005ea45f06e789d03e245a9b3"
+    },
+    {
+      "id": "doc_958_public_docs",
+      "task": "BigCodeBench/958",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "c94ea5a19124db9cc6b24a376f442dfb8320add40153fe4cb0ba41e3c37ce7c9"
+    },
+    {
+      "id": "doc_958_direct",
+      "task": "BigCodeBench/958",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "3610f2401c2b6a789a40eeaa9b41df714beaf3c18c587c066da629e7b39c5d6f"
+    },
+    {
+      "id": "doc_924_direct",
+      "task": "BigCodeBench/924",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "274079fcef7b5ffc28d442894368b071be6dc037a764be5aa1751e3839b65129"
+    },
+    {
+      "id": "doc_924_public_docs",
+      "task": "BigCodeBench/924",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "0dc8555b7ac6555e4b7298efe8457810ee6e2c25a58a2705242f2772c29f2e8e"
+    },
+    {
+      "id": "doc_720_public_docs",
+      "task": "BigCodeBench/720",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "1b1eb439834e03ba5f563f8c08b74ce6b7b9955c0597bf0bc998b234b62d81a4"
+    },
+    {
+      "id": "doc_720_direct",
+      "task": "BigCodeBench/720",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "13fb0d1b8ce57d99aad8a84e1594b6dc9efb9f40366251964428a5543e801a64"
+    },
+    {
+      "id": "doc_493_direct",
+      "task": "BigCodeBench/493",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "2935b664ec4eb6f93a08d99dbfba2352db43bccbd8e8007c26a7cadc71a7c418"
+    },
+    {
+      "id": "doc_493_public_docs",
+      "task": "BigCodeBench/493",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": false,
+      "generation_sha256": "5daeece0e83e79a0e6a7068907806de4193fc079f4e4eda3c965659ff1d569d3"
+    },
+    {
+      "id": "doc_229_public_docs",
+      "task": "BigCodeBench/229",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "d39a7440d0d2005041633202f28e383e4b2588aa17834a0c1a40b7dd6ffbd1eb"
+    },
+    {
+      "id": "doc_229_direct",
+      "task": "BigCodeBench/229",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "fa285a928b64a1011520c4c12029c48c6598486651bd2ece00f2061ac2a5c141"
+    },
+    {
+      "id": "doc_1038_direct",
+      "task": "BigCodeBench/1038",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "ccb44031bb5af69d3308fa1c4e7a9c160930bcd80d6f40eee198abc00831a2bf"
+    },
+    {
+      "id": "doc_1038_public_docs",
+      "task": "BigCodeBench/1038",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "07ac26d9408137fdd77b040283b7d6127508b64661dd2db74767e78efbf98b8f"
+    },
+    {
+      "id": "doc_350_public_docs",
+      "task": "BigCodeBench/350",
+      "arm": "public_docs",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "791949636829605618d1a2bcf8318320e8cf6d19dc9bf3f8edd936b6a46d9b85"
+    },
+    {
+      "id": "doc_350_direct",
+      "task": "BigCodeBench/350",
+      "arm": "direct",
+      "status": "failed",
+      "truncated": true,
+      "generation_sha256": "b928e9159aa68ea82b3a3c74021f4060fe9b94999b43e48138bcebe8e48494c8"
+    }
+  ],
+  "complete": true,
+  "conditions_sha256": "c790db711a0372e62e021b5e2604c55ed43162b9efe662a651a5addda3b6e4e5",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295",
+  "runtime": "Qualified test-blind CPU-only jail; unchanged external tests"
+}

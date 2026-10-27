@@ -1,0 +1,54 @@
+{
+    "complete": true,
+    "scope": "trusted ABI fixtures in software Vulkan, no model-quality result",
+    "rows": [
+        {
+            "arm": "original",
+            "result": {
+                "id": "void_tail",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 21.09476399421692,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 4 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Error During Test at /input/runner.jl:28\n  Test threw exception\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n  GPU compilation of MethodInstance for kernel!(::Lava.LavaDeviceArray{Float32, 1}, ::Lava.LavaDeviceArray{Float32, 1}, ::Int32) failed\n  KernelError: kernel returns a value of type `Union{Nothing, Float32}`\n  \n  Make sure your kernel function ends in `return`, `return nothing` or `nothing`.\n  \n  Stacktrace:\n   [1] LLVM.ThreadSafeContext(f::Function; library::Nothing, kwargs::@Kwargs{})\n     @ LLVM /home/sim/.julia/packages/LLVM/jGW0L/src/executionengine/ts_module.jl:55\n   [2] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [3] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [4] _start()\n     @ Base ./client.jl:550\ncontract: Error During Test at /input/runner.jl:28\n  Test threw exception\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n  GPU compilation of MethodInstance for kernel!(::Lava.LavaDeviceArray{Float32, 1}, ::Lava.LavaDeviceArray{Float32, 1}, ::Int32) failed\n  KernelError: kernel returns a value of type `Union{Nothing, Float32}`\n  \n  Make sure your kernel function ends in `return`, `return nothing` or `nothing`.\n  \n  Stacktrace:\n   [1] LLVM.ThreadSafeContext(f::Function; library::Nothing, kwargs::@Kwargs{})\n     @ LLVM /home/sim/.julia/packages/LLVM/jGW0L/src/executionengine/ts_module.jl:55\n   [2] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [3] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [4] _start()\n     @ Base ./client.jl:550\ncontract: Error During Test at /input/runner.jl:28\n  Test threw exception\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n  GPU compilation of MethodInstance for kernel!(::Lava.LavaDeviceArray{Float32, 1}, ::Lava.LavaDeviceArray{Float32, 1}, ::Int32) failed\n  KernelError: kernel returns a value of type `Union{Nothing, Float32}`\n  \n  Make sure your kernel function ends in `return`, `return nothing` or `nothing`.\n  \n  Stacktrace:\n   [1] LLVM.ThreadSafeContext(f::Function; library::Nothing, kwargs::@Kwargs{})\n     @ LLVM /home/sim/.julia/packages/LLVM/jGW0L/src/executionengine/ts_module.jl:55\n   [2] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [3] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [4] _start()\n     @ Base ./client.jl:550\ncontract: Error During Test at /input/runner.jl:28\n  Test threw exception\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n  GPU compilation of MethodInstance for kernel!(::Lava.LavaDeviceArray{Float32, 1}, ::Lava.LavaDeviceArray{Float32, 1}, ::Int32) failed\n  KernelError: kernel returns a value of type `Union{Nothing, Float32}`\n  \n  Make sure your kernel function ends in `return`, `return nothing` or `nothing`.\n  \n  Stacktrace:\n   [1] LLVM.ThreadSafeContext(f::Function; library::Nothing, kwargs::@Kwargs{})\n     @ LLVM /home/sim/.julia/packages/LLVM/jGW0L/src/executionengine/ts_module.jl:55\n   [2] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [3] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [4] _start()\n     @ Base ./client.jl:550\nTest Summary: | Error  Total   Time\ncontract      |     4      4  10.8s\nRNG of the outermost testset: Random.Xoshiro(0xa5f1d423c986eef6, 0x5b31221b9a5c59b5, 0xbf177d84f765fdb2, 0x70a267c26e25843e, 0x876b846070a08e41)\n",
+                "log_truncated": false,
+                "code_sha256": "b75ac46c942c11e1c4b506cd76c919164ab53d3c4064e75dcaaf8b01ac2febf1"
+            }
+        },
+        {
+            "arm": "void_tail",
+            "result": {
+                "id": "void_tail",
+                "passed": true,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 0,
+                "elapsed_seconds": 23.3282470703125,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    4      4  13.5s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "ae00cb6d3e4dedd775b97b9bb8f23d2ba6bc71f2107d8b6c1e303ce2f2c733a4"
+            }
+        },
+        {
+            "arm": "wrong_arithmetic",
+            "result": {
+                "id": "void_tail",
+                "passed": false,
+                "compiled_modules": "existing",
+                "depot_order": "withsystem",
+                "exitcode": 1,
+                "elapsed_seconds": 24.41162109375,
+                "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 1 passed, 3 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n   Evaluated: Float32[3.0, -999.0, -999.0, -999.0] == Float32[2.0, -999.0, -999.0, -999.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n   Evaluated: Float32[3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, -999.0, -999.0, -999.0] == Float32[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, -999.0, -999.0, -999.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\ncontract: Test Failed at /input/runner.jl:28\n  Expression: __bench_launch__(kernel!, initial, x, Int32(n); threads = n) == expected\n   Evaluated: Float32[3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0  …  177.0, 180.0, 183.0, 186.0, 189.0, 192.0, 195.0, -999.0, -999.0, -999.0] == Float32[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0  …  118.0, 120.0, 122.0, 124.0, 126.0, 128.0, 130.0, -999.0, -999.0, -999.0]\n\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nTest Summary: | Pass  Fail  Total   Time\ncontract      |    1     3      4  14.3s\nRNG of the outermost testset: Random.Xoshiro(0x4125d98bf52772ae, 0x4c38d047ca97a02f, 0x2ee126b53b9a2088, 0xc17371967da18a41, 0x5a5e270aee5bbdaa)\n",
+                "log_truncated": false,
+                "code_sha256": "189fe661867974e995841e4a0233f3848efd7cb31ad117beae05149233ee6037"
+            }
+        }
+    ],
+    "source_sha256": {
+        "qualify_kernel_void_tail.jl": "0bf3089666eb57ac890bd9d33fe7c99cf9feaae1940fa510d4c9ce22168255a6",
+        "julia_eval.jl": "228dd49d079ebd8b83c9e540c6b8dabe8862201063bc6bf34140107df84519d1",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0"
+    }
+}

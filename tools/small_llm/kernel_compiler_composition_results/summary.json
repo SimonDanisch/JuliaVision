@@ -1,0 +1,82 @@
+{
+    "scope": "post-hoc DEVELOPMENT composition: same frozen public-error/self-review candidates plus deterministic compiler passes; not held-out/model-only intelligence evidence",
+    "rule": "use original public-exception policy to choose each arm's code; uniformly attempt restricted pointwise lowering then append a void tail. No hidden-score selection or extra model generation",
+    "rows": [
+        {
+            "task": "ki_body_affine",
+            "arm": "self_review",
+            "status": "failed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": false
+        },
+        {
+            "task": "ki_body_affine",
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": true
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "arm": "self_review",
+            "status": "failed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": true
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": true
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "arm": "self_review",
+            "status": "failed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": false
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "arm": "runtime_feedback",
+            "status": "passed",
+            "original_passed": false,
+            "pointwise": true,
+            "void_tail": true
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "arm": "self_review",
+            "status": "failed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": false
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "arm": "runtime_feedback",
+            "status": "failed",
+            "original_passed": false,
+            "pointwise": false,
+            "void_tail": false
+        }
+    ],
+    "totals": {
+        "runtime_feedback": {
+            "passed": 2,
+            "original_passed": 0,
+            "pending": 0
+        },
+        "self_review": {
+            "passed": 0,
+            "original_passed": 0,
+            "pending": 0
+        }
+    }
+}

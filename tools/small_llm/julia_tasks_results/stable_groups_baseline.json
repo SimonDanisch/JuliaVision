@@ -1,0 +1,27 @@
+{
+    "task": "stable_groups",
+    "category": "base",
+    "arm": "baseline",
+    "model": "Qwen3.5-4B",
+    "quantization": "Q4_K/Q8 activations; Q6_K head",
+    "cache": "Float32 split",
+    "thinking": false,
+    "contract_sha256": "a553870771dd59bfa632398fa45ab889539bfa133310433d2f7475e20c269d67",
+    "prompt_sha256": "90fa8a4f34a72ff8a815260a862ac4c2e6585993d69fe585446c48ec3e709525",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve(keys, values). Return a Vector of Pair mapping each distinct key to the sum of its values, preserving FIRST occurrence order of keys. Inputs have equal length; keys are strings, values are Int. Empty input must return an empty vector. No packages. Code only."
+        }
+    ],
+    "answer": "```julia\nfunction solve(keys::Vector{String}, values::Vector{Int})\n    result = []\n    seen = Set{String}()\n    for (k, v) in zip(keys, values)\n        if !isempty(seen) && k ∉ seen\n            continue\n        end\n        if k ∉ seen\n            push!(seen, k)\n            push!(result, Pair(k, v))\n        else\n            # Update the sum for the key if it was already seen\n            for pair in result\n                if pair.first == k\n                    pair.second += v\n                    break\n                end\n            end\n        end\n    end\n    return result\nend\n```",
+    "code": "function solve(keys::Vector{String}, values::Vector{Int})\n    result = []\n    seen = Set{String}()\n    for (k, v) in zip(keys, values)\n        if !isempty(seen) && k ∉ seen\n            continue\n        end\n        if k ∉ seen\n            push!(seen, k)\n            push!(result, Pair(k, v))\n        else\n            # Update the sum for the key if it was already seen\n            for pair in result\n                if pair.first == k\n                    pair.second += v\n                    break\n                end\n            end\n        end\n    end\n    return result\nend\n",
+    "input_tokens": 98,
+    "generated_tokens": 150,
+    "budget_tokens": 512,
+    "truncated": false,
+    "elapsed_seconds": 11.602720975875854,
+    "input_sha256": "64a96b4543cb37fadc1cf6665c3db9f6f789f01291267d2617797e9952b611ad"
+}

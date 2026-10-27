@@ -1,0 +1,32 @@
+{
+    "scope": "development follow-up motivated by observed API errors; two authored tasks, NOT held-out evidence",
+    "trigger": "completed public-input diagnostic reports runtime exception; NEVER hidden scores or observed-value correctness judgments",
+    "baseline": "unchanged zero-weight arm of frozen projection-memory pilot",
+    "assistant_context": "prior executable code ONLY, not the potentially long private reasoning trace",
+    "arms": [
+        "self_review",
+        "runtime_feedback"
+    ],
+    "thinking": true,
+    "budget_tokens": 2048,
+    "attempts": 1,
+    "retention": "retain baseline if no public runtime exception or tool unavailable; otherwise single revision replaces baseline even if worse",
+    "rows": [
+        {
+            "id": "ki_launch",
+            "prompt": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports.",
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "makie_update",
+            "prompt": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports.",
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        }
+    ],
+    "baseline_conditions_sha256": "4d78a522ff99842734d9ad91a51000deedbf4d3e7802345839f173b4ee3d3616",
+    "qualification_sha256": "468d162feb52b1234dda65df6a23eb09760616a2a7136012d3d1f4d566fccf15",
+    "source_sha256": {
+        "api_runtime_feedback.jl": "5fda0c13269bd91f2cdd588a099992291479cc15761773aa9dcaaab2690e4bb6",
+        "api_public_smoke.jl": "273f25f68e3f0c284f1d0364139decb7676ce3f7012bd6ce9e2dd6fdd0bf1ed0"
+    }
+}

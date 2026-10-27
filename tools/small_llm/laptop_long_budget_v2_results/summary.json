@@ -1,0 +1,25 @@
+{
+    "scope": "Migration of two NEVER ATTEMPTED6144-token budget diagnostics to Laptop. Old short Bosgame failures retained; different host/capacity means NOT a strict budget-only causal comparison.",
+    "policy": "One fixed-seed attempt per original arm, exact original prompts/6144 budget/sampling. No thinking closure, retries, feedback, seed search or hidden-answer selection. New immutable attempts and source/runtime receipts.",
+    "rows": [
+        {
+            "id": "transfer_clamped_gather_no_addon",
+            "status": "failed",
+            "generated_tokens": 676,
+            "truncated": false,
+            "finished_thinking": true,
+            "generation_sha256": "1a2daa3e0753c485c6926b81f43437b41b4e8a64f696a3da3dd7c7ead81f9942"
+        },
+        {
+            "id": "transfer_clamped_gather_api_pack",
+            "status": "failed",
+            "generated_tokens": 6144,
+            "truncated": true,
+            "finished_thinking": false,
+            "generation_sha256": "8c6a455ad13e5ff60e736200da9c10ae1f98b570cce855b9a57d3b495656e529"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "5530e751a3517d8ef4a9fd6ce95f62699ef114e77e9633b3cf0744fc703aaa48",
+    "scorer_sha256": "2ae8a88add04673c07b70aac34d98b67f8209a0eadc0b3194416c28f5cb75622"
+}

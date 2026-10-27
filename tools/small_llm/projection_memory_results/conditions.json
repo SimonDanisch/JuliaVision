@@ -1,0 +1,52 @@
+{
+    "scope": "two authored development tasks selected after prior API failures; NOT held-out intelligence evidence",
+    "tasks": [
+        {
+            "id": "ki_launch",
+            "prompt": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports.",
+            "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480"
+        },
+        {
+            "id": "makie_update",
+            "prompt": "Using current Makie.jl, write function solve!(plot, x, y, colors) for an EXISTING scatter plot originally constructed with separate x and y vectors and numeric colors. Replace BOTH positional input arrays and the color attribute coherently in ONE Makie.update! call, so point count can change without intermediate length mismatches. Use Makie's positional argument input names, not separate Observable assignments. Return the exact same plot. Do not recreate plots, figures or axes; code only including imports.",
+            "contract_sha256": "fb71a8a5e7a5eeaad29c9ed88c047969177c10ab1437f744456c7ee3d9ee03bb"
+        }
+    ],
+    "arms": [
+        {
+            "id": "zero",
+            "weight": 0,
+            "shuffled": false
+        },
+        {
+            "id": "memory_10",
+            "weight": 0.1,
+            "shuffled": false
+        },
+        {
+            "id": "memory_25",
+            "weight": 0.25,
+            "shuffled": false
+        },
+        {
+            "id": "shuffled_25",
+            "weight": 0.25,
+            "shuffled": true
+        }
+    ],
+    "policy": "one greedy thinking2048 attempt per arm/task; no regeneration or best-arm selection; all outcomes reported",
+    "budget_tokens": 2048,
+    "thinking": true,
+    "temperature": 32,
+    "topk": 8,
+    "shuffle_seed": 20261024,
+    "datastore_registration_sha256": "a9d535dd7d5b0f088bfb6f50664f3fd1dad3e93d383fbbdb47b5bb0b41860407",
+    "source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "logit_features.jl": "b3e260ba9367178bcfaf784aadffcd05abd86c82be647b51fbc170589383988d",
+        "knn_memory.jl": "82e34ec6583a42b2d527f098ede8dec787a4e3fa51565afd838ef6a2db4079fb",
+        "projection_datastore.jl": "9d86d4d840e9158cc07a82a670ae39a59293b1fff2f6a79c7a7a685af5526337",
+        "run_projection_memory_pilot.jl": "9297a7b6fb593f2736571271f9d1a8bc8d596e6b6b3184a5f321855b57b10e07",
+        "projection_memory_generation.jl": "1bb301ced0dc36c1b89a9e59d856aa0e58cbdf24c3edd94ed064d318ac455e04"
+    }
+}

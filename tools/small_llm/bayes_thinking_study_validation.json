@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "passed": 10,
+    "scope": "CPU/software-only harness qualification; synthetic correct answers, not model quality",
+    "source_sha256": {
+        "bayes_thinking_study.jl": "dac9b737a2f07bb94759ce2c13588f7cf9c33050240427ae5875854da1bc5e59",
+        "test_bayes_thinking_study.jl": "31649f94a603697bde24b358b6e6fef09fc9871f04e975f07d7da51535628532",
+        "score_bayes_thinking.jl": "22fed09f7d120510e76fe0a00d1cc8f7005b4baaff51a7bba163d8fb71deb9d7",
+        "run_bayes_thinking.jl": "fee38f9e09c8bb392f8919e80e6fb7d2663e3e001208e9ce9c45084c1deeb6b4"
+    }
+}

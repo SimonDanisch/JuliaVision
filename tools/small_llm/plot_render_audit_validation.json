@@ -1,0 +1,12 @@
+{
+    "checks": 53,
+    "passed": true,
+    "scope": "CPU mock-renderer unit tests ONLY: packet roundtrip, bounded first attempts, unsupported/interrupted/cache/drift handling; NOT actual model rendering or aesthetic quality",
+    "run": "r1238",
+    "sources": {
+        "test_render_plot_interface_audit.jl": "96bc9ed567568577320ce96c5aca8c93650a7cd2efd6c76cdd90e9e45162891c",
+        "render_plot_interface_audit.jl": "3e711480841fc81b1a355bc0ae2b9426d092534271dc607eaeebe94d4b475b08",
+        "safe_plot_builder.jl": "1e099b935c08b9c644c42281717430d802313286c2a2ffc8c9748731e6dc1e09",
+        "safe_plot_spec.jl": "4c9bff0ea4859ae61d79d5b0f0d6f3840eda0c25dbbc222c7b439935d83a20ec"
+    }
+}

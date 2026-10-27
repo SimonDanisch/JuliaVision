@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "scope": "PRIVATE compiler admission/software-Vulkan differential fixtures only; not model-quality evidence",
+    "passed": 16,
+    "source_sha256": {
+        "scalar_program_interface.jl": "96c1a3a17bb40c81d08c9beb24d98501000089962048698139e8a900189249dc",
+        "test_scalar_program_interface.jl": "02a4eef02cc5be210fe3676f603ed75f9eb1ef5b3df73cf06ab1ef73b08a9c59",
+        "scalar_kernel_interface.jl": "866774d3e01bc8c6354584cc11fde8d0701b90c7bc9e815be1d0443819725266",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17"
+    }
+}

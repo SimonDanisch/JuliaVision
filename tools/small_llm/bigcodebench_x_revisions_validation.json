@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 9,
+    "scope": "PRIVATE all16 derived protocol, mocked scorer and no-device skips only; not model-quality evidence",
+    "source_sha256": {
+        "bigcodebench_x_revisions.jl": "6aef3a198bdb8fa74e0bb9261da7c1508e21fe4e1f9a3255e29666029df97a57",
+        "test_bigcodebench_x_revisions.jl": "7d9549d33e46c177fcea917d1ef609fdc3c0a6c3d2c42e9445f3d65683f736d5",
+        "score_bigcodebench_x_revisions.py": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c"
+    }
+}

@@ -1,0 +1,38 @@
+{
+    "scope": "post-hoc DEVELOPMENT diagnostic motivated by observed serial-loop baseline failure; not held-out or model-only intelligence evidence",
+    "rule": "apply the same restricted compiler to ALL four frozen candidates; admitted transformation replaces baseline regardless of numerical score, rejected input retains baseline; no extra model generation",
+    "rows": [
+        {
+            "task": "ki_body_affine",
+            "status": "failed",
+            "baseline_passed": false,
+            "action": "retain_baseline",
+            "reason": "one function definition required"
+        },
+        {
+            "task": "ki_body_clamped_stencil",
+            "status": "failed",
+            "baseline_passed": false,
+            "action": "retain_baseline",
+            "reason": "unknown/impure expression or loop-carried dependency"
+        },
+        {
+            "task": "ki_body_column_major_scale",
+            "status": "passed",
+            "baseline_passed": false,
+            "action": "restricted_lowering",
+            "reason": "admitted disjoint pointwise subset"
+        },
+        {
+            "task": "ki_body_atomic_max",
+            "status": "failed",
+            "baseline_passed": false,
+            "action": "retain_baseline",
+            "reason": "unknown import binding"
+        }
+    ],
+    "passed": 1,
+    "baseline_passed": 0,
+    "pending": 0,
+    "limitation": "functional software-Vulkan tests plus restricted independence argument; NOT measured Radeon performance or correctness outside stated preconditions"
+}

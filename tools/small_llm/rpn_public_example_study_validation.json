@@ -1,0 +1,18 @@
+{
+    "complete": true,
+    "task_checks": 35,
+    "receipt_checks": 35,
+    "mock_scoring_checks": 9,
+    "transfer_checks": 7,
+    "scope": "Infrastructure qualification only; mock programs/references are NOT neural attempts",
+    "sources": {
+        "rpn_public_example_transfer.jl": "c091a202d82c5b80bbe2a700c5b876c8e11d545ea99b6cbdef3405e08be10f4d",
+        "rpn_public_example_tasks.jl": "8aff253e454b666d74e381e295055b4645afb9dfec461e5665b97ae4aeade0df",
+        "test_rpn_public_example_study.jl": "36dde0328c6487242cd498306d78ef65442477eeada5013860bcfbc8666009ea",
+        "score_rpn_public_example_study.jl": "2804c4a395c35c8c493fab22bc1404f8cc83474efb4254dbe9273067718ceaee",
+        "rpn_public_example_study.jl": "6db3520080e2f1328e672163a794832ada3f5a2a236bb033e44e8357d4e16711",
+        "test_rpn_public_example_scoring.jl": "d7d333c3474fea3cead2af1e42ed5cb211e0b063d99e7982e8a1d0a6559a1bdb",
+        "test_rpn_public_example_transfer.jl": "4324a45611489883cfb6c92e5ea5b93b02937d0256624915729a62cc2d714763",
+        "test_rpn_public_example_tasks.jl": "647ba1aea6694d0c46afb8ebc03d007442664df581ded6fbf3c2b93699087c57"
+    }
+}

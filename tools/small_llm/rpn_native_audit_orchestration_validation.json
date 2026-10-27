@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "scope": "CPU-only private native audit orchestration qualification; no model or physical GPU setup",
+    "boundary_checks": 9,
+    "preparation_checks": 43,
+    "source_sha256": {
+        "prepare_rpn_native_audit.jl": "58034643207412090458d26fc6a5437c78bc32f8fdac2314d542673a0208630b",
+        "test_rpn_native_audit_boundary.jl": "f8ba4d413819d076d842e6e29f34dab1e8c792aa1c358e4d94896a1538069691",
+        "test_rpn_native_audit_preparation.jl": "7fc9faa9fc946468d1184f058ba10b62fbd2c1df2ef54580bcf81f51b6641c6b",
+        "run_rpn_native_audit.jl": "804828fd6041c4ba2ff7b874696926f56495294322d41057c256ea93d996ea54"
+    }
+}

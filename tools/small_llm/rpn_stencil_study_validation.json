@@ -1,0 +1,16 @@
+{
+    "complete": true,
+    "scope": "CPU-only job/receipt/deployment unit qualification, NOT model quality",
+    "public_job_checks": 36,
+    "scoring_checks": 22,
+    "transfer_checks": 9,
+    "source_sha256": {
+        "rpn_stencil_tasks.jl": "f52e27ef6734e8b5b684d0ae764502ad8fb8e008058727754be1e41f141f6930",
+        "rpn_stencil_study.jl": "91fcfd9a2eb26f2533179c88b5dd4089cc9df900e5164e359523a3361b526d8d",
+        "test_rpn_stencil_scoring.jl": "b122df424b68a3a3f65c5d536c2b524750b30f26d523f2aebdb2b076dfb5076c",
+        "rpn_stencil_transfer.jl": "bdd485258ed92f1cd2aa92f7ea9168b6d3f72f5c0b39ffe3c0f572005afb0359",
+        "test_rpn_stencil_study.jl": "ca10399bf1d7510dd4baf0e94309c0d7201d9c8b2ce9d279c7336e254e073b9f",
+        "score_rpn_stencil_study.jl": "223e7a051fc4c6d9665000d87b075decad43bce6b7609a765bc88b8942b94122",
+        "test_rpn_stencil_transfer.jl": "86e67fbe26e287fff01f8811aa6abe7c227d937f67d3ae10127ce12a882459b1"
+    }
+}

@@ -1,0 +1,37 @@
+{
+    "superseded_prototype_conditions_sha256": "76df7ba3762f3776cb2450202a5c6a2efdd5b3fe5a9acaf094347ad2cd4ae373",
+    "amendment": "Before ANY controller task output: add raw-logit validation so forced closure cannot conceal invalid neural inference; prototype preserved separately",
+    "scope": "POST-HOC first-task budget-controller diagnostic after both original arms truncated empty; not independent held-out or knowledge-gain evidence",
+    "task": "transfer_clamped_gather",
+    "arms": [
+        "no_addon",
+        "api_pack"
+    ],
+    "thinking_budget": 1024,
+    "rule": "same original messages/seed/sampling/2048 total allowance; reserve answer space by forcing the native closing-think token once after1024 thinking draws if not already closed",
+    "policy": "one fixed attempt per arm; immutable attempt receipt BEFORE generation; interrupted attempts never regenerated; inference errors reported separately, not language failures; original failures unchanged",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 2048,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "transfer_conditions_sha256": "4e8a40782cea71f9ed96516ba338b6467e0b585fc614a4db181a676cf663e379",
+    "original_sha256": {
+        "api_pack": "fd7e92843a22b93693cdb777176aa1a285bfc9a489483ac91aa307fac160479b",
+        "no_addon": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3"
+    },
+    "software_qualification_sha256": "1305f1a2062cf1806c8b44e79e76ff3c4ea0ba661a5c1e78084a6aa4c900a686",
+    "required_hardware_gate": "safe_reasoning_budget_full_model_validation.json",
+    "source_sha256": {
+        "sampled_safe_budget_julia.jl": "6305b261e76da407a4d820d040636142bfbe924e97879ac9f44c57010dbdcc2e",
+        "safe_reasoning_budget_study.jl": "7d4542f26b769f4abdf927448222fcc954b4237d2fc2f1e3dbc9b53f638aa539",
+        "qualify_safe_reasoning_budget_full_model.jl": "947f45b9e56e37ada0707c3d762c6e0cdb316454f352decc9357eb12c037a911",
+        "reasoning_budget.jl": "c7c9d6d99547b4864ce13b72c98923715427c867e69fad2d85f24a7dce6a7b4d",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec"
+    }
+}

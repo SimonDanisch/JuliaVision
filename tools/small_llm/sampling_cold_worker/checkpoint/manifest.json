@@ -1,0 +1,209 @@
+{
+    "complete": true,
+    "version": 1,
+    "identity": "cold_worker_fixture_v1",
+    "capacity": 16,
+    "position": 4,
+    "attention": "split",
+    "config": {
+        "hidden_size": 4,
+        "vocab_size": 7
+    },
+    "sampler": {
+        "vocabulary": 7,
+        "topk": 7,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0.5,
+        "seed": 20261024,
+        "fallback": 0
+    },
+    "endian_bom": 67305985,
+    "resources": [
+        {
+            "name": "session.token",
+            "file": "001.bin",
+            "type": "Int32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "session.position",
+            "file": "002.bin",
+            "type": "Int32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "fb5e512425fc9449316ec95969ebe71e2d576dbab833d61e2a5b9330fd70ee02"
+        },
+        {
+            "name": "session.logits",
+            "file": "003.bin",
+            "type": "Float32",
+            "shape": [
+                7
+            ],
+            "bytes": 28,
+            "sha256": "ddc73c72627d5716e8c91f79ea1c2195e330eccbe0379c0daaaca77616848bdf"
+        },
+        {
+            "name": "session.best",
+            "file": "004.bin",
+            "type": "Int32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "session.predictions",
+            "file": "005.bin",
+            "type": "Int32",
+            "shape": [
+                16
+            ],
+            "bytes": 64,
+            "sha256": "317127d96634a31bd09ea14a64e636e73371a52ac43c00ba18289eccc638a16e"
+        },
+        {
+            "name": "recurrent.0.history",
+            "file": "006.bin",
+            "type": "Float32",
+            "shape": [
+                3,
+                2
+            ],
+            "bytes": 24,
+            "sha256": "3fd201f8f279b8f38fc4c657c36752836190b534bdcb972a5c6466c3664d16b6"
+        },
+        {
+            "name": "recurrent.0.state",
+            "file": "007.bin",
+            "type": "Float32",
+            "shape": [
+                2,
+                2,
+                1
+            ],
+            "bytes": 16,
+            "sha256": "5240b38f17988c7eda6c1b02c41fb45381a9e323a21e1503541b5fbad6b06c54"
+        },
+        {
+            "name": "kv.1.key",
+            "file": "008.bin",
+            "type": "Float32",
+            "shape": [
+                2,
+                1,
+                16
+            ],
+            "bytes": 128,
+            "sha256": "83fb8edecc5e16b372a2a76f055261f031e445d90272ea87c65380b80ac70426"
+        },
+        {
+            "name": "kv.1.value",
+            "file": "009.bin",
+            "type": "Float32",
+            "shape": [
+                2,
+                1,
+                16
+            ],
+            "bytes": 128,
+            "sha256": "7bffc653f6321950a3dc31509f84b0c7b578bd6aeef77a3c9e8ff5ccb4a5bd1f"
+        },
+        {
+            "name": "sampler.active",
+            "file": "010.bin",
+            "type": "Int32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "sampler.counter",
+            "file": "011.bin",
+            "type": "UInt32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "fb5e512425fc9449316ec95969ebe71e2d576dbab833d61e2a5b9330fd70ee02"
+        },
+        {
+            "name": "sampler.seen",
+            "file": "012.bin",
+            "type": "Int32",
+            "shape": [
+                7
+            ],
+            "bytes": 28,
+            "sha256": "63f8a38ae55d33f69316ee6d7d261879db60b6b059b33472c169cc24fd3002aa"
+        },
+        {
+            "name": "sampler.selected",
+            "file": "013.bin",
+            "type": "Int32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        },
+        {
+            "name": "sampler.status",
+            "file": "014.bin",
+            "type": "Int32",
+            "shape": [
+                1
+            ],
+            "bytes": 4,
+            "sha256": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119"
+        }
+    ],
+    "source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "sampling_checkpoint.jl": "b19be6fd2defddc8c9b2b9415795fe0564cd119c770a27e0537b0da6b41c1bcf",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730"
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    }
+}

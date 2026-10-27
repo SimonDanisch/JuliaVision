@@ -1,0 +1,29 @@
+{
+    "scope": "CPU retrieval-policy qualification, not model accuracy",
+    "chunks": [
+        {
+            "source": "dev/Makie/docs/src/reference/blocks/legend.md",
+            "sha256": "1bfb230084dad70da39e7c19dace738ebb8c3e03b7b363775339a0dc6cd006ab",
+            "firstline": 97,
+            "lastline": 144,
+            "score": 58.69588194290283,
+            "body": "ax2 = Axis(f[1, 2])\n\nxs = range(0, 4pi, length = 31)\nlines!(ax1, xs, sin, label = \"sin\", color = :blue)\nlines!(ax2, xs, cos, label = \"cos\", color = :red)\nscatter!(ax1, xs, sin, label = \"Points\", color = :black)\nscatter!(ax2, xs, cos, label = \"Points\", color = :black)\n\nf[0, 1:2] = Legend(f, [ax1, ax2], \"Automatic Joint Legend\", merge = true, orientation = :horizontal, tellheight = true)\n\nf\n```\n\n## Legend Inside An Axis\n\nThere are two ways to place a legend inside an axis: `axislegend` and `Legend(ax; position=...)`.\n\n### Using axislegend\n\nThe `axislegend` function is a quick way to add a legend to an Axis.\nYou can pass a selected axis plus arguments which are forwarded to the `Legend` constructor, or the current axis is used by default.\nIf you pass only a string, it's used as the title with the current axis.\n\nThe position can be set via a shortcut symbol, first halign (l, r, c) then valign (b, t, c), such as :lt for left, top and :cb for center bottom.\nOr you can set position with tuple (halign, valign) with elements from 0 to 1:\n`position = (0.1, 0.9)`\n```@figure\n\nf = Figure()\n\nax = Axis(f[1, 1])\n\nsc1 = scatter!(randn(10, 2), color = :red, label = \"Red Dots\")\nsc2 = scatter!(randn(10, 2), color = :blue, label = \"Blue Dots\")\nscatter!(randn(10, 2), color = :orange, label = \"Orange Dots\")\nscatter!(randn(10, 2), color = :cyan, label = \"Cyan Dots\")\n\naxislegend()\n\naxislegend(\"Titled Legend\", position = :lb)\n\naxislegend(ax, [sc1, sc2], [\"One\", \"Two\"], \"Selected Dots\", position = :rb,\n    orientation = :horizontal)\n\nf\n```\n\n### Using Legend(ax; position=...)"
+        },
+        {
+            "source": "dev/Makie/docs/src/reference/plots/band.md",
+            "sha256": "e0fbb9ad1a661a022cac0bd47ed1551a7dd989d4a072fe875d9fbe2582de181e",
+            "firstline": 33,
+            "lastline": 51,
+            "score": 28.84428655520984,
+            "body": "μ = vec(mean(X, dims=1)) # mean\nlines!(t, μ)              # plot mean line\nσ = vec(std(X, dims=1))  # stddev\nband!(t, μ + σ, μ - σ)   # plot stddev band\nf\n```\n\n```@figure backend=GLMakie\nlower = fill(Point3f(0,0,0), 100)\nupper = [Point3f(sin(x), cos(x), 1.0) for x in range(0,2pi, length=100)]\ncol = repeat([1:50;50:-1:1],outer=2)\nband(lower, upper, color=col, axis=(type=Axis3,))\n```\n\n## Attributes\n\n```@attrdocs\nBand\n```"
+        },
+        {
+            "source": "dev/Makie/docs/src/reference/plots/lines.md",
+            "sha256": "11e3954475d071ee4ed24e75a23b5ce89deec86aff91b440c4103995fb433a34",
+            "firstline": 1,
+            "lastline": 34,
+            "score": 22.017026090814888,
+            "body": "# lines\n\n```@shortdocs; canonical=false\nlines\n```\n\n### Dealing with outline artifacts in GLMakie\n\nIn GLMakie 3D line plots can generate outline artifacts depending on the order line segments are rendered in.\nCurrently there are a few ways to mitigate this problem, but they all come at a cost:\n- `fxaa = true` will disable the native anti-aliasing of line segments and use fxaa instead. This results in less detailed lines.\n- `transparency = true` will disable depth testing to a degree, resulting in all lines being rendered without artifacts. However with this lines will always have some level of transparency.\n- `overdraw = true` will disable depth testing entirely (read and write) for the plot, removing artifacts. This will however change the z-order of line segments and allow plots rendered later to show up on top of the lines plot.\n\n```@figure backend=GLMakie\nps = rand(Point3f, 500)\ncs = rand(500)\nf = Figure(size = (600, 650))\nLabel(f[1, 1], \"base\", tellwidth = false)\nlines(f[2, 1], ps, color = cs, fxaa = false)\nLabel(f[1, 2], \"fxaa = true\", tellwidth = false)\nlines(f[2, 2], ps, color = cs, fxaa = true)\nLabel(f[3, 1], \"transparency = true\", tellwidth = false)\nlines(f[4, 1], ps, color = cs, transparency = true)\nLabel(f[3, 2], \"overdraw = true\", tellwidth = false)\nlines(f[4, 2], ps, color = cs, overdraw = true)\nf\n```\n\n## Attributes\n\n```@attrdocs\nLines\n```"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "passed": 21,
+    "scope": "CPU infrastructure examples only, not neural/task quality",
+    "sources": {
+        "public_example_synthesis.jl": "6b714aa870b1f36be3c50074c73efb00d27442a1fba1ebe1ed4f9b9420f66315",
+        "rpn_example_semantics.jl": "a2834faee31f8ae1e51f811ee6d7ea43250f7ef5c93a153346aecbd1b141b34f",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "test_public_example_synthesis.jl": "284a3547489dea9b3bb052be48078294f680747e04c3fee3a223e630ea435e1b"
+    }
+}

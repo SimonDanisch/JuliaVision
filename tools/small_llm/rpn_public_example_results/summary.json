@@ -1,0 +1,90 @@
+{
+    "scope": "Four NEW authored related-family public-example tasks after prior RPN development. Prospective numeric-mask comparison, NOT external held-out/frontier evidence.",
+    "policy": "ALL8 jobs frozen before generation. Both arms grammar-enabled and receive IDENTICAL public examples/prompts, model, sampling and512-token cap. One numeric-mask flag differs; numeric tracking and graph declarations identical. No retries/seed search/private feedback/arithmetic repair. Dead ends count as failures. Success requires independent CPU/software-Vulkan mathematical tests, not just public-example agreement.",
+    "rows": [
+        {
+            "id": "unit_parabolic_cap_disabled",
+            "task": "unit_parabolic_cap",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "independent_mathematical_execution",
+            "syntax_accepted": true,
+            "public_examples_matched": false,
+            "generation_sha256": "9802057089896ca699c97d9a692aac5058f080986dd773327d158bf8afd15aca"
+        },
+        {
+            "id": "unit_parabolic_cap_enabled",
+            "task": "unit_parabolic_cap",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "constraint_completion_or_syntax",
+            "syntax_accepted": false,
+            "reason": "no_admissible_token_or_sampler_rejection",
+            "generation_sha256": "fe3cca043f7fe58bb7bc5a166d3b7836bc657166de76e01194279b08f075bfca"
+        },
+        {
+            "id": "symmetric_unit_projection_enabled",
+            "task": "symmetric_unit_projection",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "constraint_completion_or_syntax",
+            "syntax_accepted": false,
+            "reason": "no_admissible_token_or_sampler_rejection",
+            "generation_sha256": "9335adf999b4bcf5762348c9a465c9be29c49a42bea0a68c951bceaa3a71c882"
+        },
+        {
+            "id": "symmetric_unit_projection_disabled",
+            "task": "symmetric_unit_projection",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "independent_mathematical_execution",
+            "syntax_accepted": true,
+            "public_examples_matched": false,
+            "generation_sha256": "44bc9405ea651a377a3eff7ed1f8dd3dd2d1ff9b2ec087f253cb36586a418aa9"
+        },
+        {
+            "id": "periodic_gradient_energy_disabled",
+            "task": "periodic_gradient_energy",
+            "arm": "disabled",
+            "status": "passed",
+            "stage": "independent_mathematical_execution",
+            "syntax_accepted": true,
+            "public_examples_matched": true,
+            "generation_sha256": "422e7a1446915be39889795b1e0b27831deb76b82c640a66c9ccd076b08ba669"
+        },
+        {
+            "id": "periodic_gradient_energy_enabled",
+            "task": "periodic_gradient_energy",
+            "arm": "enabled",
+            "status": "passed",
+            "stage": "independent_mathematical_execution",
+            "syntax_accepted": true,
+            "public_examples_matched": true,
+            "generation_sha256": "dbf79e4d79e18053b4face4986e0ab36c8e0999fcd55d4bde7a77a08654144ce"
+        },
+        {
+            "id": "clamped_neighbor_contrast_enabled",
+            "task": "clamped_neighbor_contrast",
+            "arm": "enabled",
+            "status": "failed",
+            "stage": "constraint_completion_or_syntax",
+            "syntax_accepted": false,
+            "reason": "no_admissible_token_or_sampler_rejection",
+            "generation_sha256": "fd888ab871d2fadf8a42ed37861a379b4c4bc8ec5898321d6a4fe6f0201347da"
+        },
+        {
+            "id": "clamped_neighbor_contrast_disabled",
+            "task": "clamped_neighbor_contrast",
+            "arm": "disabled",
+            "status": "failed",
+            "stage": "independent_mathematical_execution",
+            "syntax_accepted": true,
+            "public_examples_matched": false,
+            "generation_sha256": "32ec41fef0037acbe8800b48723a7d223a2996ee02261b5d48263f800586b8d2"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "9fd3b267e3d71bd093eac99cdb674015af17bcf8682c9de4193370c19fcc5350",
+    "scorer_sha256": "2804c4a395c35c8c493fab22bc1404f8cc83474efb4254dbe9273067718ceaee",
+    "limits": "Finite public-example agreement is not mathematical success. Small authored related-family cohort/one seed, not frontier evidence; all failed/incomplete attempts retained."
+}

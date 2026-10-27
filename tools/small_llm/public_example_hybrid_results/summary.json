@@ -1,0 +1,44 @@
+{
+    "complete": true,
+    "scope": "POSTHOC combined workflow on SAME4 authored development tasks after partial model outputs and symbolic-only scoring. No new neural generations; NOT independent held-out evidence or model-only intelligence.",
+    "policy": "Uniform rule: preserve original numeric-disabled baseline if raw infrastructure is valid and its complete program fits public examples. Otherwise use the frozen first-match symbolic result only if it fits the SAME public examples. Never use numeric-enabled outputs, hidden tests, task-ID rules, private correctness labels, retries or extra candidates for selection. Infrastructure errors remain failures.",
+    "rows": [
+        {
+            "task": "unit_parabolic_cap",
+            "status": "passed",
+            "baseline_status": "failed",
+            "selected": "symbolic_public_examples",
+            "choice_sha256": "3843c565a6724582c88861599cfd47103e14691ce7b0d230404d29f9d4375817"
+        },
+        {
+            "task": "symmetric_unit_projection",
+            "status": "passed",
+            "baseline_status": "failed",
+            "selected": "symbolic_public_examples",
+            "choice_sha256": "06aa9db443611687ec2e0aba4838a8892371d52f54620024ea9ee3bd1a3adeba"
+        },
+        {
+            "task": "periodic_gradient_energy",
+            "status": "passed",
+            "baseline_status": "passed",
+            "selected": "neural_baseline",
+            "choice_sha256": "7775c3d7073611ba70e827870cf5910b352f234175c9f1defe06928e83269854"
+        },
+        {
+            "task": "clamped_neighbor_contrast",
+            "status": "failed",
+            "baseline_status": "failed",
+            "selected": "symbolic_public_examples",
+            "choice_sha256": "7d58339055c064c997c41204ae72021e14b82f792ef58f701d2d0eec9fb2dcc4"
+        }
+    ],
+    "passed": 3,
+    "total": 4,
+    "baseline_passed": 1,
+    "paired_wins": 2,
+    "paired_losses": 0,
+    "conditions_sha256": "94971cf99e4b338e4ddea509a47756a7abeb6331b2f9c663a9640fc76c4c1e97",
+    "scorer_sha256": "71daeab6c37902cffba4fb02e4cb096d9eba085a5ef4f72fe3dc4f4ce7a91816",
+    "baseline_summary_sha256": "9d98ed67537aba181b3b23e19fae0bb1c001c16173735d3c7d8e884e0a68bcd5",
+    "limits": "POSTHOC system/workflow comparison on four related development tasks, not equal-compute, new neural attempts, independent transfer, frontier intelligence or a model-only reasoning gain. Symbolic search was already run for all4; retain its full recorded cost, including compilation."
+}

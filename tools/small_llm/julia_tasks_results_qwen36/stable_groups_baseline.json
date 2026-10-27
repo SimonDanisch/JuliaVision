@@ -1,0 +1,47 @@
+{
+    "task": "stable_groups",
+    "category": "base",
+    "arm": "baseline",
+    "model": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+    "cache": "Float32 grouped",
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2",
+        "no_alias",
+        "paired_expert_rows",
+        "capability_swiglu_q8"
+    ],
+    "thinking": false,
+    "contract_sha256": "a553870771dd59bfa632398fa45ab889539bfa133310433d2f7475e20c269d67",
+    "prompt_sha256": "90fa8a4f34a72ff8a815260a862ac4c2e6585993d69fe585446c48ec3e709525",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve(keys, values). Return a Vector of Pair mapping each distinct key to the sum of its values, preserving FIRST occurrence order of keys. Inputs have equal length; keys are strings, values are Int. Empty input must return an empty vector. No packages. Code only."
+        }
+    ],
+    "answer": "```julia\nfunction solve(keys, values)\n    if isempty(keys)\n        return Pair{String,Int}[]\n    end\n    \n    # Track first occurrence order\n    order = String[]\n    seen = Set{String}()\n    sums = Dict{String,Int}()\n    \n    for (k, v) in zip(keys, values)\n        if !(k in seen)\n            push!(order, k)\n            push!(seen, k)\n            sums[k] = 0\n        end\n        sums[k] += v\n    end\n    \n    return [Pair(k, sums[k]) for k in order]\nend\n```",
+    "code": "function solve(keys, values)\n    if isempty(keys)\n        return Pair{String,Int}[]\n    end\n    \n    # Track first occurrence order\n    order = String[]\n    seen = Set{String}()\n    sums = Dict{String,Int}()\n    \n    for (k, v) in zip(keys, values)\n        if !(k in seen)\n            push!(order, k)\n            push!(seen, k)\n            sums[k] = 0\n        end\n        sums[k] += v\n    end\n    \n    return [Pair(k, sums[k]) for k in order]\nend\n",
+    "input_tokens": 98,
+    "generated_tokens": 141,
+    "budget_tokens": 512,
+    "decode_steps_executed": 512,
+    "decode_submissions": 512,
+    "eos_output_poll_chunk": null,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.874705791473389,
+    "input_sha256": "64a96b4543cb37fadc1cf6665c3db9f6f789f01291267d2617797e9952b611ad"
+}

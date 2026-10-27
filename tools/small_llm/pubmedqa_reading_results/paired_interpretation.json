@@ -1,0 +1,228 @@
+{
+    "complete": true,
+    "scope": "Fixed-hash16 public expert-labeled PubMedQA items; corresponding context is oracle evidence. Not official split/leaderboard, contamination-free or clinical competence.",
+    "conditions_sha256": "65a31750c6ba28a41a5e3336c7b8e290e3b2e5dbd0b1d0cdb565b8d555340f4d",
+    "summary_sha256": "17b726cc18ecb7974452ea6691c06b278b27051da91964a623ae8887dcf947e0",
+    "question_vs_corresponding": {
+        "control": "question_only",
+        "treatment": "corresponding_context",
+        "total": 16,
+        "repairs": 7,
+        "regressions": 1,
+        "prediction_changes": 9,
+        "pairs": [
+            {
+                "task": "27615402",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": false
+            },
+            {
+                "task": "11799314",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "16968183",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23736032",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "22108230",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "28247485",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23234860",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "16778275",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "27040842",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "19925761",
+                "control_correct": true,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "25150098",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "19712912",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "7664228",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "8566975",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "24614789",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "8245806",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            }
+        ]
+    },
+    "mismatched_vs_corresponding": {
+        "control": "mismatched_context",
+        "treatment": "corresponding_context",
+        "total": 16,
+        "repairs": 7,
+        "regressions": 1,
+        "prediction_changes": 9,
+        "pairs": [
+            {
+                "task": "27615402",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": false
+            },
+            {
+                "task": "11799314",
+                "control_correct": false,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "16968183",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23736032",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "22108230",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "28247485",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "23234860",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "16778275",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "27040842",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "19925761",
+                "control_correct": true,
+                "treatment_correct": false,
+                "prediction_changed": true
+            },
+            {
+                "task": "25150098",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "19712912",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "7664228",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "8566975",
+                "control_correct": true,
+                "treatment_correct": true,
+                "prediction_changed": false
+            },
+            {
+                "task": "24614789",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            },
+            {
+                "task": "8245806",
+                "control_correct": false,
+                "treatment_correct": true,
+                "prediction_changed": true
+            }
+        ]
+    },
+    "question_mismatched_same_prediction": 16,
+    "class_counts": {
+        "yes": 8,
+        "maybe": 1,
+        "no": 7
+    },
+    "best_constant_accuracy": 0.5,
+    "uncertainty_warning": "maybe is a dataset conclusion label, not calibrated confidence or abstention; report its recall separately",
+    "interpretation": "Small one-seed oracle-source reading workflow effect, not a trained-weight improvement, full retriever, independent unseen-paper proof, current medical consensus or clinical advice. Question-only is a memorization/missing-information diagnostic; all-no behavior is NOT substantive medical reasoning. Gold/conclusions never entered prompts. No significance or frontier claim.",
+    "source_sha256": "efff7044001260de6097854c3655d339a39a47bc7e506d192724ed752f39e207"
+}

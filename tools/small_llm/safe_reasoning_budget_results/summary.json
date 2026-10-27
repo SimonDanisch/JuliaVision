@@ -1,0 +1,48 @@
+{
+    "scope": "POST-HOC first-task budget-controller diagnostic after both original arms truncated empty; not independent held-out or knowledge-gain evidence",
+    "policy": "one fixed attempt per arm; immutable attempt receipt BEFORE generation; interrupted attempts never regenerated; inference errors reported separately, not language failures; original failures unchanged",
+    "rows": [
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "variant": "raw",
+            "status": "failed",
+            "truncated": false,
+            "finished_thinking": true,
+            "forced_closures": 1,
+            "generation_sha256": "20febc7489a94a6adb1d94affd22eaa5c1da6e3fd78d61a496453b1f07d34a63"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "variant": "compiler",
+            "status": "failed",
+            "truncated": false,
+            "finished_thinking": true,
+            "forced_closures": 1,
+            "generation_sha256": "20febc7489a94a6adb1d94affd22eaa5c1da6e3fd78d61a496453b1f07d34a63"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "variant": "raw",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "forced_closures": 1,
+            "generation_sha256": "9e11ab7df7bdd223dd375ffc00c0224376118c1f1094ea7017ff79152467d03e"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "variant": "compiler",
+            "status": "passed",
+            "truncated": false,
+            "finished_thinking": true,
+            "forced_closures": 1,
+            "generation_sha256": "9e11ab7df7bdd223dd375ffc00c0224376118c1f1094ea7017ff79152467d03e"
+        }
+    ],
+    "complete": true,
+    "conditions_sha256": "034e3f73080d583f7a44c861676900dea52a13ed8457c75df02ea82de2a87940"
+}

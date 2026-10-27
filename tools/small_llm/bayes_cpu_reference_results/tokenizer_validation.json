@@ -1,0 +1,45 @@
+{
+  "rows": [
+    {
+      "id": "bayes_extract_01_direct_probability",
+      "matches": true,
+      "input_tokens": 357
+    },
+    {
+      "id": "bayes_extract_02_direct_probability",
+      "matches": true,
+      "input_tokens": 351
+    },
+    {
+      "id": "bayes_extract_03_direct_probability",
+      "matches": true,
+      "input_tokens": 387
+    },
+    {
+      "id": "bayes_extract_04_direct_probability",
+      "matches": true,
+      "input_tokens": 387
+    },
+    {
+      "id": "bayes_extract_05_direct_probability",
+      "matches": true,
+      "input_tokens": 405
+    },
+    {
+      "id": "bayes_extract_06_direct_probability",
+      "matches": true,
+      "input_tokens": 398
+    },
+    {
+      "id": "bayes_extract_07_direct_probability",
+      "matches": true,
+      "input_tokens": 405
+    },
+    {
+      "id": "bayes_extract_08_direct_probability",
+      "matches": true,
+      "input_tokens": 373
+    }
+  ],
+  "all_match": true
+}

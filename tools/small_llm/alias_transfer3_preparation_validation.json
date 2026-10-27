@@ -1,0 +1,15 @@
+{
+    "complete": true,
+    "scope": "Preparation only; no model generations or quality claim",
+    "protocol_checks": 42,
+    "snapshot_checks": 4,
+    "original_reference_tasks_passed": 8,
+    "paired_jobs": 16,
+    "eligible_jobs": 16,
+    "sources": {
+        "snapshot_third_bigcodebench_x.py": "994e8a4749f0a76340817ed9a5e38c8857c1573e9ff6e53e70b3cfd80242842f",
+        "test_snapshot_third_bigcodebench_x.py": "90756112141601781b10d6412793925c50f263cc82ac285e6ac0a1bb15d01cf8",
+        "alias_transfer3_protocol.jl": "a69919dfc19e1504bed46cae176c9358332ee1233b0d523874c56e7736dac2fc",
+        "test_alias_transfer3_protocol.jl": "d393a86b34cf142276763e9a889c06b5bc1a77bdc368ae5e3aad8e08d1fd2484"
+    }
+}

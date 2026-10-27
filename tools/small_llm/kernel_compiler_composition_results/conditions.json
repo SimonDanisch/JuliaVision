@@ -1,0 +1,22 @@
+{
+    "scope": "post-hoc DEVELOPMENT composition: same frozen public-error/self-review candidates plus deterministic compiler passes; not held-out/model-only intelligence evidence",
+    "rule": "use original public-exception policy to choose each arm's code; uniformly attempt restricted pointwise lowering then append a void tail. No hidden-score selection or extra model generation",
+    "limitations": [
+        "motivated by observed serial-loop and void-return failures",
+        "remaining model outputs were still pending at registration; every registered task/arm remains in the report",
+        "void-tail pass preserves statements but cannot make arbitrary explicit or macro-generated returns void",
+        "software numerical tests are neither Radeon timing nor general bounds/race proofs"
+    ],
+    "feedback_conditions_sha256": "58282cf60651389847dc6966c84b50a83ddfa6a680448017a080cd4386705058",
+    "qualifications": {
+        "kernel_void_tail_validation.json": "4fce44f8dfac655135d29f4ed70bb31e73455e11e07fecb7bb9c49f9fe598701",
+        "pointwise_lowering_validation.json": "a8b69d3696cd69c4ef8d43ee36e53bd31c86273dbd80997f2e58a2db5bdbf9b6"
+    },
+    "source_sha256": {
+        "pointwise_kernel_lowering.jl": "a987b19cb1f00220859dc09ad3cbbb46913023144a5d6eccdf9beb626a2adbc2",
+        "kernel_compiler_composition.jl": "c190d707e25de4812795f2ac6c27ead683168d3e9b65565ef55ba134cd7f3841",
+        "test_checked_pointwise_lowering.jl": "fc045a6538e6c72bdaae5a72691adfc1b610634e7c3f47b2bea2bc2c0750e38b",
+        "checked_pointwise_lowering.jl": "74de4fbceada7c352159edcc1ff76391f488cf3c15ea88a883845863995c53d5",
+        "kernel_void_tail.jl": "44ac789986a1112d4d45dc13e601e91b17b6bf75fa5ab91d004d89c5e6bb17a0"
+    }
+}

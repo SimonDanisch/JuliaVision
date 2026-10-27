@@ -1,0 +1,170 @@
+{
+    "scope": "conditional static-positive self-review vs static-positive JET feedback; same frozen12public basic-test tasks",
+    "policy": "no hidden baseline score used to choose revisions, including already-correct candidates; no manual best-of selection",
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "034_unique_elements",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "039_prime_fib",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "tool_unavailable_retain_baseline"
+        },
+        {
+            "task": "039_prime_fib",
+            "arm": "jet_feedback",
+            "status": "failed",
+            "action": "tool_unavailable_retain_baseline"
+        },
+        {
+            "task": "106_f",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "106_f",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "162_string_to_md5",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "tool_unavailable_retain_baseline"
+        },
+        {
+            "task": "162_string_to_md5",
+            "arm": "jet_feedback",
+            "status": "failed",
+            "action": "tool_unavailable_retain_baseline"
+        },
+        {
+            "task": "104_unique_digits",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "104_unique_digits",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "074_total_match",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "074_total_match",
+            "arm": "jet_feedback",
+            "status": "failed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true,
+            "generation_seconds": 46.40869998931885
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "arm": "jet_feedback",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true,
+            "generation_seconds": 35.229641914367676
+        },
+        {
+            "task": "037_sort_even",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "037_sort_even",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "146_specialFilter",
+            "arm": "self_review",
+            "status": "failed",
+            "action": "single_revision",
+            "truncated": true,
+            "generation_seconds": 44.414576053619385
+        },
+        {
+            "task": "146_specialFilter",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "single_revision",
+            "truncated": false,
+            "generation_seconds": 41.22608280181885
+        },
+        {
+            "task": "048_is_palindrome",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "048_is_palindrome",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "110_exchange",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "110_exchange",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "077_iscube",
+            "arm": "self_review",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        },
+        {
+            "task": "077_iscube",
+            "arm": "jet_feedback",
+            "status": "passed",
+            "action": "no_static_findings_retain_baseline"
+        }
+    ],
+    "totals": {
+        "self_review": {
+            "passed": 7,
+            "evaluated": 12,
+            "pending": 0
+        },
+        "jet_feedback": {
+            "passed": 8,
+            "evaluated": 12,
+            "pending": 0
+        }
+    }
+}

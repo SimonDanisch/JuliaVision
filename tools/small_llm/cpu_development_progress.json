@@ -1,0 +1,362 @@
+{
+    "not_complete": true,
+    "scope": "Development/infrastructure inventory, not a pooled score or completion claim",
+    "receipts": [
+        {
+            "path": "alias_document_retrieval_validation.json",
+            "present": true,
+            "sha256": "5bf2846d1a82a3edb6870bb4cb9fcce4bcb2da937ca6e82cbe0ac12e17811647",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "alias_document_ranking_audit.json",
+            "present": true,
+            "sha256": "1e0675689a1b2dded2e5ec46ef22965d5c20ef9edc9f8190234f05317f51ea71",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "rpn_example_semantics_software_validation.json",
+            "present": true,
+            "sha256": "1f77f47dc22cdfda75036d8f1d30e18d1952241f3f769115261fb98e5eb30abe",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "rpn_example_constraint_software_validation.json",
+            "present": true,
+            "sha256": "61e77cffe57d3376c9c360e3e7fcfb0ea4496b76fe62ad321685494519a11859",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "sampled_example_rpn_options_validation.json",
+            "present": true,
+            "sha256": "30f7cc0ec839e8badc4c0d0ede271b8b68f14da23b97f4284e8e0092ecc58592",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "laptop_example_constraint_gate/result.json",
+            "present": true,
+            "sha256": "c6e910efa9bafae5c29dffad6d2c1a173fc7118ff44ec93673d05d659ff22ea6",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "laptop_example_identity_gate/result.json",
+            "present": true,
+            "sha256": "edf55d8546427eb3595340ceff2044d9f321153fda27f4c9610c6fcd0436ce9e",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "rpn_format_followup_audit.json",
+            "present": true,
+            "sha256": "0398c89a27465662ce3c18c80f628288fd900e33b7c6dc1873b6aa1b67c386cc",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "rpn_public_example_reference_validation.json",
+            "present": true,
+            "sha256": "05f267b5d365b3381b9e701a2e3b496c592fbdeb60cd2a366076ada4a114d465",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "rpn_public_example_study_validation.json",
+            "present": true,
+            "sha256": "197c2150bd50f79aae9afb8e3b992fe3207e345969445afb5373702bc2461637",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "julia_stencil_transfer_reference_validation.json",
+            "present": true,
+            "sha256": "ac0ecb311aec52b9a45e1a99202262cc77aeeadb6ec73d348ec5a844d1784900",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "julia_stencil_transfer_harness_validation.json",
+            "present": true,
+            "sha256": "ca7320a333c0d2ef4c16ef6631bfef5a62d457df4f7679327c263e918bed20e5",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "lint_revision_protocol_validation.json",
+            "present": true,
+            "sha256": "ad0f432aa04824102dbd93c4d18058576af081a8d3710441ea4c1d610dcb4ec0",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "static_import_candidates_validation.json",
+            "present": true,
+            "sha256": "21bf9e3ae93100a5f8241d8f32d059bab445c45503f42266a750b3fff317557c",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "workflow_cost_summary_validation.json",
+            "present": true,
+            "sha256": "b17ba15d6daeef6196b6484730cf0ce92d3a565def5b23c112b5828af807e977",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "julia_docs_v2_validation.json",
+            "present": true,
+            "sha256": "c115f25268631d2a9e67863e6b967c77d7ca9fbfba01d0e4e5db8886198fac3f",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "pubmedqa_reading_validation.json",
+            "present": true,
+            "sha256": "0f6fd61d932d45dbd8f96fbbc8d115605e4b17c45e695b41fa8ec129d661b609",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "pubmedqa_retrieval_validation.json",
+            "present": true,
+            "sha256": "53bceab85d2f42ac0989ff7b1f05b76c9707e801b7d467fee7ed55af0d099316",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "safe_plot_builder_validation.json",
+            "present": true,
+            "sha256": "da532fefd090b58d8514c1584e98ecf171e4ae38173760f80a73d77f370d6569",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "safe_plot_julia_validation.json",
+            "present": true,
+            "sha256": "ab12d337008e74132dfdd5a26b11ebefb568dfe2b2a23a4e32a772e1dac8118c",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_interface_harness_validation.json",
+            "present": true,
+            "sha256": "91ad819e1ec8c337543318d7910baa89f0a77b25c9e2f632af6389f72785a300",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_render_audit_validation.json",
+            "present": true,
+            "sha256": "652705968cc0c1f8524cd1a118db8c5a2bd58c4324c243252dc63d9c31468547",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_nonexecution_validation.json",
+            "present": true,
+            "sha256": "e52be709dfe605a32d68b030c842c11b7364b93f17ea4bace7f35a059ab63c1d",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_interpretation_validation.json",
+            "present": true,
+            "sha256": "2b32b0649a475abcfa34bdb7ddeb1cac5c6d78391b6c7befd8e7a78e93c45a3a",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "paired_workflow_uncertainty_validation.json",
+            "present": true,
+            "sha256": "fcd296630e18f6d85029e02bff28a893838625d2c0840ecf5deeda27e2a047a8",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_extraction_reference_validation.json",
+            "present": true,
+            "sha256": "f91b5d2744a31f18bcf82fd0415739efeb15f0ad0e4f617062446be0c660af58",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_extraction_study_validation.json",
+            "present": true,
+            "sha256": "9b96c600c7e0c6b444dbccf9caa40dbc4235c47e9817020e4432ba6d41d863ff",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_validator_policy_validation.json",
+            "present": true,
+            "sha256": "d929a60121f0ea761a9facc2d6084692323cf0d0a99ad6a770202201207ce94b",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_validator_study_validation.json",
+            "present": true,
+            "sha256": "0687ab2e28bc98ef7f41e0a1349d8d85820035817db160e036a507ff3ae46d2c",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_validator_summary_validation.json",
+            "present": true,
+            "sha256": "fca87b00894580905e30b921e1124552660fe0ccd41dfc0d5f96ccbc673bf570",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "plot_validator_deployment_validation.json",
+            "present": true,
+            "sha256": "3495f3e4470391aba74c3c0c6346c94f5c00067db3266cc5c06ed470c813124f",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_precision_audit_validation.json",
+            "present": true,
+            "sha256": "8e6b719bd8a8e2e805dd07580b639353926cc3ccafb288be376f5698df3dd4e2",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_native_parity_software_validation.json",
+            "present": true,
+            "sha256": "76f4d11a671e469837ca34c1a82f6231a36f3c9e718071d12a0bb6558287d7d4",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_native_preparation_validation.json",
+            "present": true,
+            "sha256": "5981febd8829c83008a98e7aea1dbe76f8226041fb8b18e527539361fd3f0e6b",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_thinking_admission_validation.json",
+            "present": true,
+            "sha256": "d0cda8dcb12dc1441670911f84854f6cd150f361039d77a82b8da81ce332649d",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_thinking_study_validation.json",
+            "present": true,
+            "sha256": "9dbed221b17ff4f801936c55f2db31814cbd5abc3c2da2292522a823ac86109b",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_thinking_summary_validation.json",
+            "present": true,
+            "sha256": "518ed2c4efa17abd1e804f51d6bc62ac1cb100311f4bede7f612ba1b2e57755d",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_json_validation.json",
+            "present": true,
+            "sha256": "d24300fb1b1130d6cf2c6dc7fe3061c6d3af34b4c8074d29b048db1a4e0b147f",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_reference_validation.json",
+            "present": true,
+            "sha256": "0a7555044af7f7c98056c21bd8058c081f7f8b111545844a78da3810d9688506",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_interface_validation.json",
+            "present": true,
+            "sha256": "a35ec9c58aca7390e67d740fd76bd476e4c959590c6d4c7949361387c0139cd5",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_study_validation.json",
+            "present": true,
+            "sha256": "788a4d4963a61e9f904ccc4a2d42114fd270328d9a4dc84d07085f7e5e7d012b",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_summary_validation.json",
+            "present": true,
+            "sha256": "1c5920a8e4a1762d70d1d54c423178cdcf0c216321d15995653e2db315938381",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "bayes_thinking_native_preparation_validation.json",
+            "present": true,
+            "sha256": "d77c9da04860ed6d601dda5dd60f2256d8bcd767290ea5833a564667bdf340c8",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "finite_choice_software_validation.json",
+            "present": true,
+            "sha256": "04ec8bd5d7ff2f61a52260639c082f98a1c238df65a8ae18aea685e37218a0cd",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "finite_choice_native_gate/result.json",
+            "present": true,
+            "sha256": "e215484601fbf5fd0691e166e55c8f1e383b9fa1c35ab25de534de1f32cca910",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "finite_choice_model_checks_validation.json",
+            "present": true,
+            "sha256": "20bd6ee141478a6426a8a1640191045c37486c58e63d7e9707902ba65b9e918f",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "finite_choice_model_gate/result.json",
+            "present": true,
+            "sha256": "763a4fe1f4465c17946ebea177ba438c65f65c1c0110f67d03a720a0b75a3377",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_demonstrations_validation.json",
+            "present": true,
+            "sha256": "0c3b2fdea2bcae7b1a4a89c1be39407320bc8e7160150ff3e8bfd78bd4f751be",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_demo_workflow_validation.json",
+            "present": true,
+            "sha256": "3767d518382ce6007eebd6dd228feaad8ea07816701ae273f929368b4119e267",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_demo_resume_validation.json",
+            "present": true,
+            "sha256": "dd1e88dd401150ee8c37b0c3df81e1e777d0fd2eb0b9852eefc9d9e1ff902f3b",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "missing_outcome_bounds_validation.json",
+            "present": true,
+            "sha256": "75d248397fb1a95f35c42ff45213faaeb7d47e4e771464e343b92ce2c7eb43b5",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_demo_native_preparation_validation.json",
+            "present": true,
+            "sha256": "ea89944d295b0b03fb097de68fcb780239065ecb8e206cea4795ee663c61caf0",
+            "task_quality_evidence": false
+        },
+        {
+            "path": "compact_bayes_demo_native_audit/result.json",
+            "present": true,
+            "sha256": "5ae088fce5c8dc1bb75521f4c4912dbee4552c1f1fd5663f1fe128790494e0d3",
+            "task_quality_evidence": false
+        }
+    ],
+    "current_neural_results": {
+        "corrected_rpn_contract": "Complete: numeric correctness0/8 in each arm; grammar syntax8/8 vs1/8. Original1/8 grammar result retained separately, no regeneration.",
+        "alias_aware_retrieval": "Third fixed-hash external8 cohort COMPLETE: direct0/8, binding-aware public docs0/8; one of16 outputs truncated. Negative evidence for this frozen workflow, not a general rejection of retrieval.",
+        "lint_document_revision": "POSTHOC SAME8 COMPLETE: self-review0/8 vs static binding observations plus expanded public docs0/8, from identical original direct code; one truncated output. All16 retained, unchanged private scorer. No gain for this bundled workflow; not a general rejection of static tools, retrieval or bigger/trained models.",
+        "public_example_constraint": {
+            "complete": true,
+            "status_counts": {
+                "passed": 2,
+                "failed": 6
+            }
+        },
+        "symbolic_public_examples": "3/4 independent CPU/software tests, zero neural calls; one public-example overfit retained",
+        "uniform_public_example_fallback": "POSTHOC same4-task workflow3/4 vs baseline1/4, two repairs/no regressions; not independent transfer or model-only intelligence",
+        "julia_source_transfer": "Prospective NEW8 related-family tasks: direct6/8, frozen public-example fallback6/8; no gain. All16 physical GPU outcomes agree.",
+        "boundary_contract_development": "POSTHOC same8 explicit neighbor-mode contract + constrained symbolic search8/8, two repairs/no regressions",
+        "fresh_boundary_transfer": "Prospective next8: direct7/8, example-only8/8, boundary-aware8/8; one repair, no incremental boundary accuracy gain. All24 physical GPU outcomes agree; conservative boundary rule also replaced one correct program unnecessarily."
+    },
+    "biomedical_reading_pilot": "COMPLETE48 outputs: corresponding abstract13/16 vs question-only7/16 and mismatched abstract7/16.7 repairs/1 regression, all-no controls, only maybe item missed, best constant8/16. Source-reading workflow effect ONLY, not a general retriever, clinical advice or frontier evidence.",
+    "biomedical_automatic_retrieval": "COMPLETE64 outputs on NEXT16 papers: automatic body-only BM2513/16, oracle13/16, question-only/mismatch3/16 each.10 repairs/0 regressions, source15/16, repeated-prompt15groups all agree. Best constant11/16; BOTH maybe cases missed. Small retrieval/reading workflow result, NOT clinical reliability or general medical consensus.",
+    "makie_interface": "COMPLETE: restricted Julia2/8 vs JSON3/8 specifications,1 repair/no regressions; not convincing generalized gain. ALL8 admitted plans rendered unclipped, including3 specification failures;8 unsupported/truncated outputs retained. No aesthetic preference evaluation.",
+    "makie_validator_followup": "COMPLETE POSTHOC SAME8: original JSON3/8, conditional self-review3/8, conditional parser-feedback3/8; no repairs/regressions. PUBLIC trigger on3 originals,6 new answers all failed admission. Five admitted originals per branch, including semantic failures, unchanged. No gain for this workflow; not a general rejection of validators.",
+    "bayesian_extraction": "COMPLETE16 outputs: direct numeric0/8, model-network plus shared solver0/8. Direct8 admitted; only1/8 networks admitted, none faithful. BOTH arms still0 at1% absolute tolerance. Independent native FP32/GREEDY CPU diagnostic also0/8 at primary tolerance,1/8 at1%; exact same chat IDs and all8 completed. Different precision AND sampler: NOT isolated Q4 effect or capability ceiling. Sole admitted generated network matches physical GPU/software,13 harness checks plus replay; numerical parity is not extraction quality.",
+    "bayesian_guarded_thinking": "COMPLETE POSTHOC SAME8/16outputs: direct2/8 vs original0/8, network0/8 vs0/8. Four direct answers admitted, zero networks admitted;8 outputs truncated and3 completed outputs rejected for closure count. All16 forced one thinking closure. Different thinking/template/controller and2048 total allowance, not equal compute or isolated weight/mode effect; only2 repairs, descriptive paired p0.5. No admitted networks, so no physical parity job justified. Not frontier/general Bayesian reasoning or clinical competence.",
+    "bayesian_compact_interface": "COMPLETE POSTHOC SAME8: compact CPT extraction0/8, zero admitted vs original full-schema0/8. Six completed outputs malformed/incomplete or wrong field shapes; two truncated. Host binary-complement packing/shared solver passed86 reference checks, but no generated network reached the solver. No model-network correction or task retry; shorter representation alone did not improve this workflow. Public-example follow-up is separate below; decode guidance remains untested.",
+    "bayesian_compact_demonstrations": "POSTHOC SAME8 plus two public unrelated network-format examples: seven completed, one process-loss attempt not regenerated. Correct faithful networks2/7 completed vs bare compact0/7 on those tasks;4 admitted including2 wrong. Registered8 lower/upper success bounds2/8..3/8, not confidence intervals; lost outcome is unknown, not a semantic model failure. Two repairs/no observed regressions, descriptive discordance p0.5. All seven generation workers normally retired; original lost context has no normal-waitidle claim, fresh recovery gate86 passed. Changed public examples/context/compute, not independent transfer, model weights or frontier intelligence. ALL4 admitted networks undergo separate physical parity, including wrong ones.",
+    "finite_choice_device_constraint": "Opt-in canonical-token finite-support prototype:39 host +47 software-Vulkan and39 host +47 physical checks PASS. Full4B one-prompt/eight-step gate PASS: disabled control matches token history/seen state/final raw-logit bits; enabled output follows one supplied API-name path/EOS; one recorded submission per decode step, no host token feedback. Finalwaitidle/cache save and retirement normal. Tool return-formatting hit a separate world-age error; durable result verified without regeneration. No task-accuracy gain, arbitrary JSON/Julia grammar, live scope extractor or semantic-choice guarantee.",
+    "unfinished": [
+        "Generalization beyond authored stencil-family tasks remains unestablished. Preserve prospective6/8 no-gain, posthoc8/8, and NEW8 direct7/8/fallback8/8 as separate cohorts",
+        "Same-cohort lint/docs revisions completed0/8 in both arms; original direct/docs0/8 scores retained separately. Broader coding improvement remains unestablished",
+        "Physical-device numerical grading of completed corrected-contract outputs remains optional and not yet performed",
+        "Expanded17-module public corpus and hardened static diagnostics are infrastructure; their model-quality effect is being evaluated separately from the original7-module retrieval study",
+        "Broader Makie construction/semantic fidelity and aesthetic preference remain unestablished beyond the authored8-task pilot; conditional public-validator follow-up completed without gain",
+        "Original Bayesian nonthinking0/8 both arms, guarded-thinking2/8 direct and0/8 network, bare compact0/8; public examples2/7 completed plus1 unknown process-loss outcome. Independent transfer, longer natural thinking and learned latent bridges remain unestablished",
+        "Finite-choice constraints passed host/software/physical fixtures and one full-model identity/support gate; task-quality effects and generalization remain untested",
+        "Frontier-level capability, medical/legal/tax assistance, million-token performance and scalable latent knowledge integration remain unestablished"
+    ],
+    "laptop_reservation": "Bounded per-output inference windows with explicit final waitidle and external-flock worker retirement. Do NOT infer device-idle/release from scoring status; consult explicit release logs.",
+    "bosgame": "No Radeon setup/reset/recovery attempted; Laptop fallback is independent"
+}

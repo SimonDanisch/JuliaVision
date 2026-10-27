@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 6,
+    "scope": "Mock reference-packet privacy/semantics only; no neural gain",
+    "source_sha256": {
+        "prepare_bayes_thinking_native_audit.jl": "8dad5aaa6a56e8bed1a0fcdf25a889669eb4df2222e1f7cc89602d78a483d166",
+        "test_prepare_bayes_thinking_native_audit.jl": "cfa9fae301904b96093ada2595930da170cfb7da3993a741f5fe7f3a252db4f5"
+    }
+}

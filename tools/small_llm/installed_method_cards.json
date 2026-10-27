@@ -1,0 +1,32 @@
+{
+    "scope": "trusted installed method-source context, no model generation or candidate execution",
+    "packages": {
+        "Makie": "0.24.16",
+        "KernelInterface": "0.4.1"
+    },
+    "makie_update": [
+        {
+            "signature": "Tuple{typeof(ComputePipeline.update!), Plot}",
+            "owner": "Makie",
+            "file": "src/compute-plots.jl",
+            "first_line": 57,
+            "last_line": 84,
+            "text": "function ComputePipeline.update!(plot::Plot; args...)\n    ComputePipeline.update!(plot.attributes; args...)\n    return\nend\n\nfunction ComputePipeline.update!(plot::Plot, args...; attr...)\n    kw = [Pair{Symbol, Any}(Symbol(:arg, i), arg) for (i, arg) in enumerate(args)]\n    for (a, v) in attr\n        push!(kw, Pair{Symbol, Any}(a, v))\n    end\n    ComputePipeline.update!(plot.attributes, kw)\n    return\nend\n\nfunction Base.getproperty(plot::Plot, key::Symbol)\n    if key in fieldnames(typeof(plot))\n        return getfield(plot, key)\n    end\n    return plot.attributes[key]\nend\n\nfunction Base.setproperty!(plot::Plot, key::Symbol, val::Observable)\n    error(\n        \"Setting an Attribute ($key) to an Observable is no longer allowed.\\n\" *\n            \"If you are using attributes as storage in a recipe, i.e. `plot[key] = map/lift(...)` \" *\n            \"either track the Observable as a variable `var = map/lift(...)` or consider using \" *\n            \"`register_computation!()` or the ComputePipelines `map!()` methods.\\n\" *\n            \"If you are trying to create a new input to a ComputeGraph use `add_input!(graph, key, obs)` explicitly.\"",
+            "bounded_context_not_complete_body": true,
+            "source_sha256": "01d2b361e7dfe5e635a6e8848f860de8e2392a701ea2c613d08dc7fcd80a6d10"
+        }
+    ],
+    "kernel_call": [
+        {
+            "signature": "Tuple{typeof(Core.kwcall), NamedTuple, KernelInterface.Kernel, Vararg{Any, N}} where N",
+            "owner": "KernelInterface",
+            "file": "src/launch.jl",
+            "first_line": 56,
+            "last_line": 91,
+            "text": "Core.kwcall(kwargs::NamedTuple, kernel::Kernel, args::Vararg{Any, N}) where {N} =\n    call_kernel(kernel, args; kwargs...)\n\nfunction call_kernel(\n        kernel::Kernel, args::Tuple; numgroups = (), workgroupsize = (), ndrange = (),\n        max_work_group_size::Integer = typemax(Int), kwargs...\n    )\n    groups, items = launch_geometry(kernel, numgroups, workgroupsize, ndrange, max_work_group_size)\n    any(iszero, groups) && return nothing\n    launch(kernel, groups, items, args; kwargs...)\n    return nothing\nend\n\n\"\"\"\n    launch(kernel::Kernel, groups::Dims{3}, items::Dims{3}, args::Tuple; kwargs...)\n\nLaunch `kernel` with `groups` work-groups of `items` work-items each, passing the host-side\narguments `args`, a tuple. This is what calling a [`Kernel`](@ref) does after validating\nand normalizing the launch geometry; users call the kernel instead.\n\n`groups` and `items` are positive, `items` fits [`max_work_group_dims`](@ref) and\n[`max_work_group_size`](@ref)`(kernel)`, and `groups .* items` doesn't overflow `Int`.\n`kwargs` are the keyword arguments of the call that KernelInterface doesn't know.\n\n!!! note\n    Backend implementations **must** implement:\n    ```\n    launch(kernel::Kernel{<:NewBackend}, groups::Dims{3}, items::Dims{3}, args::Tuple; kwargs...)\n    ```\n    It converts `args` with [`argconvert`](@ref) (or lets its native launcher do so), and\n    queues the launch on the calling task's queue; it doesn't have to wait for the kernel to\n    complete. To keep launches with many arguments cheap, it should pass `args` on as a\n    tuple rather than splatting it: Julia doesn't turn a splat of more than 32 elements into\n    a direct call. It must throw for keywords it does not support, and may throw for a\n    number of work-groups the device cannot launch, or for a geometry that\n    backend-specific compiler options of the kernel don't allow.",
+            "bounded_context_not_complete_body": true,
+            "source_sha256": "edcafa0a046d06fce52da63edace5caedad3a7743d07e937c36b31407ded296d"
+        }
+    ],
+    "source_sha256": "99c431195f390d2b2e3c95b79ce325010ce458df360a91b42d43178d95ed6a88"
+}

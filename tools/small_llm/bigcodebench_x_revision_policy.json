@@ -1,0 +1,123 @@
+{
+    "scope": "POSTHOC workflow development: policy constructed after observing first external baseline API failure, not an independent held-out intervention. ALL8 tasks retained, no selection by hidden scores.",
+    "policy": "One revision per task per arm, counterbalanced, same original task/prior CODE and identical fixed decoding budget. Public-static arm gets syntax/dependency-contract/literal installed-namespace diagnostics; self-review arm gets no diagnostics. Neither reads benchmark tests, expected answers or grading traces. No generated code executed by analyzers. No arithmetic/API replacements inferred.",
+    "parent_conditions_sha256": "42ba3128b5013d9243c34e65afb7d3898ab4b49bf366018bbf6c405a6076a1dc",
+    "order": [
+        {
+            "parent_id": "bcbx_92_baseline",
+            "task": "BigCodeBench/92",
+            "mode": "public_static",
+            "id": "bcbx_92_public_static"
+        },
+        {
+            "parent_id": "bcbx_92_baseline",
+            "task": "BigCodeBench/92",
+            "mode": "self_review",
+            "id": "bcbx_92_self_review"
+        },
+        {
+            "parent_id": "bcbx_852_baseline",
+            "task": "BigCodeBench/852",
+            "mode": "self_review",
+            "id": "bcbx_852_self_review"
+        },
+        {
+            "parent_id": "bcbx_852_baseline",
+            "task": "BigCodeBench/852",
+            "mode": "public_static",
+            "id": "bcbx_852_public_static"
+        },
+        {
+            "parent_id": "bcbx_155_baseline",
+            "task": "BigCodeBench/155",
+            "mode": "public_static",
+            "id": "bcbx_155_public_static"
+        },
+        {
+            "parent_id": "bcbx_155_baseline",
+            "task": "BigCodeBench/155",
+            "mode": "self_review",
+            "id": "bcbx_155_self_review"
+        },
+        {
+            "parent_id": "bcbx_293_baseline",
+            "task": "BigCodeBench/293",
+            "mode": "self_review",
+            "id": "bcbx_293_self_review"
+        },
+        {
+            "parent_id": "bcbx_293_baseline",
+            "task": "BigCodeBench/293",
+            "mode": "public_static",
+            "id": "bcbx_293_public_static"
+        },
+        {
+            "parent_id": "bcbx_241_baseline",
+            "task": "BigCodeBench/241",
+            "mode": "public_static",
+            "id": "bcbx_241_public_static"
+        },
+        {
+            "parent_id": "bcbx_241_baseline",
+            "task": "BigCodeBench/241",
+            "mode": "self_review",
+            "id": "bcbx_241_self_review"
+        },
+        {
+            "parent_id": "bcbx_255_baseline",
+            "task": "BigCodeBench/255",
+            "mode": "self_review",
+            "id": "bcbx_255_self_review"
+        },
+        {
+            "parent_id": "bcbx_255_baseline",
+            "task": "BigCodeBench/255",
+            "mode": "public_static",
+            "id": "bcbx_255_public_static"
+        },
+        {
+            "parent_id": "bcbx_980_baseline",
+            "task": "BigCodeBench/980",
+            "mode": "public_static",
+            "id": "bcbx_980_public_static"
+        },
+        {
+            "parent_id": "bcbx_980_baseline",
+            "task": "BigCodeBench/980",
+            "mode": "self_review",
+            "id": "bcbx_980_self_review"
+        },
+        {
+            "parent_id": "bcbx_928_baseline",
+            "task": "BigCodeBench/928",
+            "mode": "self_review",
+            "id": "bcbx_928_self_review"
+        },
+        {
+            "parent_id": "bcbx_928_baseline",
+            "task": "BigCodeBench/928",
+            "mode": "public_static",
+            "id": "bcbx_928_public_static"
+        }
+    ],
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 4096,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "thinking_budget": 2048,
+    "completion_gate": "Derive final messages ONLY when all8 baseline outputs exist; verify receipts and capacity. Freeze final generation+grader sources before any revision. This policy alone does NOT authorize skipping qualification or creating model-quality claims.",
+    "source_sha256": {
+        "bigcodebench_x_revision_policy.jl": "13dcc129664df50ce49ac8b0f8f377af1bc9576716fd4c4a95d818174e64ad3d",
+        "julia_namespace_contract.json": "0778ca4cb94fbfb9d1c1a2c41bbef42de8e6931a9ff867f6fd32dc00fbc35295",
+        "qualified_binding_diagnostics_validation.json": "79704f66cdb6053c43d273c6b2457dd95466f3e4222451dace6a33fc4de4ef9f",
+        "qualified_binding_diagnostics.jl": "f685e684ac540fa222a0d26f0ee4c7c201096921e40cf63b0fe14dbb996ef32a",
+        "public_program_diagnostics.jl": "e5be1d50ca79dee01b23e57b1041ba65a7a10e88c2de2419a1d1d5bc44f0b51f",
+        "public_program_diagnostics_validation.json": "5237fc99af07c575b641a5161e949fec8f7ab372951795a0a6fd24b722ea31ee"
+    }
+}

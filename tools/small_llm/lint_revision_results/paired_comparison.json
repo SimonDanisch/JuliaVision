@@ -1,0 +1,69 @@
+{
+    "complete": true,
+    "scope": "POSTHOC SAME8 external tasks after negative original direct/docs study. Not held-out or a replacement score. All baselines retained, all tasks used.",
+    "conditions_sha256": "258f78714bb0bff26415619098fd4149cf4ad26740e71c5b75230a555fe69b50",
+    "summary_sha256": "f7411df05fbbf09079fae0f34d2891fac9171f34c69e9b51fe5a88d6c71ac8d3",
+    "passed": {
+        "direct": 0,
+        "public_docs": 0
+    },
+    "total_per_arm": 8,
+    "exception_categories": {
+        "direct": {
+            "UndefVarError": 4,
+            "MethodError": 3,
+            "ParseError": 1
+        },
+        "public_docs": {
+            "UndefVarError": 5,
+            "test_failure_without_classified_julia_exception": 1,
+            "MethodError": 1,
+            "ParseError": 1
+        }
+    },
+    "truncated_outputs": 1,
+    "pairs": [
+        {
+            "task": "BigCodeBench/27",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/309",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/939",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/277",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/311",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/137",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/651",
+            "direct": "failed",
+            "public_docs": "failed"
+        },
+        {
+            "task": "BigCodeBench/1060",
+            "direct": "failed",
+            "public_docs": "failed"
+        }
+    ],
+    "interpretation": "Descriptive SAME-COHORT outcomes only. Extra context did not establish frontier capability. Exception labels are trace categories, not a proof of root cause or private-test feedback for future prompts.",
+    "summarizer_sha256": "c0dcbdd2213e7c6886e1b638216ec5fb5369f948534f76e8626217336ce3a721"
+}

@@ -1,0 +1,19 @@
+{
+    "scope": "POST-HOC budget diagnostic on first authored transfer task after BOTH arms truncated empty; not held-out evidence or a replacement score",
+    "policy": "one new fixed-seed attempt per original arm at6144 tokens; retain original2048 failures and all long-budget outcomes; no seed search",
+    "rows": [
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "no_addon",
+            "status": "pending"
+        },
+        {
+            "task": "transfer_clamped_gather",
+            "arm": "api_pack",
+            "status": "pending"
+        }
+    ],
+    "complete": false,
+    "conditions_sha256": "71e8d8bce63a7556a0a5409a23077caee30c6daf9f93f8e43464dba306d1090f",
+    "scoring_source_sha256": "891c36b6519bfb34903d53d5330b9f8ff1d9cfaeb3dfdb6cbe0f86d2f14abdfa"
+}

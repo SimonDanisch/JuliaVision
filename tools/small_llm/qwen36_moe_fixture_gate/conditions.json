@@ -1,0 +1,24 @@
+{
+    "source_sha256": {
+        "qwen36_moe_model.jl": "42fbd73998927476857bbee12f1dd2129a36a52264a7ba9c39839f32fed04482",
+        "moe_qwen35.jl": "289c1d29bb6e4f2e7a551e1243792e7ce68f909698339533d25e233e91357372",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "qwen36_moe_tiny_reference/config.json": "1de62b8440c96378521289d78eab2d196bec97eb2e45cb19a1039e2392626386",
+        "BonsaiRunner/src/kernels.jl": "2b0097ae9c9efe0f465a4f1cf8ed0095cefd00241e38f070ce396c206a84d243",
+        "test_fused_residual_norm.jl": "bd356297754595c5b56364145bf818d2e97353e7dad7f4179f76d6e406c85d0c",
+        "test_qwen36_moe_model.jl": "63b30ae8033876073a85ca7b06f4f0673cccc9412c7c21feea24f03ebdbb58a8",
+        "qwen_weight_cache.jl": "f4959ba9735321dcc6847fca35a2abbd4c20fadd417651f067ce56d4e78e4b3d",
+        "moe_quant_qwen35.jl": "56fba3baaa89715c226c5e8f95cb7851eec20c253c7c037b80c7548979389e97",
+        "grouped_attention_qwen35.jl": "bcd2fc397bc6471a31aca585e6fdbc19bd1e7d7d060f0b130613aece823bac21",
+        "qwen36_moe_tiny_reference/reference.json": "972177d3ad1e0c713ba8b605d8d2ecb77f175877a175bbc0666459b0367b161b",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "run_qwen36_moe_fixture_gate.jl": "45f5a54e2e4a31d3ea6d9f475f63ca0afa63589cb900e58140d8d59acf1c04d8",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "qwen36_moe_tiny_reference/model.safetensors": "b842460e18acbf1c4b5c5d1a7e29abe3a7973a3192b1981969638882f8d857f1",
+        "gpu_watchdog.py": "60677cf2165ad7e4dc2dcc3b7d9e92c0567f72097bd7a135d43538fb712744c2",
+        "qwen36_moe_fixture_loader.jl": "cc040cf32a654e6dfee2d6d4e4a9f54b7f397cb106b74b5db9a15749a7f58219"
+    },
+    "scope": "Fresh tiny hybrid MoE hardware correctness gate ONLY, no35B loading/quality/throughput",
+    "expected_checks": 211,
+    "hard_watchdog_seconds": 280
+}

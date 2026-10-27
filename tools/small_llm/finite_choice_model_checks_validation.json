@@ -1,0 +1,8 @@
+{
+    "complete": true,
+    "passed": 12,
+    "source_sha256": {
+        "finite_choice_model_checks.jl": "1e7b9d9b1f51e44da9fd26817d85a082b12a72eed292e67e1a8757de36e7f6b2",
+        "test_finite_choice_model_checks.jl": "333ea07d63cb3877cf70faec8d05a728ed27a1f201497a4ffe026f936fb1fbe8"
+    }
+}

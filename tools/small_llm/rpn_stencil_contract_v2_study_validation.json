@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "scope": "CPU-only posthoc v2 registration/deployment qualification, NOT model quality",
+    "study_checks": 58,
+    "transfer_checks": 7,
+    "source_sha256": {
+        "rpn_stencil_contract_v2_transfer.jl": "3174b7ff9eba79c50cbb0262cef0a2bf4b68b273408935f179a796fa58bf61d2",
+        "rpn_stencil_contract_v2_study.jl": "10904ac248cebb25a16c981f3578e941abb3c64d988a982ca55ee62c65fcd025",
+        "test_rpn_stencil_contract_v2_transfer.jl": "3d16b4ea4ee197184f22c9786de64ffafd9ff391bc9b3bdc3869b8665a8f7f01",
+        "test_rpn_stencil_contract_v2_study.jl": "f895eec6d863fdbb5b9b938ee311528ea0955e93f39ab055d83de13f1c17a81f"
+    }
+}

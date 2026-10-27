@@ -1,0 +1,14 @@
+{
+    "complete": true,
+    "passed": 32,
+    "scope": "fresh-PROCESS cold resume on synthetic shared-kernel sampler/cache fixture, not full Qwen qualification",
+    "producer_pid": 894905,
+    "consumer_pid": 895423,
+    "source_sha256": {
+        "sampling_checkpoint.jl": "b19be6fd2defddc8c9b2b9415795fe0564cd119c770a27e0537b0da6b41c1bcf",
+        "test_sampling_checkpoint_device.jl": "e93d3d2c0100d8aad0856c3f72cec13960097e1dba64f2c6a0499ddb8b7aa88d",
+        "qualify_sampling_cold_worker.jl": "23146bae39b5c32d9436c1fdbf1b5aa23135c742e1ee24793495397b9d35abfe"
+    },
+    "expected_receipt_sha256": "4d8d1946077c4a1896b6b15c53a9442de955a0092f7451fb3a82901c53639525",
+    "normal_final_waitidle": true
+}

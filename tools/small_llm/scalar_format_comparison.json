@@ -1,0 +1,47 @@
+{
+    "complete": true,
+    "scope": "POSTHOC development comparison on four now-used tasks; not independent held-out transfer, statistical evidence of general intelligence, or a frontier comparison",
+    "policy": "Original outputs/scores retained. Same arithmetic specs/compiler/total and thinking budget/sampling. Prompt wording/position/system instruction changed; no compiler repair or regeneration within a condition.",
+    "rows": [
+        {
+            "task": "transfer2_backward_gradient",
+            "original_scalar": "failed",
+            "format_followup": "failed",
+            "direct_gpu": "passed",
+            "change": "unchanged"
+        },
+        {
+            "task": "transfer2_weighted_forward_drop",
+            "original_scalar": "failed",
+            "format_followup": "passed",
+            "direct_gpu": "passed",
+            "change": "improved"
+        },
+        {
+            "task": "transfer2_column_difference_squares",
+            "original_scalar": "failed",
+            "format_followup": "passed",
+            "direct_gpu": "passed",
+            "change": "improved"
+        },
+        {
+            "task": "transfer2_block_left_rotate",
+            "original_scalar": "failed",
+            "format_followup": "failed",
+            "direct_gpu": "failed",
+            "change": "unchanged"
+        }
+    ],
+    "original_scalar_passed": 0,
+    "format_followup_passed": 2,
+    "direct_gpu_passed": 3,
+    "improved": 2,
+    "worsened": 0,
+    "receipts": {
+        "scalar_format_followup_results/conditions.json": "75a9539cb2df756af2b9941a7445f4e27f881c1ccedc98973f0c6057871fbd0c",
+        "compiler_transfer2_results/conditions.json": "b84536585f899186bd480a025907ae285746a8b3cd09394820ff0339a38c006e",
+        "compiler_transfer2_results/summary.json": "b5766badc51ccef0946b883f84580210940470f71be9815f9d82f510cb7867ad",
+        "scalar_format_followup_results/summary.json": "8b6883d7a2cb279bbe39abe7c33a4e120800efa81401524d853d665610128454"
+    },
+    "source_sha256": "9fd36f386540efbbdcf8ad56b99094a65241ca337e28944ec9935e5db457584a"
+}

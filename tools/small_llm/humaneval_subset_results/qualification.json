@@ -1,0 +1,67 @@
+{
+    "scope": "sandbox/adapter qualification only; no LLM quality result",
+    "selected": 12,
+    "qualified": 11,
+    "rows": [
+        {
+            "id": "034_unique_elements",
+            "passed": true,
+            "elapsed_seconds": 0.33144617080688477
+        },
+        {
+            "id": "039_prime_fib",
+            "passed": true,
+            "elapsed_seconds": 0.3018929958343506
+        },
+        {
+            "id": "106_f",
+            "passed": true,
+            "elapsed_seconds": 0.31003904342651367
+        },
+        {
+            "id": "162_string_to_md5",
+            "passed": false,
+            "elapsed_seconds": 1.0151000022888184
+        },
+        {
+            "id": "104_unique_digits",
+            "passed": true,
+            "elapsed_seconds": 0.324570894241333
+        },
+        {
+            "id": "074_total_match",
+            "passed": true,
+            "elapsed_seconds": 0.31352806091308594
+        },
+        {
+            "id": "010_palindrome_with_append",
+            "passed": true,
+            "elapsed_seconds": 0.3031179904937744
+        },
+        {
+            "id": "037_sort_even",
+            "passed": true,
+            "elapsed_seconds": 0.3045358657836914
+        },
+        {
+            "id": "146_specialFilter",
+            "passed": true,
+            "elapsed_seconds": 0.30277585983276367
+        },
+        {
+            "id": "048_is_palindrome",
+            "passed": true,
+            "elapsed_seconds": 0.2890598773956299
+        },
+        {
+            "id": "110_exchange",
+            "passed": true,
+            "elapsed_seconds": 0.31613993644714355
+        },
+        {
+            "id": "077_iscube",
+            "passed": true,
+            "elapsed_seconds": 0.2860260009765625
+        }
+    ]
+}

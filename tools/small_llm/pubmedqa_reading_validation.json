@@ -1,0 +1,34 @@
+{
+    "complete": true,
+    "protocol_checks": 59,
+    "metric_checks": 13,
+    "receipt_checks": 17,
+    "preparation_checks": 16,
+    "runner_checks": 9,
+    "scoring_checks": 8,
+    "snapshot_python_tests": 3,
+    "run_receipts": [
+        "r1012",
+        "r1024",
+        "r1023",
+        "r1031",
+        "r1029",
+        "r1040"
+    ],
+    "scope": "Host/protocol/scorer qualification only; no biomedical model quality or new hardware runner qualification yet",
+    "sources": {
+        "run_pubmedqa_reading.jl": "8c57c123c5828df207bd3d2bdac74d27559215179dc7571752ed1b6a76fc66bd",
+        "pubmedqa_reading_protocol.jl": "4e4fd534370faacf267b181fcdf528c381faae7b40c66ee9d38040d4891529d1",
+        "test_pubmedqa_preparation.jl": "b8bc205a28bd83d830f4a385364e6ba5988da9bd9102cb8d343bb7e10421e318",
+        "test_pubmedqa_runner.jl": "c973029d4b8ed8f77220c9cdfbf4bebc9667b91942b5ac4a74765ea4f0e94b4f",
+        "test_pubmedqa_scoring.jl": "1b3dcba06e9df9d59100f7182eb24e1c8477b7d5a124da99e308a844ad4f9e2c",
+        "test_snapshot_pubmedqa_pilot.py": "805f53376f9e43da7ec66da079ef6946e9ee3dcd46523a1602afabd2377a3fc7",
+        "score_pubmedqa_reading.jl": "4b33d5ff039499ac0b6770cb1454e9ff8abb78218b4b6047208ba8f1db023591",
+        "test_pubmedqa_reading_protocol.jl": "f52952a5105d5c3500293bc2da1b7957bf8ee6b22bc7264a095116d8629d7908",
+        "pubmedqa_reading_study.jl": "6d876daea9d68bcaf53b1e7e398df9e20b177138db053265114339456a278a97",
+        "snapshot_pubmedqa_pilot.py": "0491d1e211e082993c87242faf3376c8d297ca0791a59edd71dab9095b0b85a8",
+        "test_pubmedqa_metrics.jl": "1bc502760d5261da76999c78ba9c2370ef741ff1b413c230d5b568ec8e1bb37e",
+        "pubmedqa_metrics.jl": "49c8ca50ee75b8fb42c20a386449fb8cc268903e8a423ca18ba3770b98a1bf00",
+        "test_pubmedqa_receipt.jl": "7ff119895157800a49f4f7e0bfc62d918e4bc90e84ff1ff4362a1f9b1bb80dce"
+    }
+}

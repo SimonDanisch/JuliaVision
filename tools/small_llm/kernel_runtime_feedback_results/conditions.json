@@ -1,0 +1,27 @@
+{
+    "scope": "pre-registered development extension on four authored kernel tasks, NOT held-out/frontier evidence",
+    "trigger": "public smoke reports syntax/compiler/runtime exception; no private assertion, reference output or observed-value correctness used for eligibility",
+    "arms": [
+        "self_review",
+        "runtime_feedback"
+    ],
+    "attempts_per_arm": 1,
+    "retention": "no public exception or unavailable diagnostic: retain baseline; positive exception: one revision replaces baseline even if worse",
+    "context": "original prompt plus prior executable code only, never prior private thinking trace",
+    "decoding": {
+        "thinking": true,
+        "max_tokens": 2048,
+        "output_chunk": 128,
+        "seed": 20261024,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "topk": 20,
+        "presence": 0
+    },
+    "baseline_conditions_sha256": "cbd427e916da0355e9564ab09b081d89a949009aaa8bcfb2e0dcec4996fe63fb",
+    "qualification_sha256": "bcf98d222af254c9418d9dc7c81e506e163270ec8e37325078a6b7fd050660fd",
+    "source_sha256": {
+        "kernel_runtime_feedback.jl": "0d67f6c7567f649fd7e44ce3831c256906f2d792be76bb97aa783064893c61ff",
+        "kernel_public_smoke.jl": "bff8d95eb6fc61a13c8b30e1eabe18b77b0c1dbcd726b473acd0a5cedb8652f6"
+    }
+}

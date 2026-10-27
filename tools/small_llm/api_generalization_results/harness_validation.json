@@ -1,0 +1,39 @@
+{
+    "scope": "local authored diagnostic, not held-out benchmark; Makie construction, not rendered aesthetics",
+    "references": [
+        {
+            "id": "row_softmax",
+            "passed": true,
+            "compiled_modules": "existing",
+            "depot_order": "withsystem",
+            "exitcode": 0,
+            "elapsed_seconds": 1.2300841808319092,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   10     10  0.9s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "51c4a30119e7c0286656896bc247fcc3f4f4e8d7d828ba1a78782ff6a368c121"
+        },
+        {
+            "id": "ki_launch",
+            "passed": true,
+            "compiled_modules": "existing",
+            "depot_order": "withsystem",
+            "exitcode": 0,
+            "elapsed_seconds": 0.5996129512786865,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   22     22  0.3s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "978f5e3bb0e385185368a972333cf7f64ca39d043618791e774013a1689e1f58"
+        },
+        {
+            "id": "makie_update",
+            "passed": true,
+            "compiled_modules": "existing",
+            "depot_order": "withsystem",
+            "exitcode": 0,
+            "elapsed_seconds": 2.3722848892211914,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    8      8  0.0s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "74eeeaddb924d180073645ff03e78bd0d195610a55cb111c83fec07f468e2c5b"
+        }
+    ],
+    "mutant_rejected": true
+}

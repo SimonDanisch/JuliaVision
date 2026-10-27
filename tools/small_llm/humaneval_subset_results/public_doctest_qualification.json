@@ -1,0 +1,80 @@
+{
+    "scope": "public-example diagnostic qualification only, NOT model intelligence",
+    "qualified": 12,
+    "selected": 12,
+    "rows": [
+        {
+            "task": "034_unique_elements",
+            "passed": true,
+            "elapsed_seconds": 0.5345239639282227,
+            "public_examples_sha256": "19b4b1bcf993dbcb2fcf8f5fc2b15cfe41741f90c0a86e07e9b9ceb6aa183c2e"
+        },
+        {
+            "task": "039_prime_fib",
+            "passed": true,
+            "elapsed_seconds": 0.5560441017150879,
+            "public_examples_sha256": "45da711a9cf493c6c60dc9627fc1aad943e15e0d8c7ef364047c4d0fb6b5d970"
+        },
+        {
+            "task": "106_f",
+            "passed": true,
+            "elapsed_seconds": 0.548997163772583,
+            "public_examples_sha256": "ac4371eaa246b585ece4d04bb87c5b36a8b4ff5daf9e552ec66f44b7158810b6"
+        },
+        {
+            "task": "162_string_to_md5",
+            "passed": true,
+            "elapsed_seconds": 0.700855016708374,
+            "public_examples_sha256": "d745b7a0bbd6c36decf77729d8594d95ad6fce245685dc1d35c9a98779dd60e9"
+        },
+        {
+            "task": "104_unique_digits",
+            "passed": true,
+            "elapsed_seconds": 0.5527160167694092,
+            "public_examples_sha256": "92caf50610a59b5968bbe88d6366edf616688626c5fa557c84019a95c107af9d"
+        },
+        {
+            "task": "074_total_match",
+            "passed": true,
+            "elapsed_seconds": 0.6046240329742432,
+            "public_examples_sha256": "b9d3fc9b15c9e5f205c239452977c7a3a8b6b41011c7ff3af7c94205bf2caf4c"
+        },
+        {
+            "task": "010_palindrome_with_append",
+            "passed": true,
+            "elapsed_seconds": 0.5245659351348877,
+            "public_examples_sha256": "32f14f0c62413caea3df895b0d923f043d5b9af70506958f320c519293571d07"
+        },
+        {
+            "task": "037_sort_even",
+            "passed": true,
+            "elapsed_seconds": 0.5123069286346436,
+            "public_examples_sha256": "b66998e7750f5319f63317290a3fdbe2a70480a92af73d9105bb33b6b427058b"
+        },
+        {
+            "task": "146_specialFilter",
+            "passed": true,
+            "elapsed_seconds": 0.5170860290527344,
+            "public_examples_sha256": "6a83176b8aad0069f0c681f1bf54063f0bdc2079473f9dd837f575929b7779b4"
+        },
+        {
+            "task": "048_is_palindrome",
+            "passed": true,
+            "elapsed_seconds": 0.5364761352539062,
+            "public_examples_sha256": "92284ba820e4614dac08e723e34b1f536a5b5d318d6e7ade1c399365df227f99"
+        },
+        {
+            "task": "110_exchange",
+            "passed": true,
+            "elapsed_seconds": 0.527850866317749,
+            "public_examples_sha256": "e7f2626d4d717088acbec9743dbbfffaa4a779ba5b42fcbf96cdc1add79d604f"
+        },
+        {
+            "task": "077_iscube",
+            "passed": true,
+            "elapsed_seconds": 0.5714030265808105,
+            "public_examples_sha256": "b6d191f0ddc202a458df87f769d9a6fe6b0a1ee0da9ab6f17da87a069031ae47"
+        }
+    ],
+    "source_sha256": "60ac085a029e607a0c723fd5dfe08f8d1a3db29570d67b90fcdf3e7f2cf97b31"
+}

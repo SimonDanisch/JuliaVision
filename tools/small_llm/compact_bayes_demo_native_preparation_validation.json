@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "checks": 12,
+    "cases": 4,
+    "scope": "Generated-network payload validation/software replay; no additional neural quality",
+    "input_sha256": "88b6cf1f6c5b329a7426551812c18ba28bffc97aa26a3c9623cfca926deaae17",
+    "source_sha256": {
+        "run_compact_bayes_demo_native_audit.jl": "2ebb5cb52b2efe6930ff507439902b7c83d6b44d5580402e8f1c95e9a9b54321",
+        "test_compact_bayes_demo_native_audit.jl": "f13c960088d435cb3727b84df0e5f3df610f16c3aca2dc6a405586c031ccbb58",
+        "prepare_compact_bayes_demo_native_audit.jl": "75c9cb70899e0273442de7f102a24659dfeef7a12db41254f45731c274e5a95f"
+    }
+}

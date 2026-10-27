@@ -1,0 +1,102 @@
+{
+    "scope": "two authored development tasks selected after prior API failures; NOT held-out intelligence evidence",
+    "policy": "one greedy thinking2048 attempt per arm/task; no regeneration or best-arm selection; all outcomes reported",
+    "limitations": [
+        "Two previously examined authored tasks, not held-out transfer",
+        "Report every registered weight/control, not the best arm only",
+        "memory_status records the final query only, not a history of all queries",
+        "generation_seconds includes graph preparation and prefill, not steady-state token throughput"
+    ],
+    "rows": [
+        {
+            "task": "ki_launch",
+            "arm": "zero",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 23.9948890209198,
+            "decode_submissions": 640
+        },
+        {
+            "task": "ki_launch",
+            "arm": "memory_10",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 16.408390998840332,
+            "decode_submissions": 896
+        },
+        {
+            "task": "ki_launch",
+            "arm": "memory_25",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 26.150534868240356,
+            "decode_submissions": 768
+        },
+        {
+            "task": "ki_launch",
+            "arm": "shuffled_25",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 16.383270978927612,
+            "decode_submissions": 896
+        },
+        {
+            "task": "makie_update",
+            "arm": "zero",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 25.876835107803345,
+            "decode_submissions": 640
+        },
+        {
+            "task": "makie_update",
+            "arm": "memory_10",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 11.580175876617432,
+            "decode_submissions": 640
+        },
+        {
+            "task": "makie_update",
+            "arm": "memory_25",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 13.746109008789062,
+            "decode_submissions": 768
+        },
+        {
+            "task": "makie_update",
+            "arm": "shuffled_25",
+            "status": "failed",
+            "truncated": false,
+            "memory_status": 0,
+            "generation_seconds": 22.116570949554443,
+            "decode_submissions": 640
+        }
+    ],
+    "totals": {
+        "zero": {
+            "passed": 0,
+            "pending": 0
+        },
+        "memory_10": {
+            "passed": 0,
+            "pending": 0
+        },
+        "shuffled_25": {
+            "passed": 0,
+            "pending": 0
+        },
+        "memory_25": {
+            "passed": 0,
+            "pending": 0
+        }
+    }
+}

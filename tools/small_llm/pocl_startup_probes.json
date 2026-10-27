@@ -1,0 +1,13 @@
+{
+    "scope": "trusted fixed CPU kernel only, outside sandbox; hardware Vulkan ICDs disabled; not model scores",
+    "source_sha256": "7511d3049d8f0a6166bed7c7057fc66156218f7217061ad9fd707a862fab7b86",
+    "rows": [
+        {
+            "mode": "none",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 3.451235055923462,
+            "diagnostic": "Test Summary:             | Pass  Total  Time\ntrusted CPU startup probe |   10     10  1.5s\n"
+        }
+    ]
+}

@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 11,
+    "scope": "CPU message/policy qualification only; no model revision, hidden evaluation or quality gain",
+    "source_sha256": {
+        "bigcodebench_x_revision_policy.jl": "13dcc129664df50ce49ac8b0f8f377af1bc9576716fd4c4a95d818174e64ad3d",
+        "test_bigcodebench_x_revision_policy.jl": "dc026b21b9a55cbd6203670098991137144952fa09f748f5e383341617366f82"
+    }
+}
