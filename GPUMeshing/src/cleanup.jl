@@ -35,8 +35,8 @@ as the exact Int64 sum modulo 2^64.
 @inline function addfixed!(words, j, v::Int64)
     u = reinterpret(UInt64, v)
     lo = u % UInt32
-    @inbounds newlo = Atomix.@atomic words[Int32(2) * j - Int32(1)] += lo
-    @inbounds Atomix.@atomic words[Int32(2) * j] += (u >> 32) % UInt32 + UInt32(newlo < lo)
+    @inbounds newlo = Atomix.@atomic :monotonic words[Int32(2) * j - Int32(1)] += lo
+    @inbounds Atomix.@atomic :monotonic words[Int32(2) * j] += (u >> 32) % UInt32 + UInt32(newlo < lo)
     return nothing
 end
 
@@ -158,7 +158,7 @@ function loopsums!(perimeter, centre, count, comp, keys, starts, bnd, V, nb)
         addfixed!(centre, base + Int32(1), fixed(m[1]))
         addfixed!(centre, base + Int32(2), fixed(m[2]))
         addfixed!(centre, base + Int32(3), fixed(m[3]))
-        Atomix.@atomic count[r] += Int32(1)
+        Atomix.@atomic :monotonic count[r] += Int32(1)
     end
     return nothing
 end

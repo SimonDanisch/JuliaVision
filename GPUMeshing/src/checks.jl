@@ -80,7 +80,7 @@ function pairededges!(bad, keys, n)
             mid = (lo + hi) >> 1
             keys[mid] < r ? (lo = mid + Int32(1)) : (hi = mid)
         end
-        (repeated || keys[lo] != r) && Atomix.@atomic bad[1] += Int32(1)
+        (repeated || keys[lo] != r) && Atomix.@atomic :monotonic bad[1] += Int32(1)
     end
     return nothing
 end

@@ -31,7 +31,7 @@ const FUSABLE = Set([
     "relu.default", "sigmoid.default", "tanh.default", "exp.default",
     "sqrt.default", "rsqrt.default", "neg.default", "abs.default",
     "reciprocal.default", "sin.default", "cos.default", "erf.default",
-    "floor.default", "log.default",
+    "floor.default", "log.default", "log1p.default",
     "add.Tensor", "sub.Tensor", "mul.Tensor", "div.Tensor",
     "_to_copy.default",
 ])

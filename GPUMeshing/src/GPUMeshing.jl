@@ -34,6 +34,9 @@ module GPUMeshing
 import Mantle
 import KernelInterface as KI
 import Atomix
+# Atomics claim slots or reduce counters/minima; they do not publish other
+# memory. Per-location monotonic ordering suffices. Mantle's dependencies
+# publish their results to later dispatches (including union-find rounds).
 import AcceleratedKernels as AK
 import GeometryBasics
 using GeometryBasics: Point3f, Vec3f, Vec, Mat, GLTriangleFace, GLIndex, coordinates, faces, normals

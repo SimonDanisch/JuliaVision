@@ -341,7 +341,7 @@ anybody had tested.
 """
 const UNARY_FUSED = Dict{String,Any}(
     "relu.default" => relu_, "sigmoid.default" => sigmoid_,
-    "tanh.default" => tanh, "log.default" => log,
+    "tanh.default" => tanh, "log.default" => log, "log1p.default" => log1p,
     "exp.default" => exp, "sqrt.default" => sqrt,
     "rsqrt.default" => rsqrt_, "neg.default" => -,
     "abs.default" => abs, "reciprocal.default" => inv,

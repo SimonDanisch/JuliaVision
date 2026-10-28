@@ -187,6 +187,7 @@ include(joinpath(@__DIR__, "test_coopmat_gate.jl"))
 include(joinpath(@__DIR__, "test_deferred_add.jl"))
 include(joinpath(@__DIR__, "test_deform_conv.jl"))
 include(joinpath(@__DIR__, "test_int_unary.jl"))
+include(joinpath(@__DIR__, "test_log1p.jl"))
 include(joinpath(@__DIR__, "test_w8a8.jl"))
 include(joinpath(@__DIR__, "test_masked_prefill.jl"))
 # This file existed and was never listed here, so its assertions had never run —

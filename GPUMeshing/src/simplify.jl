@@ -415,7 +415,7 @@ function facecount!(cnt, F, nf)
     f = Int32(KI.get_global_id().x)
     f <= nf || return nothing
     for k in Int32(1):Int32(3)
-        @inbounds Atomix.@atomic cnt[F[k, f] + Int32(1)] += Int32(1)
+        @inbounds Atomix.@atomic :monotonic cnt[F[k, f] + Int32(1)] += Int32(1)
     end
     return nothing
 end
@@ -425,7 +425,7 @@ function fillfaces!(v2f, off, cnt, F, nf)
     f <= nf || return nothing
     for k in Int32(1):Int32(3)
         @inbounds v = F[k, f]
-        slot = @inbounds Atomix.@atomic cnt[v] += Int32(1)
+        slot = @inbounds Atomix.@atomic :monotonic cnt[v] += Int32(1)
         @inbounds v2f[off[v] + slot] = f
     end
     return nothing
@@ -711,7 +711,7 @@ function propagate!(best, edges, v2f, off, cost, scramble, unit, width, ne)
     for w in Int32(1):Int32(2)
         @inbounds v = edges[w, e]
         @inbounds for i in (off[v] + Int32(1)):off[v + Int32(1)]
-            Atomix.@atomic min(best[v2f[i]], key)
+            Atomix.@atomic :monotonic min(best[v2f[i]], key)
         end
     end
     return nothing
@@ -927,7 +927,7 @@ end
 function ownercount!(cnt, owner, np)
     i = Int32(KI.get_global_id().x)
     i <= np || return nothing
-    @inbounds Atomix.@atomic cnt[owner[i]] += Int32(1)
+    @inbounds Atomix.@atomic :monotonic cnt[owner[i]] += Int32(1)
     return nothing
 end
 
@@ -935,7 +935,7 @@ function ownerfill!(points, pend, cursor, owner, np)
     i = Int32(KI.get_global_id().x)
     i <= np || return nothing
     f = @inbounds owner[i]
-    slot = @inbounds Atomix.@atomic cursor[f] += Int32(1)
+    slot = @inbounds Atomix.@atomic :monotonic cursor[f] += Int32(1)
     @inbounds points[(f == Int32(1) ? Int32(0) : pend[f - Int32(1)]) + slot] = i
     return nothing
 end

@@ -278,13 +278,20 @@ end
             # from silently mattering after a re-export.
             @compile_workload begin
                 model = neurallut(; backend)
-                img = KA.allocate(backend, RGB{Float32}, 256, 256)
-                out = similar(img)
-                fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
-                lut = predictlut(model, img)
-                grade!(out, img, lut)
-                grade!(model, out, img)
-                KA.synchronize(backend)
+                dev = Mantle.todevice(backend)
+                image = Mantle.Buffer(dev, RGB{Float32}, (256, 256))
+                output = Mantle.Buffer(dev, RGB{Float32}, (256, 256))
+                try
+                    img, out = Mantle.storage(image), Mantle.storage(output)
+                    fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
+                    lut = predictlut(model, img)
+                    grade!(out, img, lut)
+                    grade!(model, out, img)
+                    KA.synchronize(backend)
+                finally
+                    Mantle.free!(output)
+                    Mantle.free!(image)
+                end
             end
         catch err
             @warn "NeuralLUTRunner: workload skipped; first use will compile" exception = err

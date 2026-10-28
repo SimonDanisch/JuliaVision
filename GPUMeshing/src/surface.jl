@@ -100,7 +100,7 @@ function hashcells!(slots, keys, cap, ncells)
     c <= ncells || return nothing
     h = hashslot64(@inbounds(keys[c]), cap)
     while true
-        old = (@inbounds Atomix.@atomicreplace slots[h] Int32(0) => c).old
+        old = (@inbounds Atomix.@atomicreplace :monotonic slots[h] Int32(0) => c).old
         old == Int32(0) && return nothing
         h = h == cap ? Int32(1) : h + Int32(1)
     end

@@ -195,8 +195,8 @@ function boundarycount!(cnt, keys, starts, bnd, nb)
     b <= nb || return nothing
     @inbounds begin
         key = keys[starts[bnd[b]]]
-        Atomix.@atomic cnt[edgelow(key) + Int32(1)] += Int32(1)
-        Atomix.@atomic cnt[edgehigh(key) + Int32(1)] += Int32(1)
+        Atomix.@atomic :monotonic cnt[edgelow(key) + Int32(1)] += Int32(1)
+        Atomix.@atomic :monotonic cnt[edgehigh(key) + Int32(1)] += Int32(1)
     end
     return nothing
 end
@@ -207,9 +207,9 @@ function boundaryfill!(v2b, off, cnt, keys, starts, bnd, nb)
     @inbounds begin
         key = keys[starts[bnd[b]]]
         lo, hi = edgelow(key), edgehigh(key)
-        s = Atomix.@atomic cnt[lo] += Int32(1)
+        s = Atomix.@atomic :monotonic cnt[lo] += Int32(1)
         v2b[off[lo] + s] = b
-        s = Atomix.@atomic cnt[hi] += Int32(1)
+        s = Atomix.@atomic :monotonic cnt[hi] += Int32(1)
         v2b[off[hi] + s] = b
     end
     return nothing
@@ -319,7 +319,7 @@ function hook!(adj, m, ids, flag)
         r1 = findroot(ids, adj[2, i])
         r0 == r1 && return nothing
         hi, lo = r0 > r1 ? (r0, r1) : (r1, r0)
-        Atomix.@atomic min(ids[hi], lo)
+        Atomix.@atomic :monotonic min(ids[hi], lo)
         flag[1] = Int32(0)
     end
     return nothing
@@ -379,7 +379,7 @@ function hookoriented!(adj, flipped, m, ids, flag)
         r1, f1 = findorientedroot(ids, adj[2, i])
         r0 == r1 && return nothing
         hi, lo = r0 > r1 ? (r0, r1) : (r1, r0)
-        Atomix.@atomic min(ids[hi], (lo << 1) | (flipped[i] ⊻ f0 ⊻ f1))
+        Atomix.@atomic :monotonic min(ids[hi], (lo << 1) | (flipped[i] ⊻ f0 ⊻ f1))
         flag[1] = Int32(0)
     end
     return nothing
