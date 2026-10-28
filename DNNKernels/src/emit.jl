@@ -4987,6 +4987,15 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
     end
     blk_split = M.coopmat_gemm_shape(Mm, NP, K)
     splitk = blk_split[2]
+    # Both kernels below take a bias as one value per ROW, broadcast across the
+    # columns: Mantle's `accinit` loads it with column stride 0, and
+    # `mm_epilogue_kernel!` reads `bias[i]`. Any other bias, such as the whole
+    # `(M, N)` residual `residualgemm!` hands over, would contribute its first
+    # column to every column. It is added after the product instead, with the
+    # activation after it, as the K-quant branch above does.
+    inbias = bias !== nothing && biasfoldable(bias, Mm)
+    kbias = inbias ? bias : nothing
+    kepi = inbias || bias === nothing ? epi : identity
     if splitk == 1
         # Nothing to reduce: the GEMM starts its accumulators from the bias and
         # converts to `out`'s type as it stores, so there is no fp32 scratch and
@@ -4996,7 +5005,7 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
         # copy rather than a gather.
         dst = NP == N ? out : scratch(emitctx, eltype(out), Mm, NP)
         M.coopmat_gemm_dispatch!(emitctx.g, dst, A, Bp, Mm, NP, K;
-                                 blk_split, bias, epilogue = epi, name = op.id)
+                                 blk_split, bias = kbias, epilogue = kepi, name = op.id)
         # Columns 1..N of the padded buffer ARE its first `Mm*N` elements, so
         # the discard is a linear copy between two views of that shape rather
         # than a gather. `ew!` with `identity` and not `Mantle.copy!`: that pass
@@ -5009,14 +5018,21 @@ function gemm!(emitctx::EmitCtx, op::Op, out, A, B; bias = nothing, epi = identi
             ewdispatch!(emitctx, out, od, (src,), (bcstrides(od, od),), identity;
                         name = "$(op.id).unpad")
         end
-        return out
+    else
+        C = scratch(emitctx, Float32, Mm, NP, max(splitk, 1))
+        M.coopmat_gemm_dispatch!(emitctx.g, C, A, Bp, Mm, NP, K;
+                                 blk_split, partials = C, reduce = false, name = op.id)
+        M.dispatch!(emitctx.g, mm_epilogue_kernel!,
+                    (out, C, kbias, kepi, Val(Mm), Val(splitk), Mm * NP, Mm * N),
+                    Mm * N; name = "$(op.id).epilogue")
     end
-    C = scratch(emitctx, Float32, Mm, NP, max(splitk, 1))
-    M.coopmat_gemm_dispatch!(emitctx.g, C, A, Bp, Mm, NP, K;
-                             blk_split, partials = C, reduce = false, name = op.id)
-    M.dispatch!(emitctx.g, mm_epilogue_kernel!,
-                (out, C, bias, epi, Val(Mm), Val(splitk), Mm * NP, Mm * N),
-                Mm * N; name = "$(op.id).epilogue")
+    if bias !== nothing && !inbias
+        od = size(out)
+        ewdispatch!(emitctx, out, od, (out, bias),
+            (bcstrides(od, od), bcstrides(od, size(bias))), +; name = "$(op.id).bias")
+        epi === identity || ewdispatch!(emitctx, out, od, (out,),
+            (bcstrides(od, od),), epi; name = "$(op.id).act")
+    end
     return out
 end
 

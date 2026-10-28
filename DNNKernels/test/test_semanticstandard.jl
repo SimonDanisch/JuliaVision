@@ -207,6 +207,42 @@ function residuals(dev,rng,owned,plans)
     end
 end
 
+# The same fold with a dense fp16 weight and enough columns for the cooperative
+# GEMM. That kernel takes a bias as one value per ROW, broadcast across the
+# columns, so the residual must not ride in it as one: handed the whole stream,
+# it added the first column's residual to every column. Qwen3-Embedding's
+# 28-layer decoder came out at cosine 0.31 to its reference that way, and the
+# K-quant cases above never reach that kernel.
+function dense_residuals(dev,rng,owned,plans)
+    k,f=256,512
+    wh=Float16.(0.02f0.*randn(rng,Float32,k,f))
+    W=M.Buffer(dev,wh);push!(owned,W)
+    for columns in (1,64), inplace in (true,false)
+        xh=Float16.(randn(rng,Float32,k,columns));ah=Float16.(randn(rng,Float32,f,columns))
+        results=Any[]
+        for fold in (true,false)
+            old=DK.FOLDRESIDUAL[];DK.FOLDRESIDUAL[]=fold
+            try
+                x=M.Buffer(dev,xh);a=M.Buffer(dev,ah);y=M.Buffer(dev,Float16,(k,columns))
+                append!(owned,(x,a,y))
+                g=SemanticGraph(dev);semanticweights!(g,Dict("w"=>W))
+                down=standardop!(g,"mm.default",(a,W);out=(Float16,(k,columns)))
+                r=columns==1 ? M.viewof(x,(k,1)) : x
+                standardop!(g,"add.Tensor",(r,down);out=inplace ? r : y)
+                e=emitsemantic!(g)
+                @test e.report.residuals==(fold ? 1 : 0)
+                push!(plans,runplan(e.mantle))
+                push!(results,Array(M.storage(inplace ? x : y)))
+            finally
+                DK.FOLDRESIDUAL[]=old
+            end
+        end
+        @test results[1]==results[2]
+        # Each column gets its OWN residual.
+        @test isapprox(Float32.(results[1]),Float32.(wh)*Float32.(ah).+Float32.(xh);rtol=1f-2,atol=1f-2)
+    end
+end
+
 function run(dev)
     rng=MersenneTwister(5150);owned=Any[];plans=Any[]
     @testset "Standard operations in semantic graphs" begin
@@ -216,6 +252,7 @@ function run(dev)
             @testset "Contracts" contracts(dev,rng,owned,plans)
             @testset "Storage hazards" hazards(dev,rng,owned,plans)
             @testset "Residual into product" residuals(dev,rng,owned,plans)
+            @testset "Residual into a dense product" dense_residuals(dev,rng,owned,plans)
         finally
             M.waitidle(dev);foreach(M.free!,plans);foreach(M.free!,owned)
         end

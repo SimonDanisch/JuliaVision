@@ -419,6 +419,30 @@ MODELS = [
         note=("NON-COMMERCIAL, like MatAnyone. Weights are gated: accept the licence, "
               "then `huggingface-cli download tencent/Hunyuan3D-2.1`."),
     ),
+    Model(
+        name="qwen3embedding", package="Qwen3EmbeddingRunner",
+        uuid="a0da806b-184c-4dd8-a6a3-d2ae0c554ade",
+        title="Qwen3-Embedding 0.6B", feature="text embeddings for semantic search",
+        license="Apache-2.0",
+        upstream="https://huggingface.co/Qwen/Qwen3-Embedding-0.6B",
+        files=[(f"https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/{f}", f)
+               for f in ("config.json", "model.safetensors", "tokenizer_config.json",
+                         "tokenizer.json", "vocab.json", "merges.txt")],
+        summary=(
+            "A text to one unit vector, so that texts meaning the same thing land close "
+            "together: what semantic search ranks by. 0.6B parameters, 1024 dimensions.\n\n"
+            "A Qwen3 decoder (28 layers, 16 heads over 8 KV heads, head_dim 128, RMSNorm on "
+            "queries and keys) read at its final norm, at the LAST token: the text is "
+            "followed by `<|endoftext|>` and that token's hidden state, L2-normalized, is "
+            "the embedding. Queries carry an instruction (`Instruct: ...\\nQuery:...`), "
+            "documents do not.\n\n"
+            "Causal attention is what lets a batch of texts share one padded length: "
+            "nothing a token reads lies to its right, so right padding never changes the "
+            "row that is kept."
+        ),
+        inputs="token embeddings (1, t, 1024), t symbolic",
+        newops=[],
+    ),
 ]
 
 BY_NAME = {m.name: m for m in MODELS}
