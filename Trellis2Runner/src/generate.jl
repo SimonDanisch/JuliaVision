@@ -100,9 +100,13 @@ mesh (small holes filled, rebuilt as a closed shell by [`remesh`](@ref), then
 simplified towards `decimation` faces) and its PBR textures at `texture`^2,
 sampled on the mesh before remeshing (see [`texturedmesh`](@ref)).
 `save("model.glb", generate(p, rgba))` writes it.
+
+With `release = true` every model of `p` is freed ([`Mantle.release!`](@ref)) once both latents are
+decoded, so the mesh post-processing has the device to itself; `p` cannot generate again. The 1024
+cascade's remesh of a tall figure did not fit next to the resident models in 20 GB.
 """
 function generate(p::Trellis2, rgba::AbstractArray{UInt8,3}; noise = Noise(42), texture::Int = 4096,
-                  decimation::Int = 500_000)
+                  decimation::Int = 500_000, release::Bool = false)
     cond = Array(encodeimage(p.cond, dinoinput(rgba)))
     coords = sparsestructure(p.ss, p.ssdec, cond, noise.ss)
     shape, coords, cond = shapelatent(p, rgba, cond, coords, noise)
@@ -113,6 +117,8 @@ function generate(p::Trellis2, rgba::AbstractArray{UInt8,3}; noise = Noise(42), 
     material = decode(p.texdec, Array(Mantle.storage(tex))[:, :, 1], voxels; res, guide = geometry)
     level = geometry.levels[end]
     dev = p.shapedec.dev
+    # Nothing below needs a model; the remesh's hash maps are the largest buffers of the whole run.
+    release && Mantle.release!(p)
     V, F = dualgridmesh(dev, level, geometry.out)
     # Filled twice, as upstream does: in `decode_latent` and again at the start of
     # `to_glb`. The first pass's fans close off boundary chains that were not
@@ -131,4 +137,31 @@ function generate(p::Trellis2, rgba::AbstractArray{UInt8,3}; noise = Noise(42), 
     foreach(Mantle.free!, (V, F))
     attrs = clamp.(material.out .* 0.5f0 .+ 0.5f0, 0f0, 1f0)
     return texturedmesh(dev, vertices, faces, level, attrs; surface, size = texture, doublesided = false)
+end
+
+"""
+    Mantle.release!(p::Trellis2)
+
+Free every model of the pipeline on the device: the conditioner's, the flows' and the structure
+decoder's plans and weights, and the two sparse decoders' weights. The way QwenImageRunner releases
+its components: drop the plans and weights, wait for the device, then hand the pool's blocks back.
+"""
+function Mantle.release!(p::Trellis2)
+    models = Model[p.cond, p.ss.model, p.ssdec, p.shape.model, p.tex.model]
+    p.cascade === nothing || push!(models, p.cascade.shape.model)
+    for m in models
+        DNNKernels.releaseplans!(m)
+        DNNKernels.releaseweights!(m.weights)
+    end
+    for d in (p.shapedec, p.texdec)
+        foreach(Mantle.free!, values(d.w))
+        empty!(d.w)
+    end
+    dev = p.shapedec.dev
+    Mantle.waitidle(dev)
+    GC.gc(true)
+    Mantle.reclaim!(Mantle.pool(dev), dev; wait = true)
+    Mantle.trim!(Mantle.pool(dev), dev)
+    GC.gc(true)
+    return nothing
 end

@@ -62,6 +62,7 @@ too: Qwen-Image drew them, and the other models took it from there.
 | [`BonsaiRunner`](BonsaiRunner/README.md) | Ternary Bonsai 2 27B: a language model in 1.58 bits | see upstream |
 | [`HorizonRunner`](HorizonRunner/README.md) | K2 Horizon 32B: a language model, int8, local export only | Apache-2.0 |
 | [`Trellis2Runner`](Trellis2Runner/README.md) | TRELLIS.2: image to textured mesh; ported, no published assets yet | see upstream |
+| [`FluxKleinRunner`](FluxKleinRunner/README.md) | FLUX.2-klein 4B and 9B: text to image and multi-reference editing in 4 steps; graphs exported locally, bf16 weights read from the Hugging Face checkpoint, int8 for the 9B | Apache-2.0 (4B); 9B weights are **non-commercial** |
 
 Not ported yet, each a package that loads and precompiles with nothing to run:
 
@@ -70,7 +71,6 @@ Not ported yet, each a package that loads and precompiles with nothing to run:
 | `ProPainterRunner` | object removal in video (**non-commercial**) | flow-guided propagation, windowed temporal attention |
 | `DemucsRunner` | stem separation | an on-device STFT inside the graph |
 | `DeepFilterRunner` | voice denoising | the complex STFT front end, an ERB filterbank |
-| `FluxKleinRunner` | generative fill and edits, FLUX.2-klein 4B | `group_norm`, a VAE decoder, a sampler loop |
 | `ZImageRunner` | text to image, Z-Image-Turbo 6B | `group_norm`, a VAE decoder |
 | `QwenImageEditRunner` | instruction edits, Qwen-Image-Edit-2511 | 57 GB of weights; an int4 dequant in the GEMM epilogue |
 

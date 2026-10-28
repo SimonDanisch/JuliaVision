@@ -72,11 +72,16 @@ function fusegroupedrms(g::Graph)
 
         m = solereader(g, byin, p.out)
         (m === nothing || m.aten != "mean.dim") && continue
-        ints(get(m.attrs, "arg1", Int[])) == [-1] || continue
+        # The last dim, as `-1` or by its index: FLUX.2's q/k norm says `[3]` of a
+        # `(1, L, H, 128)` state, and declining it left 60 norms a step as eight
+        # dispatches each, 0.8 s of a 6.4 s step on gfx1151.
+        haskey(g.buffers, p.out) || continue
+        ints(get(m.attrs, "arg1", Int[])) in ([-1], [length(g.buffers[p.out].shape) - 1]) || continue
         Bool(something(get(m.attrs, "arg2", nothing), false)) || continue
 
+        # The epsilon comes as `add.Tensor` with a scalar operand or as `add.Scalar`.
         a = solereader(g, byin, m.out)
-        (a === nothing || a.aten != "add.Tensor") && continue
+        (a === nothing || !(a.aten in ("add.Tensor", "add.Scalar"))) && continue
         epsv = get(a.attrs, "arg1", nothing)
         epsv isa Real || continue
 

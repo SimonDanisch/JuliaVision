@@ -40,7 +40,8 @@ buf(id, kind, shape, T; key = "") =
 """The chain above, as a graph. `order = :qwen` or `:k2`."""
 function rmsgraph(; order::Symbol, rows = 3, NG = 2, C = 4, eps = 1.0f-5,
                   gainspan = order === :qwen ? :group : :row,
-                  tailcast = order === :qwen ? :none : :narrow)
+                  tailcast = order === :qwen ? :none : :narrow,
+                  meandim = -1, addop = "add.Tensor")
     T = Float16
     sh = (rows, NG, C)
     gl = gainspan === :group ? C : gainspan === :row ? C * NG : C + 1
@@ -56,8 +57,8 @@ function rmsgraph(; order::Symbol, rows = 3, NG = 2, C = 4, eps = 1.0f-5,
     ops = DKR.Op[
         DKR.Op("xf", "_to_copy.default", ["x"], "xf", A()),
         DKR.Op("sq", "pow.Tensor_Scalar", ["xf"], "sq", A("arg1" => 2)),
-        DKR.Op("ms", "mean.dim", ["sq"], "ms", A("arg1" => [-1], "arg2" => true)),
-        DKR.Op("e", "add.Tensor", ["ms"], "e", A("arg1" => eps)),
+        DKR.Op("ms", "mean.dim", ["sq"], "ms", A("arg1" => [meandim], "arg2" => true)),
+        DKR.Op("e", addop, ["ms"], "e", A("arg1" => eps)),
         DKR.Op("r", "rsqrt.default", ["e"], "r", A())]
     if order === :qwen
         bufs["y"]  = buf("y", :transient, sh, Float32)
@@ -111,6 +112,22 @@ end
         @test op.out == "zc"
     end
 
+    @testset "the FLUX.2 order" begin
+        # FLUX.2-klein's per-head q/k norm: the K2 chain (the scale reads the
+        # widened value, a narrowing cast at the end) under a gain spanning one
+        # head, with the mean over the last dim BY INDEX and the epsilon as
+        # `add.Scalar`. Both spellings used to decline it.
+        g, n = DKR.fusegroupedrms(rmsgraph(order = :k2, gainspan = :group, meandim = 2, addop = "add.Scalar"))
+        @test n == 1
+        op = only(o for o in g.ops if o.aten == "fused.groupedrms")
+        @test op.attrs["ng"] == 1
+        @test op.attrs["midround"] === false
+        @test op.ins == ["x", "gamma"]
+        @test op.out == "zc"
+        # An index that is not the last dim is a different reduction.
+        @test last(DKR.fusegroupedrms(rmsgraph(order = :k2, gainspan = :group, meandim = 1))) == 0
+    end
+
     @testset "a widening tail cast is not absorbed" begin
         # `fp32(fp16(y) * gamma)` is not `fp32(y * gamma)`, so the cast stays an
         # op and the fused norm keeps writing the type the chain wrote.
@@ -139,14 +156,16 @@ end
     # run on a machine with a different GPU.
     backend = first(Mantle.eachbackend())
     rows, NG, C, eps = 3, 2, 4, 1.0f-5
-    for order in (:qwen,)
-        g0 = rmsgraph(; order, rows, NG, C, eps)
+    # The FLUX.2 form multiplies the widened value and broadcasts a one-head gain,
+    # so it runs as built, unlike the K2 form's flat-view gain (see above).
+    for (order, kw) in ((:qwen, (;)), (:flux, (gainspan = :group, meandim = 2, addop = "add.Scalar")))
+        g0 = rmsgraph(; order = order === :flux ? :k2 : order, rows, NG, C, eps, kw...)
         g1, n = DKR.fusegroupedrms(g0)
         @test n == 1
         # As the driver does: the widening cast in front of the square has no
         # consumer once the norm is one op, and `dropdead` is what removes it.
         g1, _ = DKR.dropdead(g1)
-        gl = order === :qwen ? C : C * NG
+        gl = C
         γh = Float16[0.5 + i / 20 for i in 1:gl]
         xh = Float16.(reshape([sin(i) for i in 1:(rows * NG * C)], C, NG, rows))
 
@@ -163,7 +182,7 @@ end
         for row in 1:rows, grp in 1:NG
             v = Float32.(@view xh[:, grp, row])
             r = 1f0 / sqrt(sum(abs2, v) / C + eps)
-            gain = order === :qwen ? γh : @view γh[(grp - 1) * C + 1:grp * C]
+            gain = γh
             y = order === :qwen ? Float32.(Float16.(v .* r)) : v .* r
             want[:, grp, row] .= eltype(chain).(y .* Float32.(gain))
         end
