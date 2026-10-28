@@ -5,9 +5,9 @@ A 32B dense decoder from the K2 Horizon fleet (IFM / MBZUAI, 3 Sep 2026), Apache
 
 Ported FIRST of the family on purpose. The 36B-A4B sibling is the interesting one, but it carries two independent routers per layer — 100 FFN experts at top-8 plus a shared one, and MoVA's 64 value-experts at top-4 inside attention — and neither has an equivalent in DNNKernels. This model has `num_experts: 0`, `mova_num_experts: 0` and `attention_gate_func: None`: 64 layers of plain GQA (64 heads over 8 KV heads, head_dim 128), RMSNorm, SiLU and RoPE at theta 1e7. That is the bring-up vehicle — it exercises the autoregressive path, the KV cache and the 250624-entry vocabulary without also needing routing.
 
-Supports greedy generation with int8 weights, reusable recorded dispatches,
-and optional prompt/attention buckets. Supply a local export with `dir`;
-the model assets are not yet distributed as a bound artifact.
+Supports greedy generation with quantized weights, reusable recorded dispatches,
+and optional prompt/attention buckets. Graphs, tokenizer and fp16 weight shards
+are lazy Julia artifacts, shared across environments and downloaded on first use.
 
 Upstream: https://huggingface.co/IFM/K2-Horizon-32B
 License: **Apache-2.0**
@@ -21,12 +21,14 @@ for the export that feeds it.
 module HorizonRunner
 
 using Lava, DNNKernels, KernelAbstractions
+using Artifacts, LazyArtifacts, JSON3
 import Mantle
 using DNNKernels: loadgraph, readsafetensors, Model, call, toback
 
 export horizon32bgraphs, horizon32bweights, horizon32b, generate, Horizon32B, newcache, causalmask
 
 const KA = KernelAbstractions
+const ARTIFACTS_TOML = joinpath(@__DIR__, "..", "Artifacts.toml")
 
 """
     GRAPHS
@@ -41,14 +43,12 @@ const GRAPHS = ("horizon32b_decode", "horizon32b_prefill")
 """
     assetdir() -> String
 
-Throws for now. The export exists but is 64.78 GiB, which is ~33 GitHub release
-assets at the 2 GiB cap, so it is not bound yet. Pass `dir` explicitly meanwhile
-— the same interim shape `Hunyuan3DRunner` uses while its artifact is unbound.
+Resolve the lazy artifact containing the graphs, tokenizer and weight index.
+The fp16 weights are separate artifacts so every release download fits GitHub's
+per-asset limit. No generated-directory fallback is consulted.
 """
-assetdir() = error(
-    "HorizonRunner: the export exists but no artifact is bound to its 64.78 GiB. " *
-    "Pass `dir = \"<gen>/graphs/horizon32b\"` meanwhile, or shard and bind it with " *
-    "`tools/shard_safetensors.jl` + `tools/make_artifacts.jl`.")
+assetdir() = artifact"horizon32b"
+tinydir() = artifact"horizon32b-tiny"
 
 function horizon32bgraphs(; dir::AbstractString = assetdir(), bucketdir::AbstractString = dir)
     gs = Dict(n => loadgraph(joinpath(dir, "$n.json")) for n in GRAPHS)
@@ -69,12 +69,42 @@ function horizon32bgraphs(; dir::AbstractString = assetdir(), bucketdir::Abstrac
     gs
 end
 
-horizon32bweights(; dir::AbstractString = assetdir()) =
-    readsafetensors(joinpath(dir, "weights.safetensors"))
+function horizon32bweights(; dir::AbstractString = assetdir())
+    index = joinpath(dir, "weights.index.json")
+    # An explicitly supplied developer export retains the original file layout.
+    isfile(index) || return readsafetensors(joinpath(dir, "weights.safetensors"))
+    manifest = JSON3.read(read(index, String))
+    manifest.format == 1 || error("unsupported Horizon weight index format")
+    weights = Dict{String,Any}()
+    for part in manifest.shards
+        name = String(part.artifact)
+        path = joinpath(@artifact_str(name), String(part.file))
+        shard = readsafetensors(path; mmap=true)
+        isempty(intersect(keys(weights), keys(shard))) || error("duplicate Horizon weight in $name")
+        merge!(weights, shard)
+    end
+    Set(keys(weights)) == Set(String.(keys(manifest.tensor_sha256))) ||
+        error("Horizon weight shards do not match the index")
+    return weights
+end
 
-ready(; dir::AbstractString = "") =
-    !isempty(dir) && all(isfile(joinpath(dir, "$n.json")) for n in GRAPHS) &&
-    isfile(joinpath(dir, "weights.safetensors"))
+"""Whether runnable assets are already installed; never downloads anything."""
+function ready(; dir::Union{Nothing,AbstractString}=nothing)
+    if dir === nothing
+        h = artifact_hash("horizon32b", ARTIFACTS_TOML)
+        h !== nothing && artifact_exists(h) || return false
+        dir = artifact_path(h)
+    end
+    all(isfile(joinpath(dir, "$n.json")) for n in GRAPHS) || return false
+    isfile(joinpath(dir, "weights.safetensors")) && return true
+    index = joinpath(dir, "weights.index.json")
+    isfile(index) || return false
+    manifest = JSON3.read(read(index, String))
+    all(manifest.shards) do part
+        hash = artifact_hash(String(part.artifact), ARTIFACTS_TOML)
+        hash !== nothing && artifact_exists(hash)
+    end
+end
 
 """
     Horizon32B

@@ -1,4 +1,4 @@
-"""
+#=
 Split a `.safetensors` file into N shards that `readsafetensors` can merge back.
 
     julia --project=<root> tools/shard_safetensors.jl <src.safetensors> <outdir> <n>
@@ -19,7 +19,7 @@ shape or dtype because it never looks at either.
 
 The format: a u64 little-endian header length, a JSON header mapping name to
 dtype/shape/byte-range, then the raw data.
-"""
+=#
 
 using JSON3
 

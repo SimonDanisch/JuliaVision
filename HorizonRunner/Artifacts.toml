@@ -1,0 +1,383 @@
+[horizon32b]
+git-tree-sha1 = "b8f4594e5bbdc9b44f0ce27c74aec0dc1b5db54c"
+lazy = true
+
+    [[horizon32b.download]]
+    sha256 = "91a1a3d972eebba4e115e3496be50bc1a04969c63924f6f9cc6edb2dd8d14efb"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-b8f4594e5bbdc9b44f0ce27c74aec0dc1b5db54c.tar.gz"
+
+[horizon32b-fp16-w1]
+git-tree-sha1 = "7acf9f71d6edcdac6b12991a52f02184aa3e663d"
+lazy = true
+
+    [[horizon32b-fp16-w1.download]]
+    sha256 = "fd6b6cb27b5a0ee2ead76fdf3a93d5136e0569aee84cf38a880f50453e25e566"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w1-7acf9f71d6edcdac6b12991a52f02184aa3e663d.tar.gz"
+
+[horizon32b-fp16-w10]
+git-tree-sha1 = "baaba216f68a541d2e8b3fdb469965907fe476ad"
+lazy = true
+
+    [[horizon32b-fp16-w10.download]]
+    sha256 = "5750214c1c0bb12c6ffd768f8a1182bde59d82624331aa030de4e369df499767"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w10-baaba216f68a541d2e8b3fdb469965907fe476ad.tar.gz"
+
+[horizon32b-fp16-w11]
+git-tree-sha1 = "d4d53420c6695dec35eb203a53dbee3636d363b3"
+lazy = true
+
+    [[horizon32b-fp16-w11.download]]
+    sha256 = "1470f59d1a98803d65eda8755ab11ef9f917dd94392a8cdd93d5449639759187"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w11-d4d53420c6695dec35eb203a53dbee3636d363b3.tar.gz"
+
+[horizon32b-fp16-w12]
+git-tree-sha1 = "ee444199d485727ecb0e49004a1ddaf04ec763ec"
+lazy = true
+
+    [[horizon32b-fp16-w12.download]]
+    sha256 = "cc39d7d4a1b771ec9128b621e5a1d93fc56c31b6f06dfa427bda550310587785"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w12-ee444199d485727ecb0e49004a1ddaf04ec763ec.tar.gz"
+
+[horizon32b-fp16-w13]
+git-tree-sha1 = "e75ed39c45d8dc3a590e682b734f4dd1381369d1"
+lazy = true
+
+    [[horizon32b-fp16-w13.download]]
+    sha256 = "b12bae9cf7139f943b602c8120b23cea919fee077c4d61103447ca7c59610205"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w13-e75ed39c45d8dc3a590e682b734f4dd1381369d1.tar.gz"
+
+[horizon32b-fp16-w14]
+git-tree-sha1 = "d8b56a2b91463108952d28ef3e76959060ec16f6"
+lazy = true
+
+    [[horizon32b-fp16-w14.download]]
+    sha256 = "02f1dc09d0e54e88aa39c9fbf8bab697460ab963b287c74f049fdb7ff8bebe2a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w14-d8b56a2b91463108952d28ef3e76959060ec16f6.tar.gz"
+
+[horizon32b-fp16-w15]
+git-tree-sha1 = "4f1b1b7ae60ffa12db05d7fa34affae74c2f9417"
+lazy = true
+
+    [[horizon32b-fp16-w15.download]]
+    sha256 = "2fdf681bce7c888fd488e65a71f27fe49ce93ecf56089f4ad206583f1eaf88d9"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w15-4f1b1b7ae60ffa12db05d7fa34affae74c2f9417.tar.gz"
+
+[horizon32b-fp16-w16]
+git-tree-sha1 = "3bf9efafb394a5cf60dd5409539ef666d5bb4099"
+lazy = true
+
+    [[horizon32b-fp16-w16.download]]
+    sha256 = "3716fdb8646ae34c46533d6ba2da4eb28137458781e8663047cd202833823e94"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w16-3bf9efafb394a5cf60dd5409539ef666d5bb4099.tar.gz"
+
+[horizon32b-fp16-w17]
+git-tree-sha1 = "fe88b775a66f09f198ed6ab82a5537e7eed0cb05"
+lazy = true
+
+    [[horizon32b-fp16-w17.download]]
+    sha256 = "295ff69fed0bd0bcfaf1a9c85bd73c83c84d14fe70fc56d78277a2fce7246d23"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w17-fe88b775a66f09f198ed6ab82a5537e7eed0cb05.tar.gz"
+
+[horizon32b-fp16-w18]
+git-tree-sha1 = "31ff886dbdf9168f4850c79f898e98f9d76661cf"
+lazy = true
+
+    [[horizon32b-fp16-w18.download]]
+    sha256 = "97b5e16a91d52c493e65c6445724a1a76bc6d41454d11cf2b5fbad6b5cd1947d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w18-31ff886dbdf9168f4850c79f898e98f9d76661cf.tar.gz"
+
+[horizon32b-fp16-w19]
+git-tree-sha1 = "b5a36cf5d6b97ab026d800470ab9d5edcd663391"
+lazy = true
+
+    [[horizon32b-fp16-w19.download]]
+    sha256 = "ef90e0db1453d9cf2e55e352431d586edb7f7819dd1ff33bf72237116e1c770f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w19-b5a36cf5d6b97ab026d800470ab9d5edcd663391.tar.gz"
+
+[horizon32b-fp16-w2]
+git-tree-sha1 = "d03852f6acd310b00a3f032fbe1d8852e1b1d4e5"
+lazy = true
+
+    [[horizon32b-fp16-w2.download]]
+    sha256 = "fe1627a72e9cdeafedd094717a536533626796893140086c3dfb0142f510ceb0"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w2-d03852f6acd310b00a3f032fbe1d8852e1b1d4e5.tar.gz"
+
+[horizon32b-fp16-w20]
+git-tree-sha1 = "f37d18f855163b490483239906b39136c18460aa"
+lazy = true
+
+    [[horizon32b-fp16-w20.download]]
+    sha256 = "1bf7334a66bb628ee50434103a7282e93d72890b9d7e2fd2073d6a64201799a1"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w20-f37d18f855163b490483239906b39136c18460aa.tar.gz"
+
+[horizon32b-fp16-w21]
+git-tree-sha1 = "d2181e35c42823df74430f6c32b63fbf19c16f70"
+lazy = true
+
+    [[horizon32b-fp16-w21.download]]
+    sha256 = "6cae73497721062149a98f302d0f1dc365801df58ebce698013971361e386365"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w21-d2181e35c42823df74430f6c32b63fbf19c16f70.tar.gz"
+
+[horizon32b-fp16-w22]
+git-tree-sha1 = "dd8ff3003285a94bf5ab369b1ee734e20baed6d4"
+lazy = true
+
+    [[horizon32b-fp16-w22.download]]
+    sha256 = "6782ad731f27c46bddc5a126f988752d0027f0eff5348f956a98f1c439e96f75"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w22-dd8ff3003285a94bf5ab369b1ee734e20baed6d4.tar.gz"
+
+[horizon32b-fp16-w23]
+git-tree-sha1 = "9c6150ca8f5c597d404e37740595a43d9575a02e"
+lazy = true
+
+    [[horizon32b-fp16-w23.download]]
+    sha256 = "3e4033dec5f67508b8614d0e1da6c6a12b274cb8fa3d4067ce53fe42dc0bc35e"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w23-9c6150ca8f5c597d404e37740595a43d9575a02e.tar.gz"
+
+[horizon32b-fp16-w24]
+git-tree-sha1 = "bd79610d67b29e66132cfdc4a592123847ab2bba"
+lazy = true
+
+    [[horizon32b-fp16-w24.download]]
+    sha256 = "5e4d28d71b217ba12880f3cb50b2af10642ddb1d620ad531cb13dd1eb03c344f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w24-bd79610d67b29e66132cfdc4a592123847ab2bba.tar.gz"
+
+[horizon32b-fp16-w25]
+git-tree-sha1 = "b587c60525f24141913706e73cad03cc8d81d559"
+lazy = true
+
+    [[horizon32b-fp16-w25.download]]
+    sha256 = "6fd39a00d142b4e7eef33fbfcded30baab38ab8b26cd5a82281373d8b17e0499"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w25-b587c60525f24141913706e73cad03cc8d81d559.tar.gz"
+
+[horizon32b-fp16-w26]
+git-tree-sha1 = "fe509a4b4c1c140f336ff7e2103c8ad8136c7ea2"
+lazy = true
+
+    [[horizon32b-fp16-w26.download]]
+    sha256 = "826d5fcfe80ad1662bc20ed5c22e31c64ef393bbb029b85d61d085d0cc814bbd"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w26-fe509a4b4c1c140f336ff7e2103c8ad8136c7ea2.tar.gz"
+
+[horizon32b-fp16-w27]
+git-tree-sha1 = "58cb4b6ca31b7a6bcf9ba5c411d8beacf023f768"
+lazy = true
+
+    [[horizon32b-fp16-w27.download]]
+    sha256 = "1d3450dc8e48d0d286ef5dfc45c87a9fde22ca74f52e57c7d72ba1c2d71e8c42"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w27-58cb4b6ca31b7a6bcf9ba5c411d8beacf023f768.tar.gz"
+
+[horizon32b-fp16-w28]
+git-tree-sha1 = "ab18638d86bd53ea71d4f8465b7b7f7bb93aa054"
+lazy = true
+
+    [[horizon32b-fp16-w28.download]]
+    sha256 = "cf9975f1c3aea39243fc099ebf3994ab27d9a3f7aee63581b3d9803518102876"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w28-ab18638d86bd53ea71d4f8465b7b7f7bb93aa054.tar.gz"
+
+[horizon32b-fp16-w29]
+git-tree-sha1 = "ea5a3c7319d0b05b31a3a67e749c9e34aec0aea6"
+lazy = true
+
+    [[horizon32b-fp16-w29.download]]
+    sha256 = "99f9a59d28db268f4565be9ba388e33c0366c46df66029bb9c4d6ba38e9285f9"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w29-ea5a3c7319d0b05b31a3a67e749c9e34aec0aea6.tar.gz"
+
+[horizon32b-fp16-w3]
+git-tree-sha1 = "07736aba0fcde83fcbdf8a534380e58a3959f138"
+lazy = true
+
+    [[horizon32b-fp16-w3.download]]
+    sha256 = "776ffdc270cb8be3d8874b16ffb19c90d89a367876fc65c2294e9d52d3beaf49"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w3-07736aba0fcde83fcbdf8a534380e58a3959f138.tar.gz"
+
+[horizon32b-fp16-w30]
+git-tree-sha1 = "01e01a63f657669cc87f2a293544ed8ff618106f"
+lazy = true
+
+    [[horizon32b-fp16-w30.download]]
+    sha256 = "5d229a9345ab973d532ce38751309d9a79e977fe405da1e61e9487d16aa566a5"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w30-01e01a63f657669cc87f2a293544ed8ff618106f.tar.gz"
+
+[horizon32b-fp16-w31]
+git-tree-sha1 = "716eb3a2edfb4f20324f13159bc5b650e08b91e4"
+lazy = true
+
+    [[horizon32b-fp16-w31.download]]
+    sha256 = "ee7b1e0b2c3a59f57f34401b4755489253c4780304103b62a7867360f4610924"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w31-716eb3a2edfb4f20324f13159bc5b650e08b91e4.tar.gz"
+
+[horizon32b-fp16-w32]
+git-tree-sha1 = "7c899e067be14733efdb666da5eea46893fcfbc6"
+lazy = true
+
+    [[horizon32b-fp16-w32.download]]
+    sha256 = "40bfdad0318b323e55920506b05c39cfbefd5830d6622e7a59162774efdcc41a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w32-7c899e067be14733efdb666da5eea46893fcfbc6.tar.gz"
+
+[horizon32b-fp16-w33]
+git-tree-sha1 = "912acb4abbd20ecf3be87530b8f0fbfc02b77d51"
+lazy = true
+
+    [[horizon32b-fp16-w33.download]]
+    sha256 = "b84773564de2b89fb8519b2644b56b0d472a80193dfb5cf0bd297fbc7d456d0d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w33-912acb4abbd20ecf3be87530b8f0fbfc02b77d51.tar.gz"
+
+[horizon32b-fp16-w34]
+git-tree-sha1 = "d590993852528928be957583ef3ae8de2d188578"
+lazy = true
+
+    [[horizon32b-fp16-w34.download]]
+    sha256 = "0b93191c5f6785e926751b78e197feb3c08d51d167c2037aa5519f5ad75b9b83"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w34-d590993852528928be957583ef3ae8de2d188578.tar.gz"
+
+[horizon32b-fp16-w35]
+git-tree-sha1 = "105e42f22d5cd0defc45774a1ee4daae6a98a16b"
+lazy = true
+
+    [[horizon32b-fp16-w35.download]]
+    sha256 = "4aff7671d8ac9ee0bf3c5bdba852cd98eab44d88f377d8ac1d9e15e17665303f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w35-105e42f22d5cd0defc45774a1ee4daae6a98a16b.tar.gz"
+
+[horizon32b-fp16-w36]
+git-tree-sha1 = "f384a71cdb1a3dd7632ea13580c6e1c9d73dfd01"
+lazy = true
+
+    [[horizon32b-fp16-w36.download]]
+    sha256 = "b0e1a9a2808ce14d8222e36e93f7881549f0c31302eeae33d8b15fd8f3801dcf"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w36-f384a71cdb1a3dd7632ea13580c6e1c9d73dfd01.tar.gz"
+
+[horizon32b-fp16-w37]
+git-tree-sha1 = "ac02c5d7e0eefdfff349f33e077c9c8e2cfc1ae6"
+lazy = true
+
+    [[horizon32b-fp16-w37.download]]
+    sha256 = "5ae924e85cd55100701b1314d5a98c6eacb14c33f8254f92eb23eafbb183181d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w37-ac02c5d7e0eefdfff349f33e077c9c8e2cfc1ae6.tar.gz"
+
+[horizon32b-fp16-w38]
+git-tree-sha1 = "2fa2174b04b9af9d139e939810f9cafde847a70a"
+lazy = true
+
+    [[horizon32b-fp16-w38.download]]
+    sha256 = "05318e775ee33278c3403dbbfeb465ede24f25a45794072d2b6c5637334b4f55"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w38-2fa2174b04b9af9d139e939810f9cafde847a70a.tar.gz"
+
+[horizon32b-fp16-w39]
+git-tree-sha1 = "836e2f451830f04f8b65f1494ff7243949c292ee"
+lazy = true
+
+    [[horizon32b-fp16-w39.download]]
+    sha256 = "9682698c5d54afd8b9665b8357de10002ca1912daf07bfc6cfc37fdefa9de693"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w39-836e2f451830f04f8b65f1494ff7243949c292ee.tar.gz"
+
+[horizon32b-fp16-w4]
+git-tree-sha1 = "d99f4f9e3c4fad171412eb1d0f7d0ad513c067f7"
+lazy = true
+
+    [[horizon32b-fp16-w4.download]]
+    sha256 = "9da6cab0ad57b793835a1ea51671bc0e395887754673af0a0983eb9fa5bec2c8"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w4-d99f4f9e3c4fad171412eb1d0f7d0ad513c067f7.tar.gz"
+
+[horizon32b-fp16-w40]
+git-tree-sha1 = "c9340ba949fb6e06d8bfc890a8775f25baa07366"
+lazy = true
+
+    [[horizon32b-fp16-w40.download]]
+    sha256 = "62da25a1da46b30336ee493f41170c663c1f797f42e0353ad8f2560a177a5c7d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w40-c9340ba949fb6e06d8bfc890a8775f25baa07366.tar.gz"
+
+[horizon32b-fp16-w41]
+git-tree-sha1 = "c06793de05a00227f363dc54580a5383e6380224"
+lazy = true
+
+    [[horizon32b-fp16-w41.download]]
+    sha256 = "69d1f98e1381bc02bb2d0e91251314ce337a9db014bc20d298ab0b1c0ffb5a41"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w41-c06793de05a00227f363dc54580a5383e6380224.tar.gz"
+
+[horizon32b-fp16-w42]
+git-tree-sha1 = "4cc33b4d5c7e4ab7549d5e31273e4ebb533a1b31"
+lazy = true
+
+    [[horizon32b-fp16-w42.download]]
+    sha256 = "a4c0dbfa40cde192b6ac59d306c59633c49aeba762916b7e314cb84bc1d71021"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w42-4cc33b4d5c7e4ab7549d5e31273e4ebb533a1b31.tar.gz"
+
+[horizon32b-fp16-w43]
+git-tree-sha1 = "28158a8b88d330e0e36128ff941a8e5b04757bb5"
+lazy = true
+
+    [[horizon32b-fp16-w43.download]]
+    sha256 = "2fd0b0d2a60b8dba555b60fcebfc54588bfa2c9e2138aa784e884dfac948b193"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w43-28158a8b88d330e0e36128ff941a8e5b04757bb5.tar.gz"
+
+[horizon32b-fp16-w44]
+git-tree-sha1 = "6c95f5eab920aa1a230f6726a76b50066247f851"
+lazy = true
+
+    [[horizon32b-fp16-w44.download]]
+    sha256 = "3fc50f2090f87b8aaa90e400d7eeac63af41f57ab928e92e54cb2221bacc901a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w44-6c95f5eab920aa1a230f6726a76b50066247f851.tar.gz"
+
+[horizon32b-fp16-w45]
+git-tree-sha1 = "78105697e67d5c8f94a7111d4175d91857e0d61c"
+lazy = true
+
+    [[horizon32b-fp16-w45.download]]
+    sha256 = "42da38ff0b938dcc08e4c9eabf4f52a07dfbb76bbe1a0d886a7f63abd860bf8f"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w45-78105697e67d5c8f94a7111d4175d91857e0d61c.tar.gz"
+
+[horizon32b-fp16-w46]
+git-tree-sha1 = "a1313ecb8514f289469a505312ad0868542eb6f0"
+lazy = true
+
+    [[horizon32b-fp16-w46.download]]
+    sha256 = "9404fa27eb110671dbc8941b5bf17933a01a4fd568f3c7582dcb51e2294b920e"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w46-a1313ecb8514f289469a505312ad0868542eb6f0.tar.gz"
+
+[horizon32b-fp16-w5]
+git-tree-sha1 = "b7cf6f25a993cf33628ed823bdfd83b3be666fc3"
+lazy = true
+
+    [[horizon32b-fp16-w5.download]]
+    sha256 = "aae3d48e6012f5c2c574cbafdf42df79c3b9aed1927887fd9c5130f192b2f4b6"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w5-b7cf6f25a993cf33628ed823bdfd83b3be666fc3.tar.gz"
+
+[horizon32b-fp16-w6]
+git-tree-sha1 = "1aea18bb51aef460fd1a57b5c8537efa98089148"
+lazy = true
+
+    [[horizon32b-fp16-w6.download]]
+    sha256 = "3c9deb8229641fa25b994c4dfc3905bfe273082062c4987e3b1cd26f3cc709a1"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w6-1aea18bb51aef460fd1a57b5c8537efa98089148.tar.gz"
+
+[horizon32b-fp16-w7]
+git-tree-sha1 = "d9bbc982d9d0b8ef40a4155b1055ec1d189433fa"
+lazy = true
+
+    [[horizon32b-fp16-w7.download]]
+    sha256 = "15ba46daed34da518b3e80a80d73f726a46078644be4d0daffab3a354db1dbb4"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w7-d9bbc982d9d0b8ef40a4155b1055ec1d189433fa.tar.gz"
+
+[horizon32b-fp16-w8]
+git-tree-sha1 = "c98b2137b03953c6d950c8a20cab28ead0608388"
+lazy = true
+
+    [[horizon32b-fp16-w8.download]]
+    sha256 = "fd4f5aee336209e8a0fdea5141318f560ea2d87e04383c50782f2678174ca9e0"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w8-c98b2137b03953c6d950c8a20cab28ead0608388.tar.gz"
+
+[horizon32b-fp16-w9]
+git-tree-sha1 = "9715a81161f36dce3eab61159e2e17b5189ef967"
+lazy = true
+
+    [[horizon32b-fp16-w9.download]]
+    sha256 = "fa123b165eba746e906aa17701a3d6b64956bacfe12b8ef90ecba7fabf8936ee"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-fp16-w9-9715a81161f36dce3eab61159e2e17b5189ef967.tar.gz"
+
+[horizon32b-tiny]
+git-tree-sha1 = "f53641975e8a9c41be0a03ee97d9b8ebb8a81d45"
+lazy = true
+
+    [[horizon32b-tiny.download]]
+    sha256 = "8709e4926514c0fc5e6efd08ff44284f17dc69fc586d51c4f5a95e6f8112732e"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/horizon32b-tiny-f53641975e8a9c41be0a03ee97d9b8ebb8a81d45.tar.gz"

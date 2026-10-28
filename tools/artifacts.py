@@ -44,21 +44,21 @@ def depots():
     return [Path(p) if p else default for p in env.split(os.pathsep)]
 
 
-def treehash(name):
+def treehash(name, toml=TOML):
     # Imported here and not at the top: `tomllib` is Python 3.11+, and this
     # module is imported (through `common`) by exporters that run in an
     # upstream's own venv and never resolve an artifact. TRELLIS.2's is 3.10.
     import tomllib
-    with open(TOML, "rb") as fh:
+    with open(toml, "rb") as fh:
         table = tomllib.load(fh)
     if name not in table:
-        raise KeyError(f"no artifact {name!r} in {TOML}; known: {', '.join(sorted(table))}")
+        raise KeyError(f"no artifact {name!r} in {toml}; known: {', '.join(sorted(table))}")
     return table[name]["git-tree-sha1"]
 
 
-def installed(name):
+def installed(name, toml=TOML):
     """The artifact's directory if some depot already has it, else `None`."""
-    sha = treehash(name)
+    sha = treehash(name, toml)
     for depot in depots():
         path = depot / "artifacts" / sha
         if path.is_dir():
@@ -66,16 +66,16 @@ def installed(name):
     return None
 
 
-def artifact(name):
-    """Path to the artifact `name`, installing it on first use."""
-    path = installed(name)
+def artifact(name, toml=TOML):
+    """Resolve an artifact from the tools table, or an explicit runner table."""
+    path = installed(name, toml)
     if path is not None:
         return path
     julia = shutil.which("julia")
     if julia is None:
         raise SystemExit(f"artifact {name!r} is not installed and there is no `julia` on PATH "
-                         f"to install it with; run `julia {FETCH} {name}`")
-    out = subprocess.run([julia, "--startup-file=no", str(FETCH), name],
+                         f"to install it with; run `julia {FETCH} --toml {toml} {name}`")
+    out = subprocess.run([julia, "--startup-file=no", str(FETCH), "--toml", str(toml), name],
                          check=True, stdout=subprocess.PIPE, text=True).stdout
     path = Path(out.strip().splitlines()[-1])
     if not path.is_dir():

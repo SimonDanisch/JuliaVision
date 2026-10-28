@@ -1,0 +1,8 @@
+K2 Horizon 32B
+Original model: IFM / MBZUAI, https://huggingface.co/IFM/K2-Horizon-32B
+The upstream model card declares Apache-2.0 licensing.
+
+JuliaVision distributes a traced inference graph and a half-precision export
+of the original weights. The safetensors export is partitioned into shards
+without changing the exported tensor bytes. Tokenizer files accompany the graph.
+The tiny test artifact contains random weights and PyTorch reference outputs.

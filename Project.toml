@@ -17,6 +17,10 @@
 # top of this file does not resolve at all.
 Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 KernelInterface = "4ee993da-d684-4d17-a7dd-4e58e78d92bf"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
+Raycore = "afc56b53-c9a9-482a-a956-d1d800e05559"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
@@ -31,6 +35,7 @@ UVDocRunner = "7c6dc493-cef7-40e2-b25f-97e481222d57"
 PPDocLayoutRunner = "af74545c-bb7d-41de-988c-5d37636a6f7a"
 GPUFiltering = "0d8d4a14-6fb1-4aec-8b08-0f10adea08ad"
 GPUMeshing = "df37d806-2c47-48da-b0c3-16f66acdb262"
+HorizonRunner = "c0eeb82c-1b8f-4a93-afa6-9a61c12e097d"
 Hunyuan3DRunner = "1362f9cf-064b-4ee3-980c-c7d802e94ecc"
 KokoroRunner = "31480c1c-f298-4848-9ae9-978a73fb95d8"
 MatAnyoneRunner = "7c4d9e15-2b83-4f6a-a0d7-3e1b8f5c9a24"
@@ -57,6 +62,7 @@ UVDocRunner = {path = "UVDocRunner"}
 PPDocLayoutRunner = {path = "PPDocLayoutRunner"}
 GPUFiltering = {path = "GPUFiltering"}
 GPUMeshing = {path = "GPUMeshing"}
+HorizonRunner = {path = "HorizonRunner"}
 Hunyuan3DRunner = {path = "Hunyuan3DRunner"}
 KokoroRunner = {path = "KokoroRunner"}
 MatAnyoneRunner = {path = "MatAnyoneRunner"}
@@ -67,7 +73,10 @@ RIFERunner = {path = "RIFERunner"}
 SAM2Runner = {path = "SAM2Runner"}
 WhisperRunner = {path = "WhisperRunner"}
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}
-KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
+KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "79ac658d61638997a8cbd62520c7a5fb633709f8", subdir = "lib/KernelInterface"}
+KernelAbstractions = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "79ac658d61638997a8cbd62520c7a5fb633709f8"}
+GPUArrays = {url = "https://github.com/SimonDanisch/GPUArrays.jl", rev = "61e30cea215e93202261d3f0b38df991f36c9081"}
+Raycore = {url = "https://github.com/JuliaGeometry/Raycore.jl", rev = "51fc53c325f0015adea2166a947ca3f69851a65d"}
 Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
 Vulkan = {url = "https://github.com/JuliaGPU/Vulkan.jl", rev = "sd/vk1.4"}
 VulkanCore = {url = "https://github.com/JuliaGPU/VulkanCore.jl", rev = "sd/vk1.4"}

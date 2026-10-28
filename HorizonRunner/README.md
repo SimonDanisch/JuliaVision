@@ -5,18 +5,25 @@ dense grouped-query decoder, on Lava: greedy generation with llama.cpp's Q4_K_M
 weights (18.9 GiB on the device instead of 65) and a 4096-slot KV cache.
 Apache-2.0.
 
-**Local only.** The export is 65 GB and is not an artifact, so `horizon32b`
-needs `dir` pointing at one (`tools/export_horizon32b.py` writes it). There is no
-Julia tokenizer either: ids go in and ids come out, and
-`tools/horizon_tokenize.py` wraps the checkpoint's own `transformers` tokenizer
-over JSON on stdin.
+Graphs, tokenizer and fp16 weights are lazy Julia artifacts, downloaded on first
+use and shared across environments. No `gen/` directory is needed. The weights
+occupy 64.78 GiB on disk because they store almost every parameter at 16 bits;
+the 34.43 GiB Q8 GGUF used for llama.cpp benchmarks stored them at 8 bits.
+HorizonRunner quantizes to Q4_K_M by default (18.9 GiB on the device). Keeping
+the fp16 artifact also supports `quantize=false`, `:int8` and `:q4k`.
+
+Ids go in and ids come out; `tools/horizon_tokenize.py` wraps the artifact's
+`transformers` tokenizer over JSON on stdin. It needs the tools Python environment.
+
+Use the repository's root Julia environment (`julia --project=.` after
+`Pkg.instantiate()`); it includes HorizonRunner and the compiler/runtime sources.
 
 ## Generating
 
 ```julia
 using HorizonRunner
 
-m = horizon32b(; dir = "gen/graphs/horizon32b")   # Q4_K_M, recorded plans; 30 to 80 s, see below
+m = horizon32b()                # downloads once; Q4_K_M, recorded plans
 ids = [...]                   # 0-based, from tools/horizon_tokenize.py {"chat": "..."}
 out = generate(m, ids; maxnew = 160, stop = (1, 250019))
 ```
@@ -54,7 +61,7 @@ on.
 ## Q4_K, drafts and the weight cache
 
 ```julia
-m = horizon32b(; dir, cache = "gen/q4kcache/horizon32b-q4km")     # quantize = :q4k_m
+m = horizon32b(; cache = joinpath(homedir(), ".cache", "horizon32b-q4km"))
 out = generate(m, ids; maxnew = 128, stop = (1, 250019), draft = 7)
 ```
 
@@ -92,3 +99,19 @@ whose eight positions cost 123 ms against 102 ms for one. The tokens are the
 same as without; what it saves depends on how much the text repeats itself
 (here 20 of 204 guesses were kept). The verify bucket is exported with
 `tools/export_horizon32b.py --graphs-only --verify 8`.
+
+## Publishing a new export
+
+Run `tools/publish_horizon_artifacts.jl` with the graph export directory, the
+upstream tokenizer directory, the tiny fixture directory and a temporary work
+directory. It creates the artifact trees directly in the depot, checks each
+tensor's SHA-256 against the export, uploads immutable archives to `assets-v1`,
+and checks GitHub's archive digests before replacing `Artifacts.toml`. It uses
+the existing `gh` login; `HORIZON_GZIP` can point to `pigz` for faster compression.
+
+The graph artifact carries the tokenizer and a weight index; the weights are
+mapped directly from their artifact shards without assembling another full
+checkpoint on disk. Importing the package and calling `ready()` download
+nothing. The small random-model tests use their own `horizon32b-tiny` artifact.
+After verifying the published model, the generated weight export and temporary
+packaging files can be removed. Commit the loader and `Artifacts.toml` together.

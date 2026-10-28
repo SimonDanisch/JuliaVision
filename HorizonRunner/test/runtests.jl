@@ -1,26 +1,24 @@
-"""
+#=
 Two tiers.
 
 The cheap one asserts what is true with no assets at all: the package loads and
 the lookup names a real place rather than throwing something unreadable.
 
 The real one runs a TINY random K2Horizon — same wrapper, same `build()`, same
-graph names, ~4 MB — end to end and compares to PyTorch. It is the only test
+graph names — end to end and compares to frozen PyTorch results. It is the only test
 that can catch a wrong op: a grouped RMSNorm reducing over the wrong axis, an
 `index_copy` into a transposed cache, a mask broadcast the other way. Build it
-with `tools/export_horizon_tiny.py`; skipped when it is absent, because it needs
-torch.
+with `tools/export_horizon_tiny.py`; the fixture ships as a small artifact, so
+running these tests does not need torch or a local export.
 
-The latency test that matters — `compile_stats().misses == 0` in a fresh process
-— belongs here once the 32B weights are bound. See SAM2Runner/test for the shape
-it should take; it has to run in a subprocess because Julia's compile-time
-counter is per-process.
-"""
+These tests check numerical parity and recorded replay. Full-model latency
+benchmarks are separate from this small fixture suite.
+=#
 
 using Test, HorizonRunner, DNNKernels, Lava
 
-const TINY = get(ENV, "HORIZON_TINY_DIR",
-                 joinpath(dirname(dirname(@__DIR__)), "gen", "graphs", "horizontiny"))
+const TINY = HorizonRunner.tinydir()
+include("artifacts.jl")
 
 @testset "HorizonRunner" begin
     # No `assetdir()`. That is internal: it names where the artifact happens to
@@ -29,16 +27,15 @@ const TINY = get(ENV, "HORIZON_TINY_DIR",
     # for the graphs and the weights; `dir` is a config keyword on those, whose
     # default is the artifact.
     if HorizonRunner.ready()
-        @info "K2 Horizon 32B: export present"
+        @info "K2 Horizon 32B: artifacts installed"
         @test !isempty(HorizonRunner.horizon32bgraphs())
         @test !isempty(HorizonRunner.horizon32bweights())
     else
-        @info "K2 Horizon 32B: no export; run tools/export_horizon32b.py"
-        # The error has to name the path — a caller who has not run the exporter
-        # should be told where to put it, not handed a MethodError later.
-        @test_throws ErrorException HorizonRunner.horizon32bgraphs()
+        @info "K2 Horizon 32B: full weights not installed; checking graph artifact"
+        @test !isempty(HorizonRunner.horizon32bgraphs())
     end
 
+    @test isfile(joinpath(TINY, "reference.safetensors"))
     if isfile(joinpath(TINY, "reference.safetensors"))
         ref = DNNKernels.readsafetensors(joinpath(TINY, "reference.safetensors"))
         # The PyTorch comparison runs UNQUANTISED. `horizon32b` stores its matmul
@@ -219,7 +216,5 @@ const TINY = get(ENV, "HORIZON_TINY_DIR",
                 @test_skip false # regenerate the tiny export for bucket parity
             end
         end
-    else
-        @info "no tiny export; run tools/export_horizon_tiny.py to enable the end-to-end tests"
     end
 end

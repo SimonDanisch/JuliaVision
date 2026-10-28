@@ -1,6 +1,5 @@
-# The HorizonRunner README example. Needs the local export (`gen/graphs/horizon32b`,
-# 65 GB, not an artifact) and the repo's Python environment for the tokenizer,
-# which `tools/horizon_tokenize.py` wraps.
+# The HorizonRunner README example. Graphs, weights and tokenizer are artifacts.
+# The tokenizer wrapper uses the repo's Python environment (transformers).
 isdefined(@__MODULE__, :ExampleCommon) || include(joinpath(@__DIR__, "common.jl"))
 using .ExampleCommon
 using HorizonRunner   # `generate` qualified: BonsaiRunner exports one too
@@ -17,9 +16,7 @@ function horizontokens(request::Pair)
 end
 
 function horizon_examples(; maxnew = 160)
-    dir = joinpath(REPO, "gen", "graphs", "horizon32b")
-    HorizonRunner.ready(; dir) || error("no Horizon export at $dir")
-    tload = @elapsed m = horizon32b(; dir)
+    tload = @elapsed m = horizon32b()
     prompt = horizontokens("chat" => "Explain in two sentences what a KV cache is for.")
     ids = collect(Int, prompt.ids)
     HorizonRunner.generate(m, ids; maxnew = 4, stop = (1, 250019))      # compile the paths
