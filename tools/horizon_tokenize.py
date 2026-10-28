@@ -10,13 +10,15 @@ print a sentence is not the point of the port.
 """
 import json
 import sys
+from pathlib import Path
 
 from transformers import AutoTokenizer
 
-from common import find_root
+from artifacts import artifact
 
-tok = AutoTokenizer.from_pretrained(find_root() / "gen" / "horizon32b",
-                                    trust_remote_code=True)
+bindings = Path(__file__).resolve().parents[1] / "HorizonRunner" / "Artifacts.toml"
+tok = AutoTokenizer.from_pretrained(artifact("horizon32b", bindings) / "tokenizer",
+                                    trust_remote_code=True, local_files_only=True)
 req = json.load(sys.stdin)
 if "encode" in req:
     out = {"ids": tok(req["encode"], add_special_tokens=True)["input_ids"]}

@@ -60,7 +60,7 @@ too: Qwen-Image drew them, and the other models took it from there.
 | [`WhisperRunner`](WhisperRunner/README.md) | Whisper large-v3-turbo: speech to text | MIT |
 | [`KokoroRunner`](KokoroRunner/README.md) | Kokoro-82M: text to speech, 54 voices | Apache-2.0 |
 | [`BonsaiRunner`](BonsaiRunner/README.md) | Ternary Bonsai 2 27B: a language model in 1.58 bits | see upstream |
-| [`HorizonRunner`](HorizonRunner/README.md) | K2 Horizon 32B: a language model, int8, local export only | Apache-2.0 |
+| [`HorizonRunner`](HorizonRunner/README.md) | K2 Horizon 32B: Q4_K_M generation, graphs/tokenizer/weights as lazy artifacts | Apache-2.0 |
 | [`Trellis2Runner`](Trellis2Runner/README.md) | TRELLIS.2: image to textured mesh; ported, no published assets yet | see upstream |
 
 Not ported yet, each a package that loads and precompiles with nothing to run:
