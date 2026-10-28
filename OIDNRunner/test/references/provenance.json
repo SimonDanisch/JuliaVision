@@ -1,0 +1,45 @@
+{
+  "rt_alb_large": {
+    "channels": 3,
+    "weights_sha256": "a8efbe6eed511f41c8f5ff9145923214cefb0703cf91a3b00a1dc131ade1600a",
+    "ops": 50
+  },
+  "rt_nrm_large": {
+    "channels": 3,
+    "weights_sha256": "8ac7705ec5ac303116b40ad2f0880cd741ed1f4280828bf2f18f7635c3377257",
+    "ops": 50
+  },
+  "rt_hdr_calb_cnrm_large": {
+    "channels": 9,
+    "weights_sha256": "08130cdc4f33b7a513d0073757f089ac830f900613bb5bad72ca42c52b934465",
+    "ops": 50
+  },
+  "upstream_commit": "6602ee2ca38a1a2a02135beed8f6e68eed630180",
+  "weights_commit": "28883d1769d5930e13cf7f1676dd852bd81ed9e7",
+  "network_reference": {
+    "generator": "tools/export_oidn.py",
+    "engine": "upstream UNetLarge in PyTorch",
+    "seed": 123,
+    "height": 64,
+    "width": 64
+  },
+  "pipeline_reference": {
+    "generator": "tools/reference_oidn.py",
+    "engine": "released upstream OIDN 2.5.1 CPU library",
+    "release_archive": "oidn-2.5.1.x86_64.linux.tar.gz",
+    "release_archive_sha256": "743c3e2aff8c220d5d70fe6cb970fb3d36f2702d2693c61d1d148e404cf37cd6",
+    "seed": 123,
+    "height": 47,
+    "widths": [
+      61,
+      815
+    ]
+  },
+  "fixture_sha256": {
+    "pipeline-reference.safetensors": "0a8b6e89c8d0aff3fcac49421faa4aec59bf3967d1bad56cd44f83259d0a4538",
+    "rt_alb_large-reference.safetensors": "5ef05f1208e122ea4cc4cf3eb748446e9c933a34947b6eda531649f796d39c98",
+    "rt_hdr_calb_cnrm_large-reference.safetensors": "8a1f7cd9c437e1a9b1ac80dc957960a92805f8bdfe74fad26a967f5b962f545b",
+    "rt_nrm_large-reference.safetensors": "b8c16b960b75fe2dd6a59b9bc9c2d69c88bc68cf9be6bfa6765af51648c55dba",
+    "tiled-reference.safetensors": "4b4af6c40add7452b00e65b268c5980ff1ac305b8b7ea395d2a1bfe438ccc0fc"
+  }
+}

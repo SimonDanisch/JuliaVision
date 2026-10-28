@@ -95,14 +95,19 @@ rays only, retaining the original radiance and coverage.
 
 ## Verification
 
-Generate references with \`tools/reference_oidn.py\` and the released upstream
-v2.5.1 library (the library is a test-only dependency):
+The independent references in `test/references/` are checked in with their
+upstream revisions and SHA-256 hashes in `provenance.json`. Tests load them
+without a local model-export directory. To regenerate the network references,
+pass `--references dev/JuliaVision/OIDNRunner/test/references` to
+`tools/export_oidn.py`. Generate pipeline references with
+`tools/reference_oidn.py` and the released upstream v2.5.1 library (a test-only
+dependency):
 
     ... reference_oidn.py --library /path/libOpenImageDenoise.so \
-      --models dev/JuliaVision/gen/graphs/oidn/inputs \
-      --output dev/JuliaVision/gen/graphs/oidn/pipeline-reference.safetensors
+      --models /path/to/pinned/oidn/weights \
+      --output dev/JuliaVision/OIDNRunner/test/references/pipeline-reference.safetensors
     ... reference_oidn.py ... --width 815 --height 47 \
-      --output dev/JuliaVision/gen/graphs/oidn/tiled-reference.safetensors
+      --output dev/JuliaVision/OIDNRunner/test/references/tiled-reference.safetensors
 
 Run \`OIDNRunner/test/runtests.jl\` in the workspace environment.
 In explicit Float32 mode on Bosgame's Radeon 8060S, all three networks match PyTorch within **1.4e-6**

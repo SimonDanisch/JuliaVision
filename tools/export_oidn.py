@@ -17,7 +17,11 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--checkout",type=pathlib.Path,required=True)
     p.add_argument("--output",type=pathlib.Path,required=True)
+    p.add_argument("--references",type=pathlib.Path,
+                   help="Reference fixture directory (defaults to --output)")
     a=p.parse_args(); a.output.mkdir(parents=True,exist_ok=True)
+    references=a.references if a.references is not None else a.output
+    references.mkdir(parents=True,exist_ok=True)
     checkout=a.checkout.resolve()
     tza=load_module(checkout/"training/tza.py","oidn_tza")
     # Load only the upstream network definitions; training imports require
@@ -59,7 +63,7 @@ def main():
         graph=EG.convert(ep,({2:"h",3:"w"},),name)
         (a.output/(name+".json")).write_text(json.dumps(graph,indent=1))
         save_file({**state,**EG.save_constants(ep)},str(a.output/(name+".safetensors")))
-        save_file({"input":x,"output":y},str(a.output/(name+"-reference.safetensors")))
+        save_file({"input":x,"output":y},str(references/(name+"-reference.safetensors")))
         manifest[name]={"channels":channels,"weights_sha256":hashlib.sha256(file.read_bytes()).hexdigest(),
             "ops":len(graph["ops"])}
         print(name,manifest[name],flush=True)
