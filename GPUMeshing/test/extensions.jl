@@ -2,7 +2,8 @@
 Closest points, Hermite dual contouring, error-bounded simplification and the device mesh
 checks, against known answers: distances to a cube and its winding numbers, the solutions of
 corner, edge and face planes, a rotated box contoured with its sharp edges and corners, a
-finely meshed cube simplified to its corners, and a sphere simplified within a tolerance.
+finely meshed cube simplified to its corners, and a sphere simplified within a tolerance,
+both without faces thinner than `MINSHAPE`.
 `extensiontests(dev)` runs them on the device `dev`.
 """
 
@@ -13,6 +14,18 @@ const GMX = GPUMeshing
 
 upload(dev, x) = Mantle.Buffer(dev, x)
 fetch(b::Mantle.Buffer) = Array(Mantle.storage(b))
+
+"""The thinnest face's `4 √3 A / Σ l²` (1 when equilateral, 0 when flat), on the device."""
+function thinnest(V::Mantle.Buffer, F::Mantle.Buffer)
+    Vd, Fd = Mantle.storage(V), Mantle.storage(F)
+    a, b, c = (Vd[:, Fd[k, :]] for k in 1:3)
+    e0, e1, e2 = c .- b, b .- a, c .- a
+    n2 = (e1[2:2, :] .* e2[3:3, :] .- e1[3:3, :] .* e2[2:2, :]) .^ 2 .+
+         (e1[3:3, :] .* e2[1:1, :] .- e1[1:1, :] .* e2[3:3, :]) .^ 2 .+
+         (e1[1:1, :] .* e2[2:2, :] .- e1[2:2, :] .* e2[1:1, :]) .^ 2
+    l2 = sum(e0 .^ 2; dims = 1) .+ sum(e1 .^ 2; dims = 1) .+ sum(e2 .^ 2; dims = 1)
+    return minimum(2sqrt(3f0) .* sqrt.(n2) ./ l2)
+end
 
 """The unit cube's corners and its twelve outward faces."""
 function unitcube()
@@ -176,6 +189,8 @@ function extensiontests(dev::Mantle.Device)
         @test a ≈ 6 rtol = 1e-5
         @test vol ≈ 1 rtol = 1e-5
         @test size(F2, 2) <= 24
+        # The grid's straight rows tempt collapses into faces with no area.
+        @test thinnest(V2, F2) >= GMX.MINSHAPE
         foreach(Mantle.free!, (V2, F2))
     end
 
@@ -201,6 +216,7 @@ function extensiontests(dev::Mantle.Device)
         V2, F2 = simplify(dev, V, F; tolerance = tol)
         @test closedmanifold(dev, F2)
         @test size(F2, 2) < nf ÷ 3
+        @test thinnest(V2, F2) >= GMX.MINSHAPE
         # Within the tolerance both ways.
         g2 = SurfaceGrid(dev, V2, F2; cell = 2.0)
         @test maximum(fetch(distances(dev, g2, V0, size(V0, 2)))) <= tol * 1.01

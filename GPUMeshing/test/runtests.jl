@@ -249,6 +249,11 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
         @test GM.lastentry(pos) == sum(flags)
         idx, m = GM.select(dev, fb, n)
         @test download(idx)[1:m] == findall(==(1), flags)
+        # Only the first entries of a longer (reused) buffer count.
+        idx2, m2 = GM.select(dev, fb, 600)
+        @test m2 == sum(flags[1:600])
+        @test download(idx2)[1:m2] == findall(==(1), flags[1:600])
+        Mantle.free!(idx2)
         src = rand(rng, Int32(0):Int32(99), 3, n)
         dst, m = GM.compactcolumns(dev, Mantle.Buffer(dev, src), fb, n)
         @test download(dst)[:, 1:m] == src[:, flags .== 1]

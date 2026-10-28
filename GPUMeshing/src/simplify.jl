@@ -566,11 +566,25 @@ the quadric there plus the length and sliver terms, `Inf32` when a face would tu
 end
 
 """
+The thinnest face the tolerance mode makes, as `4 √3 A / Σ l²` (1 for an equilateral face),
+unless it was already thinner: about a 50 mm face 2 µm high. Thinner caps and needles are a
+few rounding errors from no area (moved and rotated in Float32, some flatten to none), and
+contact and point–triangle distances take their normals from that area.
+"""
+const MINSHAPE = 1f-4
+
+"""`4 √3 A / Σ l²` of the face `a b c` with normal `n = (b - a) × (c - a)`: 1 when equilateral, 0 when flat."""
+@inline function faceshape(a, b, c, n)
+    e0, e1, e2 = c - b, b - a, c - a
+    return 2f0 * sqrt(3f0) * norm(n) / max(dot(e0, e0) + dot(e1, e1) + dot(e2, e2), 1f-30)
+end
+
+"""
 cumesh's `process_incident_tri`: face `f` at `keep` after `keep` moves to `p`, as
 `(flips, skinniness, faces)`: whether it turns over, and its skinniness
 `1 - 4 √3 A / Σ l²` (clamped to [0, 1]) counted as one face. A face that also
 has `other` goes with the edge and counts as none. `strict` also refuses a face the
-collapse would flatten to no area.
+collapse would make thinner than [`MINSHAPE`](@ref) and than it was.
 """
 @inline function afterward(V, F, f, keep, other, p, strict)
     hasvertex(F, f, other) && return (false, 0f0, Int32(0))
@@ -580,14 +594,10 @@ collapse would flatten to no area.
     nb = j == keep ? p : b
     nc = k == keep ? p : c
     old = cross(b - a, c - a)
-    e1, e2 = nb - na, nc - na
-    new = cross(e1, e2)
+    new = cross(nb - na, nc - na)
     dot(old, new) < 0f0 && return (true, 0f0, Int32(0))
-    strict && dot(old, new) <= 1f-12 * dot(old, old) && return (true, 0f0, Int32(0))
-    area = 0.5f0 * norm(new)
-    e0 = nc - nb
-    denom = max(dot(e0, e0) + dot(e1, e1) + dot(e2, e2), 1f-12)
-    shape = 4f0 * sqrt(3f0) * area / denom
+    shape = faceshape(na, nb, nc, new)
+    strict && shape < min(faceshape(a, b, c, old), MINSHAPE) && return (true, 0f0, Int32(0))
     return (false, 1f0 - min(max(shape, 0f0), 1f0), Int32(1))
 end
 

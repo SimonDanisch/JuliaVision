@@ -25,8 +25,15 @@ function prefixsum(dev::Mantle.Device, b::Mantle.Buffer)
     return out
 end
 
-"""A buffer's last entry, read back alone."""
-lastentry(b::Mantle.Buffer) = Int(only(Array(view(Mantle.storage(b), length(b):length(b)))))
+"""The inclusive prefix sum of the first `n` entries of an Int32 buffer (longer than `n`, as a reused one is), on the device."""
+function prefixsum(dev::Mantle.Device, b::Mantle.Buffer, n::Int)
+    out = Mantle.Buffer(dev, Int32, max(n, 1))
+    n > 0 && AK.accumulate!(+, view(Mantle.storage(out), 1:n), view(Mantle.storage(b), 1:n); init = Int32(0))
+    return out
+end
+
+"""A buffer's last entry, or its `n`-th, read back alone."""
+lastentry(b::Mantle.Buffer, n::Int = length(b)) = Int(only(Array(view(Mantle.storage(b), n:n))))
 
 """A mesh buffer's column `v` as a point."""
 @inline vertex(V, v) = @inbounds Vec3f(V[1, v], V[2, v], V[3, v])
@@ -34,12 +41,13 @@ lastentry(b::Mantle.Buffer) = Int(only(Array(view(Mantle.storage(b), length(b):l
 """
     select(dev, flags, n) -> (indices, count)
 
-The one-based indices of the set entries of `flags` (Int32, 0 or 1), in order:
-cub's `DeviceSelect` as a scan and a scatter.
+The one-based indices of the set entries of `flags[1:n]` (Int32, 0 or 1), in order:
+cub's `DeviceSelect` as a scan and a scatter. `flags` may be longer than `n`.
 """
 function select(dev::Mantle.Device, flags::Mantle.Buffer, n::Int)
-    pos = prefixsum(dev, flags)
-    m = lastentry(pos)
+    n == 0 && return Mantle.Buffer(dev, Int32, 1), 0
+    pos = prefixsum(dev, flags, n)
+    m = lastentry(pos, n)
     idx = Mantle.Buffer(dev, Int32, max(m, 1))
     g = Mantle.Graph(dev)
     Mantle.dispatch!(g, compactindex!, (idx, flags, pos, n), n; name = "select")
@@ -51,11 +59,12 @@ end
 """
     compactcolumns(dev, src, flags, n) -> (dst, count)
 
-The columns of `src` `(3, n)` whose flag is set, in order.
+The columns of `src` `(3, n)` whose flag in `flags[1:n]` is set, in order.
 """
 function compactcolumns(dev::Mantle.Device, src::Mantle.Buffer{T}, flags::Mantle.Buffer, n::Int) where {T}
-    pos = prefixsum(dev, flags)
-    m = lastentry(pos)
+    n == 0 && return Mantle.Buffer(dev, T, (3, 1)), 0
+    pos = prefixsum(dev, flags, n)
+    m = lastentry(pos, n)
     dst = Mantle.Buffer(dev, T, (3, max(m, 1)))
     g = Mantle.Graph(dev)
     Mantle.dispatch!(g, compactcols!, (dst, src, flags, pos, n), n; name = "compact columns")
