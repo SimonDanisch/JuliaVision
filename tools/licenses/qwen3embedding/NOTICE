@@ -1,0 +1,7 @@
+Qwen3-Embedding-0.6B
+Upstream: https://huggingface.co/Qwen/Qwen3-Embedding-0.6B
+License: Apache License, Version 2.0
+
+This artifact contains the Qwen3-Embedding-0.6B checkpoint exported as an ATen
+graph with fp16 weights, a host-side embedding table and tokenizer assets.
+The export is produced by JuliaVision's tools/export_qwen3embedding.py.

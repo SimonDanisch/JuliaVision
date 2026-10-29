@@ -31,6 +31,7 @@ using DNNKernels: Model, loadgraph, readsafetensors, toback
 using QwenImageRunner: QwenTokenizer, encode
 using LinearAlgebra: normalize!
 import JSON3
+using LazyArtifacts
 
 export qwen3embedding, embed, embed_query, Qwen3Embedding
 
@@ -45,16 +46,21 @@ const BUCKETS = (32, 64, 128, 256, 512)
 """
     assetdir() -> String
 
-The export, at the workspace's `gen/graphs/qwen3embedding` (the `gen` symlink
-next to this repository). Not an artifact yet: `uv run tools/export_qwen3embedding.py`
-writes it, and `tools/make_artifacts.jl qwen3embedding` would bind it.
+The graph, weights, embedding table and tokenizer in the `qwen3embedding`
+artifact, downloaded on first use and cached across environments on this machine.
+Re-exported assets take effect after `tools/make_artifacts.jl qwen3embedding`
+rebinds `Artifacts.toml`.
 """
-assetdir() = normpath(joinpath(realpath(@__DIR__), "..", "..", "gen", "graphs", "qwen3embedding"))
+assetdir() = artifact"qwen3embedding"
+
+"""The separately downloaded fp32 reference embeddings and token ids used by the tests."""
+refsdir() = artifact"qwen3embedding-refs"
 
 """Whether an export is installed."""
 ready(dir::AbstractString = assetdir()) =
     all(f -> isfile(joinpath(dir, f)), ("qwen3embedding.json", "weights.safetensors",
-                                        "embed_tokens.safetensors", "export.json", "vocab.json"))
+                                        "embed_tokens.safetensors", "export.json", "vocab.json",
+                                        "merges.txt", "added_tokens.json"))
 
 """A loaded model: the graph on the device, the host-side token table and the tokenizer."""
 struct Qwen3Embedding{B,M,E}
@@ -72,9 +78,7 @@ end
 Load the exported model.
 """
 function qwen3embedding(; backend = Mantle.defaultbackend(), dir::AbstractString = assetdir())
-    ready(dir) || throw(ArgumentError(
-        "Qwen3-Embedding export not found at $dir. Run `uv run tools/models.py fetch qwen3embedding` " *
-        "and `uv run tools/export_qwen3embedding.py`."))
+    ready(dir) || throw(ArgumentError("Qwen3-Embedding artifact at $dir is incomplete; reinstall the qwen3embedding artifact"))
     graph = loadgraph(joinpath(dir, "qwen3embedding.json"))
     model = Model(Dict(GRAPH => graph), readsafetensors(joinpath(dir, "weights.safetensors")); backend)
     table = readsafetensors(joinpath(dir, "embed_tokens.safetensors"); mmap = true)["embed_tokens"]

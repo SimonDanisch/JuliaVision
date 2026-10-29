@@ -1,15 +1,22 @@
-using Test, Qwen3EmbeddingRunner
-using Qwen3EmbeddingRunner: assetdir, ready, tokens, bucket, DNNKernels, JSON3
+using Test, Artifacts, Qwen3EmbeddingRunner
+using Qwen3EmbeddingRunner: assetdir, refsdir, ready, tokens, bucket, DNNKernels, JSON3
 using .DNNKernels: readsafetensors
 
 @testset "Qwen3EmbeddingRunner" begin
     @test bucket(1, 512) == 32 && bucket(33, 512) == 64 && bucket(512, 512) == 512
+    bindings = joinpath(@__DIR__, "..", "Artifacts.toml")
+    @test basename(assetdir()) == string(artifact_hash("qwen3embedding", bindings))
+    @test basename(refsdir()) == string(artifact_hash("qwen3embedding-refs", bindings))
     if !ready()
-        @info "Qwen3-Embedding export not installed; skipping the model tests"
+        error("The Qwen3-Embedding artifact is incomplete")
     else
         dir = assetdir()
-        ref = readsafetensors(joinpath(dir, "reference.safetensors"))
-        texts = String.(JSON3.read(read(joinpath(dir, "reference.json"), String)).texts)
+        refs = refsdir()
+        @test all(f -> isfile(joinpath(dir, f)), ["qwen3embedding.json", "weights.safetensors",
+            "embed_tokens.safetensors", "export.json", "vocab.json", "merges.txt", "added_tokens.json"])
+        @test !isfile(joinpath(dir, "reference.safetensors"))
+        ref = readsafetensors(joinpath(refs, "reference.safetensors"))
+        texts = String.(JSON3.read(read(joinpath(refs, "reference.json"), String)).texts)
         lengths = Int.(ref["lengths"])
         offsets = cumsum([0; lengths])
         m = qwen3embedding()
@@ -26,7 +33,7 @@ using .DNNKernels: readsafetensors
         @test all(>(0.999), cosines)
         @test all(j -> abs(sum(abs2, got[:, j]) - 1) < 1e-5, axes(got, 2))
         # Retrieval agrees with the reference: each query's best document is the same.
-        nq = JSON3.read(read(joinpath(dir, "reference.json"), String)).queries
+        nq = JSON3.read(read(joinpath(refs, "reference.json"), String)).queries
         best(e) = [argmax(e[:, nq+1:end]' * e[:, q]) for q in 1:nq]
         @test best(got) == best(expected)
         # The instruction is the export's, and the same query embedded through

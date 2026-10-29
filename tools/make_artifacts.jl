@@ -242,6 +242,8 @@ end
 #
 # artifact name => directories under tools/licenses; every file in each ships
 const LICENSED = Dict{String,Vector{String}}(
+    "qwen3embedding" => ["qwen3embedding"],
+    "qwen3embedding-refs" => ["qwen3embedding"],
     (n => ["qwenimage21"] for n in vcat(
         ["qwenimage21", "qwenimage21-vae", "qwenimage21-refs"],
         ["qwenimage21-dit-w$i" for i in 1:6],
@@ -308,6 +310,10 @@ const GRAPHFILES = Dict(
 #
 # artifact name => (package that binds it, dir under gen/graphs, what to take)
 const TREES = Dict(
+    # The host-side embedding table and tokenizer are required at runtime too.
+    "qwen3embedding" => ("Qwen3EmbeddingRunner", "qwen3embedding",
+        ["qwen3embedding.json", "weights.safetensors", "embed_tokens.safetensors",
+         "export.json", "vocab.json", "merges.txt", "added_tokens.json", "op_histogram.json"]),
     #
     # The reference-image graphs (`export_qwenimage21_condition.py`) travel in
     # the same tree: they read the same two compact checkpoints and the VAE's
@@ -577,6 +583,8 @@ const REFS = Dict(
 #
 # artifact name => (package that binds it, export dir under gen/graphs, files)
 const FIXTURES = Dict(
+    "qwen3embedding-refs" => ("Qwen3EmbeddingRunner", "qwen3embedding",
+        ["reference.json", "reference.safetensors"]),
     "kokoro-refs" => ("KokoroRunner", "kokoro-dyn",
                       ["refs_speak.safetensors", "refs_speak.json",
                        "g2p_reference.json"]),
