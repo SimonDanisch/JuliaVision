@@ -1,0 +1,15 @@
+[qwen3embedding]
+git-tree-sha1 = "f311cb3a4157334c277bda03986b79019de49e52"
+lazy = true
+
+    [[qwen3embedding.download]]
+    sha256 = "7443996732cd661c3097328130ab353c824f65bc94521a86dbbc13dfa2ee4af2"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwen3embedding.tar.gz"
+
+[qwen3embedding-refs]
+git-tree-sha1 = "b630f4f495a2211959df2a362e2c0914835066b3"
+lazy = true
+
+    [[qwen3embedding-refs.download]]
+    sha256 = "66af241566f90c98461d35532a2e0076d2d18c8caf5c898500e63553a8d17a05"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/qwen3embedding-refs.tar.gz"

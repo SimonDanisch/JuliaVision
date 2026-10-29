@@ -9,12 +9,11 @@ scaffolder, the fetcher and the exporters all read the same one.
     uv run tools/models.py fetch whisper
     uv run tools/models.py fetch --all
 
-Checkpoints land in `gen/<name>/`, matching where `export_basicvsrpp.py` already
-expects `gen/basicvsrpp/basicvsr_pp_reds4.pth`. They are not artifacts yet: a
-Julia `Artifacts.toml` needs the sha256 of a tarball that has been uploaded to a
-release, so the runner packages point at `gen/graphs/<name>` instead and
-`DNNKernels.assetpath` falls through to it. Cutting the release is what turns a
-working port into an installable one.
+Checkpoints land in `gen/<name>/` as inputs to the Python exporters. Runtime
+graphs, weights and tokenizers must be installed through the runner's
+`Artifacts.toml`, never through this export cache. After an export, run
+`tools/make_artifacts.jl` to bind the artifacts and upload its tarballs to the
+release so a fresh machine can install them.
 """
 
 import argparse

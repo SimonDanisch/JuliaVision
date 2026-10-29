@@ -2,6 +2,8 @@
 
     uv run tools/models.py fetch qwen3embedding
     uv run tools/export_qwen3embedding.py
+    # Then bind and publish the runtime and test artifacts with:
+    # tools/make_artifacts.jl qwen3embedding qwen3embedding-refs
 
 The model is Qwen3's base decoder read at its final norm. What this writes to
 `gen/graphs/qwen3embedding`:
