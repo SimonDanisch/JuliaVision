@@ -120,12 +120,10 @@ code revision `d37f0000ab9496cfa6a4d3cd95fbaa140df025ae`. Failed and partial
 experiments are retained as evidence, not promoted to validated results.
 
 The archive is `small-llm-research-results-2026-10-31.tar.gz`, SHA-256
-`816d1d1b8e5bcb7c6fdd16af8d10adb5ff2cc13bbe5aaaf1fa24dee52867e71a`.
+`1d1ed42c230e6d1cd1066a78c8967cbcd0f8d8362eaf2ac688cabcd6847e857f`.
 The release also carries the manifest and checksum as separate downloads.
 Extract at the repository root to restore the original `tools/small_llm/`
-paths. Tracked sources and fixtures are not duplicated in the archive. Six
-files with PRIVATE in their names remain local and are excluded from public
-distribution. Local originals are retained pending separate cleanup approval.
+paths. Tracked sources and fixtures are not duplicated in the archive. Local originals are retained pending separate cleanup approval.
 
 ## Horizon assets and storage outcome
 
