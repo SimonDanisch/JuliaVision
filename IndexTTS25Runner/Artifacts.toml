@@ -1,0 +1,127 @@
+[indextts25]
+git-tree-sha1 = "2eef8a96283143e92910663901892b69c3f80bcc"
+lazy = true
+
+    [[indextts25.download]]
+    sha256 = "78e89497a0a35b575430de2f1f1fbed45b5f067dde61bdc75310b6e1cbecb758"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25.tar.gz"
+
+[indextts25-bigvgan-weights]
+git-tree-sha1 = "a7164eec6bed5262837d58f936718574da880a2e"
+lazy = true
+
+    [[indextts25-bigvgan-weights.download]]
+    sha256 = "5e26b98848033ce48e06094005dbde333f61a1a594399fac3ad45f5307850a48"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-bigvgan-weights.tar.gz"
+
+[indextts25-campplus-weights]
+git-tree-sha1 = "18cd5984256a9cdc17ce5caf15af8c1cec950f4d"
+lazy = true
+
+    [[indextts25-campplus-weights.download]]
+    sha256 = "e6db90e75df2aef91e1adf0bb02c6d9985237ac86993995cf4042c6b84a00099"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-campplus-weights.tar.gz"
+
+[indextts25-codec-weights]
+git-tree-sha1 = "2b9da1c7c1e954d4a249a2e8e96ff6464fae6410"
+lazy = true
+
+    [[indextts25-codec-weights.download]]
+    sha256 = "0c71976ff86273611e888cdca741f13fd8f643f945f80409e89604a2a72ec688"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-codec-weights.tar.gz"
+
+[indextts25-codec_fp16-weights]
+git-tree-sha1 = "2b9da1c7c1e954d4a249a2e8e96ff6464fae6410"
+lazy = true
+
+    [[indextts25-codec_fp16-weights.download]]
+    sha256 = "06c24a10bd4beb5bdb96ae555736303db0f1817e42dfbe0e109dad042d764696"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-codec_fp16-weights.tar.gz"
+
+[indextts25-dit-weights]
+git-tree-sha1 = "293657cffe81f00f8e37bd45002979e99ad2e23e"
+lazy = true
+
+    [[indextts25-dit-weights.download]]
+    sha256 = "284cb1176eb68423e5ad27bebc3cb7ce7c4bbb8dab1cbc3e24c0128ff8565005"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-dit-weights.tar.gz"
+
+[indextts25-dit_fp16-weights]
+git-tree-sha1 = "293657cffe81f00f8e37bd45002979e99ad2e23e"
+lazy = true
+
+    [[indextts25-dit_fp16-weights.download]]
+    sha256 = "d64639eafeea6590a7b5aa9b94f942a78ac9669dddf6a13ebfd6954dcf51d007"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-dit_fp16-weights.tar.gz"
+
+[indextts25-emo-weights]
+git-tree-sha1 = "b1d74949e3cc9b30f6b8574903faf93fa9418902"
+lazy = true
+
+    [[indextts25-emo-weights.download]]
+    sha256 = "d27e0cc186aad4497ab281ba138a03dc22f57b00980576b849a480a27c10a3c3"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-emo-weights.tar.gz"
+
+[indextts25-emotion_text-weights]
+git-tree-sha1 = "4bd1ebd09a506eeccf2d5269bbdb8665481e8e0d"
+lazy = true
+
+    [[indextts25-emotion_text-weights.download]]
+    sha256 = "345dc43b54bb6b4be4716df8eb386e3e0f7256870ddfdf54de9d9748c98cb379"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-emotion_text-weights.tar.gz"
+
+[indextts25-gpt_de_prefill-weights-1]
+git-tree-sha1 = "d4b7e6faa1e2fdb38111e26be94fad5c74bc83f0"
+lazy = true
+
+    [[indextts25-gpt_de_prefill-weights-1.download]]
+    sha256 = "e2dc5b8b4868e4af70786d7ce5ddff86c86d7ef13ffccb71d7e14b2042d8bf66"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-gpt_de_prefill-weights-1.tar.gz"
+
+[indextts25-gpt_de_prefill-weights-2]
+git-tree-sha1 = "bd11ee267eb311c0ffb2ec17031e709d2a053a0a"
+lazy = true
+
+    [[indextts25-gpt_de_prefill-weights-2.download]]
+    sha256 = "9b581fb8b7bc08d0767b8fb7bb36a157361c95ab20c80d21c1d6e4fd72a67202"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-gpt_de_prefill-weights-2.tar.gz"
+
+[indextts25-gpt_prefill-weights-1]
+git-tree-sha1 = "e6505d90e8a587b595754e7d924d470b84d03f44"
+lazy = true
+
+    [[indextts25-gpt_prefill-weights-1.download]]
+    sha256 = "a9256a4da32074ddb7bf1b53ea4a24a925c2326d9db0eb906c49f73b5d614a3a"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-gpt_prefill-weights-1.tar.gz"
+
+[indextts25-gpt_prefill-weights-2]
+git-tree-sha1 = "bda87a46c5dbb7d09231ab5f4f5b8cb1f5145e97"
+lazy = true
+
+    [[indextts25-gpt_prefill-weights-2.download]]
+    sha256 = "04483bb2bfb9a8ec3413277c4ecc1dfd81bdbeadb722a5503908c7a57138e4de"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-gpt_prefill-weights-2.tar.gz"
+
+[indextts25-refs]
+git-tree-sha1 = "2e86da0e70a48eb1448d2a3b1e6c4c23916b3754"
+lazy = true
+
+    [[indextts25-refs.download]]
+    sha256 = "7dca18f44bb81f2a39fcb8df2172fd9475bda4cc85ce76eb43c647c975c4d12d"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-refs.tar.gz"
+
+[indextts25-regulator-weights]
+git-tree-sha1 = "c20846a26c0a211e245020e5e8a804ce47879aed"
+lazy = true
+
+    [[indextts25-regulator-weights.download]]
+    sha256 = "198ce14a42f0e9fd7964ac2a12550bb0514b4621d67d264725e9aa0e8e0af0a2"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-regulator-weights.tar.gz"
+
+[indextts25-w2v-weights]
+git-tree-sha1 = "4ebd030c8915b1fd2931009b69c968c12345e61a"
+lazy = true
+
+    [[indextts25-w2v-weights.download]]
+    sha256 = "bb958f05dc1868c75dc08d946b18a7e8950cebe07073f328afd2b281a98870e7"
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/indextts25-v1/indextts25-w2v-weights.tar.gz"
