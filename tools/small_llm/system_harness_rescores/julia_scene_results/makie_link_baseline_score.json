@@ -1,0 +1,14 @@
+{
+    "collection": "julia_scene_results",
+    "task": "makie_link",
+    "arm": "baseline",
+    "source_sha256": "0ca1b4d00294aadd39ad9500283d6d8c327f1082465cbf5c921ab797c3ac6a98",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_link",
+    "passed": false,
+    "diagnostic": "ArgumentError: integer range",
+    "elapsed_seconds": 0,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "depot_order": "withsystem"
+}

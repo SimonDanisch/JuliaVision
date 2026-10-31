@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 22,
+    "scope": "Literal boundary-contract admission + bounded shared-numeric symbolic search infrastructure, not general language understanding or independent quality",
+    "sources": {
+        "boundary_example_synthesis.jl": "8cbb438fc840039ac7e6734c516d2ea0d7d65bda7e4d573439a0093af18b8b19",
+        "stencil_boundary_contract.jl": "91839a6d732f70889324557f20ce7175b88ecd0b6c4e30c4a256701585ea9a44",
+        "test_stencil_boundary_contract.jl": "62c4dc9abfdce8ae2db04ae04666889a41930bbe6b0017ca5657ae17335eae27"
+    }
+}

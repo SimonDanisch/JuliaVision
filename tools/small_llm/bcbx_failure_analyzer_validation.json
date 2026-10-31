@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "ROOT-only failure-symptom analysis qualification, not model quality",
+    "tests": 3,
+    "source_sha256": {
+        "analyze_bcbx_failures.py": "19e1bc9f8d662336a4abb22dc4f492065e239ebf3ba9be96b901abac83f94c6f",
+        "test_analyze_bcbx_failures.py": "aad4ea9b7f74843f79c4b256ee46a93d523b753533fbf2452c4d381ce2f6801b"
+    }
+}

@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.19691631593741477,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: ParseError:\n# Error @ /input/program.jl:235:25\n            # Word from i to j-1\n            # We need to\n#                       \u2514 \u2500\u2500 Expected `end`\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:235\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:235\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 7, in test_cases\nAssertionError\n",
+  "program_sha256": "d1abe3d3712144e527521f83922febea33a55f167c62a73fedb1a8751bcd0637",
+  "test_suite_sha256": "d53acde892f046b35269c36d0a7e68b3d783f8228842541f7c78df9de98f4af1",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

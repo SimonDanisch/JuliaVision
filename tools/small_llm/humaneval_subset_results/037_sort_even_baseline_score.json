@@ -1,0 +1,11 @@
+{
+    "id": "037_sort_even",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.28421521186828613,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    3      3  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "b026ab8dda539ce4f459cb656d4baa9676727d9f858f1a8f7c772f557d058b30"
+}

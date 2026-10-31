@@ -1,0 +1,20 @@
+{
+    "task": "146_specialFilter",
+    "scope": "advisory type analysis at public input signatures; no hidden assertions/values, not proof of correctness",
+    "analysis_completed": true,
+    "payload": {
+        "version": "0.12.3",
+        "completed": true,
+        "rows": [
+            {
+                "signature": "Tuple{Vector{Int64}}",
+                "report_count": 1,
+                "kind": "dispatch",
+                "text": "No applicable method for specialFilter at public signature Tuple{Vector{Int64}}"
+            }
+        ]
+    },
+    "elapsed_seconds": 0.7067821025848389,
+    "diagnostic": "JET_DIAGNOSTICS={\"version\":\"0.12.3\",\"completed\":true,\"rows\":[{\"signature\":\"Tuple{Vector{Int64}}\",\"report_count\":1,\"kind\":\"dispatch\",\"text\":\"No applicable method for specialFilter at public signature Tuple{Vector{Int64}}\"}]}\nTest Summary: | Total  Time\ncontract      |     0  0.2s\nCONTRACT_PASSED\n",
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

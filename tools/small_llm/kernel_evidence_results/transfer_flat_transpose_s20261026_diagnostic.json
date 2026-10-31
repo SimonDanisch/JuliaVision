@@ -1,0 +1,14 @@
+{
+    "task": "transfer_flat_transpose",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: UndefVarError: `kernel!` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nin expression starting at public_kernel_probe.jl:2"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "ec8f6c2badcea6042e84b09f5d98a16d2e91fa3c5bbd747dd5bd4b34708c3792",
+    "fixture_sha256": "b015795d66b5714d7bf3f576f48be0b2c2e67a8ccad2ab8218435145729cf696",
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "elapsed_seconds": 9.560519933700562
+}

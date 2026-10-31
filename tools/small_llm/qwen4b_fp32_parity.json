@@ -1,0 +1,66 @@
+[
+    {
+        "step": 1,
+        "token": 760,
+        "maxabs": 2.0503998e-5,
+        "relrms": 8.299093e-7,
+        "greedy": 2614,
+        "reference": 2614
+    },
+    {
+        "step": 2,
+        "token": 6511,
+        "maxabs": 1.5735626e-5,
+        "relrms": 1.2417274e-6,
+        "greedy": 314,
+        "reference": 314
+    },
+    {
+        "step": 3,
+        "token": 314,
+        "maxabs": 1.9073486e-5,
+        "relrms": 1.2502209e-6,
+        "greedy": 279,
+        "reference": 279
+    },
+    {
+        "step": 4,
+        "token": 9338,
+        "maxabs": 1.3828278e-5,
+        "relrms": 1.3528471e-6,
+        "greedy": 369,
+        "reference": 369
+    },
+    {
+        "step": 5,
+        "token": 369,
+        "maxabs": 1.4066696e-5,
+        "relrms": 1.1174396e-6,
+        "greedy": 11751,
+        "reference": 11751
+    },
+    {
+        "step": 6,
+        "token": 11751,
+        "maxabs": 1.4305115e-5,
+        "relrms": 1.3281067e-6,
+        "greedy": 13,
+        "reference": 13
+    },
+    {
+        "step": 7,
+        "token": 13,
+        "maxabs": 1.335144e-5,
+        "relrms": 1.2405276e-6,
+        "greedy": 198,
+        "reference": 198
+    },
+    {
+        "step": 8,
+        "token": 561,
+        "maxabs": 1.4305115e-5,
+        "relrms": 1.0649146e-6,
+        "greedy": 6511,
+        "reference": 6511
+    }
+]

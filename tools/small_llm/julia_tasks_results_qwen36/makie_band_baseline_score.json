@@ -1,0 +1,11 @@
+{
+    "id": "makie_band",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 2.6792330741882324,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   17     17  0.3s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "90b1cec92c4990bde6a779fa19514fd06b0bdbaeba1fd91855be572df7ef8003"
+}

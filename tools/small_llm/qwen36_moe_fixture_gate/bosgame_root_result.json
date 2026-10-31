@@ -1,0 +1,43 @@
+{
+    "checks": 211,
+    "project": "/home/sim/Programmieren/VulkanDev/Project.toml",
+    "pid": 35281,
+    "host": "sim-bosgame",
+    "scope": "Tiny full-MoE fixture; not full35B quality or speed",
+    "rows": [
+        {
+            "token": 3,
+            "max_logit_error": 4.7683716e-7
+        },
+        {
+            "token": 19,
+            "max_logit_error": 6.556511e-7
+        },
+        {
+            "token": 8,
+            "max_logit_error": 6.854534e-7
+        },
+        {
+            "token": 42,
+            "max_logit_error": 6.556511e-7
+        },
+        {
+            "token": 2,
+            "max_logit_error": 8.34465e-7
+        },
+        {
+            "token": 17,
+            "max_logit_error": 7.599592e-7
+        },
+        {
+            "token": 89,
+            "max_logit_error": 6.2584877e-7
+        },
+        {
+            "token": 9,
+            "max_logit_error": 7.1525574e-7
+        }
+    ],
+    "complete": true,
+    "normal_final_waitidle": true
+}

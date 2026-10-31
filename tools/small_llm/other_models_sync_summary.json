@@ -1,0 +1,71 @@
+{
+    "hardware": "Bosgame Radeon 8060S",
+    "project": "/home/sim/Programmieren/VulkanDev/Project.toml",
+    "julia": "1.12.7",
+    "comparison": "Current shared synchronization optimization vs conservative-entry compiler; identical model kernels, weights and feedback within each pair",
+    "new_qwen36_fusions_applied_to_other_runners": false,
+    "rows": [
+        {
+            "name": "Qwen3.5-2B Q4_K",
+            "before_tps": 121.4742652122847,
+            "after_tps": 127.92095511568651,
+            "percent": 5.307041694910253,
+            "samples_per_condition": 6,
+            "receipt": "qwen35_2b_sync_ablation_v2.json",
+            "scope": "Shared Mantle synchronization only; unchanged Qwen3.5 Q4_K kernels; device-resident feedback",
+            "barriers_before": 518,
+            "barriers_after": 456
+        },
+        {
+            "name": "Qwen3.5-4B Q4_K",
+            "before_tps": 62.48533218952282,
+            "after_tps": 65.26728097814632,
+            "percent": 4.452162917507785,
+            "samples_per_condition": 6,
+            "receipt": "qwen35_4b_sync_ablation_v2.json",
+            "scope": "Shared Mantle synchronization only; unchanged Qwen3.5 Q4_K kernels; device-resident feedback",
+            "barriers_before": 688,
+            "barriers_after": 606
+        },
+        {
+            "name": "Bonsai2 27B PTQ1",
+            "before_tps": 29.741454841274304,
+            "after_tps": 30.77842685036282,
+            "percent": 3.4866216687202467,
+            "samples_per_condition": 6,
+            "receipt": "bonsai27b_sync_ablation.json",
+            "scope": "Shared Mantle synchronization only; original Bonsai kernels and host greedy feedback",
+            "barriers_before": 807,
+            "barriers_after": 661
+        },
+        {
+            "name": "Horizon32B Q4_K_M",
+            "before_tps": 8.4679025634393,
+            "after_tps": 8.390440967396895,
+            "percent": -0.914767210204448,
+            "samples_per_condition": 4,
+            "receipt": "horizon32b_sync_ablation.json",
+            "scope": "Shared Mantle synchronization only; fixed teacher-forced sequence; original bucketcall and per-token host logit readback",
+            "barriers_before": 1294,
+            "barriers_after": 1096
+        }
+    ],
+    "initial_confirmatory_receipts": [
+        "qwen35_2b_sync_ablation.json",
+        "qwen35_4b_sync_ablation.json"
+    ],
+    "initial_receipt_caveat": "Initial Qwen throughput and bitidentity checks valid, but barrier_passes field erroneously zero; corrected v2 measurements are primary",
+    "limitations": [
+        "Short context only; not prefill or million-token throughput",
+        "Horizon uses fixed teacher-forced sequence; Bonsai uses original host greedy feedback; Qwen uses device-resident feedback",
+        "All measured samples retained; load/compile/warmup excluded",
+        "Horizon timing overlap does not demonstrate an improvement",
+        "Not a benchmark of every historical optimization or the latest Qwen3.6-specific kernels"
+    ],
+    "source_sha256": {
+        "dev/Mantle/src/graph/build.jl": "5a6f3bc0e6301dc20dee56cca0f91331e0a43871b6bc59f57739d8a0ee963f0b",
+        "dev/JuliaVision/tools/small_llm/benchmark_other_model_sync.jl": "2a098cac2a1b25a96fe681b80b491def2ff2f3e9500ba23549867d0e3171f9e8",
+        "dev/Mantle/src/graph/backend.jl": "6bc6d91531a5da98f6116ed74a2f2a4b7d11510c16ead2bd3621a0498e919c0f",
+        "dev/Mantle/src/phases.jl": "f16fb5d4626c9c87c725b8decd88b3cb4cf32bc8c3301565533055a2580a84a2"
+    }
+}

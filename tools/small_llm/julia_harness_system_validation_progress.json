@@ -1,0 +1,68 @@
+[
+    {
+        "id": "stable_groups",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 0.34035515785217285,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    4      4  0.1s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "5a27b5ec36b928c9c5d50e633c9ab8b64c2f7b2e2ca11b41f896140465556bc3"
+    },
+    {
+        "id": "missing_windows",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 0.719865083694458,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    8      8  0.4s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "a8a4d36b8f3dd6badafe32345cd5c04e3151fd5a55d4129fab005aee36c0944e"
+    },
+    {
+        "id": "alias_stencil",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 0.6676459312438965,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  0.3s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "383ef4241fa47c5b605b24a20b72e05b2508b70c54ea639c381aae5b9f619794"
+    },
+    {
+        "id": "ka_tail",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 3.376807928085327,
+        "diagnostic": "hwloc/linux: failed to find sysfs cpu topology directory, aborting linux discovery.\nTest Summary: | Pass  Total  Time\ncontract      |   10     10  1.4s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "06e45c5b7095e2bd629d9a939844fe5fcb1ef2d66b0a667daebcde0d521e376c"
+    },
+    {
+        "id": "makie_link",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 2.3921468257904053,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   18     18  0.1s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "9421ea380e6cb8ccfff3a021093059503d6bae4249767427f7f5332fe520bb2f"
+    },
+    {
+        "id": "makie_band",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 2.641763925552368,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   17     17  0.3s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "8341a9336e8768217cce4c75d8c8551e0aeab3b583265a8b3a8032fc61168525"
+    }
+]

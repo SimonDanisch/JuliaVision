@@ -1,0 +1,11 @@
+{
+    "id": "shared_periodic_laplacian",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.5786490440368652,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    6      6  0.2s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "a0fa84447309f6551f2efba5d85e41ae42305f54ea064429f610a744a53613a2"
+}

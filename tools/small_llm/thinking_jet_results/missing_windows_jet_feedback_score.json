@@ -1,0 +1,11 @@
+{
+    "id": "missing_windows",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.7653069496154785,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    8      8  0.5s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "cdb1fb01ef30aac24dc357676997f15da929bb80dc073f2f82622a7384fed204"
+}

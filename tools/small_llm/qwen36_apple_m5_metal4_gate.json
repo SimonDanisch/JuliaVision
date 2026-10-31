@@ -1,0 +1,1 @@
+{"device":"MetalDevice(\"Apple M5\")","scope":"Small fixtures, not full-model throughput","inference_checks":"Test.TestCounts(true, 0, 0, 0, 0, 474, 0, 0, 0, \"2.1s\")","normal_waitidle":true,"synchronization_checks":"Test.TestCounts(true, 0, 0, 0, 0, 39, 0, 0, 0, \"6.6s\")"}

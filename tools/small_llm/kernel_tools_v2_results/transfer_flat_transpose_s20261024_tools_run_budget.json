@@ -1,0 +1,77 @@
+{
+    "task": "transfer_flat_transpose",
+    "seed": 20261024,
+    "arm": "tools_run_budget",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,rows::Int32,cols::Int32). x is a FLATTENED column-major rows-by-cols Float32 matrix; out is distinct and must hold its transposed cols-by-rows matrix, also flattened COLUMN-MAJOR. rows/cols are positive. Exactly rows*cols valid outputs, followed by padding that must stay unchanged. Handle rectangular matrices, not just squares; no scratch memory.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "The user wants a Julia GPU kernel function `kernel!` that takes a flattened column-major matrix `x` of size `rows` x `cols` and transposes it into `out` (also flattened column-major).\n\nLet's break down the requirements:\n1. Function signature: `kernel!(out, x, rows::Int32, cols::Int32)`\n2. Use `KI.get_global_id().x` for 1-based global 1D index.\n3. `x` is a flattened column-major `rows` x `cols` matrix.\n4. `out` is a flattened column-major `cols` x `rows` matrix.\n5. Handle rectangular matrices.\n6. Guard inactive invocations (work is rounded up).\n7. Return `nothing`.\n8. No host wrappers, no KernelAbstractions, no CPU loops, no scratch memory.\n9. Use `KernelInterface as KI`.\n\nLet's figure out the indexing:\nFor a column-major flattened matrix of size `R` x `C`, the element at `(r, c)` (1-based) is at index `(c - 1) * R + r`.\n\nHere, `x` has dimensions `rows` x `cols`. So `x[r, c]` is at `(c - 1) * rows + r`.\n`out` has dimensions `cols` x `rows`. So `out[c, r]` is at `(r - 1) * cols + c`.\n\nWait, the transpose of `x` (rows x cols) is a `cols` x `rows` matrix.\nSo `out[r_out, c_out]` corresponds to `x[c_out, r_out]`.\nLet's verify: `out` is `cols` x `rows`. An element at row `i` (1 to cols) and column `j` (1 to rows) in `out` should be `x[j, i]`.\nIn flattened column-major `out`: index = `(j - 1) * cols + i`.\nIn flattened column-major `x`: index = `(i - 1) * rows + j`.\n\nSo for a global thread index `idx` (1-based), we can compute `i` and `j`:\n`i = (idx - 1) % cols + 1`  (row index in `out`, which is column index in `x`)\n`j = div(idx - 1, cols) + 1` (column index in `out`, which is row index in `x`)\n\nWait, `out` has `cols * rows` elements.\nLet `N = cols * rows`.\nThreads are launched with `n = N` or rounded up.\nFor each `idx` from 1 to `N`:\n  `i = (idx - 1) % cols + 1`\n  `j = div(idx - 1, cols) + 1`\n  `out_idx = (j - 1) * cols + i`\n  `x_idx = (i - 1) * rows + j`\n  `out[out_idx] = x[x_idx]`\n\nLet's double check this indexing.\nSuppose `rows = 2`, `cols = 3`.\n`x` is 2x3 column-major:\n(1,1) (2,1) (1,2) (2,2) (1,3) (2,3) -> indices 1 2 3 4 5 6\n`out` is 3x2 column-major (transpose):\n(1,1) (2,1) (3,1) (1,2) (2,2) (3,2) -> indices 1 2 3 4 5 6\nValues:\nout[1] = x[1] (1,1)\nout[2] = x[3] (1,2)\nout[3] = x[5] (1,3)\nout[4] = x[2] (2,1)\nout[5] = x[4] (2,2)\nout[6] = x[6] (2,3)\n\nUsing my formula:\nidx=1: i=1, j=1. out_idx=(0)*3+1=1. x_idx=(0)*2+1=1. Correct.\nidx=2: i=2, j=1. out_idx=(0)*3+2=2. x_idx=(1)*2+1=3. Correct.\nidx=3: i=3, j=1. out_idx=(0)*3+3=3. x_idx=(2)*2+1=5. Correct.\nidx=4: i=1, j=2. out_idx=(1)*3+1=4. x_idx=(0)*2+2=2. Correct.\nidx=5: i=2, j=2. out_idx=(1)*3+2=5. x_idx=(1)*2+2=4. Correct.\nidx=6: i=3, j=2. out_idx=(1)*3+3=6. x_idx=(2)*2+2=6. Correct.\n\nSo the formula works.\n\nWe need to guard inactive invocations: `if idx <= rows * cols`\nBut `rows` and `cols` are `Int32`. Their product might overflow `Int32` if large, but typically GPU arrays are within `Int32` range. We'll cast to `Int` for safety or just use `rows * cols` as `Int`. Actually, `rows * cols` in Julia is `Int` if `rows` and `cols` are `Int32`? No, `Int32 * Int32` is `Int32`. We should probably use `Int(rows) * Int(cols)` or just `rows * cols` but cast to `Int` for the comparison, or keep it `Int32` if we assume it fits. I'll use `n = Int(rows) * Int(cols)` to be safe, or just `rows * cols` and cast to `Int` for the bound check. Actually, GPU arrays usually use `Int` for indexing in Julia, but the signature says `rows::Int32, cols::Int32`. I'll stick to `Int` for the bound check to avoid overflow issues, or just `rows * cols` and assume it fits. I'll use `n = rows * cols` but cast to `Int` for safety: `n = Int(rows) * Int(cols)`.\n\nWait, the problem says \"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\"\nSo we just check `if idx <= rows * cols`.\n\nLet's write it out:\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    n = Int(rows) * Int(cols)\n    if idx <= n\n        i = (idx - 1) % Int(cols) + 1\n        j = div(idx - 1, Int(cols)) + 1\n        out_idx = (j - 1) * Int(cols) + i\n        x_idx = (i - 1) * Int(rows) + j\n        out[idx] = x[x_idx] # Wait, out_idx is idx? Let's check.\n    end\n    return nothing\nend\n```\n\nWait, let's re-verify `out_idx`.\nFor `idx=1`, `i=1`, `j=1`, `out_idx = 0 * cols + 1 = 1`. Matches `idx`.\nFor `idx=2`, `i=2`, `j=1`, `out_idx = 0 * cols + 2 = 2`. Matches `idx`.\nFor `idx=3`, `i=3`, `j=1`, `out_idx = 0 * cols + 3 = 3`. Matches `idx`.\nFor `idx=4`, `i=1`, `j=2`, `out_idx = 1 * cols + 1 = cols + 1`. Matches `idx`!\nAh! `out_idx` is exactly `idx`!\nBecause we are iterating `idx` from 1 to `rows * cols` in column-major order of the *transposed* matrix?\nWait, `out` is `cols` x `rows` column-major.\nThe index in `out` for `(i, j)` is `(j - 1) * cols + i`.\nWe defined `i = (idx - 1) % cols + 1` and `j = div(idx - 1, cols) + 1`.\nSo `(j - 1) * cols + i` = `div(idx - 1, cols) * cols + ((idx - 1) % cols + 1)` = `idx`.\nYes! `out[idx] = x[x_idx]`.\nThat simplifies things greatly.\n\nLet's verify `x_idx`:\n`x_idx = (i - 1) * rows + j`\n`i = (idx - 1) % cols + 1`\n`j = div(idx - 1, cols) + 1`\nSo `x_idx = ((idx - 1) % cols) * rows + div(idx - 1, cols) + 1`.\n\nLet's test with `rows=2, cols=3` again.\nidx=1: i=1, j=1. x_idx = 0*2 + 1 + 1 = 2? Wait.\n`div(0, 3) = 0`. `0 % 3 = 0`.\n`x_idx = 0 * 2 + 0 + 1 = 1`. Correct.\nidx=2: i=2, j=1. x_idx = 1*2 + 0 + 1 = 3. Correct.\nidx=3: i=3, j=1. x_idx = 2*2 + 0 + 1 = 5. Correct.\nidx=4: i=1, j=2. x_idx = 0*2 + 1 + 1 = 2. Correct.\nidx=5: i=2, j=2. x_idx = 1*2 + 1 + 1 = 4. Correct.\nidx=6: i=3, j=2. x_idx = 2*2 + 1 + 1 = 6. Correct.\n\nSo `x_idx = ((idx - 1) % Int(cols)) * Int(rows) + div(idx - 1, Int(cols)) + 1`.\n\nThis is correct.\n\nLet's write it cleanly:\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    n = Int(rows) * Int(cols)\n    if idx <= n\n        i = (idx - 1) % Int(cols) + 1\n        j = div(idx - 1, Int(cols)) + 1\n        out[idx] = x[(i - 1) * Int(rows) + j]\n    end\n    return nothing\nend\n```\n\nWait, `out[idx] = x[(i - 1) * Int(rows) + j]` is correct.\nBut we can compute `x_idx` directly without `i` and `j` variables to be slightly more efficient, though it doesn't matter much.\n`x_idx = ((idx - 1) % Int(cols)) * Int(rows) + div(idx - 1, Int(cols)) + 1`\n\nLet's stick to the explicit `i` and `j` for readability, or just compute `x_idx` directly. Both are fine.\n\nOne detail: `rows` and `cols` are `Int32`. Using `Int(rows)` and `Int(cols)` is safe.\nThe problem says \"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\" So `out` and `x` are device arrays.\n\"Work is rounded up; guard inactive invocations.\" -> `if idx <= n` handles this.\n\"End the function in return nothing.\" -> `return nothing` at the end.\n\"Handle rectangular matrices, not just squares\" -> handled.\n\"no scratch memory\" -> handled.\n\"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\" -> handled by guard.\n\nLet's double check the indexing logic for `out`.\n`out` is column-major `cols` x `rows`.\nThe global index `idx` runs from 1 to `rows * cols`.\nSince `out` is also size `rows * cols`, `out[idx]` is correct.\nWait, is `out` size `cols * rows`? Yes.\nSo `out` and `x` have the same number of elements. `idx` goes up to `rows * cols`.\nSo `out[idx]` is perfectly valid.\n\nOne minor point: `KI.get_global_id().x` returns an `Int` or `Int32`? Usually `Int`.\nWe'll use `Int` for `n` and comparisons.\n\nLet's assemble the kernel:\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    n = Int(rows) * Int(cols)\n    if idx <= n\n        x_idx = ((idx - 1) % Int(cols)) * Int(rows) + div(idx - 1, Int(cols)) + 1\n        out[idx] = x[x_idx]\n    end\n    return nothing\nend\n```\n\nWait, should I use `Int32` for `n` to match `rows` and `cols`? It's safer to use `Int` to avoid overflow if `rows * cols > typemax(Int32)`, though typically GPU arrays are within `Int32` bounds. I'll stick with `Int`.\n\nLet's test this\n\nConsidering the limited time, I have to give the solution based on the thinking directly now.\n</think>\n\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    n = Int(rows) * Int(cols)\n    if idx <= n\n        x_idx = ((idx - 1) % Int(cols)) * Int(rows) + div(idx - 1, Int(cols)) + 1\n        out[idx] = x[x_idx]\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    n = Int(rows) * Int(cols)\n    if idx <= n\n        x_idx = ((idx - 1) % Int(cols)) * Int(rows) + div(idx - 1, Int(cols)) + 1\n        out[idx] = x[x_idx]\n    end\n    return nothing\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 804,
+    "generated_tokens": 3176,
+    "budget_tokens": 6144,
+    "context_tokens": 4002,
+    "truncated": false,
+    "rewinds": 1,
+    "forced_closes": 1,
+    "thinking_tokens": [
+        3072
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 47.55334401130676
+}

@@ -1,0 +1,15 @@
+{
+    "complete": true,
+    "scope": "Public callable lexicon and real tokenizer path qualification, NOT model quality",
+    "cpu_checks": 51,
+    "headers": 1432,
+    "sparse_edges": 4005,
+    "all_header_paths_accepted": true,
+    "source_sha256": {
+        "test_callable_prefix_catalog.jl": "e551943a3e5970214d31e6304027a272e0be5a63774747903b39778694c1c877",
+        "callable_prefix_catalog.jl": "a29215ef1f330df6a9be31787bfe72d48753a2dd9ab2e5a34aba7ed0391d7f8c",
+        "julia_callable_inventory.json": "f7484452b1822e5d71ec58d0743587c44d51abe96f5c75844f551e04a28d2ff1",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "capture_julia_callable_inventory.py": "12e634668c76a519a61e41ebc000259aadc01f2620026d451326cfd6c929acc3"
+    }
+}

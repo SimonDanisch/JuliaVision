@@ -1,0 +1,19 @@
+{
+    "complete": true,
+    "scope": "CPU/SOFTWARE-Vulkan syntax-state and sampler integration qualification only; NOT a model-quality or Radeon result",
+    "grammar_checks": 7700,
+    "interface_checks": 44,
+    "device_checks": 169,
+    "device": "llvmpipe (LLVM 21.1.8, 256 bits)",
+    "source_sha256": {
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "test_rpn_pointwise_interface.jl": "5dcdd8e3e92f6e03f0466185abf47f492584adcc46871cf3f29fb548fa7619e6",
+        "test_rpn_prefix_grammar.jl": "39ac77a79a441b06bedd9b21da48abe39acb1f329af57f6834eb5be450bf518e",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "test_rpn_prefix_grammar_gpu.jl": "873922cc72288e10a1d2c17064c070a048c15ffd2c42ca8081a6aa19bcef2579",
+        "rpn_prefix_grammar_gpu.jl": "59a8a69366ef94a7517996a1a1baa59466a0997f6af332720d2449af051811df"
+    }
+}

@@ -1,0 +1,43 @@
+{
+    "task": "scene_shared_y",
+    "scope": "constrained scene workflow; adapter supplies API syntax, not intrinsic coding gain",
+    "version": "v2",
+    "model": "qwen35-4b",
+    "thinking": false,
+    "inputs": [
+        "x",
+        "y"
+    ],
+    "messages": [
+        {
+            "system": "Describe the requested plot using this declarative schema. Return ONE valid JSON object. It has these keys:\n\"size\": [integer width, integer height], each between 200 and 2000.\n\"axes\": array of objects. Each has \"id\" (a unique STRING, never a number),\n\"row\" and \"col\" (ONE-BASED integer grid positions 1..4).\nOptional \"title\", \"xlabel\", \"ylabel\" are strings.\n\"plots\": array in draw order. Each has \"kind\", \"axis\" (an axis id STRING), \"x\".\nThe ONLY kinds are \"lines\", \"scatter\", \"band\". Use \"lines\", NOT \"line\".\nFor lines/scatter also include \"y\"; for band include \"lower\" and \"upper\" instead.\nOptional color STRING: blue/red/black/green/orange/gray/purple.\nOptional alpha NUMBER between 0 and 1, optional label STRING.\nData values x/y/lower/upper are input-name strings, numbers, or actual nested JSON\nOBJECTS. An absolute-value expression is {\"op\":\"abs\",\"arg\":\"a\"}.\nAn elementwise sum is {\"op\":\"+\",\"left\":\"a\",\"right\":\"b\"}.\nReplace a/b with supplied input names or nested expressions. Binary operators\nallowed: + - * /. DO NOT encode expression objects inside strings or escape them.\n\"links\": array of {\"dimension\":\"x\" or \"y\",\"axes\":[axis id strings]}.\n\"legends\": array of {\"axis\":axis id STRING,\"position\":\"lt\"/\"rt\"/\"lb\"/\"rb\"}.\n\"returns\": ordered array containing \"fig\" and requested axis id STRINGS.\nUse [] for empty links or legends. No extra fields, code, comments, or prose.\n"
+        },
+        {
+            "user": "Using Makie, write makeplot(x,y) returning (fig,left,right). Figure size (800,360). Two side-by-side Axis objects: left title Raw, right title Absolute, both xlabel Time and ylabel Value. Red lines of y versus x on left, green scatter of abs.(y) versus x on right. Link ONLY y axes. No display, save, backend activation. Code only including imports.\nInstead of Julia code, return scene JSON. Available input names: x, y"
+        }
+    ],
+    "answer": "{\n  \"size\": [800, 360],\n  \"axes\": [\n    {\n      \"id\": \"left\",\n      \"row\": 1,\n      \"col\": 1,\n      \"title\": \"Raw\",\n      \"xlabel\": \"Time\",\n      \"ylabel\": \"Value\"\n    },\n    {\n      \"id\": \"right\",\n      \"row\": 1,\n      \"col\": 2,\n      \"title\": \"Absolute\",\n      \"xlabel\": \"Time\",\n      \"ylabel\": \"Value\"\n    }\n  ],\n  \"plots\": [\n    {\n      \"kind\": \"lines\",\n      \"axis\": \"left\",\n      \"x\": \"x\",\n      \"y\": \"y\",\n      \"color\": \"red\"\n    },\n    {\n      \"kind\": \"scatter\",\n      \"axis\": \"right\",\n      \"x\": \"x\",\n      \"y\": {\"op\": \"abs\", \"arg\": \"y\"},\n      \"color\": \"green\"\n    }\n  ],\n  \"links\": [\n    {\n      \"dimension\": \"y\",\n      \"axes\": [\"left\", \"right\"]\n    }\n  ],\n  \"legends\": [],\n  \"returns\": [\"fig\", \"left\", \"right\"]\n}",
+    "code": "using Makie\nfunction makeplot(x,y)\nfig=Figure(size=(800,360))\nax1=Axis(fig[1,1];title=\"Raw\",xlabel=\"Time\",ylabel=\"Value\")\nax2=Axis(fig[1,2];title=\"Absolute\",xlabel=\"Time\",ylabel=\"Value\")\nlines!(ax1,x,y;color=:red)\nscatter!(ax2,x,abs.(y);color=:green)\nlinkyaxes!(ax1,ax2)\n(fig,ax1,ax2,)\nend",
+    "input_tokens": 504,
+    "generated_tokens": 300,
+    "budget_tokens": 512,
+    "decode_steps_executed": 384,
+    "decode_submissions": 384,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.994966983795166,
+    "input_sha256": "4606363b08e3ef443e7306372b771fde4368f6117d1a0eac7097b807e6f760c5",
+    "scene_json": "{\n  \"size\": [800, 360],\n  \"axes\": [\n    {\n      \"id\": \"left\",\n      \"row\": 1,\n      \"col\": 1,\n      \"title\": \"Raw\",\n      \"xlabel\": \"Time\",\n      \"ylabel\": \"Value\"\n    },\n    {\n      \"id\": \"right\",\n      \"row\": 1,\n      \"col\": 2,\n      \"title\": \"Absolute\",\n      \"xlabel\": \"Time\",\n      \"ylabel\": \"Value\"\n    }\n  ],\n  \"plots\": [\n    {\n      \"kind\": \"lines\",\n      \"axis\": \"left\",\n      \"x\": \"x\",\n      \"y\": \"y\",\n      \"color\": \"red\"\n    },\n    {\n      \"kind\": \"scatter\",\n      \"axis\": \"right\",\n      \"x\": \"x\",\n      \"y\": {\"op\": \"abs\", \"arg\": \"y\"},\n      \"color\": \"green\"\n    }\n  ],\n  \"links\": [\n    {\n      \"dimension\": \"y\",\n      \"axes\": [\"left\", \"right\"]\n    }\n  ],\n  \"legends\": [],\n  \"returns\": [\"fig\", \"left\", \"right\"]\n}",
+    "validation_error": null,
+    "contract_sha256": "1f0aef71ccd004bbdd55b3d8412e555fa735313949a1190b2f96350a2e0179cf",
+    "adapter_sha256": "46a9c7191f09a49fbc0d6cd530f9580417e9dcb7a31db4b813a63f8cc8268d9f",
+    "generation_source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "run_makie_scene.jl": "22849e1acbe5ca1b03cfd8a597f22f66da51c1927b0c761bcdf65eded0ecf3c3",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93"
+    }
+}

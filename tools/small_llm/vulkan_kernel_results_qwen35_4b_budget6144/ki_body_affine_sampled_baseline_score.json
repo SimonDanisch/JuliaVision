@@ -1,0 +1,11 @@
+{
+    "id": "ki_body_affine",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 8.366251945495605,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:24\ncontract: Error During Test at /input/runner.jl:24\n  Got exception outside of a @test\n  UndefVarError: `kernel!` not defined in `Main`\n  Suggestion: check for spelling errors or missing imports.\n  Stacktrace:\n   [1] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [2] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [3] _start()\n     @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.9s\nRNG of the outermost testset: Random.Xoshiro(0xf8c0e08c7c742956, 0x83df4c7e8fa6d392, 0x01ffe85b5365a144, 0xde48e277fd223715, 0xa25c8118b8544bf3)\n",
+    "log_truncated": false,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

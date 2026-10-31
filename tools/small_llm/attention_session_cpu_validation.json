@@ -1,0 +1,225 @@
+{
+    "device": "CPU llvmpipe",
+    "scope": "synthetic production-graph integration after dense reduction fix",
+    "result": {
+        "scope": "short teacher-forced logit and token parity, not general quality or long-context recall",
+        "rows": [
+            {
+                "step": 1,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 0,
+                "relrms": 0,
+                "greedy": 143,
+                "reference": 143
+            },
+            {
+                "step": 2,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 0,
+                "relrms": 0,
+                "greedy": 5,
+                "reference": 5
+            },
+            {
+                "step": 3,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 0,
+                "relrms": 0,
+                "greedy": 9,
+                "reference": 9
+            },
+            {
+                "step": 4,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 1.4901161e-7,
+                "relrms": 2.0539223e-7,
+                "greedy": 33,
+                "reference": 33
+            },
+            {
+                "step": 5,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 1.1920929e-7,
+                "relrms": 1.898421e-7,
+                "greedy": 4,
+                "reference": 4
+            },
+            {
+                "step": 6,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 1.1920929e-7,
+                "relrms": 1.7065886e-7,
+                "greedy": 1,
+                "reference": 1
+            },
+            {
+                "step": 7,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 1.7881393e-7,
+                "relrms": 1.8800277e-7,
+                "greedy": 17,
+                "reference": 17
+            },
+            {
+                "step": 8,
+                "cache": "Float32",
+                "attention": "grouped",
+                "maxabs": 1.1920929e-7,
+                "relrms": 1.8529141e-7,
+                "greedy": 8,
+                "reference": 8
+            },
+            {
+                "step": 1,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00017970055,
+                "relrms": 0.00019723101,
+                "greedy": 143,
+                "reference": 143
+            },
+            {
+                "step": 2,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00014445186,
+                "relrms": 0.00018534993,
+                "greedy": 5,
+                "reference": 5
+            },
+            {
+                "step": 3,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00013029575,
+                "relrms": 0.00018401975,
+                "greedy": 9,
+                "reference": 9
+            },
+            {
+                "step": 4,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00013029575,
+                "relrms": 0.00019507573,
+                "greedy": 33,
+                "reference": 33
+            },
+            {
+                "step": 5,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00014953129,
+                "relrms": 0.00025043834,
+                "greedy": 4,
+                "reference": 4
+            },
+            {
+                "step": 6,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00013887882,
+                "relrms": 0.00018193365,
+                "greedy": 1,
+                "reference": 1
+            },
+            {
+                "step": 7,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 9.146333e-5,
+                "relrms": 0.00013291625,
+                "greedy": 17,
+                "reference": 17
+            },
+            {
+                "step": 8,
+                "cache": "Float16",
+                "attention": "split",
+                "maxabs": 0.00015372038,
+                "relrms": 0.00022796668,
+                "greedy": 8,
+                "reference": 8
+            },
+            {
+                "step": 1,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00017970055,
+                "relrms": 0.00019723101,
+                "greedy": 143,
+                "reference": 143
+            },
+            {
+                "step": 2,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00014445186,
+                "relrms": 0.00018534993,
+                "greedy": 5,
+                "reference": 5
+            },
+            {
+                "step": 3,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00013031065,
+                "relrms": 0.00018398605,
+                "greedy": 9,
+                "reference": 9
+            },
+            {
+                "step": 4,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00013034046,
+                "relrms": 0.00019509724,
+                "greedy": 33,
+                "reference": 33
+            },
+            {
+                "step": 5,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00014952011,
+                "relrms": 0.00025043773,
+                "greedy": 4,
+                "reference": 4
+            },
+            {
+                "step": 6,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00013887882,
+                "relrms": 0.00018193365,
+                "greedy": 1,
+                "reference": 1
+            },
+            {
+                "step": 7,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 9.146333e-5,
+                "relrms": 0.00013291625,
+                "greedy": 17,
+                "reference": 17
+            },
+            {
+                "step": 8,
+                "cache": "Float16",
+                "attention": "grouped",
+                "maxabs": 0.00015372038,
+                "relrms": 0.00022795414,
+                "greedy": 8,
+                "reference": 8
+            }
+        ]
+    }
+}

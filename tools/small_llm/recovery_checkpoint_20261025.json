@@ -1,0 +1,77 @@
+{
+  "recorded_utc": "2026-10-24 22:41:22 UTC",
+  "state": "GPU_BLOCKED_ADMINISTRATOR_RECOVERY_REQUIRED",
+  "not_complete": true,
+  "blocker": {
+    "owner": "AScanner project 5fa0d385",
+    "pid": 902259,
+    "observed_process_state": "Ds",
+    "observed_wait_channel": "drm_suballoc_new",
+    "shared_lock": "/tmp/bosgame-gpu.lock",
+    "observed_lock_holder_pid": 902259,
+    "normal_waitidle_claimed": false,
+    "context": "AScanner reported amdgpu VM allocation(-12), uninterruptible kernel wait with SIGKILL pending, recovery controls requiring unavailable administrator authority. Read-only ps/fuser independently confirmed process state and lock holder.",
+    "required_before_new_setup": "Administrator recovery followed by explicit safe cleanup/release and coordinated handoff. Do not bypass advisory lock, infer idle, reuse old device contexts, or attempt a reset without authority."
+  },
+  "own_gpu_state": {
+    "last_generation_run": "r38",
+    "normal_final_waitidle_and_cache_save": true,
+    "idle_worker_retired_under_external_lock": true,
+    "no_subsequent_own_radeon_setup": true,
+    "current_worker": "CPU imports and sandboxed software-Vulkan scoring only"
+  },
+  "completed_evidence": {
+    "safe_controller_gate": "safe_reasoning_budget_full_model_validation.json",
+    "safe_controller_checks": {"radeon_fixtures": 156, "full_model_identity_activation": 9},
+    "gather_pilot": "safe_reasoning_budget_results/summary.json",
+    "paired_integrity_and_budget_audit": "safe_budget_pilot_comparison.json",
+    "pilot_result": "Same2048 total allowance: API-pack raw gather fail->pass; no-addon raw remains fail. Both controlled generations finish without truncation; decoded text before forced closure matches originals. One post-hoc task, not held-out or frontier evidence.",
+    "separate_compiler": "typed_pointwise_study_results/summary.json",
+    "compiler_result": "Both controller gather arms pass after uniform typed-input/clamp lowering plus void-tail normalization. Compiler expansion was motivated by observed failure, explicitly post-hoc; original and earlier-compiler scores preserved.",
+    "compiler_fixtures": "typed_pointwise_lowering_validation.json",
+    "intelligence_index": "intelligence_evidence.json"
+  },
+  "pending": {
+    "protocol": "safe_budget_transfer_extension_results/conditions.json",
+    "summary": "safe_budget_transfer_extension_results/summary.json",
+    "conditions": 6,
+    "attempt_receipts_present": 0,
+    "outputs_present": 0,
+    "source_and_parent_hash_validation_required": true,
+    "resume_function": "run_safe_budget_transfer_extension(;seconds=210)",
+    "watchdog_seconds": 280,
+    "coordination": "New explicit <=5-minute handoff required after recovery; no current GPU reservation. Fresh own worker, shared nonblocking flock before Device, final waitidle/cache save and idle retirement under lock, explicit release.",
+    "scoring": "score_safe_budget_transfer_extension(); score_typed_pointwise_study(); intelligence_evidence()",
+    "no_regeneration": "Immutable attempt receipt precedes generation. Preserve interrupted/backend-error attempts; never silently rerun them."
+  },
+  "other_prepared_not_qualified_or_run": [
+    "6144-token transfer budget diagnostic",
+    "native-hidden published-source datastore capture and memory quality study",
+    "real-model cross-worker sampled checkpoint gate",
+    "medical/legal/tax assistance evaluation"
+  ],
+  "additional_prospective_shared_source_study": {
+    "conditions": "shared_source_kernel_results/conditions.json",
+    "summary": "shared_source_kernel_results/summary.json",
+    "scope": "Four new authored related-family tasks; direct GPU source vs typed serial CPU source compiled for GPU, same fixed public API pack and2048 total/1024 thinking budgets. Not independent public held-out evidence.",
+    "reference_validation": "shared_source_kernel_reference_validation.json",
+    "reference_checks_passed": 28,
+    "protocol_cpu_mock_validation": "shared_source_kernel_protocol_cpu_validation.json",
+    "protocol_checks_passed": 25,
+    "registered_conditions": 8,
+    "all_eight_prompts_fit_context": true,
+    "model_generation_attempts": 0,
+    "model_quality_measured": false,
+    "resume_function": "run_shared_source_kernel_benchmark(;seconds=210)",
+    "priority": "AFTER the already frozen six-condition controller extension; requires administrator recovery and a new explicit GPU handoff. Do not regenerate old outputs."
+  },
+  "subsequent_cpu_verification": {
+    "runner_lifecycle": "safe_budget_runner_paths_cpu_validation.json",
+    "runner_checks_passed": 266,
+    "coverage": ["success and completed-run no-op", "partial-budget continuation without regeneration", "device setup failure", "model load failure", "generation failure preserved across continuation", "model close failure still invokes final cleanup", "final synchronization failure still releases the mock lock"],
+    "world_age_corrected_receipts": "safe_reasoning_receipt_v2_validation.json",
+    "receipt_checks_passed": 11,
+    "deprecation_warnings_treated_as_errors": true,
+    "scope": "Private CPU mocks only. Frozen study, source hashes, all real generation outputs and original qualification artifacts unchanged. No GPU recovery or intelligence claim."
+  }
+}

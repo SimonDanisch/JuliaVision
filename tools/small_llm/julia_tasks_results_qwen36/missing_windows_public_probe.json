@@ -1,0 +1,11 @@
+{
+    "id": "missing_windows",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.3703310489654541,
+    "diagnostic": "Union{Missing, Float64}[1.0, 5.0]\nTest Summary: | Total  Time\ncontract      |     0  0.2s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "dd2a6db88468a843bbb72e73d0590bca83a1a456673f5eb99e2a7a3b7342bd8b"
+}

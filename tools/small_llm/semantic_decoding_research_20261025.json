@@ -1,0 +1,45 @@
+{
+  "scope": "Primary-source research notes, not local implementation or model-quality evidence",
+  "checked_date": "2026-10-25",
+  "sources": [
+    {
+      "title": "ChopChop: A Programmable Framework for Semantically Constraining the Output of Language Models",
+      "url": "https://doi.org/10.1145/3776708",
+      "published": "2026-01-08",
+      "mechanism": "AST program spaces and semantic pruning during generation; demonstrations include type safety and reference-program equivalence under rewrite rules.",
+      "local_inference": "Our stack-depth RPN grammar cannot ensure task arithmetic. A stronger semantic-pruner experiment needs explicitly public specifications; giving private benchmark references to the decoder would invalidate the comparison.",
+      "not_established": "Arbitrary Julia correctness, natural-language specification grounding, frontier intelligence, or our GPU throughput"
+    },
+    {
+      "title": "Type-Constrained Code Generation with Language Models",
+      "url": "https://doi.org/10.1145/3729274",
+      "artifact": "https://github.com/eth-sri/type-constrained-code-generation",
+      "published": "2025-06-13",
+      "mechanism": "Type-prefix automata and inhabitation analysis constrain code before sampling; evaluated for synthesis, translation and repair.",
+      "local_inference": "A Julia adaptation should begin with a sound restricted typed language and fail closed on unsupported dispatch. JET diagnostics after a complete program are not equivalent to a completable-prefix type checker.",
+      "not_established": "A sound checker for unrestricted Julia dynamic dispatch or a completed local port"
+    },
+    {
+      "title": "TreeCoder: Systematic Exploration and Optimisation of Decoding and Constraints for LLM Code Generation",
+      "url": "https://doi.org/10.1145/3808347",
+      "published": "2026-06-08",
+      "mechanism": "Decoding as tree search with configurable constraint and search components.",
+      "local_inference": "Any branching comparison must record total inference tokens, wall time and all attempts; a best-of-many success is not a fair pass-at-one replacement.",
+      "not_established": "Local reproduction or an equal-cost improvement on our Julia tasks"
+    },
+    {
+      "title": "RAR: Retrieval Augmented Retrieval for Code Generation in Low Resource Languages",
+      "url": "https://www.microsoft.com/en-us/research/publication/rar-retrieval-augmented-retrieval-for-code-generation-in-low-resource-languages/",
+      "published": "2024-09",
+      "mechanism": "Two-stage retrieval combining examples and documentation in low-resource-language code generation.",
+      "local_inference": "Source-example retrieval is distinct from our old docstring-only BM25 study. Alias grouping does not replace relevance selection, and neither is yet a demonstrated local model improvement.",
+      "not_established": "Performance on Julia or our Qwen runner"
+    }
+  ],
+  "evaluation_guardrails": [
+    "Do not feed private scorer formulas, expected arrays or hidden tests into generation or semantic constraints",
+    "Separate syntax validity, type safety, public-example agreement and independent functional correctness",
+    "Record uncompleted searches and all inference/solver costs; preserve matched controls and original failures",
+    "Check software and physical-device parity before claiming a shared-kernel implementation is qualified"
+  ]
+}

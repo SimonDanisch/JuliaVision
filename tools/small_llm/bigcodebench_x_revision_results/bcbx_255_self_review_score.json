@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.17299185902811587,
+  "stdout_tail": "",
+  "stderr_tail": "\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 6, in test_cases\nAssertionError\n",
+  "program_sha256": "01fc2b025b2b1cdeb4a1c8b3523db190ec151b4b8e4b3be1f60ce06e7a34aae0",
+  "test_suite_sha256": "cde8d7178ca67935f3860e4a94971e625b5200210c3ae9977bc4902fd028deb9",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c"
+}

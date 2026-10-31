@@ -1,0 +1,90 @@
+{
+    "task": "ki_body_atomic_max",
+    "seed": 20261028,
+    "arm": "direct",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,labels,x,n::Int32). For every1<=i<=n atomically update out[labels[i]] to the maximum of its old value and x[i]. labels are valid1-based Int32 indices. x/out are Float32, out initially -Inf. Many workgroups contend for the same outputs: a normal load followed by an atomic STORE is NOT a valid maximum RMW. Use current Atomix.jl with explicit :monotonic ordering: only this independent reduction result is read after kernel completion. Ignore rounded-up threads past n. No scratch arrays or host reductions."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia kernel function `kernel!(out, labels, x, n::Int32)` that performs a parallel reduction.\nSpecifically, for every `i` from 1 to `n`, we need to update `out[labels[i]]` with `max(out[labels[i]], x[i])`.\nThe user specifies:\n- Use `KernelInterface` as `KI`.\n- Global 1D index is `KI.get_global_id().x`.\n- Do NOT create devices, compile/launch kernels, use `KernelAbstractions @kernel`, or write host wrappers.\n- Arguments are device arrays/scalars.\n- Indices are 1-based.\n- Return nothing.\n- Signature: `kernel!(out, labels, x, n::Int32)`.\n- `labels` are valid 1-based `Int32` indices.\n- `x` and `out` are `Float32`.\n- `out` is initially `-Inf`.\n- Many workgroups contend for the same outputs: a normal load followed by an STORE is NOT a valid maximum RMW.\n- Use current `Atomix.jl` with explicit `:monotonic` ordering.\n- Only this independent reduction result is read after kernel completion.\n- Ignore rounded-up threads past `n`.\n- No scratch arrays or host reductions.\n\nWait, the user mentions `Atomix.jl`. `Atomix.jl` is a package for atomic operations in Julia, often used with GPU backends or specific parallel contexts.\nHowever, standard GPU programming in Julia usually involves `AtomicOperations.jl` or built-in atomic functions in `CUDA.jl` or `KernelAbstractions.jl`.\nThe prompt specifically asks to use `Atomix.jl` with explicit `:monotonic` ordering.\nLet's check the syntax for `Atomix.jl`.\nUsually, it might look like `Atomix.atomic_max!(out, idx, val, order)` or similar.\nOr perhaps `Atomix.atomic_max(out, idx, val, order)`.\nThe prompt says \"Use current Atomix.jl with explicit :monotonic ordering\".\nLet's assume the API is `Atomix.atomic_max!(out, idx, x[i], :monotonic)` or `Atomix.atomic_max(out, idx, x[i], :monotonic)`.\nActually, `Atomix.jl` might use `Atomix.atomic_max` returning the result, or `Atomix.atomic_max!` updating in place.\nGiven the requirement to update `out` in place with the maximum, `atomic_max!` is the likely candidate.\nThe index needs to be converted to a pointer or offset?\nIn Julia GPU kernels, arrays are often accessed via indexing.\nIf `out` is a device array, `out[idx]` might not be atomic.\n`Atomix.jl` likely provides an interface to perform atomic operations on device memory.\nCommon pattern: `Atomix.atomic_max!(out, idx, val, :monotonic)`.\nOr `Atomix.atomic_max(out, idx, val, :monotonic)`.\nLet's look at `Atomix.jl` documentation mentally.\n`Atomix.jl` provides `Atomix.atomic_max` and `Atomix.atomic_max!`.\nThe signature is usually `atomic_max!(A, i, val, order)`.\nHere `A` is the array, `i` is the index.\nSince indices are 1-based, `labels[i]` is the index.\nSo `Atomix.atomic_max!(out, labels[i], x[i], :monotonic)`.\nWait, `labels` is an array. `labels[i]` accesses the element.\nIs `labels` a device array? Yes, \"Arguments are device arrays/scalars\".\nSo `labels[i]` works.\nThe index `labels[i]` is `Int32`.\n`out` is `Float32`.\nSo `Atomix.atomic_max!(out, labels[i], x[i], :monotonic)` seems correct.\nLet's verify the index type. `Atomix` might expect `Int` or `Int32`. `Int32` should be fine.\nAlso, need to handle bounds checking. `i` is the global thread index.\n`n` is the limit.\nSo `i = KI.get_global_id().x`.\n`if i <= n` check is needed.\nInside the kernel:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.atomic_max!(out, labels[i], x[i], :monotonic)\n    end\n    return nothing\nend\n```\nWait, `Atomix.jl` might require `Atomix.atomic_max` to return the value?\nNo, `atomic_max!` updates the value and returns the old value usually, or just updates.\nThe prompt asks to \"atomically update out[labels[i]] to the maximum\".\nSo `atomic_max!` is the right operation.\nWhat about the ordering? `:monotonic` is requested.\nIs `:monotonic` the correct symbol?\nYes, `:monotonic` is a standard ordering in Julia atomics.\nWait, `Atomix.jl` might use `Ordering.monotonic`?\nThe prompt says \"explicit :monotonic ordering\".\nThis suggests the symbol `:monotonic` is used.\nSo `:monotonic` is likely the argument.\nAlso, `out` and `x` are `Float32`.\n`labels` are `Int32`.\nSo `out` is `Vector{Float32}` or similar.\n`labels` is `Vector{Int32}`.\n`x` is `Vector{Float32}`.\nThe kernel signature matches.\nOne detail: `Atomix.jl` might need `Atomix.@atomic` macro?\nNo, `Atomix.jl` usually provides functions.\nOr maybe `Atomix.atomic_max` is the function.\nLet's check if `Atomix.jl` has `atomic_max!`.\nYes, `Atomix.atomic_max!` is standard.\nThe index might need to be a pointer?\nIn `CUDA.jl`, `atomic_max!` takes an array and index.\n`Atomix.jl` is designed to be backend agnostic or provide a unified interface.\nIt likely mimics `CUDA.atomic_max!` or `AtomicOperations`.\nSo `Atomix.atomic_max!(out, labels[i], x[i], :monotonic)` should work.\nWait, `labels[i]` is `Int32`.\nDoes `Atomix` accept `Int32` indices?\nUsually yes.\nAlso, `out` might be a `DeviceArray`.\nThe prompt mentions \"Arguments are device arrays\".\nSo `out` is a device array.\nThe code should be:\n```julia\nusing KernelInterface\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.atomic_max!(out, labels[i], x[i], :monotonic)\n    end\n    return nothing\nend\n```\nWait, the prompt says \"Use KernelInterface as KI\".\nSo `using KernelInterface` and alias `KI`?\nOr just `using KernelInterface` and use `KI`?\nThe prompt says \"Use KernelInterface as KI\".\nThis usually means `const KI = KernelInterface` or `using KernelInterface as KI`.\nJulia supports `using Module as Alias`.\nSo `using KernelInterface as KI`.\nAnd `using Atomix`.\nThe prompt says \"Return only the requested executable kernel code\".\n\"optionally including imports\".\nSo I should include `using KernelInterface as KI` and `using Atomix`.\nThe signature is `kernel!(out,labels,x,n::Int32)`.\nThe code block should contain the function definition.\nLet's double check `Atomix.jl` API.\n`Atomix.atomic_max!(A, i, val, order)` updates `A[i]` with `max(A[i], val)`.\nReturns the old value?\nUsually `atomic_max!` returns the old value in some libraries, or nothing in others.\nIn `CUDA.jl`, `atomic_max!` returns the old value.\nIn `Atomix.jl`, it likely returns the old value too.\nBut the return value of the kernel is ignored anyway.\nSo `Atomix.atomic_max!(out, labels[i], x[i], :monotonic)` is safe.\nIs `:monotonic` the correct keyword?\nJulia's `Base.AtomicOrdering` has `:monotonic`.\nYes.\nSo `:monotonic` is correct.\nThe index `labels[i]` is `Int32`.\n`out` is `Float32`.\nEverything matches.\nOne nuance: `labels` indices are 1-based.\n`out` indices are 1-based.\n`KI.get_global_id().x` is 1-based?\nThe prompt says \"a global1D index is KI.get_global_id().x\".\nAnd \"Indices are1-based\".\nSo `KI.get_global_id().x` returns a 1-based index.\nSo `i` is 1-based.\n`if i <= n` handles the bounds.\n`labels[i]` accesses `labels` at `i`.\n`x[i]` accesses `x` at `i`.\n`out[labels[i]]` is the target.\nSo `Atomix.atomic_max!(out, labels[i], x[i], :monotonic)` updates `out` at index `labels[i]`.\nThis looks solid.\nResulting code:\n```julia\nusing KernelInterface as KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.atomic_max!(out, labels[i], x[i], :monotonic)\n    end\n    return nothing\nend\n```\nWait, `Atomix.jl` might require `Atomix.@atomic`?\nNo, `Atomix.jl` provides functions like `atomic_max!`.\nThe prompt mentions \"Use current Atomix.jl\".\nThis implies the function interface is available.\nThe prompt mentions \"explicit :monotonic ordering\".\nThis confirms the argument.\nSo the code seems correct.\nOne check: `labels` and `x` are device arrays.\nAccessing `labels[i]` inside the kernel is standard for device arrays in `KernelInterface`?\n`KernelInterface` usually wraps device arrays to allow indexing.\nSo `labels[i]` works.\n`out` is also a device array.\n`Atomix.atomic_max!` handles the atomic operation on the device memory.\nSo the code is valid.\nFinal check on imports.\n`using KernelInterface as KI` is good.\n`using Atomix` is good.\nFunction signature matches.\nLogic matches.\nBounds check matches.\nOrdering matches.\nReturn nothing matches.\nIndices 1-based matches.\n`Float32` types match.\n`Int32` n matches.\n`labels` valid indices matches.\nContention handled by atomic max matches.\nNo scratch arrays matches.\nNo host reductions matches.\nIgnore rounded-up threads matches via `if i <= n`.\nSo the solution is ready.\n</think>\n\n```julia\nusing KernelInterface as KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.atomic_max!(out, labels[i], x[i], :monotonic)\n    end\n    return nothing\nend\n```",
+    "code": "using KernelInterface as KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.atomic_max!(out, labels[i], x[i], :monotonic)\n    end\n    return nothing\nend\n",
+    "input_tokens": 226,
+    "generated_tokens": 2590,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2688,
+    "decode_submissions": 2688,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 36.4462890625,
+    "input_sha256": "e43e947f04647576704e3ad2e7952e282ce87cc17f21b27768a9e8cae417b751",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261028,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2689,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": null
+}

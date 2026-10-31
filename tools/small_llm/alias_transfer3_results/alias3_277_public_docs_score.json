@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.1943301549181342,
+  "stdout_tail": "",
+  "stderr_tail": "\u250c Warning: Assignment to `min_dist` in soft scope is ambiguous because a global variable by the same name exists: `min_dist` will be treated as a new local. Disambiguate by using `local min_dist` to suppress this warning or `global min_dist` to assign to the existing global variable.\n\u2514 @ /input/program.jl:23\n\u250c Warning: Assignment to `closest_pair` in soft scope is ambiguous because a global variable by the same name exists: `closest_pair` will be treated as a new local. Disambiguate by using `local closest_pair` to suppress this warning or `global closest_pair` to assign to the existing global variable.\n\u2514 @ /input/program.jl:24\nERROR: LoadError: UndefVarError: `min_dist` not defined in local scope\nSuggestion: check for an assignment to a local variable that shadows a global of the same name.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:22\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:5\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 4, in test_cases\nAssertionError\n",
+  "program_sha256": "2c60ee87cb381384ddbf45f19a302f0b169e1faa013b20812329f1ce8d8b18a8",
+  "test_suite_sha256": "6959d101a1b4c94056f45a4096f84588fc134608d8f25631dfc3ad933d327496",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "edcf1e75ed6657ff36a1b57fc233b5e9146aa8bf423e90d8ff45dee1edc2262d"
+}

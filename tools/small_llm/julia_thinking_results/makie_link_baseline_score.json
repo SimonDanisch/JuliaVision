@@ -1,0 +1,9 @@
+{
+    "id": "makie_link",
+    "passed": false,
+    "exitcode": 1,
+    "elapsed_seconds": 49.33081912994385,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  UndefVarError: `title!` not defined in `Main`\n  Suggestion: check for spelling errors or missing imports.\n  Stacktrace:\n   [1] top-level scope\n     @ /input/candidate.jl:19\n   [2] top-level scope\n     @ /input/runner.jl:5\n   [3] macro expansion\n     @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n   [4] macro expansion\n     @ /input/runner.jl:5 [inlined]\n   [5] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [6] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [7] _start()\n     @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  4.9s\nRNG of the outermost testset: Random.Xoshiro(0x0149d2f3460b9282, 0x79e99e4e19970705, 0xbe6e3372194c4f0e, 0xac1d3e1389a210bf, 0xdbfa61a0d4bca810)\n",
+    "log_truncated": false,
+    "code_sha256": "355d8aa8cc6bb161ef47ec9b82e22615c9ce58e6d6fdc5adbf32376f6a15a54e"
+}

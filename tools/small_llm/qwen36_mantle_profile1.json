@@ -1,0 +1,5906 @@
+{
+    "source_sha256": {
+        "qwen36_moe_model.jl": "7b5b6e234686869f55264bc04c0a368fa1b520fe3b2b1fa127d32078f52ebd31",
+        "qwen36_gguf_kernels.jl": "6947e201b758408ccdeb0cee1fd5fd8f998c4b4a568a136ca3967bf0f6cbdf60",
+        "qwen36_optim.jl": "e171c42b5bcb1ab153a623fef126d49544218ec1f8dbd07d7497b743ddc014cc",
+        "profile_qwen36_optim.jl": "6f6cc1debb0d8a9fd13eaa5d54039c305e0ca0ad1ddc267f686b8c8db46c49b3"
+    },
+    "pass_count": 927,
+    "normal_final_waitidle": true,
+    "graph": {
+        "peak": 386432,
+        "naive": 6052256,
+        "barrier_passes": 927,
+        "alias_handovers": 585
+    },
+    "passes": [
+        {
+            "name": "updates",
+            "gpu_ms": 0.00012022843551635742,
+            "samples": 7
+        },
+        {
+            "name": "embedding_q4",
+            "gpu_ms": 0.004809137420654297,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.input_norm",
+            "gpu_ms": 0.00885682808303833,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05602645095062256,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02657048424911499,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.conv",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.gdn",
+            "gpu_ms": 0.019997996440887452,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.out.q8",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.out",
+            "gpu_ms": 0.02604949436187744,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014227031536102296,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.route",
+            "gpu_ms": 0.008055305179595948,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.shared_input.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.experts.gate_up",
+            "gpu_ms": 0.05302074006271362,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.experts.swiglu",
+            "gpu_ms": 0.0014828173713684082,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.experts.down.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.experts.down",
+            "gpu_ms": 0.03502655088043213,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.shared.swiglu",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.shared.down",
+            "gpu_ms": 0.008696523502349854,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.combine",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.residual_next_norm",
+            "gpu_ms": 0.008215609760284424,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05646728854751587,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.027251778717041014,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.00372708150100708,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.conv",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.repeat_qk",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.gdn",
+            "gpu_ms": 0.019877768005371093,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.out.q8",
+            "gpu_ms": 0.00464883283996582,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.out",
+            "gpu_ms": 0.027732692459106444,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.residual_norm",
+            "gpu_ms": 0.007293858421325684,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015349163600921631,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared_input.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.gate_up",
+            "gpu_ms": 0.05342150151443482,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.swiglu",
+            "gpu_ms": 0.0014427412261962891,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.down",
+            "gpu_ms": 0.03570784534835816,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.down",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.combine",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.residual_next_norm",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05538523262786865,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.027612464023590088,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.conv",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.gdn",
+            "gpu_ms": 0.020278529457092284,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.out.q8",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.out",
+            "gpu_ms": 0.028213606201171876,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.residual_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014828173713684082,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.route",
+            "gpu_ms": 0.008015229034423829,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.gate_up",
+            "gpu_ms": 0.05526500419235229,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.down",
+            "gpu_ms": 0.03546738847732544,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.gate_up",
+            "gpu_ms": 0.008496142776489258,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.down",
+            "gpu_ms": 0.008255685905456544,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.combine",
+            "gpu_ms": 0.0033263200492858885,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.residual_next_norm",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.q",
+            "gpu_ms": 0.04937381085205078,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.v",
+            "gpu_ms": 0.006291954792022705,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.prepare_q",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.prepare_kv",
+            "gpu_ms": 0.0047289851303100585,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.attention",
+            "gpu_ms": 0.017553351585388184,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.combine",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.out.q8",
+            "gpu_ms": 0.0024045687103271484,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.out",
+            "gpu_ms": 0.02653040810394287,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.residual_norm",
+            "gpu_ms": 0.006492335517883301,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.01450756455230713,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared_input.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.gate_up",
+            "gpu_ms": 0.05646728854751587,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.down",
+            "gpu_ms": 0.03530708389663696,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.down",
+            "gpu_ms": 0.008977056518554688,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.combine",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.residual_next_norm",
+            "gpu_ms": 0.00797515288925171,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.049774572303771976,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.conv",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.gdn",
+            "gpu_ms": 0.019837691860198976,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.out.q8",
+            "gpu_ms": 0.004448452114105225,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.out",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013986574665069581,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared_input.q8",
+            "gpu_ms": 0.0025247971458435057,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.gate_up",
+            "gpu_ms": 0.0531810446434021,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.down",
+            "gpu_ms": 0.03590822607421875,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.gate_up",
+            "gpu_ms": 0.008295762050628663,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.down.q8",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.down",
+            "gpu_ms": 0.00885682808303833,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.combine",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.residual_next_norm",
+            "gpu_ms": 0.00797515288925171,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04877266867446899,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.027091474136352538,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.conv",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.repeat_qk",
+            "gpu_ms": 0.0017633503875732423,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.gdn",
+            "gpu_ms": 0.019356778118133546,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.out.q8",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.out",
+            "gpu_ms": 0.027612464023590088,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.residual_norm",
+            "gpu_ms": 0.006492335517883301,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015790001197814943,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.gate_up",
+            "gpu_ms": 0.05406271983718872,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.swiglu",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.down.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.down",
+            "gpu_ms": 0.029536118991851806,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.gate_up",
+            "gpu_ms": 0.008696523502349854,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.down.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.down",
+            "gpu_ms": 0.008095381324768067,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.combine",
+            "gpu_ms": 0.0034064723396301268,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.residual_next_norm",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04985472459411621,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003687005355834961,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.conv",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.repeat_qk",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.gdn",
+            "gpu_ms": 0.02043883403778076,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.out.q8",
+            "gpu_ms": 0.004849213565826416,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.out",
+            "gpu_ms": 0.027372007152557373,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.residual_norm",
+            "gpu_ms": 0.00701332540512085,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.01587015348815918,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared_input.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.gate_up",
+            "gpu_ms": 0.05602645095062256,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.down",
+            "gpu_ms": 0.02929566212081909,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.swiglu",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.down.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.combine",
+            "gpu_ms": 0.0034064723396301268,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.residual_next_norm",
+            "gpu_ms": 0.008295762050628663,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.q",
+            "gpu_ms": 0.049213506271362305,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.k",
+            "gpu_ms": 0.0057709649047851565,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.v",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.prepare_q",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.prepare_kv",
+            "gpu_ms": 0.0040476906623840335,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.attention",
+            "gpu_ms": 0.018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.combine",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.out.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.out",
+            "gpu_ms": 0.026690712684631347,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.residual_norm",
+            "gpu_ms": 0.006933173114776611,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014387336116790772,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared_input.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.gate_up",
+            "gpu_ms": 0.05498447117614746,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.down",
+            "gpu_ms": 0.03037771804046631,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.gate_up",
+            "gpu_ms": 0.009017132663726807,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.down",
+            "gpu_ms": 0.008175533615112305,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.combine",
+            "gpu_ms": 0.003646929210662842,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.residual_next_norm",
+            "gpu_ms": 0.009017132663726807,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.050135257610321046,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026410179668426514,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.gdn",
+            "gpu_ms": 0.02043883403778076,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.out.q8",
+            "gpu_ms": 0.004448452114105225,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.out",
+            "gpu_ms": 0.02564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.residual_norm",
+            "gpu_ms": 0.006652640098571777,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014307183826446534,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared_input.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.gate_up",
+            "gpu_ms": 0.052018836433410647,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.down",
+            "gpu_ms": 0.029455966701507567,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.down.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.down",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.combine",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.residual_next_norm",
+            "gpu_ms": 0.008977056518554688,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04877266867446899,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02693116955566406,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.conv",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.repeat_qk",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.gdn",
+            "gpu_ms": 0.02095982392501831,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.out.q8",
+            "gpu_ms": 0.004608756694793701,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.out",
+            "gpu_ms": 0.02753231173324585,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015629696617126466,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.gate_up",
+            "gpu_ms": 0.054663862014770505,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.down",
+            "gpu_ms": 0.030137261169433594,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.down.q8",
+            "gpu_ms": 0.0017633503875732423,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.combine",
+            "gpu_ms": 0.0034064723396301268,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.residual_next_norm",
+            "gpu_ms": 0.008175533615112305,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.0496142677230835,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026209798942565917,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.conv",
+            "gpu_ms": 0.0029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.gdn",
+            "gpu_ms": 0.020759443199157714,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.out.q8",
+            "gpu_ms": 0.004288147533416748,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.out",
+            "gpu_ms": 0.027171626426696776,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015669772762298584,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.route",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared_input.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.gate_up",
+            "gpu_ms": 0.05526500419235229,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.down",
+            "gpu_ms": 0.02941589055633545,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.residual_next_norm",
+            "gpu_ms": 0.008095381324768067,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.q",
+            "gpu_ms": 0.04929365856170654,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.k",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.v",
+            "gpu_ms": 0.005931269485473633,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.prepare_q",
+            "gpu_ms": 0.0035267007751464846,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.prepare_kv",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.attention",
+            "gpu_ms": 0.017914036891937254,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.combine",
+            "gpu_ms": 0.0024446448554992675,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.out.q8",
+            "gpu_ms": 0.0024847210006713866,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.out",
+            "gpu_ms": 0.02612964665222168,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.residual_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014347259971618653,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared_input.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.gate_up",
+            "gpu_ms": 0.054663862014770505,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.down",
+            "gpu_ms": 0.029976956588745118,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.gate_up",
+            "gpu_ms": 0.00889690422821045,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.down.q8",
+            "gpu_ms": 0.0017633503875732423,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.down",
+            "gpu_ms": 0.00797515288925171,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.residual_next_norm",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05029556219100952,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02657048424911499,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.conv",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.repeat_qk",
+            "gpu_ms": 0.0014828173713684082,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.gdn",
+            "gpu_ms": 0.019797615715026855,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.out.q8",
+            "gpu_ms": 0.004328223678588867,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.out",
+            "gpu_ms": 0.02576896134567261,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014267107681274415,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared_input.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.gate_up",
+            "gpu_ms": 0.0523394455947876,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.swiglu",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.down",
+            "gpu_ms": 0.028694519943237306,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.swiglu",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.down",
+            "gpu_ms": 0.007854924453735352,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.residual_next_norm",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048612364093780516,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.conv",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.gdn",
+            "gpu_ms": 0.021200280796051026,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.out.q8",
+            "gpu_ms": 0.004328223678588867,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.out",
+            "gpu_ms": 0.02713155028152466,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.residual_norm",
+            "gpu_ms": 0.00653241166305542,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014788097568511963,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.gate_up",
+            "gpu_ms": 0.05502454732131958,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.down",
+            "gpu_ms": 0.02901512910461426,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.down.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.down",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.residual_next_norm",
+            "gpu_ms": 0.008295762050628663,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048652440238952634,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026370103523254394,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0034064723396301268,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.conv",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.gdn",
+            "gpu_ms": 0.02055906247329712,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.out.q8",
+            "gpu_ms": 0.004248071388244629,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.out",
+            "gpu_ms": 0.027091474136352538,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015469392036437988,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared_input.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.gate_up",
+            "gpu_ms": 0.05374211067581177,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.swiglu",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.down",
+            "gpu_ms": 0.029536118991851806,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.gate_up",
+            "gpu_ms": 0.008496142776489258,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.down.q8",
+            "gpu_ms": 0.0016431219520568847,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.residual_next_norm",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.q",
+            "gpu_ms": 0.04877266867446899,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.v",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.prepare_q",
+            "gpu_ms": 0.0037671576461791993,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.prepare_kv",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.attention",
+            "gpu_ms": 0.017994189182281493,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.combine",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.out.q8",
+            "gpu_ms": 0.0025247971458435057,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.out",
+            "gpu_ms": 0.02612964665222168,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.residual_norm",
+            "gpu_ms": 0.006291954792022705,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014146879245758057,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.gate_up",
+            "gpu_ms": 0.055144775756835934,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.down",
+            "gpu_ms": 0.029095281394958497,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.gate_up",
+            "gpu_ms": 0.008816751937866211,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.down.q8",
+            "gpu_ms": 0.0017633503875732423,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.residual_next_norm",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.050055105319976805,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.conv",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.repeat_qk",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.gdn",
+            "gpu_ms": 0.020398757892608643,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.out.q8",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.out",
+            "gpu_ms": 0.025969342071533202,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.residual_norm",
+            "gpu_ms": 0.006772868534088134,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014267107681274415,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared_input.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.gate_up",
+            "gpu_ms": 0.05225929330444336,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.down.q8",
+            "gpu_ms": 0.002645025581359863,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.down",
+            "gpu_ms": 0.028093377765655517,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.combine",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.residual_next_norm",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04849213565826416,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02665063653945923,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.gdn",
+            "gpu_ms": 0.02043883403778076,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.out.q8",
+            "gpu_ms": 0.004929365856170654,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.out",
+            "gpu_ms": 0.027171626426696776,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.residual_norm",
+            "gpu_ms": 0.006893096969604492,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015349163600921631,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared_input.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.gate_up",
+            "gpu_ms": 0.055826070224761964,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.down.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.down",
+            "gpu_ms": 0.028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.gate_up",
+            "gpu_ms": 0.008816751937866211,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.down.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.down",
+            "gpu_ms": 0.007895000598907471,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.residual_next_norm",
+            "gpu_ms": 0.008175533615112305,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04913335398101806,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02661056039428711,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.conv",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.repeat_qk",
+            "gpu_ms": 0.0018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.gdn",
+            "gpu_ms": 0.020679290908813475,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.out.q8",
+            "gpu_ms": 0.004167919097900391,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.out",
+            "gpu_ms": 0.02741208329772949,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014427412261962891,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared_input.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.gate_up",
+            "gpu_ms": 0.05530508033752441,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.down.q8",
+            "gpu_ms": 0.0024045687103271484,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.down",
+            "gpu_ms": 0.029536118991851806,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.down.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.down",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.residual_next_norm",
+            "gpu_ms": 0.007854924453735352,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.q",
+            "gpu_ms": 0.04881274481964111,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.k",
+            "gpu_ms": 0.005811041049957276,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.v",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.prepare_q",
+            "gpu_ms": 0.003687005355834961,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.prepare_kv",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.attention",
+            "gpu_ms": 0.018234646053314207,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.combine",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.out.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.out",
+            "gpu_ms": 0.026370103523254394,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.residual_norm",
+            "gpu_ms": 0.006933173114776611,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013866346229553222,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.gate_up",
+            "gpu_ms": 0.05414287212753296,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.down.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.down",
+            "gpu_ms": 0.029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.down.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.residual_next_norm",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.050175333755493164,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02653040810394287,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.gdn",
+            "gpu_ms": 0.019797615715026855,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.out.q8",
+            "gpu_ms": 0.00420799524307251,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.out",
+            "gpu_ms": 0.02576896134567261,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014106803100585938,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.gate_up",
+            "gpu_ms": 0.051818455707550046,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.down",
+            "gpu_ms": 0.029215509830474853,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.gate_up",
+            "gpu_ms": 0.008375914340972901,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.down.q8",
+            "gpu_ms": 0.0016431219520568847,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.residual_next_norm",
+            "gpu_ms": 0.008095381324768067,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04901312554550171,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.conv",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.gdn",
+            "gpu_ms": 0.020398757892608643,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.out.q8",
+            "gpu_ms": 0.00420799524307251,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.out",
+            "gpu_ms": 0.027812844749450685,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014828173713684082,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.gate_up",
+            "gpu_ms": 0.053341349224090576,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.down",
+            "gpu_ms": 0.02941589055633545,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.gate_up",
+            "gpu_ms": 0.008696523502349854,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.down.q8",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.residual_next_norm",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04889289710998535,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02665063653945923,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.gdn",
+            "gpu_ms": 0.019917844150543214,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.out.q8",
+            "gpu_ms": 0.004248071388244629,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.out",
+            "gpu_ms": 0.02657048424911499,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.residual_norm",
+            "gpu_ms": 0.006291954792022705,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015469392036437988,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared_input.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.gate_up",
+            "gpu_ms": 0.05462378586959839,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.down",
+            "gpu_ms": 0.02929566212081909,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.down",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.residual_next_norm",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.q",
+            "gpu_ms": 0.047810841190338134,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.v",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.prepare_q",
+            "gpu_ms": 0.0035667769203186037,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.prepare_kv",
+            "gpu_ms": 0.0038072337913513184,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.attention",
+            "gpu_ms": 0.018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.combine",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.out.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.out",
+            "gpu_ms": 0.026410179668426514,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.residual_norm",
+            "gpu_ms": 0.006652640098571777,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013946498519897462,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.route",
+            "gpu_ms": 0.007494239147186279,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.gate_up",
+            "gpu_ms": 0.05530508033752441,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.down",
+            "gpu_ms": 0.029496042846679688,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.down.q8",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.down",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.residual_next_norm",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048732592529296875,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0035667769203186037,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.conv",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.gdn",
+            "gpu_ms": 0.01995792029571533,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.out.q8",
+            "gpu_ms": 0.004288147533416748,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.out",
+            "gpu_ms": 0.025889189781188964,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.residual_norm",
+            "gpu_ms": 0.006291954792022705,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014066726955413819,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared_input.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.gate_up",
+            "gpu_ms": 0.052139064868927,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.down",
+            "gpu_ms": 0.028173530055999756,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.gate_up",
+            "gpu_ms": 0.00889690422821045,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.down.q8",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.combine",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.residual_next_norm",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048852820964813234,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026209798942565917,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.conv",
+            "gpu_ms": 0.0029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.gdn",
+            "gpu_ms": 0.019797615715026855,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.out.q8",
+            "gpu_ms": 0.004288147533416748,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.out",
+            "gpu_ms": 0.027291854862213135,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.residual_norm",
+            "gpu_ms": 0.006652640098571777,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015028554439544678,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.gate_up",
+            "gpu_ms": 0.05446348128890991,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.down",
+            "gpu_ms": 0.028734596088409423,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.down.q8",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.residual_next_norm",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04821160264205933,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026370103523254394,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0035267007751464846,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.gdn",
+            "gpu_ms": 0.020198377166748046,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.out.q8",
+            "gpu_ms": 0.00420799524307251,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.out",
+            "gpu_ms": 0.02657048424911499,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.01446748840713501,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.gate_up",
+            "gpu_ms": 0.05574591793441772,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.down",
+            "gpu_ms": 0.029175433685302735,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.gate_up",
+            "gpu_ms": 0.008977056518554688,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.down.q8",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.residual_next_norm",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.q",
+            "gpu_ms": 0.04889289710998535,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.k",
+            "gpu_ms": 0.005851117195129395,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.v",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.prepare_q",
+            "gpu_ms": 0.0035667769203186037,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.prepare_kv",
+            "gpu_ms": 0.003967538372039795,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.attention",
+            "gpu_ms": 0.017393047004699708,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.combine",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.out.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.out",
+            "gpu_ms": 0.0261697227973938,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014186955390930176,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.gate_up",
+            "gpu_ms": 0.055585613353729246,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.down",
+            "gpu_ms": 0.030337641895294188,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.down.q8",
+            "gpu_ms": 0.0016431219520568847,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.down",
+            "gpu_ms": 0.008095381324768067,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.residual_next_norm",
+            "gpu_ms": 0.008215609760284424,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04889289710998535,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0038072337913513184,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.conv",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.gdn",
+            "gpu_ms": 0.019717463424682617,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.out.q8",
+            "gpu_ms": 0.00420799524307251,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.out",
+            "gpu_ms": 0.025889189781188964,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013866346229553222,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.gate_up",
+            "gpu_ms": 0.05153792269134522,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.down.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.down",
+            "gpu_ms": 0.028373910781860353,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.swiglu",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.down",
+            "gpu_ms": 0.007494239147186279,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.combine",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.residual_next_norm",
+            "gpu_ms": 0.008135457469940186,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04813145035171509,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02661056039428711,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0033263200492858885,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.conv",
+            "gpu_ms": 0.0029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.gdn",
+            "gpu_ms": 0.02043883403778076,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.out.q8",
+            "gpu_ms": 0.004328223678588867,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.out",
+            "gpu_ms": 0.02713155028152466,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.residual_norm",
+            "gpu_ms": 0.006291954792022705,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015269011310577393,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared_input.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.gate_up",
+            "gpu_ms": 0.053461577659606935,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.swiglu",
+            "gpu_ms": 0.0009618274841308594,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.down",
+            "gpu_ms": 0.029095281394958497,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.down.q8",
+            "gpu_ms": 0.0016431219520568847,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.residual_next_norm",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04813145035171509,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.gdn",
+            "gpu_ms": 0.020198377166748046,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.out.q8",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.out",
+            "gpu_ms": 0.02713155028152466,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.01490832600402832,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.gate_up",
+            "gpu_ms": 0.05410279598236084,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.down",
+            "gpu_ms": 0.029215509830474853,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.swiglu",
+            "gpu_ms": 0.0014828173713684082,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.down.q8",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.combine",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.residual_next_norm",
+            "gpu_ms": 0.007854924453735352,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.q",
+            "gpu_ms": 0.048371907222747805,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.v",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.prepare_q",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.prepare_kv",
+            "gpu_ms": 0.0038473099365234375,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.attention",
+            "gpu_ms": 0.0177938084564209,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.combine",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.out.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.out",
+            "gpu_ms": 0.02612964665222168,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014186955390930176,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.route",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared_input.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.gate_up",
+            "gpu_ms": 0.05414287212753296,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.down",
+            "gpu_ms": 0.029335738265991212,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.gate_up",
+            "gpu_ms": 0.008936980373382569,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.down.q8",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.down",
+            "gpu_ms": 0.007895000598907471,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.residual_next_norm",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04845205951309204,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.0261697227973938,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.conv",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.gdn",
+            "gpu_ms": 0.019356778118133546,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.out.q8",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.out",
+            "gpu_ms": 0.025929265926361085,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013826270084381103,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.gate_up",
+            "gpu_ms": 0.051217313529968264,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.down",
+            "gpu_ms": 0.02845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.combine",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.residual_next_norm",
+            "gpu_ms": 0.008175533615112305,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.0477306888999939,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02612964665222168,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.conv",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.gdn",
+            "gpu_ms": 0.019877768005371093,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.out.q8",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.out",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.residual_norm",
+            "gpu_ms": 0.00653241166305542,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.01490832600402832,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.route",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared_input.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.gate_up",
+            "gpu_ms": 0.055144775756835934,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.down",
+            "gpu_ms": 0.02985672815322876,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.down",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.residual_next_norm",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04845205951309204,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026289951232910155,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.conv",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.gdn",
+            "gpu_ms": 0.02055906247329712,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.out.q8",
+            "gpu_ms": 0.004328223678588867,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.out",
+            "gpu_ms": 0.026810941120147706,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared_input.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.down",
+            "gpu_ms": 0.029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.down.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.residual_next_norm",
+            "gpu_ms": 0.00797515288925171,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.q",
+            "gpu_ms": 0.04889289710998535,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.v",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.prepare_q",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.prepare_kv",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.attention",
+            "gpu_ms": 0.01767358002090454,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.combine",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.out.q8",
+            "gpu_ms": 0.00232441641998291,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.out",
+            "gpu_ms": 0.02665063653945923,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.01446748840713501,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.gate_up",
+            "gpu_ms": 0.05498447117614746,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.swiglu",
+            "gpu_ms": 0.0009618274841308594,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.down",
+            "gpu_ms": 0.030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.gate_up",
+            "gpu_ms": 0.009057208808898926,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.down.q8",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.residual_next_norm",
+            "gpu_ms": 0.008255685905456544,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048852820964813234,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.025849113636016847,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.conv",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.repeat_qk",
+            "gpu_ms": 0.0018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.gdn",
+            "gpu_ms": 0.019477006553649902,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.out.q8",
+            "gpu_ms": 0.004248071388244629,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.out",
+            "gpu_ms": 0.025849113636016847,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013906422374725343,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.gate_up",
+            "gpu_ms": 0.051577998836517334,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.down",
+            "gpu_ms": 0.028654443798065185,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.gate_up",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.down.q8",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.down",
+            "gpu_ms": 0.008135457469940186,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.residual_next_norm",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04945396314239502,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026289951232910155,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0033263200492858885,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.conv",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.gdn",
+            "gpu_ms": 0.020358681747436522,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.out.q8",
+            "gpu_ms": 0.004248071388244629,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.out",
+            "gpu_ms": 0.027251778717041014,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.residual_norm",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.015309087455749512,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared_input.q8",
+            "gpu_ms": 0.0025247971458435057,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.gate_up",
+            "gpu_ms": 0.05542530877304077,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.down.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.down",
+            "gpu_ms": 0.02941589055633545,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.gate_up",
+            "gpu_ms": 0.008295762050628663,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.down.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.combine",
+            "gpu_ms": 0.003687005355834961,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.residual_next_norm",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04821160264205933,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02657048424911499,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.conv",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.repeat_qk",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.gdn",
+            "gpu_ms": 0.020398757892608643,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.out.q8",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.out",
+            "gpu_ms": 0.02745215944290161,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.residual_norm",
+            "gpu_ms": 0.007414086856842041,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.014988478294372559,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared_input.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.gate_up",
+            "gpu_ms": 0.05730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.down",
+            "gpu_ms": 0.029936880443572997,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.down.q8",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.down",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.residual_next_norm",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.q",
+            "gpu_ms": 0.04901312554550171,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.k",
+            "gpu_ms": 0.005690812614440918,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.v",
+            "gpu_ms": 0.0057709649047851565,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.prepare_q",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.prepare_kv",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.attention",
+            "gpu_ms": 0.018515179069519043,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.combine",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.out.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.out",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.residual_norm",
+            "gpu_ms": 0.007253782276153565,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.gate_logits_and_shared_scalar",
+            "gpu_ms": 0.013986574665069581,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared_input.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.gate_up",
+            "gpu_ms": 0.05458370972442627,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.down.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.down",
+            "gpu_ms": 0.030217413459777832,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.gate_up",
+            "gpu_ms": 0.008816751937866211,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.down.q8",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.down",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.residual_next_norm",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "lm_head",
+            "gpu_ms": 1.8075944518432616,
+            "samples": 6
+        },
+        {
+            "name": "argmax.parts",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "argmax",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "advance_decode",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        }
+    ],
+    "scope": "Instrumented per-pass GPU costs; not an end-to-end speed measurement",
+    "top_passes": [
+        {
+            "name": "lm_head",
+            "gpu_ms": 1.8075944518432616,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.gate_up",
+            "gpu_ms": 0.05730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05646728854751587,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.gate_up",
+            "gpu_ms": 0.05646728854751587,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05602645095062256,
+            "samples": 7
+        },
+        {
+            "name": "layers.6.mlp.experts.gate_up",
+            "gpu_ms": 0.05602645095062256,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.gate_up",
+            "gpu_ms": 0.055826070224761964,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.gate_up",
+            "gpu_ms": 0.05574591793441772,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.gate_up",
+            "gpu_ms": 0.055585613353729246,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.gate_up",
+            "gpu_ms": 0.05542530877304077,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05538523262786865,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.gate_up",
+            "gpu_ms": 0.05530508033752441,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.gate_up",
+            "gpu_ms": 0.05530508033752441,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.gate_up",
+            "gpu_ms": 0.05526500419235229,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.gate_up",
+            "gpu_ms": 0.05526500419235229,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.gate_up",
+            "gpu_ms": 0.055144775756835934,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.gate_up",
+            "gpu_ms": 0.055144775756835934,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.gate_up",
+            "gpu_ms": 0.05502454732131958,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.gate_up",
+            "gpu_ms": 0.05498447117614746,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.gate_up",
+            "gpu_ms": 0.05498447117614746,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.gate_up",
+            "gpu_ms": 0.054663862014770505,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.gate_up",
+            "gpu_ms": 0.054663862014770505,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.gate_up",
+            "gpu_ms": 0.05462378586959839,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.gate_up",
+            "gpu_ms": 0.05458370972442627,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.gate_up",
+            "gpu_ms": 0.05446348128890991,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.gate_up",
+            "gpu_ms": 0.05414287212753296,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.gate_up",
+            "gpu_ms": 0.05414287212753296,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.gate_up",
+            "gpu_ms": 0.05410279598236084,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.gate_up",
+            "gpu_ms": 0.05406271983718872,
+            "samples": 6
+        }
+    ],
+    "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "first_layer_usages": [
+        {
+            "name": "layers.0.input_norm",
+            "usages": [
+                {
+                    "resource": 4,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 5,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 7,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 4,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 5,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 7,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_qkv.weight",
+            "usages": [
+                {
+                    "resource": 8,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 9,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 7,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 8,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 9,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 7,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_z.weight",
+            "usages": [
+                {
+                    "resource": 10,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 11,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 7,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 10,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 11,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_a.weight",
+            "usages": [
+                {
+                    "resource": 12,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 13,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 7,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 12,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 13,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_b.weight",
+            "usages": [
+                {
+                    "resource": 14,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 15,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 7,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 14,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 15,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.conv",
+            "usages": [
+                {
+                    "resource": 16,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 17,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 8,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 18,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 1608,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 23,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 17,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 8,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 18,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.repeat_qk",
+            "usages": [
+                {
+                    "resource": 19,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 20,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 16,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 19,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 20,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1608,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 23,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.gdn",
+            "usages": [
+                {
+                    "resource": 21,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 22,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 19,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 20,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 23,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 12,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 14,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 24,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 25,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 10,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 26,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 21,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 22,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 19,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 20,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 12,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 14,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 24,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 25,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 10,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 26,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.out.q8",
+            "usages": [
+                {
+                    "resource": 27,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 28,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 21,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 27,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 28,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 21,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.linear_attn.out",
+            "usages": [
+                {
+                    "resource": 29,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 30,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 27,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 28,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 56,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 30,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 27,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 28,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.residual_norm",
+            "usages": [
+                {
+                    "resource": 4,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 29,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 31,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 4,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 56,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 31,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.gate_logits_and_shared_scalar",
+            "usages": [
+                {
+                    "resource": 32,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 33,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 4,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 37,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 57,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 33,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 4,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.route",
+            "usages": [
+                {
+                    "resource": 34,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 35,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 36,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 37,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 34,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 35,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 36,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 37,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.shared_input.q8",
+            "usages": [
+                {
+                    "resource": 38,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 39,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 4,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 36,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 38,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 39,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 36,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.experts.gate_up",
+            "usages": [
+                {
+                    "resource": 40,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 41,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 38,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 39,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 34,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 36,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 40,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 41,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 38,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 39,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 34,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 0,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.experts.swiglu",
+            "usages": [
+                {
+                    "resource": 42,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 40,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 42,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 40,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.experts.down.q8",
+            "usages": [
+                {
+                    "resource": 43,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 44,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 42,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 36,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 43,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 44,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 42,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.experts.down",
+            "usages": [
+                {
+                    "resource": 45,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 46,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 43,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 44,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 34,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 36,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 45,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 46,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 43,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 44,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 0,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.shared.gate_up",
+            "usages": [
+                {
+                    "resource": 47,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 48,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 38,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 39,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 50,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 51,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 48,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 0,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.shared.swiglu",
+            "usages": [
+                {
+                    "resource": 49,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 50,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 51,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 49,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 50,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 51,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 0,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.shared.down.q8",
+            "usages": [
+                {
+                    "resource": 52,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 53,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 49,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 52,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 53,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 49,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.shared.down",
+            "usages": [
+                {
+                    "resource": 54,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 55,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 52,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 53,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 54,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 55,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 52,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 53,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 0,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.mlp.combine",
+            "usages": [
+                {
+                    "resource": 56,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 45,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 54,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 57,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 35,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 36,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 56,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 45,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 54,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 57,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 35,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                }
+            ]
+        },
+        {
+            "name": "layers.0.residual_next_norm",
+            "usages": [
+                {
+                    "resource": 4,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 29,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 58,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 7,
+                    "usage": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ],
+            "transitions": [
+                {
+                    "resource": 4,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 1,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadWrite}"
+                },
+                {
+                    "resource": 56,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 58,
+                    "from": "Mantle.CopyDst",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}"
+                },
+                {
+                    "resource": 6,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                },
+                {
+                    "resource": 7,
+                    "from": "Mantle.Storage{Mantle.BufferKind, Mantle.ReadOnly}",
+                    "to": "Mantle.Storage{Mantle.BufferKind, Mantle.WriteOnly}"
+                }
+            ]
+        }
+    ],
+    "complete": true,
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2"
+    ]
+}

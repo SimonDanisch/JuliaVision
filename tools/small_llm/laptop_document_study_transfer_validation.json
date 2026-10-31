@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "Public-only deployment protocol qualification, NOT model quality",
+    "passed": 11,
+    "source_sha256": {
+        "test_laptop_document_study_transfer.jl": "f8af854fe3e43e6e2aa7630c999109a1ef3b9170c03382e4c4eec65b60ec64d1",
+        "laptop_document_study_transfer.jl": "51cf873223bbc2cadd856af560a82da84838003eba2d52a1e42a6925b0bef850"
+    }
+}

@@ -1,0 +1,21 @@
+{
+    "task": "periodic_gradient_energy",
+    "conditions_sha256": "7108a0a776d594792781cb43cd30e02e2ac4b0ed1908a2113b12900470be177e",
+    "attempt_sha256": "549319376e892b6abd766df67f62df28b751c38d3a639e8779d9d6c5287e48bb",
+    "total_call_seconds_including_jit": 0.006890058517456055,
+    "result": {
+        "found": true,
+        "reason": "public_example_match",
+        "program": "half\nx_prev_periodic\nx_next_periodic\nsub\nsquare\nmul\nfinish\n",
+        "operations": 6,
+        "peak_stack": 3,
+        "candidates": 49553,
+        "unique_states": 22894,
+        "elapsed_seconds": 0.006833357,
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10,
+        "scope": "Public-example-only symbolic synthesis, NOT model intelligence or correctness beyond these examples. First match, no hidden-score selection; all numeric operations use shared CPU/GPU evaluator."
+    }
+}

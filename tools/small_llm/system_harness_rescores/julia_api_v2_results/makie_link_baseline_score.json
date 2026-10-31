@@ -1,0 +1,17 @@
+{
+    "collection": "julia_api_v2_results",
+    "task": "makie_link",
+    "arm": "baseline",
+    "source_sha256": "1a9e47f0ee6f411de8b61a0150e3c9ac7cd357f23bb2f557eee080792bbd776f",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_link",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 2.6017751693725586,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  Plotting into an axis without `!` (e.g. `scatter` instead of `scatter!`)\n  Stacktrace:\n    [1] error(s::String)\n      @ Base ./error.jl:44\n    [2] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/figureplotting.jl:320\n    [3] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/figureplotting.jl:480\n    [4] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/recipes.jl:431\n    [5] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/recipes.jl:429\n    [6] top-level scope\n      @ /input/candidate.jl:11\n    [7] top-level scope\n      @ /input/runner.jl:5\n    [8] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n    [9] macro expansion\n      @ /input/runner.jl:5 [inlined]\n   [10] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n   [11] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [12] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.1s\nRNG of the outermost testset: Random.Xoshiro(0x230bede72aeb1dd9, 0xf36f9925d5871895, 0xb390406f20cde2c0, 0x7bc4f71d6dd110e7, 0xe18ebd52503d4ba9)\n",
+    "log_truncated": false,
+    "code_sha256": "a2c6efb280cfb3e62bf6bb67948c363a28e2c875639d036625dfd01b82d43a8c"
+}

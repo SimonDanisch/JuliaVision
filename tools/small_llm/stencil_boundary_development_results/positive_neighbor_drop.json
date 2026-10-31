@@ -1,0 +1,26 @@
+{
+    "id": "positive_neighbor_drop",
+    "conditions_sha256": "b15d748b3eb80966f7850d0feddb7d40ecbea5e036c02417a0c89826e009ee98",
+    "mode": "clamped",
+    "parent_selection_sha256": "5cfe21b792a99ac55d8865287154047d786e02d151e60ef3fbe6c05d7deabcf6",
+    "proposal": {
+        "found": true,
+        "reason": "public_example_and_boundary_match",
+        "program": "x_prev_clamped\nx0\nx_prev_clamped\nmin\nsub\nfinish\n",
+        "mode": "clamped",
+        "operations": 5,
+        "candidates": 2376,
+        "unique_states": 1098,
+        "elapsed_seconds": 0.122303523,
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10,
+        "scope": "First fit to public examples within explicit boundary feature subset; no guarantee beyond these constraints. Shared numeric CPU/GPU evaluator."
+    },
+    "selected": {
+        "selected": "symbolic_public_boundary",
+        "program": "x_prev_clamped\nx0\nx_prev_clamped\nmin\nsub\nfinish\n",
+        "reason": "public_boundary_contract_failure"
+    }
+}

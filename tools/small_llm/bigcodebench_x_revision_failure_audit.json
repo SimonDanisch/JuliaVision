@@ -1,0 +1,187 @@
+{
+  "complete": true,
+  "scope": "Post-execution ROOT-only first-visible-failure taxonomy, NOT causal diagnosis, grading changes, model feedback, or proof of general intelligence. Every frozen condition retained.",
+  "counts_by_arm": {
+    "public_static": {
+      "undefined_name": 4,
+      "test_assertion_failure": 1,
+      "method_error": 1,
+      "other_julia_runtime_error": 1,
+      "syntax_error": 1
+    },
+    "self_review": {
+      "undefined_name": 4,
+      "method_error": 1,
+      "other_julia_runtime_error": 1,
+      "test_assertion_failure": 1,
+      "unclassified_failure": 1
+    }
+  },
+  "rows": [
+    {
+      "id": "bcbx_92_public_static",
+      "task": "BigCodeBench/92",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_92_self_review",
+      "task": "BigCodeBench/92",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_852_self_review",
+      "task": "BigCodeBench/852",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "bcbx_852_public_static",
+      "task": "BigCodeBench/852",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "test_assertion_failure",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_155_public_static",
+      "task": "BigCodeBench/155",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "method_error",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_155_self_review",
+      "task": "BigCodeBench/155",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "method_error",
+      "truncated": true
+    },
+    {
+      "id": "bcbx_293_self_review",
+      "task": "BigCodeBench/293",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_293_public_static",
+      "task": "BigCodeBench/293",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_241_public_static",
+      "task": "BigCodeBench/241",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "other_julia_runtime_error",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_241_self_review",
+      "task": "BigCodeBench/241",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "other_julia_runtime_error",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_255_self_review",
+      "task": "BigCodeBench/255",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "test_assertion_failure",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_255_public_static",
+      "task": "BigCodeBench/255",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "bcbx_980_public_static",
+      "task": "BigCodeBench/980",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_980_self_review",
+      "task": "BigCodeBench/980",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_928_self_review",
+      "task": "BigCodeBench/928",
+      "arm": "self_review",
+      "status": "failed",
+      "symptom": "unclassified_failure",
+      "truncated": false
+    },
+    {
+      "id": "bcbx_928_public_static",
+      "task": "BigCodeBench/928",
+      "arm": "public_static",
+      "status": "failed",
+      "symptom": "syntax_error",
+      "truncated": false
+    }
+  ],
+  "inputs_sha256": {
+    "conditions.json": "785e0475f4b85c347464dfd83eee057aa7176b36ec35c6aab585e62f87622ee4",
+    "summary.json": "99f1def159c2e6c4cef6b45b2edd3107c3c51ea5e3355d57e7bd22151b1bfedd",
+    "bcbx_92_public_static.json": "47ed846159b5287539249beefddc44996b2d9a033684aba07e2ffeee182eeb0a",
+    "bcbx_92_public_static_score.json": "527a80ca76508b382d05033e53d5b885c8ad6336a4afed10d677db6cbc239495",
+    "bcbx_92_self_review.json": "cd194989d92b2a39dccb6d1ae86b09b2b570084f0a88c6c5063d3b3a30947ef3",
+    "bcbx_92_self_review_score.json": "893e8b8d966e40a70c344ea72fa63ccbc9643682dd2c91e4d30021582e07bc04",
+    "bcbx_852_self_review.json": "cf3948a009531abda32e9311d0f7b8d4965b5f55e1b52adb15e6536da83fad79",
+    "bcbx_852_self_review_score.json": "2c0b0ad21fb2910e0d77b99e71825d370b421673006772106b69c76dbe56c8bc",
+    "bcbx_852_public_static.json": "ba3737cc9b27030d71c83594dadd874c16ef176f42ac7b10b05376cd0460b66f",
+    "bcbx_852_public_static_score.json": "c331426bbcec910d51142614bc3886aa16f7d1e718265f7a10ddade20cc9d8e5",
+    "bcbx_155_public_static.json": "278b75a1ac5c413bf6f3329718c3882d2b575e927ae2f658f620343e03fe7bf6",
+    "bcbx_155_public_static_score.json": "d0b1ae9ddeaedfbbebfa760400cadc94e1eb0f56c6e7adbe4af0e1b27834fe97",
+    "bcbx_155_self_review.json": "927b7dae1ea3b1f45e03f6c8b17f2f39c9bbb506faf66132e09dab10c26cdb62",
+    "bcbx_155_self_review_score.json": "afafe20184c8db98e7d415ae65d4d84ef2c19caeadd8d6a134ee8d4853a9d0a3",
+    "bcbx_293_self_review.json": "a19eb43929321f99bdbf3e1c865324f05c571b0087b02c89d2c77be80482daa6",
+    "bcbx_293_self_review_score.json": "e8cad70261785e79ca8ab6cd95a18e6b53b1a8ddfdfdabdb06dd32ab1c91e0fd",
+    "bcbx_293_public_static.json": "0a63eda637656e26fcfa898968d6dac2004974e49bd3506e80efcf46b564610e",
+    "bcbx_293_public_static_score.json": "79c111fd8242310371820536bae0074ccaa62e7bccf36209217c788576e6d322",
+    "bcbx_241_public_static.json": "63b8f3816f7d322b79ccb6758009c8cfc10100c094f47c54c9488c646e8b0873",
+    "bcbx_241_public_static_score.json": "7d74a60315838d9953f95991a6a288dc08c3b09713c87b79bf04dc35695e32a0",
+    "bcbx_241_self_review.json": "98aeb63ae6b2d3831c365e6805b1bde435aff864c271e2e2bb84f2e6253a5482",
+    "bcbx_241_self_review_score.json": "188737857f26560df98756258c1ae8fe9e20d0232cf635abf48255fa2b711b69",
+    "bcbx_255_self_review.json": "0d21a5387c2699c18f9e0e3b5a359cf8553a5123a17005cce81b324364adeb13",
+    "bcbx_255_self_review_score.json": "5f8ebbc5207556d9d7a2d371a511bc54a207017d4913d89c3a60c460580cd895",
+    "bcbx_255_public_static.json": "cca154a194afc2fd750c780b076294b3849b03b2a3d81473faaed427b5cacf01",
+    "bcbx_255_public_static_score.json": "8f3ddde6a780098627c90b66d7bbcd77d58f7a61d68bd46b1185e38fe74ccfaf",
+    "bcbx_980_public_static.json": "deb9fd7f13a711256305ba297b0bb288e78ebb4177ba2af3cb09b438574ee863",
+    "bcbx_980_public_static_score.json": "a0ba74a71067f479686b9d8dcc0ded00943c23c27697e415f37421ba4257c80a",
+    "bcbx_980_self_review.json": "7ec60e043ab28bb78f7e94b9264c3cd22b34f873a84c4342345b7988eb5d8597",
+    "bcbx_980_self_review_score.json": "db735f7d507bb7329dba244da18423ba6d4a4d01845d8c586de236725610ae15",
+    "bcbx_928_self_review.json": "fa38e0bd20f4f585fdea889df3247a01b3cc18e16bef1de10d2265c50f011778",
+    "bcbx_928_self_review_score.json": "49638cf36396d8f6a3e09d1828c9859fe3c3ce22b4a1fe869942342f6046c226",
+    "bcbx_928_public_static.json": "89e9a66fb27146fc399b967168301f6a380af4e5462dbc2cf23fa59c180ef901",
+    "bcbx_928_public_static_score.json": "4aab8124db91b942eaaca7d12ec2fc238f382d03cb169e1fa8f630682a419830"
+  },
+  "analyzer_sha256": "19e1bc9f8d662336a4abb22dc4f492065e239ebf3ba9be96b901abac83f94c6f"
+}

@@ -1,0 +1,15 @@
+{
+    "complete": true,
+    "scope": "Actual Qwen BPE+248320-vocabulary SOFTWARE-Vulkan grammar/sampler qualification; trusted logits, NO model quality",
+    "passed": 63,
+    "maximum_action_tokens": 5,
+    "sparse_edges": 122,
+    "source_sha256": {
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "test_rpn_native_tokens_gpu.jl": "51df2255231173edac02dd8f6309321466e1a0381f416310be98f1a956f3fc47",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "rpn_prefix_grammar_gpu.jl": "59a8a69366ef94a7517996a1a1baa59466a0997f6af332720d2449af051811df"
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 13,
+    "scope": "CPU raw-native-record integrity fixtures only; no memory quality result",
+    "source_sha256": {
+        "test_native_hidden_records.jl": "d2f1617145dc784ae25c47194fb6a707d6b06ca3793124610316a183ad0bdf9b",
+        "native_hidden_records.jl": "b748cd8bbd87f1fd930efceb199acd15c721a84e1dac2dd98ff7488d7050a481"
+    }
+}

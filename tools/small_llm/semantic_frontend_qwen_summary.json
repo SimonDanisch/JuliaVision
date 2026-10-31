@@ -1,0 +1,227 @@
+{
+  "date": "2026-10-26",
+  "scope": "Experimental Qwen frontends on the DNNKernels semantic graph; generic fusion additions; bit-identity against the previous runners. Short-context decode only.",
+  "frontend": {
+    "standard_ops": "standardop!: IR kinds imported graphs use (mm.default, fused.swiglu, add.Tensor, ...), graph-owned SemanticValue results, whole-tensor reshapes, registered weight objects (KQuantMatrix)",
+    "opaque_kernels": "semantickernel! with per-kernel kernelresults methods; unknown kernels refuse",
+    "storage_hazards": "semanticfusion validates that no pass moved a read past a write of the same caller tensor or stopped writing a bound version; offending ops are pinned and the passes rerun",
+    "pattern_stage": "patternfusion (fuseswiglu, fuseswiglumm, fusegroupedrms) shared by Model and semantic graphs",
+    "q8_sharing": "enabled with bound results; writes to bound storage drop representations prepared before the write",
+    "foldresidual": "r + mm/swiglumm folds into the product's store; in place for one packed column, scratch otherwise"
+  },
+  "bug_fixed": "genericfusion(dict) returned Dict{String,Any}; every Model build with fusion threw a MethodError since the pipeline was extracted",
+  "parity": {
+    "qwen35_2b_radeon": {
+      "conditions": [
+        "sequential",
+        "grouped",
+        "half_kv",
+        "hook",
+        "prefill_chunk8"
+      ],
+      "tokens_and_logits_bitidentical": true,
+      "decode_passes_before": 440,
+      "decode_passes_after": 416,
+      "fusion_report": {
+        "swiglu_products": 24,
+        "residuals": 24,
+        "pinned": 0
+      }
+    },
+    "qwen35_prefill_chunk20_32_kl_vs_fp32": {
+      "prompt20": {
+        "old": 0.0649,
+        "new": 0.06361
+      },
+      "prompt76_chunk20": {
+        "old": 0.0191,
+        "new": 0.01858
+      },
+      "prompt76_chunk32": {
+        "old": 0.0191,
+        "new": 0.01925
+      },
+      "note": "chunks above 16 columns now take the shared K-quant GEMM (fp16 activations) instead of Q8 GEMV passes"
+    },
+    "qwen36_radeon": {
+      "default": {
+        "bitidentical": true,
+        "passes": [
+          847,
+          847
+        ]
+      },
+      "plain": {
+        "bitidentical": true,
+        "passes": [
+          1278,
+          1097
+        ]
+      }
+    },
+    "qwen36_apple_m5": {
+      "default": {
+        "bitidentical": true,
+        "passes": [
+          927,
+          927
+        ]
+      },
+      "plain": {
+        "bitidentical": true,
+        "passes": [
+          1278,
+          1132
+        ]
+      },
+      "submissions_per_token": 1
+    },
+    "qwen35_4b_cache_requalified": {
+      "exact_logits": true,
+      "exact_greedy": true,
+      "tokens_match_previous_receipt": true
+    },
+    "qwen35_2b_apple_m5": {
+      "conditions": [
+        "sequential",
+        "grouped",
+        "prefill_chunk8"
+      ],
+      "tokens_and_logits_bitidentical": true,
+      "decode_passes_before": 464,
+      "decode_passes_after": 440
+    }
+  },
+  "throughput": {
+    "qwen36_radeon_tok_s": {
+      "default": 80.0,
+      "plain_generic": 65.37,
+      "plain_unfused": 61.57,
+      "note": "6 interleaved rounds on an idle GPU; all three graphs bit-identical"
+    },
+    "qwen36_apple_m5_tok_s": {
+      "default": 37.86,
+      "plain_generic": 30.54,
+      "plain_unfused": 29.79
+    },
+    "qwen35_2b_radeon": {
+      "decode_tok_s": {
+        "old": 140.9,
+        "new": 141.24
+      },
+      "prefill_chunk32_tok_s": {
+        "old": 809.7,
+        "new": 958.6
+      },
+      "note": "8 interleaved rounds on an idle GPU; decode passes 440 -> 416, prefill gains from the shared K-quant GEMM and one Q8 preparation per activation"
+    },
+    "qwen35_2b_apple_m5": {
+      "rounds": [
+        {
+          "round": 1,
+          "new": 68.25,
+          "old": 67.83
+        },
+        {
+          "round": 2,
+          "old": 67.0,
+          "new": 65.53
+        },
+        {
+          "round": 3,
+          "new": 64.42,
+          "old": 58.47
+        },
+        {
+          "round": 4,
+          "old": 52.55,
+          "new": 46.16
+        },
+        {
+          "round": 5,
+          "new": 40.35,
+          "old": 39.59
+        },
+        {
+          "round": 6,
+          "old": 36.05,
+          "new": 36.38
+        }
+      ],
+      "prefill_chunk32_tok_s": {
+        "new": [
+          45.5,
+          44.9,
+          44.1,
+          38.5,
+          37.2,
+          34.5
+        ],
+        "old": [
+          40.5,
+          40.5,
+          40.0,
+          38.8,
+          34.4,
+          35.0
+        ]
+      },
+      "note": "both fall monotonically across rounds (thermal or memory pressure); decode at parity within each round, prefill ahead in the first three"
+    }
+  },
+  "checks": {
+    "dnnkernels_semantic_radeon": 325,
+    "dnnkernels_semantic_metal": 325,
+    "dnnkernels_semantic_metal4": 325,
+    "semantic_standard_and_residual": {
+      "radeon": 97,
+      "metal": 97,
+      "metal4": 97
+    },
+    "generic_fusion_model": {
+      "radeon": 5,
+      "metal": 5,
+      "metal4": 5
+    },
+    "small_llm_checks_and_2b_prefill_radeon": 474,
+    "qwen36_frontend_radeon": 525,
+    "bonsai_semantic_radeon": 501,
+    "oidn_semantic_radeon": 64,
+    "trellis_semantic_radeon": 79,
+    "horizon_tiny_radeon": {
+      "fold_on": 61,
+      "fold_off": 61
+    }
+  },
+  "dnnkernels_full_suite_radeon": {
+    "passed": 30558,
+    "failed": 37,
+    "errored": 7,
+    "fixed_after": [
+      "activation lowering bound outputs (contract change)",
+      "masked prefill tests (eager API removed)",
+      "1x1 conv GEMM name match",
+      "CPU-backend tests after Mantle Device change",
+      "pipelined int8 tile test pinned to explicit capabilities"
+    ],
+    "left": [
+      "GPUFiltering macro/allocation ratchet (deliberate KernelAbstractions package; counts grew in committed feature work)"
+    ],
+    "after_fixes": {
+      "passed": 30614,
+      "failed": 2,
+      "failing": "GPUFiltering macro/allocation ratchet only"
+    }
+  },
+  "runner_fixes": {
+    "PPOCRRunner": "three @kernel post-processing kernels ported to KernelInterface functions with monotonic atomics; 52 checks Radeon, letter and empty page read exactly on the M5",
+    "OIDNRunner": "device images, tile activations, weights and the autoexposure bins on owned Mantle buffers; outputs bit-identical to the previous sources (8 cases), 72 checks on the M5",
+    "NeuralLUTRunner": "host-frame staging through Mantle buffers; bit-identical to the previous staging",
+    "DNNKernels tests": "release-weights tests restated on Mantle buffers and their own regions (a testset frame kept its locals alive; KA arrays live outside the pool on Metal), 28 checks Radeon and M5; masked prefill, CPU-backend, q8gemm tile and 1x1 GEMM tests repaired"
+  },
+  "open_decisions": [
+    "GPUFiltering @kernel/allocation ratchet: counts grew from 25/17 to 47/20 in committed feature work; the package keeps KernelAbstractions by design",
+    "frozen study registrations report source drift for qwen35.jl, prefill_qwen35.jl and the lock-removal edits",
+    "about 120 result receipts still list gpu_window.jl/gpu_watchdog.py hashes or advisory_lock fields"
+  ]
+}

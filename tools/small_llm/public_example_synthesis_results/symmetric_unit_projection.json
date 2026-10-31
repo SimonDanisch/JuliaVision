@@ -1,0 +1,21 @@
+{
+    "task": "symmetric_unit_projection",
+    "conditions_sha256": "7108a0a776d594792781cb43cd30e02e2ac4b0ed1908a2113b12900470be177e",
+    "attempt_sha256": "84ef314122c04ff3f621e49fa69975bd3204739be9a485f01b503c8302d0f1b3",
+    "total_call_seconds_including_jit": 0.006885051727294922,
+    "result": {
+        "found": true,
+        "reason": "public_example_match",
+        "program": "one\nx0\none\nneg\nmax\nmin\nfinish\n",
+        "operations": 6,
+        "peak_stack": 3,
+        "candidates": 45849,
+        "unique_states": 21492,
+        "elapsed_seconds": 0.006848939,
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10,
+        "scope": "Public-example-only symbolic synthesis, NOT model intelligence or correctness beyond these examples. First match, no hidden-score selection; all numeric operations use shared CPU/GPU evaluator."
+    }
+}

@@ -1,0 +1,210 @@
+{
+    "version": 2,
+    "complete": false,
+    "scope": "17 implemented package runners expose DNN graph routes; six placeholder runners have no inference path. Experimental Qwen frontends remain pending.",
+    "checkpoint_sha256": "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
+    "core_ptq_dependency": "Semantic PTQ1 declarations/lowerings belong to DNNKernels and do not require BonsaiRunner",
+    "checks_each_device": {
+        "model_bonsai": 369,
+        "core_ptq": 41,
+        "semantic_frontend": 19,
+        "semantic_activation": 26,
+        "activation_regressions": 397,
+        "trellis": 79,
+        "failure_cleanup": 4
+    },
+    "runs": {
+        "model": [
+            "r200",
+            "r201"
+        ],
+        "core_ptq": [
+            "r202",
+            "r203"
+        ],
+        "activation": [
+            "r190",
+            "r193"
+        ],
+        "cleanup": [
+            "r207",
+            "r208"
+        ]
+    },
+    "model": {
+        "radeon": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 2,
+                "old_seconds": [
+                    0.111216198,
+                    0.041030731
+                ],
+                "new_seconds": [
+                    0.043556254,
+                    0.045604022
+                ],
+                "submissions": [
+                    [
+                        807,
+                        807
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 1,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.050079878
+                ],
+                "new_seconds": [
+                    0.886034607
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 128,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.800193155
+                ],
+                "new_seconds": [
+                    0.912940195
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ],
+        "metal": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 2,
+                "old_seconds": [
+                    0.090747375,
+                    0.056622375
+                ],
+                "new_seconds": [
+                    0.056343792,
+                    0.056632584
+                ],
+                "submissions": [
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 1,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.062290167
+                ],
+                "new_seconds": [
+                    0.408710833
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 64,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    1.147271333
+                ],
+                "new_seconds": [
+                    1.656419084
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ],
+        "metal4": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 2,
+                "old_seconds": [
+                    0.065379542,
+                    0.056463167
+                ],
+                "new_seconds": [
+                    0.056579625,
+                    0.056408625
+                ],
+                "submissions": [
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 1,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.062497709
+                ],
+                "new_seconds": [
+                    0.167573208
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 64,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    1.048629209
+                ],
+                "new_seconds": [
+                    1.338384333
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ]
+    },
+    "known_answer": "Bias-free finite packed products with zero input produce zero on GPU",
+    "fix": "Reject Float16 at float4-based PTQ1 decode entrypoints; route one-token Float16 prefill through valid column kernels",
+    "memory": "Session teardown, cache replacement and failed prefill declarations retire owned token/position resources",
+    "timing_note": "Diagnostics include cold work and prefill construction; no speedup claim. Warm decode preserves submission count.",
+    "audit": "runner_graph_routes_bonsai.json",
+    "exported_graphs_checked": 48,
+    "pending": [
+        "Experimental Qwen handwritten frontends beyond shared activation API"
+    ],
+    "source_sha256": {
+        "dev/JuliaVision/DNNKernels/test/test_semanticptq.jl": "ae97a977f051b31304917ee9e132ba58734ba75bfbbecdeda6daf5d01b860c26",
+        "dev/JuliaVision/DNNKernels/src/semanticgraph.jl": "744dd661be3a80d9fc03589d4d03ba07aae5e9301ba0966a398854fe2b8ca7c3",
+        "dev/JuliaVision/DNNKernels/src/activationprep.jl": "850f7955e816dd32da873b92c475bda098ef02d78c7bfc5a03396f7105f48038",
+        "dev/JuliaVision/BonsaiRunner/src/BonsaiRunner.jl": "5b57989e9bf023855eecd0bf6a9dbf3254303359b6b15ba4784c754caa2774a8",
+        "dev/JuliaVision/DNNKernels/test/test_semanticgraph.jl": "505da5414b02c5c05ecfdb1c49427bc6b489ddc1af198045050e6fbcd569875d",
+        "dev/JuliaVision/Trellis2Runner/src/decodergraph.jl": "13980b853379e5fe36f038f4c151a4877a25d3b98ef45f2769504205aa1dfb89",
+        "dev/JuliaVision/BonsaiRunner/src/graph.jl": "7e8e0b350a6439e3b3f33a244a0b16fcc81db47d3ba4f833c9cfcd7949a7aa9a",
+        "dev/JuliaVision/BonsaiRunner/test/test_semantic_graph.jl": "edd72a166516248b8296c8dbc9c01d6c5e4a0491036dc6c62ecfb168533e0f7b",
+        "dev/JuliaVision/DNNKernels/src/ptq1.jl": "70483b64e6ca9cae6e0c292041b76a72658e011280b2786d753d628b077ebcba",
+        "dev/JuliaVision/DNNKernels/src/semanticptq.jl": "8ce5a323fa6090d2bb0e176fb6c2eaf02e92e28ec6beb10e6d659fbfc6ba9434"
+    }
+}

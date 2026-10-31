@@ -1,0 +1,18 @@
+{
+    "id": "current_neighbor_product",
+    "conditions_sha256": "b15d748b3eb80966f7850d0feddb7d40ecbea5e036c02417a0c89826e009ee98",
+    "mode": "periodic",
+    "parent_selection_sha256": "ce15b04747302216543387bbdc9e8db9e2ed61188d23166354bfe3987145ca87",
+    "proposal": {
+        "found": false,
+        "program": "",
+        "reason": "not_needed_or_infrastructure_failure",
+        "elapsed_seconds": 0,
+        "candidates": 0
+    },
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "x0\nx_next_periodic\nmul\nfinish\n",
+        "reason": "public_examples_and_boundary_match"
+    }
+}

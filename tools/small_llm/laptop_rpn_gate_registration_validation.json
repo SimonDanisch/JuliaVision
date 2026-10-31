@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU-only gate registration and refusal to initialize Radeon from Bosgame; NO GPU setup",
+    "passed": 13,
+    "source_sha256": {
+        "laptop_rpn_gate.jl": "92ce12e4b41af352a9caa3b3a12d427ad193bf4021c0334efbbb381f4a396b81",
+        "test_laptop_rpn_gate.jl": "34937d94e06dae3edb33ad963fabe77e04dc0eee9e14f0236c39eac49f5ba21c"
+    }
+}

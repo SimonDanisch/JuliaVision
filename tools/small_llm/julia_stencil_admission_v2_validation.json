@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 14,
+    "scope": "Supplementary admission hardening, NOT a modification to frozen V1 transfer rules or model-quality evidence",
+    "sources": {
+        "test_julia_stencil_admission_v2.jl": "0108fc821e2d127b39c4de1578f49b557646d2abbf5f3b299739114f18d2c16d",
+        "julia_stencil_admission_v2.jl": "68950e83c649438ccb9e1f86acec59ce726759395212e17c121ac72a9cdb7bda"
+    }
+}

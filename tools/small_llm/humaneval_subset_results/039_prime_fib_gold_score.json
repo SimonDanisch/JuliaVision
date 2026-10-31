@@ -1,0 +1,11 @@
+{
+    "id": "039_prime_fib",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.3018929958343506,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   10     10  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "76e9bfda65c5d873e8ffa9b3f853eaf89f106ce491694b8731a0e41eff5df242"
+}

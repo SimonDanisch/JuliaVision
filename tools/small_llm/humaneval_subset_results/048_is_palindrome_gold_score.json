@@ -1,0 +1,11 @@
+{
+    "id": "048_is_palindrome",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.2890598773956299,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    7      7  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "348773ece808de4d66c55a6b870b718c4d998882b86b4b1193364a6f3c8a057c"
+}

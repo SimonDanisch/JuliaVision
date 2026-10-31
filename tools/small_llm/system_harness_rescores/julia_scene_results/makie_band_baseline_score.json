@@ -1,0 +1,14 @@
+{
+    "collection": "julia_scene_results",
+    "task": "makie_band",
+    "arm": "baseline",
+    "source_sha256": "8769008f13963b3b9096d8665a33e499e14ede1cb9f7cca65f9c4baecffd4e65",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_band",
+    "passed": false,
+    "diagnostic": "ArgumentError: expected bounded string",
+    "elapsed_seconds": 0,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "depot_order": "withsystem"
+}

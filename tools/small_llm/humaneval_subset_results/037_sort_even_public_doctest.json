@@ -1,0 +1,25 @@
+{
+    "task": "037_sort_even",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "sort_even([1, 2, 3]) == [1, 2, 3]",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "sort_even([5, 6, 3, 4]) == [5, 4, 3, 6]",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.505194902420044,
+    "code_sha256": "b026ab8dda539ce4f459cb656d4baa9676727d9f858f1a8f7c772f557d058b30",
+    "public_examples_sha256": "b66998e7750f5319f63317290a3fdbe2a70480a92af73d9105bb33b6b427058b"
+}

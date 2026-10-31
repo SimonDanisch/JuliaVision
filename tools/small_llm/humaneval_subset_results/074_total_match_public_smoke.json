@@ -1,0 +1,36 @@
+{
+    "task": "074_total_match",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "total_match(String[], String[])",
+            "completed": false,
+            "error": "ArgumentError: reducing over an empty collection is not allowed; consider supplying `init` to the reducer"
+        },
+        {
+            "example": "total_match([\"hi\", \"admin\"], [\"hI\", \"Hi\"])",
+            "completed": true,
+            "value": "[\"hI\", \"Hi\"]"
+        },
+        {
+            "example": "total_match([\"hi\", \"admin\"], [\"hi\", \"hi\", \"admin\", \"project\"])",
+            "completed": true,
+            "value": "[\"hi\", \"admin\"]"
+        },
+        {
+            "example": "total_match([\"hi\", \"admin\"], [\"hI\", \"hi\", \"hi\"])",
+            "completed": true,
+            "value": "[\"hI\", \"hi\", \"hi\"]"
+        },
+        {
+            "example": "total_match([\"4\"], [\"1\", \"2\", \"3\", \"4\", \"5\"])",
+            "completed": true,
+            "value": "[\"4\"]"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.48201489448547363,
+    "code_sha256": "4a5048f75f6b6ae56cb8f00723dee6330b101b3b73deefd716743caa17e697ae",
+    "public_examples_sha256": "39270b0d914bb90583778fdcdf8fcd11f6dd7740898339b3a9969556ef9bc88b"
+}

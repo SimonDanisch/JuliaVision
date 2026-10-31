@@ -1,0 +1,14 @@
+{
+    "task": "ki_launch",
+    "scope": "standalone public-spec API fixtures; observed values/errors ONLY, no private assertions or oracle output",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "MethodError: no method matching launch(::KernelInterface.Kernel{PublicProbeBackend, Nothing}; ndrange::Int64, workgroupsize::Int64)\nThe function `launch` exists, but no method is defined for this combination of argument types.\n\nClosest candidates are:\n  launch(::KernelInterface.Kernel{PublicProbeBackend}, !Matched::Tuple{Int64, Int64, Int64}, !Matched::Tuple{Int64, Int64, Int64}, !Matched::Tuple; kwargs...)\n   @ Main /input/runner.jl:10\n"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "fae097934050b50ee709fccd7d6b33a09ef2c034dd714b7436d420fae9cc9cc8",
+    "fixture_sha256": "c711bfbe10b653a7acc34ee31b609961d56c83887f5f520ef9b70b2626a30340",
+    "code_sha256": "de66e8711646b2464da9fb2d84926e02f53155a9bb193877babfe48382497152",
+    "elapsed_seconds": 0.3921968936920166
+}

@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "checks": 6,
+    "run": "r1412",
+    "scope": "CPU mock/validation only; actual model and hardware results recorded separately",
+    "sources": {
+        "audit_plot_validator_render_reuse.jl": "c84fcfee0a8df0b3f44a8317cc0bbeb9b8b2392ca06b151061328923b8b22bd8",
+        "test_plot_validator_render_reuse.jl": "1a972acfa70d0252b952b752677e234e2cd162b0ce6c64fbe73d09fea79e754e"
+    }
+}

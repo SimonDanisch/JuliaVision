@@ -1,0 +1,11 @@
+{
+    "id": "ki_body_clamped_stencil",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 26.31801414489746,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    5      5  14.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "e1fdf201b34c288ba9e9cee6716a570359a847e71b3298e99739d42a4e6b2d84"
+}

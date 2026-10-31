@@ -1,0 +1,286 @@
+{
+    "scope": "finite ground Horn status; oracle answer injection ceiling; no learned latent adapter",
+    "summary": [
+        {
+            "mode": "no_evidence",
+            "count": 8,
+            "accuracy": 0.375
+        },
+        {
+            "mode": "text",
+            "count": 8,
+            "accuracy": 0.25
+        },
+        {
+            "mode": "solver_oracle",
+            "count": 8,
+            "accuracy": 1
+        }
+    ],
+    "rows": [
+        {
+            "id": 1,
+            "mode": "no_evidence",
+            "depth": 8,
+            "expected": "entailed",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 4.051202504,
+            "proof_status": null
+        },
+        {
+            "id": 1,
+            "mode": "text",
+            "depth": 8,
+            "expected": "entailed",
+            "prediction": "entailed",
+            "correct": true,
+            "prompt_tokens": 350,
+            "seconds": 0.94235205,
+            "proof_status": null
+        },
+        {
+            "id": 1,
+            "mode": "solver_oracle",
+            "depth": 8,
+            "expected": "entailed",
+            "prediction": "entailed",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.254652756,
+            "proof_status": "entailed"
+        },
+        {
+            "id": 8,
+            "mode": "no_evidence",
+            "depth": 2,
+            "expected": "inconsistent",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 0.24053829,
+            "proof_status": null
+        },
+        {
+            "id": 8,
+            "mode": "text",
+            "depth": 2,
+            "expected": "inconsistent",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 201,
+            "seconds": 0.410268111,
+            "proof_status": null
+        },
+        {
+            "id": 8,
+            "mode": "solver_oracle",
+            "depth": 2,
+            "expected": "inconsistent",
+            "prediction": "inconsistent",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.246266483,
+            "proof_status": "inconsistent"
+        },
+        {
+            "id": 4,
+            "mode": "no_evidence",
+            "depth": 6,
+            "expected": "refuted",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 0.242869983,
+            "proof_status": null
+        },
+        {
+            "id": 4,
+            "mode": "text",
+            "depth": 6,
+            "expected": "refuted",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 296,
+            "seconds": 0.589699917,
+            "proof_status": null
+        },
+        {
+            "id": 4,
+            "mode": "solver_oracle",
+            "depth": 6,
+            "expected": "refuted",
+            "prediction": "refuted",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.237010433,
+            "proof_status": "refuted"
+        },
+        {
+            "id": 2,
+            "mode": "no_evidence",
+            "depth": 7,
+            "expected": "entailed",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 0.24488681,
+            "proof_status": null
+        },
+        {
+            "id": 2,
+            "mode": "text",
+            "depth": 7,
+            "expected": "entailed",
+            "prediction": "entailed",
+            "correct": true,
+            "prompt_tokens": 324,
+            "seconds": 0.832848486,
+            "proof_status": null
+        },
+        {
+            "id": 2,
+            "mode": "solver_oracle",
+            "depth": 7,
+            "expected": "entailed",
+            "prediction": "entailed",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.262435017,
+            "proof_status": "entailed"
+        },
+        {
+            "id": 7,
+            "mode": "no_evidence",
+            "depth": 8,
+            "expected": "inconsistent",
+            "prediction": "inconsistent",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.22203044,
+            "proof_status": null
+        },
+        {
+            "id": 7,
+            "mode": "text",
+            "depth": 8,
+            "expected": "inconsistent",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 357,
+            "seconds": 0.943544264,
+            "proof_status": null
+        },
+        {
+            "id": 7,
+            "mode": "solver_oracle",
+            "depth": 8,
+            "expected": "inconsistent",
+            "prediction": "inconsistent",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.23054436,
+            "proof_status": "inconsistent"
+        },
+        {
+            "id": 6,
+            "mode": "no_evidence",
+            "depth": 2,
+            "expected": "unknown",
+            "prediction": "unknown",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.250847075,
+            "proof_status": null
+        },
+        {
+            "id": 6,
+            "mode": "text",
+            "depth": 2,
+            "expected": "unknown",
+            "prediction": "entailed",
+            "correct": false,
+            "prompt_tokens": 185,
+            "seconds": 0.378074218,
+            "proof_status": null
+        },
+        {
+            "id": 6,
+            "mode": "solver_oracle",
+            "depth": 2,
+            "expected": "unknown",
+            "prediction": "unknown",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.233426233,
+            "proof_status": "unknown"
+        },
+        {
+            "id": 5,
+            "mode": "no_evidence",
+            "depth": 6,
+            "expected": "unknown",
+            "prediction": "unknown",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.241875371,
+            "proof_status": null
+        },
+        {
+            "id": 5,
+            "mode": "text",
+            "depth": 6,
+            "expected": "unknown",
+            "prediction": "entailed",
+            "correct": false,
+            "prompt_tokens": 289,
+            "seconds": 0.587702442,
+            "proof_status": null
+        },
+        {
+            "id": 5,
+            "mode": "solver_oracle",
+            "depth": 6,
+            "expected": "unknown",
+            "prediction": "unknown",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.241945664,
+            "proof_status": "unknown"
+        },
+        {
+            "id": 3,
+            "mode": "no_evidence",
+            "depth": 6,
+            "expected": "refuted",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 0.214911362,
+            "proof_status": null
+        },
+        {
+            "id": 3,
+            "mode": "text",
+            "depth": 6,
+            "expected": "refuted",
+            "prediction": "entailed",
+            "correct": false,
+            "prompt_tokens": 296,
+            "seconds": 0.596510538,
+            "proof_status": null
+        },
+        {
+            "id": 3,
+            "mode": "solver_oracle",
+            "depth": 6,
+            "expected": "refuted",
+            "prediction": "refuted",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.244469869,
+            "proof_status": "refuted"
+        }
+    ]
+}

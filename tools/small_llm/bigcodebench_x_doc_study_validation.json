@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "scope": "CPU-only prospective16-condition registration qualification; no candidate generation or GPU setup",
+    "passed": 36,
+    "source_sha256": {
+        "test_bigcodebench_x_doc_study.jl": "5641cb7e74089ea7f7ecd7d92bd115957fcc24a5d4f3e1e5e6f88841f31df3c8",
+        "score_bigcodebench_x_doc_study.py": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295",
+        "bigcodebench_x_doc_scorer_validation.json": "e5f03584b7e803f0518014ccdc7a2d9c36cf1b121941092f648a605f92c83c44",
+        "bigcodebench_x_doc_study.jl": "f29d558209dd8372f739b22e7935fa63e59788efe21478522d1256c5f26058d3"
+    }
+}

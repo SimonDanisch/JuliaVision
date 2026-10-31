@@ -1,0 +1,37 @@
+{
+    "id": "current_above_previous_clamped",
+    "conditions_sha256": "f3c32741fac62607bbe860bd4bfa2a9596fc5347246ceb662525075ca368d99e",
+    "generation_sha256": "defbf291617f9a270bca93847646694bc711c002ee0b0fa219840b817939ba7c",
+    "mode": "clamped",
+    "direct": {
+        "accepted": true,
+        "reason": "admitted disjoint pointwise subset",
+        "program": "zero\nx0\nx_prev_clamped\nsub\nmax\nfinish\n"
+    },
+    "choices": {
+        "example": {
+            "selected": "neural_baseline",
+            "program": "zero\nx0\nx_prev_clamped\nsub\nmax\nfinish\n",
+            "reason": "public_examples_match"
+        },
+        "boundary": {
+            "selected": "neural_baseline",
+            "program": "zero\nx0\nx_prev_clamped\nsub\nmax\nfinish\n",
+            "reason": "public_examples_and_boundary_match"
+        },
+        "plain_proposal": {
+            "found": false,
+            "program": "",
+            "reason": "not_needed_or_infrastructure_failure",
+            "elapsed_seconds": 0,
+            "candidates": 0
+        },
+        "boundary_proposal": {
+            "found": false,
+            "program": "",
+            "reason": "not_needed_or_infrastructure_failure",
+            "elapsed_seconds": 0,
+            "candidates": 0
+        }
+    }
+}

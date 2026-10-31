@@ -1,0 +1,51 @@
+{
+    "scope": "512 fixed local diagnostic targets at short context, not a general quality benchmark",
+    "rows": [
+        {
+            "cache": "Float32",
+            "attention": "split",
+            "tokens": 512,
+            "nll_delta": 0,
+            "perplexity_ratio": 1,
+            "mean_kl": 0,
+            "max_kl": 0,
+            "top1_agreement": 1
+        },
+        {
+            "cache": "Float32",
+            "attention": "grouped",
+            "tokens": 512,
+            "nll_delta": 0.0018471351046136508,
+            "perplexity_ratio": 1.0018488421095222,
+            "mean_kl": 0.0005923063393049121,
+            "max_kl": 0.02539399123655869,
+            "top1_agreement": 0.984375
+        },
+        {
+            "cache": "Float16",
+            "attention": "split",
+            "tokens": 512,
+            "nll_delta": -0.0009239912124281435,
+            "perplexity_ratio": 0.9990764355360048,
+            "mean_kl": 0.000591878600321247,
+            "max_kl": 0.016587019282285165,
+            "top1_agreement": 0.98828125
+        },
+        {
+            "cache": "Float16",
+            "attention": "grouped",
+            "tokens": 512,
+            "nll_delta": 0.0006905717990843829,
+            "perplexity_ratio": 1.0006908102986865,
+            "mean_kl": 0.0005654187733256971,
+            "max_kl": 0.006441498406413884,
+            "top1_agreement": 0.98828125
+        }
+    ],
+    "default_changed": false,
+    "next_checks": [
+        "task-level reasoning/code correctness",
+        "occupied 4K and longer contexts",
+        "quantized 35B-A3B complete model loading and parity"
+    ]
+}

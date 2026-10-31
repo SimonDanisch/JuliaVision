@@ -1,0 +1,33 @@
+{
+  "checked_date": "2026-10-25",
+  "scope": "Primary-source architecture notes; no reproduced intelligence gains or adopted upstream timing claims",
+  "sources": [
+    {
+      "title": "Decode-Time Grammars",
+      "url": "https://arxiv.org/html/2607.18357v1",
+      "published": "2026-07-20",
+      "mechanism": "Instantiate grammar holes from a live typed environment of names/APIs. Reference positions may then choose only available bindings, with explicit scope/fallback boundaries.",
+      "boundary": "Declared-name support safety is not functional correctness; the model can select a wrong legal name. Completion guarantees are conditional on reaching acceptance within budget. Environment extraction must itself be trustworthy.",
+      "local_relation": "Relevant to installed Julia bindings and GPU operand names. Our finite canonical-token prototype is only a small static-support building block, not this paper's dynamic whole-program executor or evaluation."
+    },
+    {
+      "title": "XGrammar engine integration",
+      "url": "https://github.com/mlc-ai/xgrammar/blob/main/docs/using_xgrammar/engine_integration.md",
+      "mechanism": "Documented matcher builds token masks on CPU, transfers/applies them to logits and accepts the sampled token. CPU work may overlap the model forward pass.",
+      "local_relation": "This standard integration is not an entirely device-resident per-token state machine. Do not label importing a CPU grammar library as satisfying the no-host-feedback goal."
+    },
+    {
+      "title": "bpdecode repository",
+      "url": "https://github.com/zanarashidi/bpdecode",
+      "mechanism": "Author describes an experimental CPU/CUDA implementation of regex/grammar support with device masking and state commit.",
+      "limits": "Learning project, not independently reproduced or adopted code. CUDA implementation does not automatically provide our Julia/Mantle/Vulkan path. No upstream speed claim is used as a local benchmark."
+    }
+  ],
+  "local_prototype_limits": [
+    "Exactly supplied choices on canonical encode/decode-roundtripped token paths; alternate BPE segmentations are not enumerated",
+    "Sparse transitions reuse the same host/device token-trie helper",
+    "Raw logit validity checked before masking; invalid states remain rejected",
+    "Physical Laptop gate passed39 host and47 device checks; one-prompt full4B disabled identity and enabled support gate passed; no task-quality result",
+    "Not arbitrary JSON, Julia grammar, live symbol-table extraction or proof of correct API selection"
+  ]
+}

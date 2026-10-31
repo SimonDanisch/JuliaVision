@@ -1,0 +1,47 @@
+{
+    "task": "alias_stencil",
+    "category": "base",
+    "arm": "baseline",
+    "model": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+    "cache": "Float32 grouped",
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2",
+        "no_alias",
+        "paired_expert_rows",
+        "capability_swiglu_q8"
+    ],
+    "thinking": false,
+    "contract_sha256": "4964e0a439c9fd4fa9ee50cf826eb2a6f1d788b5698ba753d42bc772a9d12ffd",
+    "prompt_sha256": "840c93be8c30ca150bc0229ee90ce5539a250b696ec6012ffc74f13af04c5fa9",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve!(out, x) computing a 1D three-point mean: out[i]=(x[i-1]+x[i]+x[i+1])/3 for interior indices, with unchanged endpoint values copied from x. Inputs are equal-length ordinary Float64 vectors. Crucially out may be x itself, or overlapping views into one vector; results must use ORIGINAL x values. Handle lengths 0,1,2. Return out; no packages. Code only."
+        }
+    ],
+    "answer": "```julia\nfunction solve!(out, x)\n    n = length(x)\n    if n == 0\n        return out\n    end\n    if n == 1\n        out[1] = x[1]\n        return out\n    end\n    if n == 2\n        out[1] = x[1]\n        out[2] = x[2]\n        return out\n    end\n    # For interior points, compute using original x values\n    # We need to be careful if out is x or an overlapping view\n    # So we read all x values first into a temporary buffer\n    x_copy = copy(x)\n    out[1] = x_copy[1]\n    out[n] = x_copy[n]\n    for i in 2:n-1\n        out[i] = (x_copy[i-1] + x_copy[i] + x_copy[i+1]) / 3.0\n    end\n    return out\nend\n```",
+    "code": "function solve!(out, x)\n    n = length(x)\n    if n == 0\n        return out\n    end\n    if n == 1\n        out[1] = x[1]\n        return out\n    end\n    if n == 2\n        out[1] = x[1]\n        out[2] = x[2]\n        return out\n    end\n    # For interior points, compute using original x values\n    # We need to be careful if out is x or an overlapping view\n    # So we read all x values first into a temporary buffer\n    x_copy = copy(x)\n    out[1] = x_copy[1]\n    out[n] = x_copy[n]\n    for i in 2:n-1\n        out[i] = (x_copy[i-1] + x_copy[i] + x_copy[i+1]) / 3.0\n    end\n    return out\nend\n",
+    "input_tokens": 137,
+    "generated_tokens": 216,
+    "budget_tokens": 512,
+    "decode_steps_executed": 512,
+    "decode_submissions": 512,
+    "eos_output_poll_chunk": null,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.7119410037994385,
+    "input_sha256": "03b53b67b39ca34d42940f92046da5c5dec5968148cc39fcfe4c3f6b24b1e2a8"
+}

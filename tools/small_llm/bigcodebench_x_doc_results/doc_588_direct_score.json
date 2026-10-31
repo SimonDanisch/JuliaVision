@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.5671392870135605,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `set_backend` not defined in `CairoMakie`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] getproperty(x::Module, f::Symbol)\n   @ Base ./Base_compiler.jl:47\n [2] top-level scope\n   @ /input/program.jl:6\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:6\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 10, in test_cases\nAssertionError\n",
+  "program_sha256": "2b969e56a58fe7cffdab74d5cb0ad1868315f9f2530803027805019906a9bc8f",
+  "test_suite_sha256": "b72ead0f81a0066ed154dd123098bf10420f193942d8509696398f3d80c17f4d",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

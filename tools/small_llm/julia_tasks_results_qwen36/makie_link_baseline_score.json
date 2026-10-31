@@ -1,0 +1,11 @@
+{
+    "id": "makie_link",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 2.4859728813171387,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   18     18  0.1s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "d2ab30fa86479eb4756983c4aae79e0ec676d52e0fc46bdea47e53312c9624db"
+}

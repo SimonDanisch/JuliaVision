@@ -1,0 +1,45 @@
+{
+    "task": "stable_groups",
+    "category": "base",
+    "arm": "baseline",
+    "model": "qwen35-4b",
+    "thinking": true,
+    "scope": "batch-output EOS parity; not a new accuracy attempt",
+    "cache": "Float32 split",
+    "quantization": "Q4_K/Q8 activations; Q6_K head",
+    "contract_sha256": "a553870771dd59bfa632398fa45ab889539bfa133310433d2f7475e20c269d67",
+    "prompt_sha256": "90fa8a4f34a72ff8a815260a862ac4c2e6585993d69fe585446c48ec3e709525",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve(keys, values). Return a Vector of Pair mapping each distinct key to the sum of its values, preserving FIRST occurrence order of keys. Inputs have equal length; keys are strings, values are Int. Empty input must return an empty vector. No packages. Code only."
+        }
+    ],
+    "answer": "The user wants me to write a Julia function that:\n1. Takes two vectors: `keys` (strings) and `values` (Integers)\n2. Returns a Vector of Pairs where each distinct key maps to the sum of its values\n3. Preserves the FIRST occurrence order of keys\n4. Handles empty input by returning an empty vector\n5. No packages allowed (standard library only)\n6. Code only, no explanations\n\nLet me think about the algorithm:\n1. Track which keys we've seen and their accumulated sums\n2. Iterate through the input, accumulating values for each key\n3. Return pairs in the order of first occurrence\n\nHere's my approach:\n- Use a dictionary to track sums (but we need to preserve order, so we'll track the order separately)\n- Or use a list to track first occurrence order and a map for sums\n\nLet me write the code:\n\n```julia\nfunction solve(keys, values)\n    # Handle empty input\n    isempty(keys) && return Vector{Pair}(undef, 0)\n    \n    # Track sums and order of first occurrence\n    sums = Dict{String, Int}()\n    order = Vector{String}()\n    \n    for (key, val) in zip(keys, values)\n        if !haskey(sums, key)\n            sums[key] = val\n            push!(order, key)\n        else\n            sums[key] += val\n        end\n    end\n    \n    # Return pairs in order of first occurrence\n    return [Pair(k, sums[k]) for k in order]\nend\n```\n\nWait, I need to be careful about the empty input case. Let me check:\n- If keys is empty, we should return an empty vector\n- The function should handle this gracefully\n\nLet me refine:\n\n```julia\nfunction solve(keys, values)\n    sums = Dict{String, Int}()\n    order = Vector{String}()\n    \n    for (key, val) in zip(keys, values)\n        if !haskey(sums, key)\n            sums[key] = val\n            push!(order, key)\n        else\n            sums[key] += val\n        end\n    end\n    \n    return [Pair(k, sums[k]) for k in order]\nend\n```\n\nThis handles empty input naturally - the loop won't execute, and we'll return an empty vector.\n</think>\n\n```julia\nfunction solve(keys, values)\n    sums = Dict{String, Int}()\n    order = Vector{String}()\n    \n    for (key, val) in zip(keys, values)\n        if !haskey(sums, key)\n            sums[key] = val\n            push!(order, key)\n        else\n            sums[key] += val\n        end\n    end\n    \n    return [Pair(k, sums[k]) for k in order]\nend\n```",
+    "code": "function solve(keys, values)\n    sums = Dict{String, Int}()\n    order = Vector{String}()\n    \n    for (key, val) in zip(keys, values)\n        if !haskey(sums, key)\n            sums[key] = val\n            push!(order, key)\n        else\n            sums[key] += val\n        end\n    end\n    \n    return [Pair(k, sums[k]) for k in order]\nend\n",
+    "input_tokens": 96,
+    "generated_tokens": 622,
+    "budget_tokens": 2048,
+    "decode_steps_executed": 640,
+    "decode_submissions": 640,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 11.077527046203613,
+    "input_sha256": "64a96b4543cb37fadc1cf6665c3db9f6f789f01291267d2617797e9952b611ad",
+    "matches_fixed_budget_answer": true,
+    "fixed_budget_elapsed_seconds": 34.04662895202637,
+    "generation_source_sha256": {
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "test_gpu_sampling.jl": "33ee73999fb701f752999380032b909a2c8ddbac126212046dd76c52c3df114d",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93",
+        "run_julia_modes_window.jl": "0d7c978de3c1df6687089d05b2ab3babf1a31baecc572685abcd217f29172fad",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "sampled_julia.jl": "b6872f2bda4dabdda4eed34ac3cc02d58a4d28b2f66f7108d4342acc0e4787e0"
+    }
+}

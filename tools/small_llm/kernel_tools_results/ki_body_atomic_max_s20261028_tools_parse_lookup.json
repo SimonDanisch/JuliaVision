@@ -1,0 +1,157 @@
+{
+    "task": "ki_body_atomic_max",
+    "seed": 20261028,
+    "arm": "tools_parse_lookup",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,labels,x,n::Int32). For every1<=i<=n atomically update out[labels[i]] to the maximum of its old value and x[i]. labels are valid1-based Int32 indices. x/out are Float32, out initially -Inf. Many workgroups contend for the same outputs: a normal load followed by an atomic STORE is NOT a valid maximum RMW. Use current Atomix.jl with explicit :monotonic ordering: only this independent reduction result is read after kernel completion. Ignore rounded-up threads past n. No scratch arrays or host reductions.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "98eac8919ad3f942521afbe3e9d833f06b2d554a53b594ac9fe58a6bcc5b1c9a",
+    "answer": "The tool-call limit is reached. I need to provide the final answer.\n\nBased on the `Atomix` documentation found:\n`@atomicreplace` is a macro.\nSyntax: `@atomicreplace ref old => new`.\nOrdering: `@atomic :monotonic ...` is shown in the docstring.\nIt's likely `@atomicreplace :monotonic ref old => new` or similar.\nOr maybe `@atomicreplace(ref, old, new, :monotonic)`?\nThe docstring shows `@atomicreplace A[begin+1] 1 => 42`.\nAnd `@inbounds @atomic :monotonic A[begin+1]`.\nSo `@atomicreplace` likely takes the ordering as the first argument if present.\n`@atomicreplace :monotonic ref old => new`.\n\nWait, `out` is a device array.\nAccessing `out[idx]` inside `@atomicreplace` should work if `out` is a `DeviceArray`.\nHowever, `out[idx]` creates an `IndexableRef`?\nIn `Atomix`, `A[1]` is an `IndexableRef`.\nSo `@atomicreplace :monotonic out[idx] old_val => new_val`.\n\nLet's construct the code.\n```julia\nusing KernelInterface\nconst KI = KernelInterface\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        idx = labels[i]\n        val = x[i]\n        while true\n            old = out[idx]\n            new_val = max(old, val)\n            if new_val == old\n                break\n            end\n            # Use Atomix @atomicreplace with :monotonic ordering\n            # Syntax: @atomicreplace :monotonic ref old => new\n            if @atomicreplace :monotonic out[idx] old => new_val\n                break\n            end\n        end\n    end\nend\n```\nWait, `@atomicreplace` returns `(old, success)`.\nSo `if @atomicreplace :monotonic out[idx] old => new_val` checks the success?\nThe docstring says `@atomicreplace A[begin+1] 1 => 42` returns `(old = 1, success = true)`.\nSo I need to check the success.\n`result = @atomicreplace :monotonic out[idx] old => new_val`\n`if result.success break end`\n\nAlso, `out` is `Float32`. `old` is `Float32`.\n`max(old, val)` is `Float32`.\nComparison `new_val == old` is valid.\n\nOne detail: `out[idx]` in the `@atomicreplace` call.\nIs `out[idx]` valid inside the macro?\nYes, `A[1]` in the docstring is an array access.\n\nIs `KI.get_global_id().x` correct?\n`lookup(\"KernelInterface\")` said `get_global_id` is exported.\nAnd `get_global_id().x` is mentioned in the prompt.\n\nIs `using KernelInterface` allowed?\n\"optionally including imports\". Yes.\n\nIs `@atomicreplace` allowed?\n\"Use current Atomix.jl\". Yes.\n\nOne potential issue: `out[idx]` might be evaluated twice?\nIn `@atomicreplace :monotonic out[idx] old => new_val`, `out[idx]` is the reference.\nIt should be evaluated once to get the reference.\n\nLet's refine the code.\n```julia\nusing KernelInterface\nconst KI = KernelInterface\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        idx = labels[i]\n        val = x[i]\n        while true\n            old = out[idx]\n            new_val = max(old, val)\n            if new_val == old\n                break\n            end\n            res = @atomicreplace :monotonic out[idx] old => new_val\n            if res.success\n                break\n            end\n        end\n    end\nend\n```\nWait, `out[idx]` inside the macro.\nDoes `out[idx]` work for `DeviceArray`?\nIn `KernelAbstractions`, `out[idx]` works.\nIn `Atomix`, `IndexableRef` is used.\nIf `out` is a `DeviceArray`, `out[idx]` returns an `IndexableRef`.\nThis should be correct.\n\nOne detail: \"Use KernelInterface as KI\".\nDoes this mean I should define `const KI = KernelInterface`?\nOr just use `KernelInterface`?\nThe prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\nThis implies `KI` is the name I should use.\nSo `const KI = KernelInterface` is appropriate.\n\nAlso, \"Use current Atomix.jl\".\nSo `using Atomix` might be needed for `@atomicreplace`.\nOr just `using KernelInterface`?\n`KernelInterface` might re-export `Atomix`?\nThe `lookup(\"KernelInterface\")` output didn't show `@atomicreplace` in exports.\nIt listed `@launch`, etc.\nSo I should probably `using Atomix`.\nBut the prompt says \"Use KernelInterface as KI\".\nIt doesn't say \"Use Atomix\".\nBut it says \"Use current Atomix.jl with explicit :monotonic ordering\".\nThis implies I should use `Atomix.jl` features.\nSo `using Atomix` is likely needed.\n\nHowever, the prompt says \"Use KernelInterface as KI\".\nMaybe `KI` is `KernelInterface` and I should use `KI` for everything?\nBut `KI` (KernelInterface) might not have `@atomicreplace`.\nLet's assume `using Atomix` is allowed/needed.\nOr maybe `KI` is `Atomix`?\n\"Use KernelInterface as KI\" -> This is very specific.\nIt says `KI` is `KernelInterface`.\nSo `KI.get_global_id().x` is correct.\nAnd for atomics, I should use `Atomix`.\n\nLet's check if `KernelInterface` has `atomic_cas!`.\nThe `lookup` output for `KernelInterface` was truncated but didn't show `atomic_cas!`.\nIt listed `atomic_cas!`? No.\nIt listed `atomic_load!`, `atomic_store!`? No.\nIt listed `atomic_cas!`? No.\nSo I should use `Atomix`.\n\nFinal check on `@atomicreplace` syntax.\n`@atomicreplace :monotonic ref old => new`\nThis seems correct based on the docstring pattern `@atomic :monotonic`.\n\nOne more thing: `out` is `Float32`.\n`max(old, val)` is `Float32`.\n`old` is `Float32`.\nComparison is fine.\n\nOne detail: \"labels are valid 1-based Int32 indices.\"\nSo `labels[i]` is Int32.\n`out` is Float32.\n`out[idx]` works.\n\nOne detail: \"out initially -Inf.\"\nSo `max(-Inf, val)` is `val` (assuming `val` > -Inf).\nIf `val` is -Inf, `new_val` is -Inf.\nIf `old` is -Inf, `new_val` is `val`.\nIf `new_val == old` (both -Inf),",
+    "code": "",
+    "calls": [
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "KernelInterface"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "# `KernelInterface`\n\nThe `KernelInterface` (or `KI`) module defines the API interface for backends to define various lower-level device and host-side functionality. The `KI` interface is used to define the higher-level device-side functionality in `KernelAbstractions`.\n\nBoth provide APIs for host and device-side functionality, but `KI` focuses on lower-level functionality that is shared amongst backends, while `KernelAbstractions` provides higher-level functionality such as writing kernels that work on arrays with an arbitrary number of dimensions, or convenience functions like allocating arrays on a backend.\n\n\n`KernelInterface` exports: @launch, Backend, CoopMatReduce, Kernel, TENSOR_CLAMP_CONSTANT, TENSOR_CLAMP_TO_EDGE, TENSOR_CLAMP_UNDEFINED, TensorLayout, TensorView, _print, allocate, argconvert, barrier, coopmat_perelement, coopmat_reduce, copyto!, device, device!, dot4x8, functional, get_backend, get_global_id, get_global_size, get_group_id, get_local_id, get_local_size, get_max_sub_group_size, get_num_groups, get_num_sub_groups, get_sub_group_id, get_sub_group_local_id, get_sub_group_size, kernel_function, launch, launch_configuration, localmemory, max_num_groups, max_work_group_dims, max_work_group_size, multiprocessor_count, ndevices, ones, pagelock!, priority!, record_event, shfl, shfl_down, shfl_up, shfl_xor, sub_group_all, sub_group_any, sub_group_ballot, sub_group_barrier, sub_group_exclusive_scan, sub_group_reduce, sub_group_scan, sub_group_size, supports_atomics, supports_coopmat_perelement, supports_coopmat_reduce, supports_flexible_coopmat_shapes, supports_float64, supports_independent_subgroups, supports_linear_subgroups, supports_partitionable_subgroups, supports_shuffle, supports_subgroups, supports_tensor_addressing, supports_unified, synchronize, tensor_clampbits, tensor_layout, tensor_load, tensor_setclampvalue, tensor_setdim, tensor_setstride, tensor_slice, tensor_store, tensor_view, unsafe_free!, versioninfo, wait_event, zeros\nOther names it defines: AcceleratedMatrix, Accumulator, CoopMatrix, DeviceCaps, Flat, GeometryConfig, HostMeshOutput, LAUNCH_KWARGS, LaunchDims, LineList, LineListAdjacency, LineStrip, LineStripAdjacency, MACRO_KWARGS, MAX_MESH_VERTICES, MatrixA, MatrixB, MatrixScope, MatrixShape, MatrixUse, MeshConfig, MeshEmitter, NativeEmitter, ObjectConfig, PatchList, PointList, PrimitiveEmitter, ShuffleOp, SubgroupScope, Topology, TriangleList, TriangleStrip, VertexIndex, WorkgroupMatrix, WorkgroupScope, argument_types, assign_args!, bestshape, call_kernel, capped_prod, caps, check_dims, check_launch, check_work_group_size, clip_y, coopmat_add, coopmat_convert, coopmat_getcomp, coopmat_length, coopmat_load, coopmat_mul, coopmat_muladd, coopmat_setcomp, coopmat_store, coopmat_undef, coopmat_zero, dFdx, dFdy, discard, emit!, emit_vertex!, end_primitive!, endprimitive!, eval, finish!, firstinputvertex, flatnames, frag_coord, frag_coord_w, frag_coord_x, frag_coord_xy, frag_coord_y, frag_coord_z, include, inline_body, inputvertices, instance_index, isbetter, isflat, launch_geometry, launch_groups, matrix_shapes, matrixscope, matrixuse, mesh_group_index, mesh_thread_index, nprimitives, nvertices, packed_layout, pad3, primitive_fields!, primitive_id_in, primitivecount, primitivedata, primitives, primitivestride, primitivevertices, prod_exceeds, rebuild_expr, rt_hit_bary_u, rt_hit_bary_v, rt_hit_object_execute_shader, rt_hit_object_trace_ray, rt_ignore_intersection, rt_instance_custom_index, rt_instance_id, rt_launch_id_x, rt_primitive_id, rt_ray_tmax, rt_reorder_thread, sample_texture_2d, segment_mask, set_mesh_groups!, set_mesh_line!, set_mesh_outputs!, set_mesh_point!, set_mesh_primitive_data!, set_mesh_triangle!, set_mesh_vertex!, set_point_size!, shfl_fallback, shfl_packed, shfl_types, shfl_unsupported, shfl_word_tuple, shfl_words, shuffle_as_words, shuffle_source, smoothnames, split_kwargs, sub_group_reduce_add, sub_group_reduce_add_types, supports, threads_to_workgroupsize, throw_launch_error\n[truncated]"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "atomic_cas!"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "`atomic_cas!` is not one of the modules available here: Atomix, Base, Core, KI, KernelInterface"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "Atomix"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/) [![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that are superset of the macros in `Base`.  In addition to atomic operations on the fields as implemented in `Base`, they support atomic operations on array elements.\n\n```jldoctest README\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device, like the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect to the host or other devices accessing the same memory.\n\n\n`Atomix` exports: nothing\nOther names it defines: @atomic, @atomicreplace, @atomicswap, IndexableRef, Internal, Ordering, acq_rel, acquire, acquire_release, asstorable, gcroot, get, modify!, monotonic, pointer, release, replace!, right, seq_cst, sequentially_consistent, set!, swap!"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "@atomicreplace"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "`@atomicreplace` is not one of the modules available here: Atomix, Base, Core, KI, KernelInterface"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "replace!"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "`replace!` is not one of the modules available here: Atomix, Base, Core, KI, KernelInterface"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "swap!"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "`swap!` is not one of the modules available here: Atomix, Base, Core, KI, KernelInterface"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "@atomic"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "error: the tool-call limit is reached; give your final answer now"
+        }
+    ],
+    "input_tokens": 643,
+    "generated_tokens": 6144,
+    "budget_tokens": 6144,
+    "context_tokens": 8409,
+    "truncated": true,
+    "rewinds": 7,
+    "finished_thinking": false,
+    "elapsed_seconds": 97.47639203071594
+}

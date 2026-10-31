@@ -1,0 +1,21 @@
+{
+    "task": "037_sort_even",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "sort_even([1, 2, 3]) == [1, 2, 3]",
+            "completed": true,
+            "value": "true"
+        },
+        {
+            "example": "sort_even([5, 6, 3, 4]) == [5, 4, 3, 6]",
+            "completed": true,
+            "value": "true"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.4414060115814209,
+    "code_sha256": "b026ab8dda539ce4f459cb656d4baa9676727d9f858f1a8f7c772f557d058b30",
+    "public_examples_sha256": "47ca44427a0de91b67d532c17d606f9b339cb613d36a8c44c4652be951a8f916"
+}

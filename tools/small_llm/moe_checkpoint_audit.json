@@ -1,0 +1,26 @@
+{
+    "id": "Qwen/Qwen3.6-35B-A3B",
+    "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+    "config_sha256": "93a4693fa9d8392fbfccd4b3c9873f4bfdcb14fdede978b123d07d19675efe99",
+    "index_sha256": "41b9356101ebf8e7519e150dc811f80c4226e727301fbb032b890f006ed0be83",
+    "checkpoint_bytes": 71903645408,
+    "shards": 26,
+    "width": 2048,
+    "layers": 40,
+    "experts": 256,
+    "active_experts": 8,
+    "expert_ffn": 512,
+    "tied_embeddings": false,
+    "output_head_key": "lm_head.weight",
+    "grouped_query_ratio": 8,
+    "routed_expert_parameters": 32212254720,
+    "active_routed_expert_parameters": 1006632960,
+    "q4_routed_expert_bytes": 18119393280,
+    "max_expert_gateup_q4_vectors": 18874368,
+    "required_native_keys_checked": 283,
+    "exclusions": [
+        "vision tensors",
+        "mtp.* tensors"
+    ],
+    "scope": "native layout/size audit, not complete model loading or throughput verification"
+}

@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "scope": "CPU-only literal-prompt budget audit qualification, NOT a primary score change or model gain",
+    "passed": 9,
+    "source_sha256": {
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "audit_rpn_prompt_budget.jl": "15ede80c30efed2593c630ccd2cc13162d0313fb357344b9087b8c6933017652",
+        "test_rpn_prompt_budget_audit.jl": "d4014c467f7c7513730c879a84b3a9b53f822c38edf753b81d0611eaa20ad4c7",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb"
+    }
+}

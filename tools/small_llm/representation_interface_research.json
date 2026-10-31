@@ -1,0 +1,37 @@
+{
+  "scope": "Primary-source research notes; hypotheses for future experiments, NOT measured improvements",
+  "sources": [
+    {
+      "title": "ToolkenGPT: Augmenting Frozen Language Models with Massive Tools via Tool Embeddings",
+      "url": "https://proceedings.nips.cc/paper_files/paper/2023/hash/8fd1a81c882cd45f64958da6284f4a3f-Abstract-Conference.html",
+      "mechanism": "Learn additional tool embeddings in the language-model output head while leaving the backbone frozen; tool selection triggers argument generation and execution.",
+      "distinction": "A learned tool-selection interface, not an exact solver embedded in hidden layers or evidence that an untrained knowledge vector is automatically understood.",
+      "local_hypothesis": "The qualified native final hidden state could support a small learned tool-selection head without full-backbone training. Compare against text tool descriptions using held-out query templates and identical tool/execution budgets.",
+      "not_implemented": ["native feature training corpus", "tool head training/calibration", "full-model tool selection evaluation"]
+    },
+    {
+      "title": "DocPrompting: Generating Code by Retrieving the Docs",
+      "url": "https://openreview.net/pdf?id=ZTCxT2t2Ru",
+      "mechanism": "Retrieve documentation using the natural-language intent and condition code generation on the retrieved text.",
+      "distinction": "A textual retrieval channel, not hidden-state fusion. Its reported Python/Bash results do not establish Julia/Mantle performance.",
+      "local_hypothesis": "A fixed installed API pack is an initial oracle-retrieval ceiling. Only if it helps should retrieval quality be separated from evidence-use quality with query selection/irrelevant-document controls.",
+      "local_protocol": "kernel_transfer_results/conditions.json",
+      "limitation": "The four authored transfer tasks are prospective after development but are not an independent public benchmark; the generic copy example is part of the public source pack."
+    }
+  ],
+  "budget_control_precedent": {
+    "title": "s1: Simple test-time scaling",
+    "url": "https://arxiv.org/abs/2501.19393",
+    "official_code": "https://github.com/simplescaling/s1",
+    "mechanism": "Control reasoning duration by terminating it with its closing delimiter or extending it when the model would otherwise stop.",
+    "distinction": "The published project also trained a32B model on curated reasoning data. Our inference-only4B controller neither reproduces that training nor inherits its reported performance.",
+    "local_protocol": "safe_reasoning_budget_results/conditions.json",
+    "local_hypothesis": "At a fixed2048 total output allowance, reserving answer space may improve executable Julia completion relative to exhausting the entire allowance on thinking. This is not knowledge injection."
+  },
+  "representation_controls": [
+    "Use the same published source corpus when comparing native-hidden kNN memory with the earlier logit-projection memory.",
+    "Separate zero-mixture identity, shuffled labels, text context, and native-hidden mixture conditions.",
+    "Choose mixture weights and distance temperatures before observing task correctness; report all registered conditions, including truncation.",
+    "Do not pool post-hoc compiler gains, prospective authored tasks, public HumanEval tests, or infrastructure parity into a single intelligence score."
+  ]
+}

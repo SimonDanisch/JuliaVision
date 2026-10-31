@@ -1,0 +1,39 @@
+{
+    "rendered": true,
+    "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/safe_plot_builder_artifacts/julia_frontend_reference_v2.png",
+    "dimensions": {
+        "width": 960,
+        "height": 480
+    },
+    "elapsed_seconds": 64.98880696296692,
+    "sha256": "4704c81899b878d63b776fb062e30238feb146c91ef2662a038045c0f8800948",
+    "layout": {
+        "canvas": [
+            960,
+            480
+        ],
+        "axes": [
+            {
+                "title": "Signal and envelope",
+                "decorated_bounds": [
+                    16,
+                    16,
+                    467.0931,
+                    464
+                ],
+                "within_canvas": true
+            },
+            {
+                "title": "Positive response",
+                "decorated_bounds": [
+                    485.09308,
+                    16.0,
+                    944.0,
+                    464.0
+                ],
+                "within_canvas": true
+            }
+        ]
+    },
+    "diagnostic": "REFERENCE_PHASE=native_build\nREFERENCE_PHASE=lowered_build\nREFERENCE_PHASE=native_pixels\nREFERENCE_PHASE=lowered_pixels\nREFERENCE_PHASE=compare\nREFERENCE_PIXEL_PARITY=true\nLAYOUT_REPORT={\"canvas\":[960,480],\"axes\":[{\"title\":\"Signal and envelope\",\"decorated_bounds\":[16.0,16.0,467.0931,464.0],\"within_canvas\":true},{\"title\":\"Positive response\",\"decorated_bounds\":[485.09308,16.0,944.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+}

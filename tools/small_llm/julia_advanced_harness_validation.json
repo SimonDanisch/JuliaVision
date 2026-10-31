@@ -1,0 +1,33 @@
+{
+    "scope": "local authored diagnostic, not held-out benchmark; Makie construction, not rendered aesthetics",
+    "references": [
+        {
+            "id": "row_softmax",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 8.522109985351562,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   10     10  1.8s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "51c4a30119e7c0286656896bc247fcc3f4f4e8d7d828ba1a78782ff6a368c121"
+        },
+        {
+            "id": "ki_launch",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 7.737330913543701,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   22     22  1.0s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "978f5e3bb0e385185368a972333cf7f64ca39d043618791e774013a1689e1f58"
+        },
+        {
+            "id": "makie_update",
+            "passed": true,
+            "exitcode": 0,
+            "elapsed_seconds": 46.697608947753906,
+            "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    7      7  3.0s\nCONTRACT_PASSED\n",
+            "log_truncated": false,
+            "code_sha256": "74eeeaddb924d180073645ff03e78bd0d195610a55cb111c83fec07f468e2c5b"
+        }
+    ],
+    "mutant_rejected": true
+}

@@ -1,0 +1,53 @@
+{
+    "selection_inputs": [
+        "subgroup width",
+        "workgroup limit",
+        "tensor dimensions"
+    ],
+    "devices": [
+        {
+            "tokens_and_final_logits_bitidentical": true,
+            "after_median": 80.22944630275393,
+            "one_submission_per_token": true,
+            "gain_percent": 1.4877708840487225,
+            "after_range": [
+                79.4361158800604,
+                80.53122107926455
+            ],
+            "paired_gain_percent": 1.588942071384425,
+            "before_median": 79.05331411251238,
+            "before_range": [
+                78.06400877671699,
+                79.30480427178402
+            ],
+            "device": "Radeon 8060S",
+            "worst_after_vs_best_before_percent": 0.16557837760542427,
+            "raw_receipt": "qwen36_capability_bosgame_final.json"
+        },
+        {
+            "tokens_and_final_logits_bitidentical": true,
+            "after_median": 37.81035600801715,
+            "one_submission_per_token": true,
+            "gain_percent": 3.8915577308062055,
+            "after_range": [
+                37.77758315107986,
+                37.85677421835373
+            ],
+            "memory_note": "System-wide counters include unrelated processes; checkpoint load and warmup excluded",
+            "paired_gain_percent": 3.8400236727883064,
+            "before_median": 36.39406014681934,
+            "before_range": [
+                36.35840812783851,
+                36.47046615040868
+            ],
+            "device": "Apple M5",
+            "worst_after_vs_best_before_percent": 3.584042483253347,
+            "system_swapout_pages_during_timed_samples": 0,
+            "system_swapin_pages_during_timed_samples": 1292,
+            "raw_receipt": "qwen36_capability_apple_final.json"
+        }
+    ],
+    "default_enabled": true,
+    "scope": "Same pinned 20GB GGUF; alternating before/automatic, 8 samples each, 64 decode tokens after 8-token prompt, Float32 KV",
+    "backend_or_device_name_branches": false
+}

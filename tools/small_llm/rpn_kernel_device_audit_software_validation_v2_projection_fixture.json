@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "scope": "CPU+software-Vulkan grading-only native-audit helper qualification v2, explicit latest-world binding access, NOT model quality; no Radeon setup",
+    "passed": 8,
+    "source_sha256": {
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "rpn_kernel_device_audit.jl": "46f7675e23bd47b95734b3e956d85a6d397864b3c786b0363dc768a9d6453f80",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "test_rpn_kernel_device_audit.jl": "01dca8c9677294fa0875de5cb383a12eff64c968530a710d6b0374e6e1c903bc",
+        "typed_pointwise_kernel_lowering.jl": "878b27763ad22184564e79c9295afd7e4ca8ab46598b0ec7714837f420125f17"
+    }
+}

@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.2474246120546013,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `stdin` not defined in local scope\nSuggestion: check for an assignment to a local variable that shadows a global of the same name.\nHint: a global variable of this name also exists in Base.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:5\n [2] top-level scope\n   @ /input/program.jl:43\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:43\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 12, in test_cases\nAssertionError\n",
+  "program_sha256": "10d313e0d15d0840c507c7385c70888452cae410ceb4280068596008e29c82dc",
+  "test_suite_sha256": "2f7978d2e873faf192d5c017b6b5b95fd40639672cbf836c4de0609e7697138e",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "97f6878787aa55ac76b0d480706a7e6b96bb4e70dcb6fef947535e27e31b67ad"
+}

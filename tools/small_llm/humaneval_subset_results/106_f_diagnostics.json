@@ -1,0 +1,20 @@
+{
+    "task": "106_f",
+    "scope": "advisory type analysis at public input signatures; no hidden assertions/values, not proof of correctness",
+    "analysis_completed": true,
+    "payload": {
+        "version": "0.12.3",
+        "completed": true,
+        "rows": [
+            {
+                "signature": "Tuple{Int64}",
+                "report_count": 0,
+                "kind": "JET",
+                "text": "No errors detected\n"
+            }
+        ]
+    },
+    "elapsed_seconds": 0.9744820594787598,
+    "diagnostic": "JET_DIAGNOSTICS={\"version\":\"0.12.3\",\"completed\":true,\"rows\":[{\"signature\":\"Tuple{Int64}\",\"report_count\":0,\"kind\":\"JET\",\"text\":\"No errors detected\\n\"}]}\nTest Summary: | Total  Time\ncontract      |     0  0.4s\nCONTRACT_PASSED\n",
+    "code_sha256": "3ca2f9471a0ef0752dc1152303d34725b0edde33560d2defa2d86958ec52ebfe"
+}

@@ -1,0 +1,101 @@
+{
+    "task": "transfer_flat_transpose",
+    "seed": 20261024,
+    "arm": "member_mask",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,rows::Int32,cols::Int32). x is a FLATTENED column-major rows-by-cols Float32 matrix; out is distinct and must hold its transposed cols-by-rows matrix, also flattened COLUMN-MAJOR. rows/cols are positive. Exactly rows*cols valid outputs, followed by padding that must stay unchanged. Handle rectangular matrices, not just squares; no scratch memory."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia GPU kernel function that transposes a flattened column-major matrix.\nInput: `x` (Flattened column-major matrix of size `rows` x `cols`)\nOutput: `out` (Flattened column-major matrix of size `cols` x `rows`)\nArguments: `out`, `x`, `rows::Int32`, `cols::Int32`\nIndexing: 1-based global 1D index using `KI.get_global_id().x`\nConstraints:\n- Use `KernelInterface` as `KI`\n- Guard inactive invocations\n- Return `nothing`\n- Handle rectangular matrices\n- No scratch memory\n- `x` and `out` are device arrays\n- `out` must hold the transposed matrix, flattened column-major.\n- Padding (if any) must stay unchanged.\n- Work is rounded up.\n\nLet's figure out the mapping.\nThe input `x` is a column-major matrix of size `rows` x `cols`.\nFlattened index `i` (1-based) corresponds to linear index `i-1` (0-based).\nRow `r = (i-1) % rows + 1`\nCol `c = div(i-1, rows) + 1`\nWait, column-major means elements are stored column by column.\nSo index `k` (0-based) corresponds to row `r = k % rows`, col `c = div(k, rows)`.\n1-based: `i` corresponds to `k = i-1`.\n`r = (i-1) % rows + 1`\n`c = div(i-1, rows) + 1`\n\nThe output `out` is a column-major matrix of size `cols` x `rows`.\nWe want `out` to be the transpose of `x`.\nSo `out` at row `c` and col `r` (1-based) should hold `x` at row `r` and col `c`.\nIn `out` (size `cols` x `rows`), the linear index for `(c, r)` is `(r-1) * cols + c`.\nWait, `out` is column-major of size `cols` x `rows`.\nSo index in `out` (1-based) for row `c`, col `r` is `(r-1) * cols + c`.\nLet's verify: `out` has `cols` rows and `rows` columns.\nLinear index `j` (1-based) in `out` corresponds to row `c = (j-1) % cols + 1`, col `r = div(j-1, cols) + 1`.\nWe want `out[j] = x[i]` where `i` corresponds to `(r, c)` in `x`.\n`x` has `rows` rows and `cols` columns.\nIndex `i` (1-based) for `(r, c)` is `(c-1) * rows + r`.\nSo `j = (r-1) * cols + c`.\nLet's check if `j` maps uniquely to `i`.\n`i = (c-1)*rows + r`\n`j = (r-1)*cols + c`\nSince `1 <= r <= rows` and `1 <= c <= cols`, both `i` and `j` range from 1 to `rows*cols`.\nThe mapping is a bijection between valid indices.\nSo for each global index `i` (1-based), we can compute `r` and `c`, then compute `j`, and do `out[j] = x[i]`.\nBut wait, `i` ranges from 1 to `rows*cols`.\n`r = (i-1) % rows + 1`\n`c = div(i-1, rows) + 1`\n`j = (r-1) * cols + c`\nThis works perfectly.\n\nLet's double check with an example.\nrows=2, cols=3.\nx is 2x3 column-major:\nx[1] = (1,1)\nx[2] = (2,1)\nx[3] = (1,2)\nx[4] = (2,2)\nx[5] = (1,3)\nx[6] = (2,3)\n\nTranspose should be 3x2 column-major:\nout[1] = (1,1) -> x[1]\nout[2] = (2,1) -> x[3]\nout[3] = (3,1) -> x[5]\nout[4] = (1,2) -> x[2]\nout[5] = (2,2) -> x[4]\nout[6] = (3,2) -> x[6]\n\nLet's test the formula:\ni=1: r=1, c=1 -> j=(0)*3+1=1. out[1]=x[1]. Correct.\ni=2: r=2, c=1 -> j=(1)*3+1=4. out[4]=x[2]. Correct.\ni=3: r=1, c=2 -> j=(0)*3+2=2. out[2]=x[3]. Correct.\ni=4: r=2, c=2 -> j=(1)*3+2=5. out[5]=x[4]. Correct.\ni=5: r=1, c=3 -> j=(0)*3+3=3. out[3]=x[5]. Correct.\ni=6: r=2, c=3 -> j=(1)*3+3=6. out[6]=x[6]. Correct.\n\nFormula works.\n\nNow, write the kernel.\nWe need to use `KernelInterface` (KI).\nIndex: `idx = KI.get_global_id().x`\nTotal work: `rows * cols`\nGuard: `if idx > rows * cols; return nothing; end`\nCompute `r`, `c`, `j`.\n`r = (idx - 1) % rows + 1`\n`c = div(idx - 1, rows) + 1`\n`j = (r - 1) * cols + c`\n`out[j] = x[idx]`\nReturn `nothing`.\n\nWait, `rows` and `cols` are `Int32`. `idx` is usually `Int64` or `Int32` depending on implementation, but `KI.get_global_id().x` returns an integer. We'll cast or use as is.\n`rows * cols` might overflow `Int32` if large, but typically GPU indices are `Int64` or `UInt32`. We'll use `Int64` for calculations to be safe, or just rely on Julia's promotion.\nActually, `rows` and `cols` are `Int32`. `idx` from `KI` is usually `Int64`.\nLet's use `Int64` for `r`, `c`, `j`.\n`r = Int64((idx - 1) % rows) + 1`\n`c = Int64(div(idx - 1, rows)) + 1`\n`j = (r - 1) * cols + c`\n\nWait, `KI.get_global_id().x` might be `Int64`.\nLet's stick to simple arithmetic.\n`idx = KI.get_global_id().x`\n`if idx > rows * cols; return nothing; end`\n`r = (idx - 1) % rows + 1`\n`c = div(idx - 1, rows) + 1`\n`j = (r - 1) * cols + c`\n`out[j] = x[idx]`\n`return nothing`\n\nCheck padding constraint: \"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\"\nSince we guard with `idx > rows * cols`, we only write to valid indices. Padding remains unchanged. Correct.\n\nOne minor point: `rows * cols` might be computed as `Int32` and overflow. Better to compute `total = Int64(rows) * Int64(cols)`.\n`idx` is `Int64` typically.\nLet's write it carefully.\n\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n```\n\nWait, `KI.get_global_id().x` might return `Int64`. `rows` and `cols` are `Int32`.\n`(idx - 1) % rows` works fine.\n`div(idx - 1, rows)` works fine.\n`j` calculation: `(r - 1) * cols + c` -> `r` and `c` are `Int64` because `idx` is `Int64`. `cols` is `Int32`, promoted to `Int64`. So `j` is `Int64`. This is fine for array indexing.\n\nLet's verify `KernelInterface` usage. The prompt says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\nSo `KI.get_global_id().x` is correct.\n\nIs there any issue with `rows` and `cols` being `Int32` in arithmetic? Julia handles mixed arithmetic fine, but to be strictly safe and avoid type instability or overflow warnings, we can cast them:\n`rows_i = Int64(rows)`\n`cols_i = Int64(cols)`\n`r = (idx - 1) % rows_i + 1`\n`c = div(idx - 1, rows_i) + 1`\n`j = (r - 1) * cols_i + c`\n\nActually, `rows` and `cols` are `Int32`. `idx` is `Int64`.\n`(idx - 1) % rows` will promote `rows` to `Int64` automatically in Julia.\nSo it's fine.\n\nOne detail: `KI.get_global_id().x` might be `UInt32` or `Int64`. We'll assume `Int64` or cast to `Int64` just in case, but usually `KI` returns `Int64`. I'll stick to `idx = KI.get_global_id().x`.\n\nLet's consider if `rows` or `cols` could be 0? The prompt says \"rows/cols are positive.\" So no division by zero.\n\nCheck padding: \"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\"\nOur guard `if idx > total; return nothing; end` ensures we only write to valid indices. Correct.\n\nCheck signature: `kernel!(out,x,rows::Int32,cols::Int32)`\nMatches.\n\nCheck imports: `(optional imports)` -> I'll add `using KernelInterface as KI` at the top, but the prompt says \"Return only the requested executable kernel code.\" I will include the function definition. Sometimes it's better to just give the function. I'll provide the function with `using KernelInterface as KI` if needed, but usually just the function is fine. I'll add the import inside or assume it's available. The prompt says \"(optional imports)\", so I'll include `using KernelInterface as KI` at the top.\n\nWait, `KI.get_global_id().x` is correct.\nLet's test mentally with `rows=3, cols=2`.\ntotal = 6.\nidx=1: r=1, c=1, j=1. out[1]=x[1]\nidx=2: r=2, c=1, j=4. out[4]=x[2]\nidx=3: r=3, c=1, j=7? Wait.\nj = (r-1)*cols + c = (3-1)*2 + 1 = 5.\nWait, out is `cols` x `rows` = 2 x 3 column-major.\nIndices for out:\n(1,1) -> 1\n(2,1) -> 2\n(1,2) -> 3\n(2,2) -> 4\n(1,3) -> 5\n(2,3) -> 6\nSo j should be <= 6.\nMy formula: j = (r-1)*cols + c.\nFor idx=3: r=3, c=1. j = (2)*2 + 1 = 5. Correct.\nFor idx=4: r=1, c=2. j = (0)*2 + 2 = 2. Correct.\nFor idx=5: r=2, c=2. j = (1)*2 + 2 = 4. Correct.\nFor idx=6: r=3, c=2. j = (2)*2 + 2 = 6. Correct.\nAll j in 1..6. Correct.\n\nOne thing: `rows` and `cols` are `Int32`. `j` will be `Int64`. Array indexing in Julia accepts `Int64`. It's fine.\n\nIs there any chance `KI.get_global_id().x` returns a type that doesn't support `%` or `div`? It returns an integer type. `Int64` is standard.\nI'll write it out carefully.\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n```\n\nWait, `rows` and `cols` in `%` and `*` will be promoted to `Int64` automatically because `idx` is `Int64`. But to be explicit and avoid any promotion warnings or issues, I'll cast them explicitly or just rely on Julia. It's fine.\n\nOne minor point: `KI.get_global_id().x` might be `Int64`. If `rows` and `cols` are `Int32`, `Int64(rows) * Int64(cols)` is safe.\nI'll stick to this.\n\nCheck constraint: \"Work is rounded up; guard inactive invocations.\" -> handled.\n\"End the function in return nothing.\" -> handled.\n\"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\" -> handled.\n\"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\" -> handled.\n\"Handle rectangular matrices, not just squares; no scratch memory.\" -> handled.\n\nIs there any issue with `div` vs `÷`? `div` is standard.\nCould `idx` be `UInt64`? `KI.get_global_id().x` typically returns `Int64`. If it returns `UInt64`, `idx - 1` might underflow if `idx == 0`, but GPU global IDs are 1-based here as per prompt: \"1-based global 1D index\". So `idx >= 1`. `idx - 1` is safe.\n\nOne detail: `rows` and `cols` are `Int32`. In Julia, `(idx - 1) % rows` will promote `rows` to `Int64`. It's fine.\nI will write it exactly as requested.\n\nFinal check of the prompt: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n\"Return only the requested executable kernel code.\"\nI will provide just the function definition, optionally with the import.\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n```\n\nWait, `rows` and `cols` are `Int32`. `j` calculation might produce `Int64`. Indexing `out` with `Int64` is fine.\nIs there any chance `KI.get_global_id().x` returns `Int32`? If so, `total` might overflow `Int32` for large matrices, but `Int64` handles it. `idx` would be `Int32`, `idx > total` works. `idx - 1` works.\nTo be extremely safe against type mismatches, I'll cast `idx` to `Int64` explicitly: `idx = Int64(KI.get_global_id().x)`. But it's probably unnecessary. I'll leave it.\n\nOne thing: `rows` and `cols` are `Int32`. `div(idx - 1, rows)` works.\nI think it's good.\n\nLet's verify the transpose mapping one more time.\nInput `x`: column-major `rows` x `cols`.\nLinear index `i` (1-based) -> row `r`, col `c` in `x`:\n`r = (i-1) % rows + 1`\n`c = div(i-1, rows) + 1`\nOutput `out`: column-major `cols` x `rows`.\nWe want `out` at row `c`, col `r` to be `x` at row `r`, col `c`.\nLinear index `j` (1-based) in `out` for row `c`, col `r`:\n`j = (r-1) * cols + c`\nThis matches my code.\nExample: `x` is 2x3. `x[2,1]` is `i=2`. `r=2, c=1`. `j=(1)*3+1=4`. `out` is 3x2. `out[1,2]` is `j=4`. Correct.\nExample: `x` is 3x2. `x[2,1]` is `i=2`. `r=2, c=1`. `j=(1)*2+1=3`. `out` is 2x3. `out[1,2]` is `j=3`. Correct.\nMapping is correct.\n\nOne minor point: `rows` and `cols` are `Int32`. In `(r - 1) * cols + c`, `r` and `c` are `Int64`, `cols` is `Int32`. Result is `Int64`. This is fine.\nI will write the code exactly.\n\nShould I include `using KernelInterface as KI`? The prompt says \"(optional imports)\". I'll include it.\nThe function signature matches exactly.\nAll constraints met.\nReady. \nOne thing: `KI.get_global_id().x` might be a tuple or struct? The prompt says \"KI.get_global_id().x\", so it's a field access.\nI'll output the code block.\nNo extra text.\nDone. \nLet's produce the response. \nWait, should I handle `rows` and `cols` as `Int64` inside to avoid promotion warnings? It's fine.\nI'll just write it cleanly.\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n```\nThis looks solid.\nCheck padding: \"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\" -> guarded by `idx > total`.\nCheck signature: `kernel!(out,x,rows::Int32,cols::Int32)` -> matches.\nCheck indexing: 1-based global 1D index -> `idx`.\nCheck return: `return nothing` -> matches.\nCheck imports: optional -> included.\nAll good.\nOutput matches request.\nProceed. \nOne minor consideration: `KI.get_global_id().x` might return `Int64`. `idx - 1` is fine.\nIf `rows` or `cols` are large, `total` fits in `Int64`.\nEverything is correct.\nI will generate the response now. \nSelf-Correction/Verification during thought:\nWait, `rows` and `cols` are `Int32`. `div(idx - 1, rows)` works.\nIs there any case where `idx` is `UInt64`? If so, `idx - 1` is fine since 1-based.\nI'll cast `idx` to `Int64` just to be safe: `idx = Int64(KI.get_global_id().x)`. But it's probably not needed. I'll leave it as is, or add `Int64` cast for safety. I'll stick to `idx = KI.get_global_id().x`.\nActually, `KI` typically returns `Int64`.\nI'll keep it simple.\nFinal code:\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n```\nMatches all constraints. Output matches request.\nProceeds. \nOne thing: `rows` and `cols` are `Int32`. In Julia, `(idx - 1) % rows` promotes `rows` to `Int64` because `idx` is `Int64`. It's fine.\nI will output exactly this. \nDone. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n```",
+    "code": "using KernelInterface as KI\n\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    idx = KI.get_global_id().x\n    total = Int64(rows) * Int64(cols)\n    if idx > total\n        return nothing\n    end\n    r = (idx - 1) % rows + 1\n    c = div(idx - 1, rows) + 1\n    j = (r - 1) * cols + c\n    out[j] = x[idx]\n    return nothing\nend\n",
+    "input_tokens": 206,
+    "generated_tokens": 5235,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 5248,
+    "decode_submissions": 5248,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 70.42682695388794,
+    "input_sha256": "1e1f9063becf362d86939409430014344c02448f012e35d672f836cb7744a9d6",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261024,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 5249,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": {
+        "member_steps": 3,
+        "removed_share": [
+            4.481574833459234e-11,
+            3.423953286695036e-13,
+            3.957642522619924e-14
+        ],
+        "removed_log_truncated": false,
+        "other_refusing_steps": 3,
+        "other_max_share": 4.3407920487237295e-12,
+        "answered": true
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "task": "transfer_clamped_gather",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": true,
+        "observed": "Float32[2.0, -3.0, 8.0, -9.0, -9.0]"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "0013abda235b5414838dd52a47917bd42f47bca13020042a5c8f7f6c43c8f41e",
+    "fixture_sha256": "6d1be9d4cc983ada57c012e33bbe7180fec4e9b554c8a87a4541c6582821cb8a",
+    "code_sha256": "fbbfa8f06a552d1539512bfdae98114808610fecf038e81ed6dff7e7a04cc848",
+    "elapsed_seconds": 26.381174087524414
+}

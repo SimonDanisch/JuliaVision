@@ -1,0 +1,17 @@
+{
+    "collection": "julia_thinking_results",
+    "task": "stable_groups",
+    "arm": "baseline",
+    "source_sha256": "6eeace5432345675145c6b2f67389176511ade59ac28763c780aa25c00b4e0b9",
+    "previous_passed": true,
+    "changed": false,
+    "id": "stable_groups",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.33624911308288574,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    4      4  0.1s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "648f85ef4a4f71d63b0a77321d6a50da16c584a921570b34e058cf12c0577ea4"
+}

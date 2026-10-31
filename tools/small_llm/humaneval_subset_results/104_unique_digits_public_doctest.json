@@ -1,0 +1,25 @@
+{
+    "task": "104_unique_digits",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "unique_digits([15, 33, 1422, 1])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "3-element Vector{Int64}:\n  1\n 15\n 33",
+            "expected": "3-element Vector{Int64}:\n  1\n 15\n 33"
+        },
+        {
+            "example": "unique_digits([152, 313, 1422, 10])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "1-element Vector{Int64}:\n 313",
+            "expected": "1-element Vector{Int64}:\n 313"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.6241569519042969,
+    "code_sha256": "bd794bf412bbb7d9c472b3daf56dae5a63c61417b24222bfbd275a294d6363e0",
+    "public_examples_sha256": "92caf50610a59b5968bbe88d6366edf616688626c5fa557c84019a95c107af9d"
+}

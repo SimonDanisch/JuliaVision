@@ -1,0 +1,10 @@
+{
+    "task": "ki_body_atomic_max",
+    "conditions_sha256": "bdf6cd15f4ffe458b8c39af0017d04a5231ba498e16a2c5bc2c78bf2fdfc6377",
+    "baseline_sha256": "a1776f48f0a466334841c8a0d8fdd170b6c35e36526bcb1a258d1a69960c0b3e",
+    "accepted": false,
+    "reason": "unknown import binding",
+    "code": "",
+    "certificate": null,
+    "selected_code": "using KernelInterface\nusing Atomix\n\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            @atomic out[labels[i]] = max(out[labels[i]], x[i]) order=:monotonic\n        end\n    end\nend\n"
+}

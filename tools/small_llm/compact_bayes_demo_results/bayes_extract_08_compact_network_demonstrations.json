@@ -1,0 +1,68 @@
+{
+    "answer": "{\"nodes\":[{\"name\":\"mode\",\"parents\":[],\"table\":[0.1,0.7,0.2],\"states\":[\"fast\",\"normal\",\"faulty\"]},{\"name\":\"flag\",\"parents\":[\"mode\"],\"table\":[0.05,0.1,0.9]}],\"query\":\"mode\",\"observed\":{\"flag\":\"yes\"}}",
+    "code": "{\"nodes\":[{\"name\":\"mode\",\"parents\":[],\"table\":[0.1,0.7,0.2],\"states\":[\"fast\",\"normal\",\"faulty\"]},{\"name\":\"flag\",\"parents\":[\"mode\"],\"table\":[0.05,0.1,0.9]}],\"query\":\"mode\",\"observed\":{\"flag\":\"yes\"}}",
+    "input_tokens": 711,
+    "generated_tokens": 69,
+    "budget_tokens": 1024,
+    "decode_steps_executed": 128,
+    "decode_submissions": 128,
+    "eos_output_poll_chunk": 64,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 16.633623123168945,
+    "input_sha256": "feb2cadb7442be5f171b5488cc89a0f673c3d677d685143193062618c3997a47",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261025,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 129,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "id": "bayes_extract_08_compact_network_demonstrations",
+    "messages": [
+        {
+            "system": "Follow the requested output interface exactly. No fences, commentary or reasoning text."
+        },
+        {
+            "user": "All scenarios are fictional probability models, not medical advice.\nTranslate exactly the stated nodes and conditional-independence edges.\nUnobserved variables are marginalized by the exact solver, NOT assumed yes/no.\nReturn one JSON object with EXACT keys nodes,query,observed. No code or prose.\n\nnodes is an array of objects with required name,parents,table and optional states.\nname is the node-name string; parents is the ordered list of parent-name strings.\nBinary states default to [\"no\",\"yes\"]; do NOT add states for binary nodes.\nFor other nodes specify the ordered state-name list explicitly in states.\ntable contains one entry per parent-state combination. Enumerate combinations\nin parents' order using their state order, RIGHTMOST parent changing fastest.\nFor two binary parents [a,b], rows are (no,no),(no,yes),(yes,no),(yes,yes).\nA root has parents:[] and table with exactly ONE entry.\nFor binary no,yes nodes each table entry is a NUMBER P(node=yes | parents),\nNOT a pair. The packer computes P(no)=1-P(yes), so do not calculate complements.\nFor a non-binary node each entry is an array of probabilities in its state order.\nNo omitted rows, expressions, renormalization, inferred edges or extra fields.\nquery is the queried NODE NAME, not a state. observed maps observed node names\nto STATE-NAME strings. Do not put the target state or posterior in extra fields.\nThe exact shared solver calculates the requested posterior from your network.\n\n\nPublic format examples for UNRELATED problems (not posterior answers):\nExample problem:\nWet has prior P(wet=yes)=0.2. P(chime=yes|wet=no)=0.15 and P(chime=yes|wet=yes)=0.75. Observe chime=no. Request P(wet=yes|chime=no).\nExample network:\n{\"nodes\":[{\"name\":\"wet\",\"parents\":[],\"table\":[0.2]},{\"name\":\"chime\",\"parents\":[\"wet\"],\"table\":[0.15,0.75]}],\"query\":\"wet\",\"observed\":{\"chime\":\"no\"}}\n\nExample problem:\nColor states amber,blue,green have respective priors0.2,0.3,0.5. P(signal=yes|color) is respectively0.1,0.4,0.8. Observe signal=yes. Request P(color=blue|signal=yes).\nExample network:\n{\"nodes\":[{\"name\":\"color\",\"states\":[\"amber\",\"blue\",\"green\"],\"parents\":[],\"table\":[[0.2,0.3,0.5]]},{\"name\":\"signal\",\"parents\":[\"color\"],\"table\":[0.1,0.4,0.8]}],\"query\":\"color\",\"observed\":{\"signal\":\"yes\"}}\n\nFor the actual problem use ITS OWN names, probabilities, edges and observations. Do not copy example values.\nProblem:\nMode has states fast,normal,faulty with respective prior probabilities0.1,0.7,0.2. Flag is yes with probability0.05 given fast,0.1 given normal,0.9 given faulty. Observe flag=yes. Find P(mode=faulty | flag=yes)."
+        }
+    ],
+    "conditions_sha256": "202aa9d6ea2b3799d0283cd4bdc41cafd69f2f9a7aff4b53a6401825d6b36bac",
+    "attempt_sha256": "80b0e875eeee11e613a26ee1879f6b460616c3b61a84e64304df5e52ea5d9751",
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/DNNKernels",
+            "git_head": null,
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/BonsaiRunner",
+            "git_head": null,
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    },
+    "normal_final_waitidle": true
+}

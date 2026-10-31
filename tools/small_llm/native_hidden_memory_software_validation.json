@@ -1,0 +1,11 @@
+{
+    "complete": true,
+    "passed": 32,
+    "scope": "synthetic native head->memory->selection graph on software Vulkan, not full-model or intelligence",
+    "device": "llvmpipe (LLVM 21.1.8, 256 bits)",
+    "source_sha256": {
+        "head_input_tap.jl": "f2f42bedee1c82a10640d81e24499f9b226a94c4ba245a3bd54dfcf92b19e4c0",
+        "knn_memory.jl": "82e34ec6583a42b2d527f098ede8dec787a4e3fa51565afd838ef6a2db4079fb",
+        "test_native_hidden_memory_device.jl": "da4266d94d8e3b707dda91339c47482f2f773e6ee6d771a73a80114e2a5a9d6d"
+    }
+}

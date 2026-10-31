@@ -1,0 +1,13 @@
+{
+    "task": "ki_body_atomic_max",
+    "arm": "self_review",
+    "conditions_sha256": "b3db2ad662cb8c8ea8216157df3173451e9e79e1c70481dc337aa1b8ad408d1e",
+    "selected_source_sha256": "2e25839e3d360b799acf93baf933bda30a51c68f0a16b9f12bfcd1184f8cff2e",
+    "original_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pointwise_accepted": false,
+    "pointwise_reason": "one function definition required",
+    "certificate": null,
+    "void_tail_accepted": false,
+    "void_tail_reason": "one top-level kernel! entry required",
+    "code": ""
+}

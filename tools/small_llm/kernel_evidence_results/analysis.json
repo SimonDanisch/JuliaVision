@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-26",
+  "protocol": "8 authored kernel tasks x 5 seeds, Qwen3.6-35B-A3B Q4_K_S on the Radeon 8060S, thinking, 6144-token budget, top-k 20 / top-p 0.95 / T 0.6; revisions only for direct candidates whose public smoke run raised; private tests in the llvmpipe sandbox",
+  "passed_of_40": {
+    "direct": 13,
+    "api_pack": 20,
+    "retrieved_docs": 15,
+    "member_mask": 13,
+    "runtime_feedback": 20,
+    "feedback_pack": 21
+  },
+  "paired_vs_direct": {
+    "api_pack": "12 wins, 5 losses, sign p=0.14",
+    "retrieved_docs": "4 wins, 2 losses, p=0.69",
+    "runtime_feedback": "7 wins, 0 losses, p=0.016",
+    "feedback_pack": "8 wins, 0 losses, p=0.008",
+    "member_mask": "0 wins, 0 losses"
+  },
+  "gpu_minutes_and_passes_per_gpu_hour": {
+    "direct": [
+      29.9,
+      26.1
+    ],
+    "api_pack": [
+      37.0,
+      32.5
+    ],
+    "retrieved_docs": [
+      41.3,
+      21.8
+    ],
+    "member_mask": [
+      29.9,
+      26.1
+    ],
+    "runtime_feedback": [
+      54.3,
+      22.1
+    ],
+    "feedback_pack": [
+      51.9,
+      24.3
+    ],
+    "note": "revision arms pay for the direct attempt plus the revision; smoke runs are CPU"
+  },
+  "direct_failures": {
+    "total": 27,
+    "syntax_using_as": 17,
+    "of_which_using_KernelInterface_as_KI": 15,
+    "note": "`using X as Y` is invalid Julia; the prompts say 'using KernelInterface as KI' / 'Use KernelInterface as KI' in prose and the setup already imports KI"
+  },
+  "member_mask": {
+    "fired_with_removed_share_near_1": "all 10 atomic-task runs (atomic_max, atomic_sum) and no other run",
+    "effect": "the model's near-certain token `.atomic...` was refused; it continued with `atomic...` without the dot (`Atomixatomic_max`), turning unknown-API failures into syntax failures; no pass/fail changed",
+    "reading": "token-level masking renormalises locally and derails when the model is certain of a nonexistent name; the removed share detected exactly those runs"
+  },
+  "feedback_pack_vs_runtime_feedback": "identical except where the exception names a module (3 cases); it won 1 (transfer_atomic_sum s20261024)",
+  "retrieved_docs": "BM25 on the task prompt found KernelAbstractions pages (its Atomix example for atomic tasks), not the Atomix API; atomic tasks stayed 0/5",
+  "caveat": "8 authored development tasks; per-arm differences of a few passes are within noise except the feedback arms' paired results"
+}

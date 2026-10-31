@@ -1,0 +1,101 @@
+{
+    "task": "ki_body_affine",
+    "seed": 20261028,
+    "arm": "member_mask",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,x,alpha::Float32,beta::Float32,n::Int32). Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n. Launches round up; leave all out entries after n unchanged, including when n=0. All input/output storage is distinct and may contain padding. Float32 arithmetic."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia kernel function using `KernelAbstractions` (specifically `KernelInterface` as `KI`).\nThe kernel signature is `kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)`.\nThe operation is `out[i] = muladd(alpha, x[i], beta)` for `1 <= i <= n`.\nThe index is 1-based.\nGlobal index is accessed via `KI.get_global_id().x`.\nLaunches are rounded up, so we must handle bounds checking.\nIf `n=0`, no work is done, and `out` entries remain unchanged.\nInput/output storage is distinct, padding exists.\nReturn type is `Nothing`.\n\nLet's write the code.\nImports: `KernelAbstractions` as `KA` or `KernelInterface` as `KI`. The prompt says \"Use KernelInterface as KI\".\nSo `using KernelInterface` or `import KernelInterface as KI`.\nActually, `KernelInterface` is part of `KernelAbstractions.jl` ecosystem. Usually `using KernelAbstractions` gives `KA`. But the prompt explicitly says \"Use KernelInterface as KI\". I will assume `import KernelInterface as KI` or `using KernelInterface` is fine, but to be safe, I'll just write `import KernelInterface as KI` or rely on `KA` if that's standard, but the prompt says \"Use KernelInterface as KI\". I'll stick to `import KernelInterface as KI`. Wait, `KernelInterface` is a module in `KernelAbstractions.jl`? Actually, `KernelAbstractions` exports `KA`. Sometimes people use `KernelAbstractions as KA`. I'll just use `import KernelAbstractions as KA` and `KA.KernelInterface`? No, the prompt says \"Use KernelInterface as KI\". I will just `import KernelInterface as KI`.\n\nWait, `KernelInterface` is typically accessed via `KernelAbstractions.KernelInterface` or just `using KernelAbstractions` and `KA.KernelInterface`. But to follow instructions exactly: `import KernelInterface as KI` might not work if it's not a top-level package. Actually, `KernelInterface.jl` is a separate package. I'll assume it's available. Or maybe the prompt means `using KernelAbstractions` and `KA`? I'll just write `import KernelInterface as KI` as requested.\n\nLet's check the index logic:\n`idx = KI.get_global_id().x`\n`if 1 <= idx <= n`\n  `out[idx] = muladd(alpha, x[idx], beta)`\n`end`\n\nSince `n` is `Int32`, comparison works.\nThe kernel should be defined with `@kernel`? The prompt says \"Do NOT ... use KernelAbstractions @kernel\". Wait, it says \"Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers.\" This implies I should just write the function that would be passed to `@kernel`, or just a regular function? Actually, in `KernelAbstractions`, kernels are defined with `@kernel function kernel!(...) ... end`. But the prompt says \"Do NOT ... use KernelAbstractions @kernel\". This is contradictory or means I should write the raw function that gets decorated, or maybe just a standard Julia function that works as a kernel? Usually, for these prompts, they want the body of the kernel, or the function definition itself without the `@kernel` macro. I will provide just the function definition.\n\nWait, the prompt says \"Return only the requested executable kernel code.\" and \"Write ONLY the Julia kernel function kernel! specified below\".\nI will write:\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\nBut `KI` needs to be imported. I'll add `import KernelInterface as KI`.\nShould I use `@kernel`? The prompt says \"Do NOT ... use KernelAbstractions @kernel\". So I will omit it.\nIs `muladd` available? Yes, `Base.muladd`.\nIndices are 1-based. `KI.get_global_id().x` returns a 1-based index in `KernelAbstractions`? Actually, `get_global_id()` returns a `CartesianIndex` or similar depending on backend. In `KernelAbstractions`, `get_global_id()` typically returns a 1-based index for CPU/GPU backends when using `@kernel`. But to be safe, `idx = KI.get_global_id().x` is given in the prompt.\nThe prompt says \"a global1D index is KI.get_global_id().x\". So I will use exactly that.\n\nOne detail: `n` is `Int32`. `idx` from `get_global_id().x` is typically `Int` or `Int64`. Comparison `1 <= idx <= n` works.\nWhat about `out` and `x`? They are device arrays.\nThe function should return `nothing`.\n\nLet's assemble it carefully.\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\n\nWait, `KernelInterface` might not be the right import name. Usually it's `using KernelAbstractions` and `KA.get_global_id()`. But the prompt explicitly says \"Use KernelInterface as KI\". I will follow it literally.\nCould it be `import KernelAbstractions as KA` and `KA.KernelInterface`? No, \"Use KernelInterface as KI\".\nI'll stick to `import KernelInterface as KI`.\n\nCheck bounds: `1 <= idx <= n`. If `n=0`, condition fails, returns nothing. Correct.\n\"leave all out entries after n unchanged\" -> handled by bounds check.\n\"Launches round up\" -> handled by bounds check.\n\"Float32 arithmetic\" -> `alpha`, `beta` are `Float32`, `muladd` preserves type or promotes to `Float32`? `muladd` with `Float32` args returns `Float32`. Correct.\n\"Arguments are device arrays/scalars and indices are1-based.\" -> `out[idx]` works.\n\"Return nothing.\" -> `return nothing` or just end of function.\n\nOne minor point: `KernelInterface` is actually a submodule of `KernelAbstractions` in some versions, or a separate package. I'll just use `import KernelInterface as KI` as instructed. If it's meant to be `KernelAbstractions`, the prompt would say `KA`. I'll follow exactly.\n\nWait, `KI.get_global_id()` might return a `Tuple` or `CartesianIndex`. The prompt says `KI.get_global_id().x`. So I'll use that.\n\nIs there any need for `@kernel`? The prompt says \"Do NOT ... use KernelAbstractions @kernel\". So I will not use it.\n\nFinal code:\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\n\nWait, `muladd` might need `Base.muladd` or just `muladd`. It's in Base.\nShould I include `import KernelInterface as KI`? The prompt says \"optionally including imports\". I'll include it.\nOne thing: `KI.get_global_id()` in `KernelInterface.jl` might return a `CartesianIndex` or a `Tuple`. The prompt explicitly says `KI.get_global_id().x`, so I'll use that.\nAlso, `n` is `Int32`, `idx` is likely `Int64` or `Int32`. Comparison is fine.\nI'll write it out.\n\nCheck if `KernelInterface` is actually `KernelAbstractions`? Sometimes prompts use specific names. I'll stick to `import KernelInterface as KI`.\nActually, `KernelInterface` is the module that defines `get_global_id`. In `KernelAbstractions.jl`, it's `KernelAbstractions.KernelInterface`. But I'll just `import KernelInterface as KI` as requested.\n\nOne detail: `muladd(alpha, x[idx], beta)` returns a `Float32`. Assigning to `out[idx]` is fine.\nThe prompt says \"Return only the requested executable kernel code.\"\nI will output exactly the function and import.\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\n\nWait, should I use `@kernel`? The prompt says \"Do NOT ... use KernelAbstractions @kernel\". So no.\nIs `KI.get_global_id()` correct? Yes.\nIndices are 1-based. `1 <= idx <= n` covers it.\nAll good.\nI will produce the code block.\nOne minor thing: `KernelInterface` might be imported as `import KernelInterface`. I'll just write `import KernelInterface as KI`.\nDone. \nLet's double check the prompt: \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\nEverything matches.\nOutput matches request.\nProceed. \nI will wrap it in a code block.\nNo extra text.\nDone. \nSelf-Correction/Verification during thought:\nCould `KI` be `KernelAbstractions`? The prompt explicitly says \"Use KernelInterface as KI\". I will follow it.\nIs `muladd` available without `Base.`? Yes, in Julia `muladd` is in `Base`.\nShould I use `return` or just end? `return nothing` is explicit.\nThe prompt says \"Return only the requested executable kernel code.\"\nI'll provide exactly that.\nOne thing: `KernelInterface` might not be a top-level package but a submodule. However, the prompt says \"Use KernelInterface as KI\". I'll assume it's available or the user knows how to import it. I'll just write `import KernelInterface as KI`.\nActually, in `KernelAbstractions.jl`, `KernelInterface` is exported. So `using KernelAbstractions` gives `KA`, and `KA.KernelInterface` is used. But the prompt says \"Use KernelInterface as KI\". I'll stick to `import KernelInterface as KI`.\nWait, maybe it's `import KernelAbstractions as KA` and `KA.KernelInterface`? The prompt says \"Use KernelInterface as KI\". I'll follow literally.\nI'll output the code. \nFinal check of the code:\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\nLooks solid. Matches all constraints. Float32 arithmetic, bounds check, 1-based, no `@kernel`, returns nothing.\nReady. \nOutput matches response. \nProceeds. \n[Output Generation] -> *Self-Correction/Refinement during generation prep*: \nWait, `KernelInterface` is actually `KernelAbstractions.KernelInterface`. But the prompt says \"Use KernelInterface as KI\". I will just `import KernelInterface as KI` as instructed. If it fails in practice due to package structure, it's outside my control, but I follow instructions. \nActually, `KernelInterface.jl` is a separate package. So `import KernelInterface as KI` is correct.\nAll good. \nOutput matches. \nProceeds. \n[Final Check]\n- Signature: `kernel!(out,x,alpha::Float32,beta::Float32,n::Int32)` -> matches\n- Operation: `out[i]=muladd(alpha,x[i],beta)` for `1<=i<=n` -> matches\n- Launches round up; leave out entries after n unchanged -> handled by `if 1 <= idx <= n`\n- n=0 case -> handled\n- Float32 arithmetic -> handled\n- Return nothing -> handled\n- No `@kernel`, no device creation, no host wrappers -> handled\n- Use `KI.get_global_id().x` -> handled\nAll constraints met.\nOutput generation. \n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\nDone. \nI will output exactly this. \nNote: I'll make sure formatting is correct. No extra text. \nProceeds. \n[Output Generation] (matches the refined code)\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```\nAll good. \nFinal Answer Generation. \n(Self-Correction/Note during thought: `KernelInterface` might be imported as `using KernelInterface` or `import KernelInterface`. I'll use `import KernelInterface as KI` as it's standard. The prompt says \"optionally including imports\". I'll include it.)\nDone. \nOutput matches response. \nProceeds. \n[Final Output Generation] -> *Proceeds*\n</think>\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n```",
+    "code": "import KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    idx = KI.get_global_id().x\n    if 1 <= idx <= n\n        out[idx] = muladd(alpha, x[idx], beta)\n    end\n    return nothing\nend\n",
+    "input_tokens": 177,
+    "generated_tokens": 3197,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 3200,
+    "decode_submissions": 3200,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 44.285547971725464,
+    "input_sha256": "e4680a234aadde799a7430eb7d01bd4e28a08f1304466913ebcdf7dc0fc53874",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261028,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 3201,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": {
+        "member_steps": 3,
+        "removed_share": [
+            2.172843675818381e-11,
+            2.3015328792092005e-12,
+            1.3555165663699503e-15
+        ],
+        "removed_log_truncated": false,
+        "other_refusing_steps": 3,
+        "other_max_share": 6.234174011439733e-14,
+        "answered": true
+    }
+}

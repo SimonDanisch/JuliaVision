@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 12,
+    "scope": "Public-only immutable deployment/collection, no neural quality evidence",
+    "sources": {
+        "test_alias_transfer3_deploy.jl": "e509c9d44abdb1cc8a01aab3e403ec937a374a139aa9934cf55be494b15be94a",
+        "alias_transfer3_deploy.jl": "7b4310656f2baf7f9e5c998b0a7ae851c4f6415693028bca2a98e0a6a2e01317"
+    }
+}

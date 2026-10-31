@@ -1,0 +1,90 @@
+{
+    "task": "ki_body_affine",
+    "seed": 20261026,
+    "arm": "api_pack",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,x,alpha::Float32,beta::Float32,n::Int32). Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n. Launches round up; leave all out entries after n unchanged, including when n=0. All input/output storage is distinct and may contain padding. Float32 arithmetic.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia kernel function `kernel!` that performs the operation `out[i] = muladd(alpha, x[i], beta)` for `1 <= i <= n`.\nThe kernel should use `KernelInterface` (aliased as `KI`) for `get_global_id().x`.\nArguments are `out`, `x`, `alpha::Float32`, `beta::Float32`, `n::Int32`.\nIndices are 1-based.\nLaunches round up; leave all `out` entries after `n` unchanged.\nAll input/output storage is distinct and may contain padding.\nFloat32 arithmetic.\n\nWe need to write ONLY the kernel function, optionally including imports.\nSignature: `kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)`\n\nLet's write it out:\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nCheck constraints:\n- Use `KI.get_global_id().x`\n- 1-based index\n- `Float32` arithmetic\n- Return nothing\n- Signature matches\n- No device creation, compilation, launching, or host wrappers\n- `@inbounds` is good practice for GPU kernels to avoid bound checks\n- `muladd` is standard Julia\n\nOne detail: `i` should be computed as `Int32(KI.get_global_id().x)` or just `KI.get_global_id().x` if it's already an integer type. The prompt says `get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}`. I'll cast to `Int32` to match `n::Int32` and typical GPU kernel practices, or just use it directly. The example `copy_kernel!` uses `i = Int32(KI.get_global_id().x)`. I'll follow that.\n\nWait, `muladd(alpha, x[i], beta)` expects `Float32`. `x` is likely a `Vector{Float32}` or similar. The prompt says \"Float32 arithmetic.\"\n\nLet's stick to the exact signature and logic.\n\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nCheck if any imports are needed. The prompt says \"optionally including imports.\" I'll just provide the function. `KI` is assumed global as per prompt: \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\n\nOne minor point: `muladd` in Julia works element-wise or on scalars. `muladd(alpha, x[i], beta)` is fine.\n\nIs there any need to handle `n=0`? The condition `i <= n` handles it naturally (no thread will execute the body if `n=0`, which is correct since `i >= 1`).\n\nThe prompt says \"Launches round up; leave all out entries after n unchanged\". This is standard for GPU kernels where threads check bounds.\n\nEverything looks solid.\n\nI will output exactly the function.\nNo extra text.\nCode:\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nWait, should I use `@inbounds`? It's safe here because of the `if i <= n` check. GPU kernels often use `@inbounds` to avoid bound checks in LLVM. It's fine.\n\nOne thing: `muladd` might need to be `Base.muladd` or just `muladd`. It's in Base.\n\nI'll just write it out.\nCheck signature: `kernel!(out,x,alpha::Float32,beta::Float32,n::Int32)`\nMatches.\n\nFinal code:\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nDone. I will output exactly this.\nNo extra text as requested.\nProceed. \nSelf-Correction/Verification during thought:\n- The prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\n- \"Return only the requested executable kernel code.\"\n- \"Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers.\"\n- \"Arguments are device arrays/scalars and indices are1-based.\"\n- \"Return nothing.\"\n- \"Signature kernel!(out,x,alpha::Float32,beta::Float32,n::Int32).\"\n- \"Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n.\"\n- \"Launches round up; leave all out entries after n unchanged, including when n=0.\"\n- \"All input/output storage is distinct and may contain padding.\"\n- \"Float32 arithmetic.\"\n\nEverything matches. I will produce the code block.\nOne minor point: `muladd` in Julia is a function. `muladd(alpha, x[i], beta)` works.\nI'll output exactly the function.\nDone. \nOutput matches request.✅\nProceeds. \n[Output Generation] -> code block only. \n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nAll good. \nNote: I'll make sure formatting matches exactly. No extra comments.\nReady. \nOutput Generation. \n(Self-Correction/Refinement during thought)\nShould I use `@device_override` or anything? No, the prompt says \"Return only the requested executable kernel code.\" and gives context about `KernelInterface` and `Atomix`. It's just a standard GPU kernel function definition.\nI will provide exactly the function.\nDone. \nProceeds. \n[Output] -> code block. \n`function kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)`\n`    i = Int32(KI.get_global_id().x)`\n`    if i <= n`\n`        @inbounds out[i] = muladd(alpha, x[i], beta)`\n`    end`\n`    return nothing`\n`end`\nMatches perfectly.✅\nOutput matches request. \nProceeds. \n[Final Check]\n- Signature matches exactly.\n- Uses `KI.get_global_id().x`.\n- 1-based indexing handled.\n- `n=0` handled.\n- `Float32` arithmetic.\n- Returns nothing.\n- No extra wrappers.\nAll constraints satisfied.\nOutput generation. \n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nDone. \n(Self-Correction/Note during generation prep)\nWait, `muladd` might be ambiguous if not in Base, but it is in Base. I'll use `Base.muladd` just in case, or just `muladd`. It's fine.\nI will output exactly the code.\nDone. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n",
+    "input_tokens": 1463,
+    "generated_tokens": 1929,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2048,
+    "decode_submissions": 2048,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 33.06714200973511,
+    "input_sha256": "e2bdd6849a811086921c8deff3a757271c6b77d72245c98ce9da87cb389e4a98",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261026,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2049,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": null
+}

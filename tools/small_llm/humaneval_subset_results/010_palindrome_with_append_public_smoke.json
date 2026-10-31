@@ -1,0 +1,26 @@
+{
+    "task": "010_palindrome_with_append",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "palindrome_with_append(\"\")",
+            "completed": true,
+            "value": "\"\""
+        },
+        {
+            "example": "palindrome_with_append(\"cat\")",
+            "completed": true,
+            "value": "\"catac\""
+        },
+        {
+            "example": "palindrome_with_append(\"cata\")",
+            "completed": true,
+            "value": "\"catatac\""
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.42350006103515625,
+    "code_sha256": "16cfc4d0d732e8e034c634cdeada20d8980116836863df360719135042c6e832",
+    "public_examples_sha256": "848dc7f35fa33e82ae928f574ef06d1d34ab41016d8eabfe782648b1f2162d36"
+}

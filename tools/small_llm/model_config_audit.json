@@ -1,0 +1,146 @@
+[
+    {
+        "id": "Qwen/Qwen3.5-2B",
+        "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+        "role": "throughput fallback",
+        "config_url": "https://huggingface.co/Qwen/Qwen3.5-2B/resolve/15852e8c16360a2fea060d615a32b45270f8a8fc/config.json",
+        "native_context": 262144,
+        "full_attention_layers": 6,
+        "fp16_bytes_per_token": 12288,
+        "q8_bytes_per_token": 6240,
+        "recurrent_matrix_mib": 18,
+        "grouped_query_ratio": 4,
+        "tied_embeddings": true,
+        "experts": 0,
+        "experts_per_token": 0,
+        "assumed_bandwidth_gbps": 220,
+        "contexts": [
+            {
+                "tokens": 4096,
+                "fp16_kv_gib": 0.046875,
+                "q8_kv_gib": 0.0238037109375,
+                "q8_cache_scan_only_tps": 8607.52203525641
+            },
+            {
+                "tokens": 32768,
+                "fp16_kv_gib": 0.375,
+                "q8_kv_gib": 0.1904296875,
+                "q8_cache_scan_only_tps": 1075.9402544070513
+            },
+            {
+                "tokens": 131072,
+                "fp16_kv_gib": 1.5,
+                "q8_kv_gib": 0.76171875,
+                "q8_cache_scan_only_tps": 268.9850636017628
+            },
+            {
+                "tokens": 262144,
+                "fp16_kv_gib": 3,
+                "q8_kv_gib": 1.5234375,
+                "q8_cache_scan_only_tps": 134.4925318008814
+            },
+            {
+                "tokens": 1000000,
+                "fp16_kv_gib": 11.444091796875,
+                "q8_kv_gib": 5.811452865600586,
+                "q8_cache_scan_only_tps": 35.256410256410255
+            }
+        ]
+    },
+    {
+        "id": "Qwen/Qwen3.5-4B",
+        "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+        "role": "first dense backbone to port",
+        "config_url": "https://huggingface.co/Qwen/Qwen3.5-4B/resolve/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a/config.json",
+        "native_context": 262144,
+        "full_attention_layers": 8,
+        "fp16_bytes_per_token": 32768,
+        "q8_bytes_per_token": 16640,
+        "recurrent_matrix_mib": 48,
+        "grouped_query_ratio": 4,
+        "tied_embeddings": true,
+        "experts": 0,
+        "experts_per_token": 0,
+        "assumed_bandwidth_gbps": 220,
+        "contexts": [
+            {
+                "tokens": 4096,
+                "fp16_kv_gib": 0.125,
+                "q8_kv_gib": 0.0634765625,
+                "q8_cache_scan_only_tps": 3227.820763221154
+            },
+            {
+                "tokens": 32768,
+                "fp16_kv_gib": 1,
+                "q8_kv_gib": 0.5078125,
+                "q8_cache_scan_only_tps": 403.4775954026442
+            },
+            {
+                "tokens": 131072,
+                "fp16_kv_gib": 4,
+                "q8_kv_gib": 2.03125,
+                "q8_cache_scan_only_tps": 100.86939885066106
+            },
+            {
+                "tokens": 262144,
+                "fp16_kv_gib": 8,
+                "q8_kv_gib": 4.0625,
+                "q8_cache_scan_only_tps": 50.43469942533053
+            },
+            {
+                "tokens": 1000000,
+                "fp16_kv_gib": 30.517578125,
+                "q8_kv_gib": 15.497207641601562,
+                "q8_cache_scan_only_tps": 13.221153846153847
+            }
+        ]
+    },
+    {
+        "id": "Qwen/Qwen3.6-35B-A3B",
+        "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+        "role": "MoE comparison after dense baseline",
+        "config_url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/config.json",
+        "native_context": 262144,
+        "full_attention_layers": 10,
+        "fp16_bytes_per_token": 20480,
+        "q8_bytes_per_token": 10400,
+        "recurrent_matrix_mib": 60,
+        "grouped_query_ratio": 8,
+        "tied_embeddings": false,
+        "experts": 256,
+        "experts_per_token": 8,
+        "assumed_bandwidth_gbps": 220,
+        "contexts": [
+            {
+                "tokens": 4096,
+                "fp16_kv_gib": 0.078125,
+                "q8_kv_gib": 0.0396728515625,
+                "q8_cache_scan_only_tps": 5164.513221153846
+            },
+            {
+                "tokens": 32768,
+                "fp16_kv_gib": 0.625,
+                "q8_kv_gib": 0.3173828125,
+                "q8_cache_scan_only_tps": 645.5641526442307
+            },
+            {
+                "tokens": 131072,
+                "fp16_kv_gib": 2.5,
+                "q8_kv_gib": 1.26953125,
+                "q8_cache_scan_only_tps": 161.39103816105768
+            },
+            {
+                "tokens": 262144,
+                "fp16_kv_gib": 5,
+                "q8_kv_gib": 2.5390625,
+                "q8_cache_scan_only_tps": 80.69551908052884
+            },
+            {
+                "tokens": 1000000,
+                "fp16_kv_gib": 19.073486328125,
+                "q8_kv_gib": 9.685754776000977,
+                "q8_cache_scan_only_tps": 21.153846153846153
+            }
+        ]
+    }
+]

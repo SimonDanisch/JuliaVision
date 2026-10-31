@@ -1,0 +1,14 @@
+{
+    "task": "transfer_clamped_gather",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: ParseError:\n# Error @ public_kernel_probe.jl:1:6\nusing KernelAbstractions as KI\n#    └───────────────────────┘ ── `using` with `as` renaming requires a `:` and context module\nin expression starting at public_kernel_probe.jl:1"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "0013abda235b5414838dd52a47917bd42f47bca13020042a5c8f7f6c43c8f41e",
+    "fixture_sha256": "6d1be9d4cc983ada57c012e33bbe7180fec4e9b554c8a87a4541c6582821cb8a",
+    "code_sha256": "a07cea2ea474d1eb102f773ca3ca0ef4883783948e9a6757e069e18c1e3ad174",
+    "elapsed_seconds": 9.417012929916382
+}

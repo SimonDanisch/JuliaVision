@@ -1,0 +1,9 @@
+{
+    "id": "transfer_flat_transpose_no_addon",
+    "conditions_sha256": "1691c3dde59845f7ae81d80b1be9f0ec7c5ffbeea729b42bcb2ceb7cdd0e25ff",
+    "original_sha256": "11aa78351bc95062515bc76ea21e97cf863ee596442df1e13da744f11502e4ef",
+    "seed": 20261024,
+    "budget_tokens": 2048,
+    "thinking_budget": 1024,
+    "started_unix_seconds": 1.792886821011271e9
+}

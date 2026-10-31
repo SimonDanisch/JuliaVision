@@ -1,0 +1,85 @@
+{
+  "source": "dev/JuliaVision/tools/small_llm/qwen36_interleaved_final.json",
+  "source_sha256": "01ad36d5283df8c7a4e225baffed208c6f24c94ef599ea18c226ce956d1e004d",
+  "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+  "statistics": {
+    "original": {
+      "n": 8,
+      "median": 69.85412783656928,
+      "minimum": 67.16613722136917,
+      "maximum": 71.51877152581623,
+      "q1": 67.87258676810134,
+      "q3": 71.45450076543823,
+      "samples": [
+        71.51877152581623,
+        71.47036883177215,
+        71.40689656643643,
+        71.3432689254402,
+        68.36498674769835,
+        67.74298169637348,
+        68.26140198328491,
+        67.16613722136917
+      ]
+    },
+    "final": {
+      "n": 16,
+      "median": 72.94714307553895,
+      "minimum": 72.4863291576028,
+      "maximum": 74.02743901517208,
+      "q1": 72.79606907905037,
+      "q3": 73.36593330919446,
+      "samples": [
+        72.82878090277516,
+        72.72596068482747,
+        72.87580595901616,
+        72.90621099756224,
+        72.65484080472956,
+        72.78516513780878,
+        72.94228262153229,
+        74.02743901517208,
+        73.49368812435773,
+        73.60293224881713,
+        73.10958735093743,
+        72.4863291576028,
+        73.11260097608452,
+        73.4503774202311,
+        72.95200352954559,
+        73.03211941657123
+      ]
+    },
+    "llama_cpp": {
+      "n": 16,
+      "median": 73.424839491,
+      "minimum": 73.010808043,
+      "maximum": 74.616356737,
+      "q1": 73.1721528975,
+      "q3": 73.5432184675,
+      "samples": [
+        73.497037181,
+        74.562867674,
+        74.616356737,
+        74.410746703,
+        73.228723135,
+        73.182062907,
+        73.02453328,
+        73.204833275,
+        73.553093765,
+        73.442562896,
+        73.424887085,
+        73.424791897,
+        73.513592575,
+        73.043294875,
+        73.010808043,
+        73.168849561
+      ]
+    }
+  },
+  "final_vs_native_percent": -0.6505923864084218,
+  "final_vs_original_percent": 4.42782028029336,
+  "scope": "One fixed 8-token prompt/64 greedy decode tokens, F32 KV, capacity256, same Radeon and GGUF; not broad model/context superiority",
+  "feedback_modes": "Mantle device-resident token feedback; llama.cpp synchronized host logits/greedy feedback",
+  "contention_possible": true,
+  "all_samples_retained": true,
+  "checked_logits_bitidentical_to_original_mantle": true,
+  "numerical_equivalence_to_llama_cpp_proven": false
+}

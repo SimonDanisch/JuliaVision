@@ -1,0 +1,101 @@
+{
+    "task": "transfer_atomic_sum",
+    "seed": 20261024,
+    "arm": "member_mask",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,labels,x,n::Int32). out/x Float32, labels Int32; all storage is distinct. For every1<=i<=n atomically ADD x[i] into out[labels[i]], retaining out's initial values. labels are valid1-based indices, and many workgroups contend. n can be0. Use Atomix.jl with explicit :monotonic ordering; results are observed only after kernel completion. A separate normal load followed by an atomic STORE is not a valid RMW. No scratch arrays or host reductions."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia GPU kernel function that performs an atomic addition: `out[labels[i]] += x[i]` for `i` from 1 to `n`.\nThe kernel signature is `kernel!(out, labels, x, n::Int32)`.\n`out` and `x` are `Float32` arrays, `labels` is an `Int32` array.\nIndices are 1-based.\nWe need to use `KernelInterface` (KI) and `KI.get_global_id().x`.\nWe need to use `Atomix.jl` with explicit `:monotonic` ordering for atomics.\nThe kernel should handle `n=0` and guard inactive invocations.\nWork is rounded up, so we check `id <= n`.\nReturn `nothing`.\nNo host wrappers, no KernelAbstractions, no scratch arrays.\nOnly the executable kernel code.\n\nLet's draft the kernel:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        idx = labels[id]\n        val = x[id]\n        KI.atomic_add!(out, idx, val, :monotonic)\n    end\n    return nothing\nend\n```\n\nWait, `KI.atomic_add!` signature? In `Atomix.jl`, the atomic operations are usually accessed via `Atomix.atomic_add!`. But the prompt says \"using KernelInterface as KI\". `KernelInterface` might re-export or wrap `Atomix`? Or maybe `KI` provides `atomic_add!`?\nActually, `KernelInterface` is a package that provides a thin wrapper over GPU kernels. It might not directly expose atomics, but usually, GPU packages provide atomic functions. However, the prompt explicitly says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" and \"Use Atomix.jl with explicit :monotonic ordering\".\nMaybe `KI` is just an alias for `KernelInterface`. I will assume `KI.atomic_add!` is available or I should use `Atomix.atomic_add!` but the prompt says \"using KernelInterface as KI\". I'll stick to `KI.atomic_add!` or just `atomic_add!` if it's in scope, but to be safe, I'll use `KI.atomic_add!(out, idx, val, :monotonic)` or `Atomix.atomic_add!`. Actually, `KernelInterface` might re-export `Atomix`. I'll use `KI.atomic_add!`.\n\nWait, `KernelInterface.jl` is a real package? It provides `get_global_id`. It might not have `atomic_add!`. But the prompt says \"Use Atomix.jl with explicit :monotonic ordering\". I will use `Atomix.atomic_add!(out, idx, val, :monotonic)` or `KI.atomic_add!`. I'll just use `KI.atomic_add!` as it's common to alias packages, or I'll explicitly call `Atomix.atomic_add!`. The prompt says \"using KernelInterface as KI\", so `KI` is the module name. I'll use `KI.atomic_add!` or `Atomix.atomic_add!`. I'll stick to `KI.atomic_add!` to be safe, or just `atomic_add!` if it's imported. Actually, `KernelInterface` might not export atomics. I'll use `Atomix.atomic_add!` but the prompt says \"using KernelInterface as KI\". I'll just write `KI.atomic_add!(out, idx, val, :monotonic)`.\n\nWait, `KernelInterface` is a package that provides `get_global_id`. It might not have atomics. But the prompt says \"Use Atomix.jl with explicit :monotonic ordering\". I will use `Atomix.atomic_add!(out, idx, val, :monotonic)`. Or maybe `KI.atomic_add!` is fine. I'll use `KI.atomic_add!` to follow \"using KernelInterface as KI\".\n\nActually, `KernelInterface` is a package that provides `get_global_id`. It's often used with `GPUArrays` or `CUDAnative`. But the prompt says \"using KernelInterface as KI\". I'll assume `KI.atomic_add!` works or I'll just use `Atomix.atomic_add!`. I'll write `KI.atomic_add!(out, idx, val, :monotonic)`.\n\nLet's check `KernelInterface` documentation mentally. It's a small package. It might not export atomics. I'll use `Atomix.atomic_add!(out, idx, val, :monotonic)` to be precise, or `KI.atomic_add!`. The prompt says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" It doesn't explicitly say to use KI for atomics, just \"Use Atomix.jl with explicit :monotonic ordering\". So I'll use `Atomix.atomic_add!`.\n\nWait, `Atomix` is a package for atomics in Julia. It provides `Atomix.atomic_add!(A, i, v, order)`.\nThe signature is `Atomix.atomic_add!(A, i, v, order)`.\nSo:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        idx = labels[id]\n        val = x[id]\n        Atomix.atomic_add!(out, idx, val, :monotonic)\n    end\n    return nothing\nend\n```\n\nIs `labels` 1-based? Yes.\nIs `out` 1-based? Yes.\n`id` is 1-based from `KI.get_global_id().x`.\nSo `labels[id]` and `x[id]` are correct.\n`n` can be 0. `id <= n` handles it.\n\"Work is rounded up; guard inactive invocations.\" -> `if id <= n` does this.\n\"results are observed only after kernel completion.\" -> `:monotonic` is fine, or maybe `:acquire`/`:release`? The prompt says \"explicit :monotonic ordering\". So `:monotonic`.\n\"Return only the requested executable kernel code.\"\nI will output just the function.\n\nOne detail: `KernelInterface` might be imported as `using KernelInterface as KI`. The prompt says \"using KernelInterface as KI\". So `KI` is available.\nI'll write:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        Atomix.atomic_add!(out, labels[id], x[id], :monotonic)\n    end\n    return nothing\nend\n```\n\nWait, `Atomix` might require `using Atomix`. The prompt says \"optional imports\". I'll add `using Atomix` if needed, but usually kernels are standalone. I'll just use `Atomix.atomic_add!`. Or maybe `KI.atomic_add!` is expected. I'll stick to `Atomix.atomic_add!`.\n\nLet's double check the prompt: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n\"Use Atomix.jl with explicit :monotonic ordering\"\nSo `Atomix.atomic_add!` is correct.\n\nOne thing: `Atomix` in Julia might use `Atomix.atomic_add!(A, i, v, order)`. Yes.\nIs there any chance `KI` re-exports `atomic_add!`? Possibly. But `Atomix.atomic_add!` is safer.\nI will write exactly the function.\n\nCheck constraints:\n- \"Return only the requested executable kernel code.\"\n- \"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\"\n- \"No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions.\"\n- \"Work is rounded up; guard inactive invocations.\"\n- \"End the function in return nothing.\"\n- \"Signature kernel!(out,labels,x,n::Int32).\"\n- \"out/x Float32, labels Int32; all storage is distinct.\"\n- \"For every1<=i<=n atomically ADD x[i] into out[labels[i]], retaining out's initial values.\"\n- \"labels are valid1-based indices, and many workgroups contend.\"\n- \"n can be0.\"\n- \"Use Atomix.jl with explicit :monotonic ordering; results are observed only after kernel completion.\"\n- \"A separate normal load followed by an atomic STORE is not a valid RMW.\"\n- \"No scratch arrays or host reductions.\"\n\nEverything matches.\n\nCode:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        Atomix.atomic_add!(out, labels[id], x[id], :monotonic)\n    end\n    return nothing\nend\n```\n\nWait, `Atomix` might need to be called as `Atomix.atomic_add!`. Yes.\nIs `KI` defined? The prompt says \"using KernelInterface as KI\". I'll assume it's in scope or I can just use `KI`.\nI'll output exactly this.\n\nOne minor point: `Atomix` is a package, but sometimes in Julia GPU code, we just use `atomic_add!` if it's in scope. I'll stick to `Atomix.atomic_add!`.\nThe prompt says \"optional imports\", so I can add `using Atomix` at the top if needed, but usually kernels are self-contained. I'll just provide the function.\n\nFinal check of the prompt: \"Return only the requested executable kernel code.\"\nI will provide just the function definition.\n\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        Atomix.atomic_add!(out, labels[id], x[id], :monotonic)\n    end\n    return nothing\nend\n```\n\nIs there any nuance about `KI.get_global_id().x`? It returns an `Int32` or `Int64`? Usually `Int32` or `Int64`. `id <= n` works.\n`labels[id]` and `x[id]` are fine.\n`Atomix.atomic_add!` takes `(A, i, v, order)`. Correct.\nAll good.\nI will output exactly this.\nOne thing: `Atomix` might be `Atomix.atomic_add!` or `Atomix.atomic_add`. The function is `atomic_add!`.\nI'll use `Atomix.atomic_add!(out, labels[id], x[id], :monotonic)`.\nDone. \nI will produce the code block. \nNo extra text.\nProceed. \nWait, should I include `using Atomix`? The prompt says \"(optional imports)\". I'll skip it to be safe, or include it. I'll just give the function. It's standard.\nDone. \nOutput matches request. \nProceeds. \n(Self-Correction/Verification during thought)\nCould `KI` be `KernelInterface`? Yes.\nDoes `KernelInterface` export `atomic_add!`? Not necessarily. `Atomix` is explicitly requested.\nThe prompt says \"Use Atomix.jl with explicit :monotonic ordering\".\nSo `Atomix.atomic_add!` is correct.\nAll constraints met.\nOutput matches. \nReady. \n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        Atomix.atomic_add!(out, labels[id], x[id], :monotonic)\n    end\n    return nothing\nend\n```\nLooks solid.\nI will output this exactly. \nNo extra text. \nDone. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        Atomix\tatomic_add!(out, labels[id], x[id], :monotonic)\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, labels, x, n::Int32)\n    id = KI.get_global_id().x\n    if id <= n\n        Atomix\tatomic_add!(out, labels[id], x[id], :monotonic)\n    end\n    return nothing\nend\n",
+    "input_tokens": 232,
+    "generated_tokens": 2677,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2688,
+    "decode_submissions": 2688,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 36.30467486381531,
+    "input_sha256": "f3f62322d7b125decde29ae14e53868a60fbb66332c25b6bd4c5f4f589fd4bb8",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261024,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2689,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": {
+        "member_steps": 3,
+        "removed_share": [
+            4.8971229849037456e-11,
+            3.0410123204316353e-12,
+            3.297332398170382e-15
+        ],
+        "removed_log_truncated": false,
+        "other_refusing_steps": 2,
+        "other_max_share": 1,
+        "answered": true
+    }
+}

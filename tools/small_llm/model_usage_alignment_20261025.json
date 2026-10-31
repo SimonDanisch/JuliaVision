@@ -1,0 +1,24 @@
+{
+  "checked_date": "2026-10-25",
+  "primary_source": "https://huggingface.co/Qwen/Qwen3.5-4B#best-practices",
+  "official_mode_support": "Thinking is the default; explicit enable_thinking:false is documented too. Non-thinking is NOT an unsupported mode.",
+  "local_bayesian_pilot": {
+    "thinking": false,
+    "maximum_output_tokens": 1024,
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": 20,
+    "presence_penalty": 0.0,
+    "all_eight_direct_answers_completed": true,
+    "interpretation": "The direct-answer failures were not output-cap truncations. These sampling values match the card's precise-CODING thinking recipe, not its stated non-thinking math recipe. No vendor-optimal math configuration or capability ceiling is established."
+  },
+  "card_caveats": [
+    "The card recommends substantially longer output allowances than these bounded pilots and stepwise reasoning for math.",
+    "Its two non-thinking reasoning parameter lists are inconsistent: one section gives temperature1/top_p0.95/top_k20/presence1.5; Best Practices gives temperature1/top_p1/top_k40/presence2. Record the ambiguity rather than silently selecting a favorable configuration."
+  ],
+  "unestablished": [
+    "Thinking-mode performance on the frozen Bayesian problems",
+    "Isolated sampler-versus-quantization attribution: native FP32 control also changed decoding to greedy",
+    "Frontier-level competence or general tool-use intelligence"
+  ]
+}

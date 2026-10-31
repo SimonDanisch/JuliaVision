@@ -1,0 +1,12 @@
+{
+    "complete": true,
+    "registration_checks": 10,
+    "run_receipt": "r1046",
+    "conditions_sha256": "65a31750c6ba28a41a5e3336c7b8e290e3b2e5dbd0b1d0cdb565b8d555340f4d",
+    "scope": "Host immutable48-condition registration and verified source-only deployment; no model answers yet",
+    "sources": {
+        "test_freeze_pubmedqa_reading.jl": "b5e09aae67a9f1971b0872966e9166c390126d714fc8bd36ef326ac6ce0da863",
+        "pubmedqa_reading_deploy.jl": "0223465156ab1c49227dac23ba976958de5bfebb6c25464f17fa0c6536f6c78b",
+        "freeze_pubmedqa_reading.jl": "362abd851ab4817438e114d210f9a342c1a7a000ef32bb21a422b38d62828d86"
+    }
+}

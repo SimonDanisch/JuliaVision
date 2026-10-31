@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "host_checks": 27,
+    "scope": "Isolated LLVM prototype host/IR verification only. NOT installed in Lava, software driver/hardware or model-qualified; not a cause for prior model failures/reset",
+    "sources": {
+        "test_direct_private_gep_lowering.jl": "b0fe70f2990fe10f08cd4ec657626101f6ad3565dd02f112396a7daa56c11d68",
+        "direct_private_gep_lowering.jl": "044dee31ffe8597fab3fdbd6bd6e1c209493be122fa6f60b74ce78bce3765d16"
+    },
+    "unchanged_lava_source_sha256": "663deb63a06ebee4353ab72e39a7fca0baf294c51382b62464f4771ae8c60c8f"
+}

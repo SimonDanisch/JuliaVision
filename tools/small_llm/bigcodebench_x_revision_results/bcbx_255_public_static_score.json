@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.22438692103605717,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `checks` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:1\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 6, in test_cases\nAssertionError\n",
+  "program_sha256": "be8a6e6f6b6ec71ecf88ced895ebf934347ae4d0cbc411059344774cc0c0e598",
+  "test_suite_sha256": "cde8d7178ca67935f3860e4a94971e625b5200210c3ae9977bc4902fd028deb9",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c"
+}

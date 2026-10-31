@@ -1,0 +1,47 @@
+{
+    "task": "missing_windows",
+    "category": "base",
+    "arm": "baseline",
+    "model": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+    "cache": "Float32 grouped",
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2",
+        "no_alias",
+        "paired_expert_rows",
+        "capability_swiglu_q8"
+    ],
+    "thinking": false,
+    "contract_sha256": "6d609483fa54d267a62183aebef9385a3967bdc0d0cfb78ee02f2ca5a0209604",
+    "prompt_sha256": "5385bf589557d45d1dee6830a6b9752819becf3275576dc4e7b8edff3fedbf83",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve(x, width) returning the mean of non-missing values in every COMPLETE sliding window of width elements. x contains Float64 or missing. An all-missing window returns missing. width must be positive (throw ArgumentError otherwise); width greater than length(x) returns an empty vector. Do not modify x. No packages. Code only."
+        }
+    ],
+    "answer": "```julia\nfunction solve(x, width)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    n = length(x)\n    if width > n\n        return Float64[]\n    end\n    \n    result = Vector{Union{Float64, Missing}}(undef, n - width + 1)\n    \n    for i in 1:(n - width + 1)\n        window = x[i:i+width-1]\n        non_missing = [v for v in window if !ismissing(v)]\n        if isempty(non_missing)\n            result[i] = missing\n        else\n            result[i] = sum(non_missing) / length(non_missing)\n        end\n    end\n    \n    return result\nend\n```",
+    "code": "function solve(x, width)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    n = length(x)\n    if width > n\n        return Float64[]\n    end\n    \n    result = Vector{Union{Float64, Missing}}(undef, n - width + 1)\n    \n    for i in 1:(n - width + 1)\n        window = x[i:i+width-1]\n        non_missing = [v for v in window if !ismissing(v)]\n        if isempty(non_missing)\n            result[i] = missing\n        else\n            result[i] = sum(non_missing) / length(non_missing)\n        end\n    end\n    \n    return result\nend\n",
+    "input_tokens": 112,
+    "generated_tokens": 170,
+    "budget_tokens": 512,
+    "decode_steps_executed": 512,
+    "decode_submissions": 512,
+    "eos_output_poll_chunk": null,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.501510143280029,
+    "input_sha256": "4e76b107032ef59ad28c8108b4d9421445919c0e060d1421695cfbf5c9ca538d"
+}

@@ -1,0 +1,14 @@
+{
+    "task": "makie_update",
+    "scope": "standalone public-spec API fixtures; observed values/errors ONLY, no private assertions or oracle output",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "Attribute data not found in ComputeGraph"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "b58a8f7d20f68b0fa1f4e7a58f4eddb0465ef1b4f176f5074622a9b2e4427320",
+    "fixture_sha256": "d40a9d87603401f700c2c48d7401ab3623d42402e92b501608d0fbc70f3881d8",
+    "code_sha256": "47ff37bcf0c741b3ca9002a5014e441b943cabd63df28ff29ae01eec7a5b42fb",
+    "elapsed_seconds": 2.9527549743652344
+}

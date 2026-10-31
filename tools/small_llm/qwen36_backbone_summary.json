@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-26",
+  "scope": "Qwen3.6-35B-A3B as a drop-in backbone for the text harness: chunked prefill, model-generic generation, first frozen-suite result.",
+  "prefill": {
+    "graph": "qwen36_prefill.jl: one semantic graph per chunk width; projections, router, experts, shared experts and combine over the chunk's columns; recurrent and attention state column by column with the decode kernels",
+    "new_kernels": [
+      "Q5_K product over columns (routed kernel, one expert per column)",
+      "batched Q4_K embedding"
+    ],
+    "shared_with_decode": "declare_experts! (gate/up, SwiGLU or SwiGLU+Q8, down) is the decode graph's",
+    "bit_identity_vs_sequential_decode_35b_radeon": {
+      "chunk8_plain": true,
+      "chunk8_default": true,
+      "chunk16_default": true,
+      "chunk16_split_16_16_5": true
+    },
+    "chunk32_default_35b_radeon": {
+      "bitidentical": false,
+      "kl_vs_sequential_last_token": 0.0056,
+      "top5_same": true,
+      "note": "20 columns take the fp16 K-quant GEMM"
+    },
+    "default_chunk": "DNNKernels.Q4K_GEMV_COLUMNS[] (16)",
+    "throughput_tok_s_radeon_256_tokens": {
+      "sequential": 79.9,
+      "chunk8": 212.3,
+      "chunk16": 251.9,
+      "chunk32": 271.5,
+      "chunk64": 305.2,
+      "protocol": "median of 3 interleaved rounds after a warm-up round, default optimizations, idle GPU"
+    },
+    "checks": {
+      "radeon": 277,
+      "apple_m5": 272,
+      "apple_m5_35b_harness": 4
+    }
+  },
+  "harness": {
+    "text_backbone.jl": "textsession/ingest!/feed!/generate!/describe per model type; loadbackbone and loadtokenizer take a model directory or a GGUF",
+    "tokenizer": "Qwen3.5 tokenizer.json is an exact prefix of the GGUF vocabulary; the 250 extra ids are 7 audio/TTS control tokens and 243 padding entries; merges and EOS/BOS identical; plain-text chat template subset identical",
+    "regression_found": "the harness ingested prompts with chunk=32; since >16-column products take the fp16 K-quant GEMM this no longer reproduced frozen Qwen3.5 receipts (stable_groups 150 -> 136 tokens)",
+    "fix": "ingest! uses the GEMV width for both families",
+    "qwen35_4b_receipts_reproduced_exactly": {
+      "baseline": 6,
+      "review_feedback_docs": 15,
+      "longest_prompt_tokens": 2473
+    },
+    "head_layout_bug": "Qwen3.6 sessions defaulted to the native recurrent head order; GGUF weights need tiled and decoded garbage without it. The default now comes from the checkpoint."
+  },
+  "julia_tasks_frozen_protocol": {
+    "settings": "greedy, 512-token budget, no thinking, same prompts and private contracts",
+    "qwen35_4b": {
+      "baseline_passed": 0,
+      "scored": 5,
+      "repair_arms_passed": 0,
+      "repair_arms": 15
+    },
+    "qwen36_35b_a3b_radeon": {
+      "baseline_passed": 5,
+      "scored": 5,
+      "seconds_per_task": 7.7,
+      "results": "julia_tasks_results_qwen36"
+    },
+    "unscored": "ka_tail (reference infrastructure never qualified)",
+    "conclusion": "the suite is saturated by Qwen3.6; it cannot measure repair or evidence interventions on this backbone"
+  },
+  "fixes_outside_the_runner": {
+    "tools/measure.jl": "telemetry resolved at the first reading (Base.OncePerProcess), and a machine without /sys/class/drm reaches the documented refusal; SmallLLMChecks failed to load on macOS with an IOError before. Test: tools/test_measure.jl",
+    "BonsaiRunner depthwise_conv4_batch_kernel!": "SiLU written as the decode kernel's y*(1/(1+exp(-y))); y/(1+exp(-y)) rounded an ulp apart on Metal, so chunked prefill drifted from sequential decode there. Test: bitwise chunking check in test_state_boundaries.jl",
+    "Mantle access walk": "dynamic-call refusals name the callee (getglobal/GlobalRef resolved) and report a missing module member; test in Mantle/test/test_access.jl; Radeon access tests 70/70. Not synced to the Mac, whose Mantle checkout has its own uncommitted work"
+  },
+  "tests_added": [
+    "tools/small_llm/test_qwen36_prefill.jl",
+    "tools/small_llm/test_text_backbone.jl",
+    "tools/test_measure.jl",
+    "BonsaiRunner/test/test_state_boundaries.jl (bitwise chunking)",
+    "Mantle/test/test_access.jl (named callee)"
+  ],
+  "kernel_study_transfers": {
+    "driver": "transfer_studies.jl + transfer_kernel_studies.jl: new registrations that reuse the original packets' tasks, prompts, private contracts and sampler (checked by hash) and record overrides, sources and backbone; original packets untouched",
+    "frozen_budget_2048_thinking": {
+      "qwen35_4b_original": "0/4",
+      "qwen36": "0/4, all four truncated while thinking, with essentially correct kernels in the reasoning",
+      "dir": "vulkan_kernel_results_qwen36"
+    },
+    "budget_6144_baseline": {
+      "qwen35_4b": "0/4",
+      "qwen36": "1/4 (clamped_stencil)",
+      "generation_seconds": {
+        "qwen35_4b": 176.9,
+        "qwen36": 176.5
+      }
+    },
+    "budget_6144_feedback": {
+      "qwen35_4b": {
+        "self_review": "0/4",
+        "runtime_feedback": "0/4"
+      },
+      "qwen36": {
+        "self_review": "1/4",
+        "runtime_feedback": "2/4"
+      },
+      "fixed_by_feedback": "column_major_scale (kernel did not end in return nothing)",
+      "still_failing": [
+        "affine: `using KernelInterface as KI` is invalid syntax; the feedback arm thought past 6144 tokens",
+        "atomic_max: calls Atomix.atomic_max, which does not exist; the API is the macro Atomix.@atomic"
+      ]
+    },
+    "named_callee_rerun": {
+      "change": "Mantle access-walk refusals name the callee and say when a module does not define it (was: 'a call to `%12`')",
+      "messages_changed": [
+        "ki_body_atomic_max runtime_feedback"
+      ],
+      "unchanged_jobs_reproduced_token_counts": true,
+      "result": "still failed: the model switched to Atomix.atomic_max!, another nonexistent name; an API it does not know is not supplied by a better error message",
+      "dir": "kernel_runtime_feedback_results_qwen36_budget6144_named_callee"
+    },
+    "caveat": "four authored development tasks, one sampled attempt each; direction, not significance"
+  }
+}

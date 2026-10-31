@@ -1,0 +1,54 @@
+{
+  "scope": "Larger-model batch-one decode estimates for Ryzen AI Max+395/Radeon8060S. Metadata and existing results only; no new GPU job or full-model throughput claim.",
+  "hardware": {
+    "source": "https://www.amd.com/en/products/processors/laptop/ryzen/ai-300-series/amd-ryzen-ai-max-plus-395.html",
+    "specification": "256-bit LPDDR5x, maximum8000MT/s, maximum128GB",
+    "derived_peak_bandwidth_decimal_GBs": 256,
+    "caveat": "Derived specification maximum, not a measurement of current memory clocks, sustained GPU bandwidth or Laptop power limits. Laptop32GB and Bosgame128GB have different capacity, thermals and possibly operating conditions. Desktop7900XTX is NOT this estimate target."
+  },
+  "local_measurements": {
+    "profile": "qwen4b_decode_profile.json",
+    "nominal_streamed_weight_bytes_per_token": 2546458624,
+    "short_4b_tps": 63.2456,
+    "effective_weight_bandwidth_decimal_GBs": 161.05225617249866,
+    "meaning": "Nominal traffic divided by whole decode latency, not an independent DRAM-copy bandwidth measurement",
+    "comparison": "performance_comparison.json",
+    "llamacpp_short_tps": 67.192284,
+    "mantle_short_tps": 63.2456,
+    "llamacpp_4k_tps": 63.987285,
+    "mantle_4k_tps": 50.8062,
+    "comparison_caveat": "Historical/noninterleaved, F16 vs F32 KV and close but nonidentical quantization; no isolated causal attribution to an individual kernel."
+  },
+  "primary_architecture_sources": [
+    "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+    "https://huggingface.co/Qwen/Qwen3-Coder-Next",
+    "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "https://developers.openai.com/api/docs/models/gpt-oss-20b",
+    "https://huggingface.co/openai/gpt-oss-20b/raw/main/config.json",
+    "https://huggingface.co/google/gemma-4-26B-A4B-it",
+    "https://huggingface.co/LiquidAI/LFM2-24B-A2B",
+    "https://huggingface.co/Qwen/Qwen3.8-Flash-Next/raw/main/README.md"
+  ],
+  "published_same_processor_benchmark": {
+    "publisher": "LiquidAI; vendor measurement, not independently reproduced",
+    "source": "https://huggingface.co/LiquidAI/LFM2-24B-A2B",
+    "decode_chart": "https://cdn-uploads.huggingface.co/production/uploads/61b8e2ba285851687028d395/7G2mtNj0vxSbUXnovmbzs.png",
+    "prefill_chart": "https://cdn-uploads.huggingface.co/production/uploads/61b8e2ba285851687028d395/voUOPTqOXQaiEEm_6vY2j.png",
+    "method": "CPU llama.cpp on Ryzen AI Max+395, Q4_K_M quants,100 generated tokens. Different engine/quantization from our projections; backend and power/configuration details not fully specified in chart.",
+    "short_context": "At1024 input tokens, chart approximately112 for LFM2-24B-A2B,78 for gpt-oss-20b,76 for Qwen3-30B-A3B-Instruct-2507. Approximate visual readout, NOT exact raw samples.",
+    "exact_labeled_8192_input_tps": {
+      "LiquidAI/LFM2-24B-A2B": 93.2,
+      "openai/gpt-oss-20b": 65.9,
+      "Qwen/Qwen3-30B-A3B-Instruct-2507": 45.3
+    },
+    "coding_caveat": "LiquidAI explicitly does not recommend LFM2-24B-A2B for coding. It also has32K context and a model-specific license. It is evidence for sparse-model speed, not our Julia backbone recommendation."
+  },
+  "implementation_state": {
+    "dense_qwen": "Validated2B/4B full runner; not every larger/config variant has been loaded or validated",
+    "qwen_moe": "Existing routed-expert quantized kernels have CPU/GPU synthetic correctness qualification and35B checkpoint/header audit. Full35B/80B loading, complete native-logit parity and end-to-end generation are NOT established by those checks.",
+    "gpt_oss": "Would need native MXFP4 or explicit requantization, expert biases/router/attention-sink/window semantics and tokenizer/template support. Native MXFP4 checkpoint does not mean the entire model is4bit.",
+    "gemma_lfm": "Coarse active-count estimates only; no complete engine port. KV estimates deliberately withheld pending architecture-specific implementation.",
+    "qwen38_flash_next": "Publisher lists125B backbone with6B active PLUS51B n-gram embeddings and4B MTP. QSA, widened/gated residuals and lookup tables require separate accounting/port. Not mislabeled as an ordinary3B-active MoE; speed intentionally withheld."
+  },
+  "interpretation": "50..100tps is plausible for larger low-active-parameter MoEs at short/moderate context, not ordinary12..20B dense Q4 batch-one decoding. Sparse weights must stay resident, native/requantized formats must be distinguished, and long-context KV can erase the advantage. Speculative decoding/low-bit quantization can change the single-token traffic assumptions but need quality/parity/acceptance measurements."
+}

@@ -1,0 +1,21 @@
+{
+    "task": "104_unique_digits",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "unique_digits([15, 33, 1422, 1])",
+            "completed": true,
+            "value": "[1, 15, 33]"
+        },
+        {
+            "example": "unique_digits([152, 313, 1422, 10])",
+            "completed": true,
+            "value": "[313]"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.5152828693389893,
+    "code_sha256": "bd794bf412bbb7d9c472b3daf56dae5a63c61417b24222bfbd275a294d6363e0",
+    "public_examples_sha256": "b741a6b59bf7ad23b4bc7634981c71db5de58c7977ad70607fd27a601e162a94"
+}

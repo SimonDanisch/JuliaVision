@@ -1,0 +1,17 @@
+{
+    "collection": "julia_scene_v2_results",
+    "task": "makie_link",
+    "arm": "baseline",
+    "source_sha256": "16e0f1ec6e4829f657acd91e25ce25c039ebf3de824121f0879c1f5b92be8522",
+    "previous_passed": true,
+    "changed": false,
+    "id": "makie_link",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 2.5782740116119385,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   18     18  0.1s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "1345b36497e7f715b15c5b26aec062039767fd5e318f2ddab9d954e977e74d58"
+}

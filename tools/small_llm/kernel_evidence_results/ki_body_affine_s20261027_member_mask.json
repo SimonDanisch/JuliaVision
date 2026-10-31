@@ -1,0 +1,104 @@
+{
+    "task": "ki_body_affine",
+    "seed": 20261027,
+    "arm": "member_mask",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,x,alpha::Float32,beta::Float32,n::Int32). Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n. Launches round up; leave all out entries after n unchanged, including when n=0. All input/output storage is distinct and may contain padding. Float32 arithmetic."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia GPU kernel function `kernel!` that computes `out[i] = alpha * x[i] + beta` for `1 <= i <= n`.\nThe kernel should use `KernelAbstractions` (or similar) interface, but the prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x\". Wait, the prompt says \"Use KernelInterface as KI\". This implies I should use `KernelAbstractions` or a specific interface named `KI`. However, the prompt says \"Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers.\"\nWait, if I can't use `@kernel`, how do I define a kernel? Maybe just a regular Julia function that will be compiled by a GPU compiler like `KernelAbstractions` or `GPUCompiler`? Or maybe it's just a standard Julia function that operates on device arrays?\nActually, the prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\" This is a specific instruction for a certain framework or a custom interface. I will just define a function `kernel!` and use `KI.get_global_id().x` to get the index.\nWait, `KernelAbstractions` uses `@kernel` macro. The prompt explicitly says \"Do NOT ... use KernelAbstractions @kernel\". This is contradictory if it wants me to use `KI`. Maybe it's referring to `GPUCompiler` or `KernelAbstractions`'s `get_global_id`? Or perhaps it's a simplified interface for a specific GPU programming course/framework.\nI will just write a standard Julia function with `@kernel` omitted, or maybe just a regular function that will be interpreted as a kernel by some backend. But to be safe, I'll write it as a function that can be passed to a kernel launcher, or just a function that uses `KI.get_global_id().x`.\nActually, in many GPU Julia contexts, a kernel is just a function. I'll define `kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)`.\nInside, I'll get `i = KI.get_global_id().x`.\nCheck bounds: `if i <= n && i >= 1` (though global index is usually >= 1).\nCompute `out[i] = muladd(alpha, x[i], beta)`.\nReturn `nothing`.\n\nWait, the prompt says \"Launches round up; leave all out entries after n unchanged\". This is handled by the `if i <= n` check.\n\"Arguments are device arrays/scalars and indices are 1-based.\"\n\"Float32 arithmetic.\"\n\nLet's write it carefully.\n\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nIs there anything else? \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\nI should probably include `import KernelInterface as KI` or just assume it's available. The prompt says \"optionally including imports.\"\n\nWait, `muladd` in Julia is `muladd(a, b, c)` which computes `a*b + c`. That matches `alpha * x[i] + beta`.\nThe prompt says `out[i]=muladd(alpha,x[i],beta)`.\n\nOne detail: `KI.get_global_id().x` might return an `Int32` or `Int64`. I'll just use it directly.\nShould I check `i >= 1`? Usually global IDs are 1-based in Julia GPU ecosystems. I'll stick to `i <= n`.\n\nWhat about `n=0`? The condition `i <= n` will be false for `i >= 1`, so nothing happens, which leaves `out` unchanged. Correct.\n\nLet's verify the signature: `kernel!(out,x,alpha::Float32,beta::Float32,n::Int32)`\nThe prompt says \"Return nothing.\"\n\nI will write exactly that.\n\nOne thing: `muladd` might be ambiguous or not available in some contexts, but it's base Julia. Alternatively, `alpha * x[i] + beta` is fine, but the prompt explicitly says `out[i]=muladd(alpha,x[i],beta)`. I'll use that.\n\nWait, should I use `@kernel`? The prompt says \"Do NOT ... use KernelAbstractions @kernel\". So just a plain function.\n\nI'll output just the function definition.\n\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nIs there any chance `KI` needs to be imported? \"optionally including imports\". I'll add `import KernelInterface as KI` just in case, or leave it out since it says \"optionally\". I'll just assume it's available or import it.\n\nWait, `muladd` in Julia takes `(a, b, c)` and computes `a*b + c`. That's correct.\nThe prompt says \"Float32 arithmetic.\" `alpha` and `beta` are `Float32`, `x` and `out` are likely `Float32` arrays. `muladd` will promote if needed, but with Float32 it stays Float32.\n\nOne minor point: `KI.get_global_id().x` might be an `Int32` or `Int64`. Comparing with `n::Int32` is fine.\n\nI think this is sufficient.\n\nLet's double check the exact wording: \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\n\"Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n.\"\n\"Launches round up; leave all out entries after n unchanged, including when n=0.\"\n\"All input/output storage is distinct and may contain padding.\"\n\"Float32 arithmetic.\"\n\nEverything matches.\n\nI will produce the code block.\nNo extra text.\nJust the function.\nI'll include `import KernelInterface as KI` to be safe, or just assume it's in scope. The prompt says \"optionally including imports\", so I'll add it.\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nWait, `muladd` might need `Base.muladd` or just `muladd`. In Julia, `muladd` is in Base.\nI'll stick to `muladd`.\n\nOne thing: `KI.get_global_id().x` might be called `get_global_id` in some kernels, but the prompt explicitly says `KI.get_global_id().x`.\n\nI think that's it.\nI will output only the requested code.\nDone. \nLet's verify one more time: \"Return only the requested executable kernel code.\"\n\"Write ONLY the Julia kernel function kernel! specified below, optionally including imports.\"\nAll good.\nI will produce the response. \nOne minor adjustment: sometimes `muladd` is not defined in some restricted environments, but it's standard Julia. I'll use it as requested.\nThe prompt says `out[i]=muladd(alpha,x[i],beta)`. I'll follow exactly.\nReady. \nOutput matches the code block.✅\nNote: I'll make sure the function signature exactly matches `kernel!(out,x,alpha::Float32,beta::Float32,n::Int32)`.\nAll good. \nProceeds. \nOutput generation. \n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nWait, should I use `@kernel`? The prompt explicitly says \"Do NOT ... use KernelAbstractions @kernel\". So plain function is correct.\nIs `muladd` the right function? Yes, `muladd(a, b, c)` computes `a*b + c`.\nEverything is consistent.\nDone. \nI will output exactly this. \nOne detail: `KI.get_global_id().x` might be `Int32` or `Int64`. Comparing `i <= n` is fine.\nI'll output the code. \nNo extra text. \nDone. \n[Output Generation] -> *Proceeds*\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nWait, the prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\" It might be that `KI` is already defined, but importing it is fine. I'll keep the import.\nAll good. \nFinal check of the prompt: \"Write ONLY the Julia kernel function kernel! specified below, optionally including imports.\"\nMatches.\nDone. \nOutput matches response. \nProceeds. \n(Self-Correction/Refinement during thought)\nCould `muladd` be ambiguous? In Julia, `muladd` is `Base.muladd`. It's fine.\nCould `KI.get_global_id().x` return something else? The prompt explicitly says it's the global 1D index.\nI will just write it exactly as requested.\nNo extra fluff.\nDone. \nOutput Generation. \n[Code]\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nMatches requirements. Proceeds. \n(Note: I'll remove the markdown code block if the prompt says \"Return only the requested executable kernel code\", but usually markdown is fine. I'll stick to standard formatting.)\nActually, the prompt says \"Return only the requested executable kernel code.\" I will just provide the code block.\nDone. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```",
+    "code": "import KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n",
+    "input_tokens": 177,
+    "generated_tokens": 2458,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2560,
+    "decode_submissions": 2560,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 34.48936605453491,
+    "input_sha256": "e4680a234aadde799a7430eb7d01bd4e28a08f1304466913ebcdf7dc0fc53874",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261027,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2561,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": {
+        "member_steps": 6,
+        "removed_share": [
+            2.4365075929067004e-11,
+            1.0461434236247458e-12,
+            6.09958970878015e-15,
+            5.983052248081933e-11,
+            3.3426685031034964e-11,
+            3.235080389338285e-14
+        ],
+        "removed_log_truncated": false,
+        "other_refusing_steps": 6,
+        "other_max_share": 4.480198330381047e-12,
+        "answered": true
+    }
+}

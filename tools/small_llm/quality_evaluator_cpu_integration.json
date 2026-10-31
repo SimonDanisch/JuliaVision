@@ -1,0 +1,81 @@
+{
+    "scope": "teacher-forced distribution drift, not reasoning quality; explicit readbacks excluded from performance benchmarks",
+    "complete": true,
+    "quantize": "none",
+    "reference_quantize": "none",
+    "same_model_reference": true,
+    "input_ids": [
+        1,
+        5,
+        9,
+        33,
+        4,
+        1,
+        17,
+        8
+    ],
+    "prefix_ids": [
+    ],
+    "rows": [
+        {
+            "cache": "Float32",
+            "attention": "split",
+            "tokens": 7,
+            "reference_nll": 5.6314794325810436,
+            "candidate_nll": 5.6314794325810436,
+            "nll_delta": 0,
+            "reference_perplexity": 279.0746845561934,
+            "candidate_perplexity": 279.0746845561934,
+            "mean_kl": 0,
+            "max_kl": 0,
+            "top1_agreement": 1,
+            "max_logit_abs_error": 0,
+            "mean_logit_relrms": 0
+        },
+        {
+            "cache": "Float32",
+            "attention": "grouped",
+            "tokens": 7,
+            "reference_nll": 5.6314794325810436,
+            "candidate_nll": 5.631479423260395,
+            "nll_delta": -9.320648253208219e-9,
+            "reference_perplexity": 279.0746845561934,
+            "candidate_perplexity": 279.07468195503645,
+            "mean_kl": 7.417739164688235e-16,
+            "max_kl": 1.8740110855992713e-15,
+            "top1_agreement": 1,
+            "max_logit_abs_error": 1.7881393e-7,
+            "mean_logit_relrms": 1.0769942e-7
+        },
+        {
+            "cache": "Float16",
+            "attention": "split",
+            "tokens": 7,
+            "reference_nll": 5.6314794325810436,
+            "candidate_nll": 5.6314665125193475,
+            "nll_delta": -1.2920061696064522e-5,
+            "reference_perplexity": 279.0746845561934,
+            "candidate_perplexity": 279.0710789173437,
+            "mean_kl": 9.60193207892041e-10,
+            "max_kl": 1.4969070539484915e-9,
+            "top1_agreement": 1,
+            "max_logit_abs_error": 0.00017970055,
+            "mean_logit_relrms": 0.00018956639
+        },
+        {
+            "cache": "Float16",
+            "attention": "grouped",
+            "tokens": 7,
+            "reference_nll": 5.6314794325810436,
+            "candidate_nll": 5.631466520163762,
+            "nll_delta": -1.291241728118564e-5,
+            "reference_perplexity": 279.0746845561934,
+            "candidate_perplexity": 279.0710810506788,
+            "mean_kl": 9.601696012162625e-10,
+            "max_kl": 1.4969344193122278e-9,
+            "top1_agreement": 1,
+            "max_logit_abs_error": 0.00017970055,
+            "mean_logit_relrms": 0.00018956455
+        }
+    ]
+}

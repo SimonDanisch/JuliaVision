@@ -1,0 +1,90 @@
+{
+    "task": "transfer_clamped_gather",
+    "seed": 20261027,
+    "arm": "api_pack",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,indices,n::Int32,m::Int32). out and x are distinct Float32 device arrays; indices is a separate Int32 device array. For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i]. m is positive and x has at least m entries; n may be0. Preserve out padding past n. Do not assume indices already lie in1:m.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia GPU kernel function that writes `x[clamp(indices[i], 1, m)]` to `out[i]` for each `1 <= i <= n`.\nThe function signature should be `kernel!(out, x, indices, n::Int32, m::Int32)`.\nWe need to use `KernelInterface` as `KI` and `KI.get_global_id().x` for the 1-based global 1D index.\nArguments are device arrays/scalars.\nGuard inactive invocations.\nEnd with `return nothing`.\n`out` and `x` are distinct `Float32` device arrays. `indices` is an `Int32` device array.\n`m` is positive, `x` has at least `m` entries. `n` may be 0.\nPreserve `out` padding past `n`. Do not assume `indices` already lies in `1:m`.\n\nLet's write the function:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], one(Int32), m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` in Julia usually takes `(val, lo, hi)`. `one(Int32)` is fine, or just `1`. But `1` might be Int64. Let's use `Int32(1)` or `one(Int32)` to be safe, or just `1` since it's usually promoted, but explicit is better. Actually, `clamp(indices[i], Int32(1), m)` works. Or `clamp(indices[i], one(Int32), m)`.\n\nLet's check `clamp` signature: `clamp(x, lo, hi)`.\n`indices[i]` is `Int32`. `m` is `Int32`. So `clamp(indices[i], Int32(1), m)` is fine.\n\nWait, the problem says \"Preserve out padding past n.\" This just means we shouldn't write to `out` when `i > n`, which the guard `i <= n` handles.\n\nAlso, `out` and `x` are `Float32` device arrays. `indices` is `Int32`.\nWe should use `@inbounds` for performance, but it's not strictly required. The prompt says \"Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n\nLet's stick to the simplest correct version:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` might need `Int32(1)` or `one(Int32)`. I'll use `Int32(1)`.\nIs there any issue with `clamp` on GPU? It's a standard Julia function, should work. Alternatively, `min(max(indices[i], Int32(1)), m)` is safer if `clamp` isn't supported, but `clamp` is standard.\n\nLet's verify the prompt: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n\"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\"\n\"Work is rounded up; guard inactive invocations.\"\n\"End the function in return nothing.\"\n\"Signature kernel!(out,x,indices,n::Int32,m::Int32).\"\n\nAll matches.\n\nOne minor point: `clamp` in Julia is `clamp(x, lo, hi)`. So `clamp(indices[i], Int32(1), m)` is correct.\nI will write it exactly as requested.\n\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n```\n\nCheck if `Int32(1)` is necessary or if `1` works. In Julia, `1` is `Int64` on 64-bit, but indexing with `Int64` works fine. I'll stick with `Int32(1)` or `one(Int32)` for type stability, but it doesn't matter much. I'll use `Int32(1)`.\n\nWait, the prompt says \"using KernelInterface as KI\". So I should assume `KI` is available in scope or I can just write `KI.get_global_id().x`. The prompt says \"using KernelInterface as KI\", so I'll just use `KI.get_global_id().x`.\n\nIs there any need for `@kernel`? No, the prompt explicitly says \"No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions.\"\n\nSo the function is just a plain `function`.\n\nOne thing: `clamp` might not be defined for GPU in some backends, but it's standard Julia. I'll use `min(max(indices[i], Int32(1)), m)` to be absolutely safe, or just `clamp`. `clamp` is fine.\n\nLet's verify the exact signature: `kernel!(out,x,indices,n::Int32,m::Int32)`\nI will write it exactly.\n\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n```\n\nWait, should I include `using KernelInterface as KI`? The prompt says \"(optional imports), using KernelInterface as KI\". I'll just write the function. It's fine.\n\nOne detail: `clamp` in Julia takes `(x, lo, hi)`. So `clamp(indices[i], Int32(1), m)` is correct.\nI'll use `Int32(1)` to match types.\n\nIs there any chance `indices[i]` could be out of bounds for `x` before clamping? No, we clamp it first.\n`x[clamp(...)]` is safe.\n\nAll good.\nI will output exactly the function.\nNo extra text.\nDone. \nLet's double check the prompt: \"Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n\"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\"\n\"Work is rounded up; guard inactive invocations.\"\n\"End the function in return nothing.\"\n\"Signature kernel!(out,x,indices,n::Int32,m::Int32).\"\n\"out and x are distinct Float32 device arrays; indices is a separate Int32 device array.\"\n\"For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i].\"\n\"m is positive and x has at least m entries; n may be0.\"\n\"Preserve out padding past n.\"\n\"Do not assume indices already lie in1:m.\"\n\nEverything matches.\n\nOne minor point: `clamp` might be `Base.clamp`. I'll just use `clamp`.\nI'll write it out.\nDone. \nOutput matches request.\nProceeds. \nFinal code:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n```\nWait, should I use `one(Int32)` instead of `Int32(1)`? Doesn't matter. I'll stick with `Int32(1)`.\nAll good.\nI will produce exactly this. \nOne thing: `clamp` in Julia is `clamp(x, lo, hi)`. Yes.\nThe prompt says `x[clamp(indices[i],1,m)]`. I'll follow that exactly.\nReady. \nOutput matches. \nProceeds. \n[Final Check]\n- Signature matches: `kernel!(out, x, indices, n::Int32, m::Int32)`\n- Uses `KI.get_global_id().x`\n- Guards inactive invocations: `if i <= n`\n- Returns nothing: `return nothing`\n- Handles clamping: `clamp(indices[i], Int32(1), m)`\n- No extra fluff.\nAll constraints met.\nOutput matches request.\nDone. \nProceeds. \n[Output Generation] -> *Self-Correction/Verification during thought*: \nWait, `clamp` in Julia might be `clamp(x, lo, hi)` but sometimes it's better to use `min(max(...), ...)` for GPU compatibility if `clamp` isn't lowered well, but `clamp` is standard. I'll stick with `clamp`. \nActually, `clamp` is perfectly fine. \nI will output the code block exactly. \nNo extra text. \nDone. \n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n```\nMatches perfectly. Output matches. \nProceeds. \n[Final Output Generation] (matches the code block)\nNote: I'll make sure formatting is exact.\nAll good. \nDone. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = x[clamp(indices[i], Int32(1), m)]\n    end\n    return nothing\nend\n",
+    "input_tokens": 1495,
+    "generated_tokens": 2299,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2304,
+    "decode_submissions": 2304,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 38.00289988517761,
+    "input_sha256": "f0a7d906b9aaa9816e8ce68c611df791f060479141d3390e0afaef64f815931a",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261027,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2305,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": null
+}

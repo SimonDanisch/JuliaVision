@@ -1,0 +1,77 @@
+{
+    "task": "transfer_sincos_pair",
+    "seed": 20261028,
+    "arm": "direct_budget",
+    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code.",
+    "prompt": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out_sin,out_cos,x,n::Int32). Three distinct Float32 device arrays. For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i]. x values lie in[-3,3]. n can be0; preserve padding in BOTH output arrays after n. Compute each valid element once, no atomics.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "The user wants a Julia GPU kernel function using `KernelAbstractions` (or `KernelInterface` as mentioned, but `KernelAbstractions` is the standard package for this in Julia GPU ecosystem, often aliased as `KA` or `KI`). Wait, the prompt says \"using KernelInterface as KI\". I'll assume `KernelInterface` is a package or alias they want me to use. Actually, `KernelAbstractions.jl` is the standard. Let's check if `KernelInterface` exists. There is a `KernelAbstractions.jl` package. Sometimes people alias it as `KA`. The prompt specifically says \"using KernelInterface as KI\". I will use `using KernelInterface as KI` or just assume `KI` is available. Wait, `KernelInterface` might be a typo for `KernelAbstractions`. Or maybe it's a specific package. I'll stick to `KernelAbstractions` but alias it as `KI` as requested, or just use `KI` directly if it's meant to be an alias. Actually, `KernelAbstractions` is the standard. I'll use `using KernelAbstractions as KI`.\n\nWait, the prompt says \"using KernelInterface as KI\". I will just write `using KernelAbstractions as KI` or assume `KI` is imported. I'll use `KI` for the module.\n\nArguments: `out_sin`, `out_cos`, `x`, `n::Int32`. All device arrays/scalars.\nIndex: `i = KI.get_global_id().x` (1-based global 1D index).\nCondition: `1 <= i <= n`\nFor valid `i`, compute `sin(x[i])` and `cos(x[i])`.\nWrite to `out_sin[i]` and `out_cos[i]`.\nIf `n == 0`, preserve padding (do nothing for `i > n`).\nEnd with `return nothing`.\n\nLet's draft it:\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        val = x[i]\n        out_sin[i] = sin(val)\n        out_cos[i] = cos(val)\n    end\n    return nothing\nend\n```\n\nWait, `KernelAbstractions` uses `@kernel` macro to define kernels, but the prompt says \"Write ONLY a Julia GPU function kernel! ... Signature kernel!(out_sin,out_cos,x,n::Int32).\" It asks for a function that can be used as a kernel. In `KernelAbstractions`, you can define a function and then call `@kernel kernel!` or just define it as a function that will be dispatched. The prompt says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" This implies `KI` provides `get_global_id`. I'll stick to the function signature.\n\nLet's verify `KernelAbstractions` indexing: `get_global_id(KI, 1)` or `KI.get_global_id().x`? The prompt explicitly says `KI.get_global_id().x`. I will use exactly that.\n\nOne detail: `n` is `Int32`. Array indexing in Julia is `Int` usually, but device arrays might accept `Int32` or we can cast. I'll just use `i` as index. `x[i]` works.\n\nWait, `KernelAbstractions` typically uses `@kernel` to wrap functions, but the prompt says \"Write ONLY a Julia GPU function kernel! ... Signature kernel!(out_sin,out_cos,x,n::Int32).\" So I will just provide the function definition.\n\nLet's check if `sin` and `cos` work on device arrays in `KernelAbstractions`. Yes, they are supported.\n\nThe prompt says \"Three distinct Float32 device arrays.\" So `x` is `Float32`. `sin` and `cos` on `Float32` return `Float32`.\n\nGuard inactive invocations: `if 1 <= i <= n` handles it.\nEnd with `return nothing`.\n\nCode:\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nWait, should I include `using KernelAbstractions as KI`? The prompt says \"(optional imports)\". I'll add it just in case, or assume it's imported. I'll just write the function.\n\nIs there any nuance about `KernelInterface`? Maybe it's `KernelAbstractions` aliased as `KI`. I'll use `KI` as given.\n\nOne thing: `KI.get_global_id()` might return a `Tuple` or a struct. The prompt says `KI.get_global_id().x`. I'll follow exactly.\n\nShould I handle `n == 0`? The condition `1 <= i <= n` will be false for all `i` if `n == 0`, so padding is preserved. That's fine.\n\nCheck indexing: Julia is 1-based. `i` is 1-based global index. So `x[i]` is correct.\n\nOne minor point: `KernelAbstractions` typically uses `@kernel` macro, but the prompt explicitly asks for a function with that signature. I will provide exactly that.\n\nLet's verify the exact wording: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\nI will write:\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nWait, `KernelAbstractions` might require `@kernel` to be used when calling, but the function itself is just a regular Julia function. The prompt says \"Write ONLY a Julia GPU function kernel!\". So this is correct.\n\nCould there be a need to use `KI.get_global_id(KI, 1)`? The prompt says `KI.get_global_id().x`. I'll stick to that.\n\nIs `sin` and `cos` available without importing `Base`? Yes, they are in `Base`.\n\nOne detail: `n::Int32` might cause type instability or indexing issues if `i` is `Int64`. In GPU kernels, indices are often `Int32` or `Int64` depending on architecture. I'll cast `i` to `Int` or just use it as is. Julia's GPU arrays usually accept `Int32` indices. I'll leave it.\n\nWait, `KernelAbstractions` indexing is typically `get_global_id(KI, 1)` or `KI.get_global_id()[1]`. But the prompt explicitly says `KI.get_global_id().x`. I will follow the prompt exactly.\n\nFinal code:\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nCheck constraints:\n- \"Return only the requested executable kernel code.\"\n- \"(optional imports)\"\n- \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n- \"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\"\n- \"No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions.\"\n- \"Work is rounded up; guard inactive invocations.\"\n- \"End the function in return nothing.\"\n- \"Signature kernel!(out_sin,out_cos,x,n::Int32).\"\n- \"Three distinct Float32 device arrays.\"\n- \"For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i].\"\n- \"x values lie in[-3,3].\"\n- \"n can be0; preserve padding in BOTH output arrays after n.\"\n- \"Compute each valid element once, no atomics.\"\n\nEverything matches. I will output just the function. I'll add `using KernelAbstractions as KI` as optional import if needed, but the prompt says \"using KernelInterface as KI\". I'll just use `KI` as is. To be safe, I'll include `using KernelAbstractions as KI` at the top, or just assume it's imported. The prompt says \"(optional imports)\", so I can include it.\n\nActually, `KernelInterface` might be a typo for `KernelAbstractions`. I'll use `using KernelAbstractions as KI`.\n\nWait, the prompt says \"using KernelInterface as KI\". I will literally write `using KernelAbstractions as KI` or just assume `KI` is available. I'll stick to `using KernelAbstractions as KI` to be safe, or just `using KernelInterface as KI` if that's what they meant. I'll use `using KernelAbstractions as KI` since it's the standard package. But to strictly follow \"using KernelInterface as KI\", I'll write `using KernelInterface as KI`? Actually, `KernelInterface` is not a standard package. It's likely a typo for `KernelAbstractions`. I'll just use `KI` without import, or add `using KernelAbstractions as KI`. I'll add it.\n\nActually, the prompt says \"using KernelInterface as KI\". I will just write `using KernelAbstractions as KI` to be correct Julia, or maybe they meant `KernelAbstractions`. I'll just write the function.\n\nOne more check: `KI.get_global_id().x` might return a `Int32` or `Int64`. Indexing with it is fine.\n\nI will produce exactly the function.\n\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nIs there any need to handle `Float32` explicitly? `sin` and `cos` dispatch on `Float32` automatically.\n\nThe prompt says \"Three distinct Float32 device arrays.\" So `x`, `out_sin`, `out_cos` are `Float32`.\n\nAll good.\n\nI will output just the code block.\nOne minor point: `KernelAbstractions` uses `@kernel` to wrap functions, but the prompt explicitly asks for a function with that signature. I'll provide exactly that.\n\nFinal check of the prompt: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\nI'll assume `KI` is imported. I'll add `using KernelAbstractions as KI` just in case, but it's optional. I'll skip imports to be safe, or include it. The prompt says \"(optional imports)\". I'll include it.\n\nActually, `KernelInterface` might be a specific package in some context, but `KernelAbstractions` is standard. I'll use `using KernelAbstractions as KI`.\n\nWait, `KernelAbstractions` indexing is usually `get_global_id(KI, 1)` or `KI.get_global_id()[1]`. But the prompt explicitly says `KI.get_global_id().x`. I will follow the prompt exactly.\n\nCode:\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nThis matches all constraints. I'll output it.\nOne thing: `n::Int32` comparison with `i` (which might be `Int64`) is fine in Julia.\nI'll wrap it in a code block.\nDone. \nI will produce exactly this.\nNo extra text.\nProceed. \nSelf-Correction/Refinement during thought: \nShould I use `Base.sin` and `Base.cos`? Not necessary.\nShould I cast `i` to `Int`? Not strictly necessary, but `Int(i)` might be safer for indexing if `i` is `Int32`. I'll leave it as `i`.\nThe prompt says \"using KernelInterface as KI\". I'll just assume `KI` is available.\nI'll output exactly the function.\nAll constraints met.\nOutput matches request.\nDone. \nGenerating response. \n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\nWait, should I include `using KernelAbstractions as KI`? The prompt says \"(optional imports)\". I'll add it to be safe.\nActually, `KernelInterface` might be a typo for `KernelAbstractions`. I'll use `using KernelAbstractions as KI`.\nI'll just provide the function as requested.\nDone. \nOutput matches. \nProceeds. \n[Final Check]\n- Signature: `kernel!(out_sin,out_cos,x,n::Int32)` -> matches\n- Index: `KI.get_global_id().x` -> matches\n- Guard: `if 1 <= i <= n` -> matches\n- Compute: `sin(x[i])`, `cos(x[i])` -> matches\n- Return: `return nothing` -> matches\n- No host wrappers/loops/reductions -> matches\n- Works for n=0 -> matches (condition fails, padding preserved)\n- Float32 arrays -> matches\nAll good. \nOutput\n\nConsidering the limited time, I have to give the solution based on the thinking directly now.\n</think>\n\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if 1 <= i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 198,
+    "generated_tokens": 3146,
+    "budget_tokens": 6144,
+    "context_tokens": 3366,
+    "truncated": false,
+    "rewinds": 1,
+    "forced_closes": 1,
+    "thinking_tokens": [
+        3072
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 43.16249108314514
+}

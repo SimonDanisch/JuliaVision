@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.39727032603696,
+  "stdout_tail": "",
+  "stderr_tail": "\u250c Warning: Assignment to `min_dist` in soft scope is ambiguous because a global variable by the same name exists: `min_dist` will be treated as a new local. Disambiguate by using `local min_dist` to suppress this warning or `global min_dist` to assign to the existing global variable.\n\u2514 @ /input/program.jl:19\n\u250c Warning: Assignment to `closest_pair` in soft scope is ambiguous because a global variable by the same name exists: `closest_pair` will be treated as a new local. Disambiguate by using `local closest_pair` to suppress this warning or `global closest_pair` to assign to the existing global variable.\n\u2514 @ /input/program.jl:20\nERROR: LoadError: MethodError: no method matching Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}()\nThe type `Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}` exists, but no method is defined for this combination of argument types when trying to construct it.\n\nClosest candidates are:\n  (::Type{T})(!Matched::NamedTuple) where T<:Tuple\n   @ Base namedtuple.jl:196\n  (::Type{T})(!Matched::Tuple) where T<:Tuple\n   @ Base tuple.jl:449\n  (::Type{T})(!Matched::Any) where T<:Tuple\n   @ Base tuple.jl:454\n\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:13\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:7\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 4, in test_cases\nAssertionError\n",
+  "program_sha256": "f9d7c5d610e1f815126837861fadf678d16c4c14428c2250561d57c659bc81b3",
+  "test_suite_sha256": "6959d101a1b4c94056f45a4096f84588fc134608d8f25631dfc3ad933d327496",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "42e757f8c453c6e8718322cc28e224090420e60e0062c8a1e428b920b6217dc4"
+}

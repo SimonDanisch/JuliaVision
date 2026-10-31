@@ -1,0 +1,68 @@
+{
+    "answer": "{\"nodes\":[{\"name\":\"a\",\"parents\":[],\"table\":[{\"a\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b\",\"parents\":[],\"table\":[{\"b\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o\",\"parents\":[\"a\",\"b\"],\"table\":[{\"o\":\"yes\":0.99},{\"o\":\"yes\":0.9},{\"o\":\"yes\":0.8},{\"o\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_obs\",\"parents\":[\"o\",\"b\"],\"table\":[{\"a_obs\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_obs\",\"parents\":[\"o\",\"a\"],\"table\":[{\"b_obs\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_obs\",\"parents\":[\"a\",\"b\"],\"table\":[{\"o_obs\":\"yes\":0.99},{\"o_obs\":\"yes\":0.9},{\"o_obs\":\"yes\":0.8},{\"o_obs\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_post\",\"parents\":[\"o_obs\",\"b_obs\"],\"table\":[{\"a_post\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_post\",\"parents\":[\"o_obs\",\"a_obs\"],\"table\":[{\"b_post\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_post\",\"parents\":[\"a_post\",\"b_post\"],\"table\":[{\"o_post\":\"yes\":0.99},{\"o_post\":\"yes\":0.9},{\"o_post\":\"yes\":0.8},{\"o_post\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_final\",\"parents\":[\"o_post\",\"b_post\"],\"table\":[{\"a_final\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_final\",\"parents\":[\"o_post\",\"a_post\"],\"table\":[{\"b_final\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_final\",\"parents\":[\"a_final\",\"b_final\"],\"table\":[{\"o_final\":\"yes\":0.99},{\"o_final\":\"yes\":0.9},{\"o_final\":\"yes\":0.8},{\"o_final\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_res\",\"parents\":[\"o_final\",\"b_final\"],\"table\":[{\"a_res\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_res\",\"parents\":[\"o_final\",\"a_final\"],\"table\":[{\"b_res\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_res\",\"parents\":[\"a_res\",\"b_res\"],\"table\":[{\"o_res\":\"yes\":0.99},{\"o_res\":\"yes\":0.9},{\"o_res\":\"yes\":0.8},{\"o_res\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_query\",\"parents\":[\"o_res\",\"b_res\"],\"table\":[{\"a_query\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_query\",\"parents\":[\"o_res\",\"a_query\"],\"table\":[{\"b_query\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_query\",\"parents\":[\"a_query\",\"b_query\"],\"table\":[{\"o_query\":\"yes\":0.99},{\"o_query\":\"yes\":0.9},{\"o_query\":\"yes\":0.8},{\"o_query\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_final2\",\"parents\":[\"o_query\",\"b_query\"],\"table\":[{\"a_final2\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_final2\",\"parents\":[\"o_query\",\"a_final2\"],\"table\":[{\"b_final2\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_final2\",\"parents\":[\"a_final2\",\"b_final2\"],\"table\":[{\"o_final2\":\"yes\":0.99},{\"o_final2\":\"yes\":0.9},{\"o_final2\":\"yes\":0.8},{\"o_final2\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_res2\",\"parents\":[\"o_final2\",\"b_final2\"],\"table\":[{\"a_res2\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_res2\",\"parents\":[\"o_final2\",\"a_final2\"],\"table\":[{\"b_res2\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_res2\",\"parents\":[\"a_res2\",\"b_res2\"],\"table\":[{\"o_res2\":\"yes\":0.99},{\"o_res2\":\"yes\":0.9},{\"o_res2\":\"yes\":0.8},{\"o_res2\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_query2\",\"parents\":[\"o_res2\",\"b_res2\"],\"table\":[{\"a_query2",
+    "code": "{\"nodes\":[{\"name\":\"a\",\"parents\":[],\"table\":[{\"a\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b\",\"parents\":[],\"table\":[{\"b\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o\",\"parents\":[\"a\",\"b\"],\"table\":[{\"o\":\"yes\":0.99},{\"o\":\"yes\":0.9},{\"o\":\"yes\":0.8},{\"o\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_obs\",\"parents\":[\"o\",\"b\"],\"table\":[{\"a_obs\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_obs\",\"parents\":[\"o\",\"a\"],\"table\":[{\"b_obs\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_obs\",\"parents\":[\"a\",\"b\"],\"table\":[{\"o_obs\":\"yes\":0.99},{\"o_obs\":\"yes\":0.9},{\"o_obs\":\"yes\":0.8},{\"o_obs\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_post\",\"parents\":[\"o_obs\",\"b_obs\"],\"table\":[{\"a_post\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_post\",\"parents\":[\"o_obs\",\"a_obs\"],\"table\":[{\"b_post\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_post\",\"parents\":[\"a_post\",\"b_post\"],\"table\":[{\"o_post\":\"yes\":0.99},{\"o_post\":\"yes\":0.9},{\"o_post\":\"yes\":0.8},{\"o_post\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_final\",\"parents\":[\"o_post\",\"b_post\"],\"table\":[{\"a_final\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_final\",\"parents\":[\"o_post\",\"a_post\"],\"table\":[{\"b_final\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_final\",\"parents\":[\"a_final\",\"b_final\"],\"table\":[{\"o_final\":\"yes\":0.99},{\"o_final\":\"yes\":0.9},{\"o_final\":\"yes\":0.8},{\"o_final\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_res\",\"parents\":[\"o_final\",\"b_final\"],\"table\":[{\"a_res\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_res\",\"parents\":[\"o_final\",\"a_final\"],\"table\":[{\"b_res\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_res\",\"parents\":[\"a_res\",\"b_res\"],\"table\":[{\"o_res\":\"yes\":0.99},{\"o_res\":\"yes\":0.9},{\"o_res\":\"yes\":0.8},{\"o_res\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_query\",\"parents\":[\"o_res\",\"b_res\"],\"table\":[{\"a_query\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_query\",\"parents\":[\"o_res\",\"a_query\"],\"table\":[{\"b_query\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_query\",\"parents\":[\"a_query\",\"b_query\"],\"table\":[{\"o_query\":\"yes\":0.99},{\"o_query\":\"yes\":0.9},{\"o_query\":\"yes\":0.8},{\"o_query\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_final2\",\"parents\":[\"o_query\",\"b_query\"],\"table\":[{\"a_final2\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_final2\",\"parents\":[\"o_query\",\"a_final2\"],\"table\":[{\"b_final2\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_final2\",\"parents\":[\"a_final2\",\"b_final2\"],\"table\":[{\"o_final2\":\"yes\":0.99},{\"o_final2\":\"yes\":0.9},{\"o_final2\":\"yes\":0.8},{\"o_final2\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_res2\",\"parents\":[\"o_final2\",\"b_final2\"],\"table\":[{\"a_res2\":\"yes\":0.1}],\"states\":[\"yes\",\"no\"]},{\"name\":\"b_res2\",\"parents\":[\"o_final2\",\"a_final2\"],\"table\":[{\"b_res2\":\"yes\":0.2}],\"states\":[\"yes\",\"no\"]},{\"name\":\"o_res2\",\"parents\":[\"a_res2\",\"b_res2\"],\"table\":[{\"o_res2\":\"yes\":0.99},{\"o_res2\":\"yes\":0.9},{\"o_res2\":\"yes\":0.8},{\"o_res2\":\"yes\":0.01}],\"states\":[\"yes\",\"no\"]},{\"name\":\"a_query2\",\"parents\":[\"o_res2\",\"b_res2\"],\"table\":[{\"a_query2",
+    "input_tokens": 457,
+    "generated_tokens": 1024,
+    "budget_tokens": 1024,
+    "decode_steps_executed": 1024,
+    "decode_submissions": 1024,
+    "eos_output_poll_chunk": 64,
+    "finished_thinking": true,
+    "truncated": true,
+    "elapsed_seconds": 28.937598943710327,
+    "input_sha256": "e30c33e1b4efa821ba4c3fd23594eeac84b378a8a384b2d2d2adfaf4008930f4",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261025,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 1025,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "id": "bayes_extract_07_compact_network",
+    "messages": [
+        {
+            "system": "Follow the requested output interface exactly. No fences, commentary or reasoning text."
+        },
+        {
+            "user": "All scenarios are fictional probability models, not medical advice.\nTranslate exactly the stated nodes and conditional-independence edges.\nUnobserved variables are marginalized by the exact solver, NOT assumed yes/no.\nReturn one JSON object with EXACT keys nodes,query,observed. No code or prose.\n\nnodes is an array of objects with required name,parents,table and optional states.\nname is the node-name string; parents is the ordered list of parent-name strings.\nBinary states default to [\"no\",\"yes\"]; do NOT add states for binary nodes.\nFor other nodes specify the ordered state-name list explicitly in states.\ntable contains one entry per parent-state combination. Enumerate combinations\nin parents' order using their state order, RIGHTMOST parent changing fastest.\nFor two binary parents [a,b], rows are (no,no),(no,yes),(yes,no),(yes,yes).\nA root has parents:[] and table with exactly ONE entry.\nFor binary no,yes nodes each table entry is a NUMBER P(node=yes | parents),\nNOT a pair. The packer computes P(no)=1-P(yes), so do not calculate complements.\nFor a non-binary node each entry is an array of probabilities in its state order.\nNo omitted rows, expressions, renormalization, inferred edges or extra fields.\nquery is the queried NODE NAME, not a state. observed maps observed node names\nto STATE-NAME strings. Do not put the target state or posterior in extra fields.\nThe exact shared solver calculates the requested posterior from your network.\n\nProblem:\nIndependent root switches a and b have P(a=yes)=0.1,P(b=yes)=0.2. Output o depends on both: P(o=yes|a=yes,b=yes)=0.99; P(o=yes|a=yes,b=no)=0.9; P(o=yes|a=no,b=yes)=0.8; P(o=yes|a=no,b=no)=0.01. Observe o=yes,b=yes. Find P(a=yes | observations)."
+        }
+    ],
+    "conditions_sha256": "698074234a6171fea5dfff6efeaec2f8ef53d7da27ec378da7af5f214840a529",
+    "attempt_sha256": "8d372d171b690eeb19d99f547b573b41eb2e2cd510ca83fac4e22f0196309658",
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/DNNKernels",
+            "git_head": null,
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/BonsaiRunner",
+            "git_head": null,
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    },
+    "normal_final_waitidle": true
+}

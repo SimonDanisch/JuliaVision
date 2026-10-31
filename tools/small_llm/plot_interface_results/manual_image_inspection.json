@@ -1,0 +1,13 @@
+{
+    "scope": "Manual nonblind development image inspection of TWO selected layouts, not an aesthetic benchmark or complete visual review",
+    "selection": "One admitted single-axis plan and one admitted two-axis plan; NOT randomized or score-independent sampling",
+    "observations": [
+        "Single-axis Calibration plot: readable labels, title, line and legend; no visible canvas clipping",
+        "Two-axis plot: readable separate axes/labels; upper-left Cloud legend is close to the first scatter points. Canvas-bound checks do not test overlap with data or user aesthetic preference"
+    ],
+    "images": {
+        "plot_transfer_04_plot_spec.png": "6b27edf89f17131e81baa3f8cb61c3b42e8b7c248c465b79e05302d9ab29a905",
+        "plot_transfer_01_julia_source.png": "03a0da6f9953dfdffafea02c2554b958eb5354f568b66cdea0db1ca51db23c31"
+    },
+    "aesthetic_preference_tested": false
+}

@@ -1,0 +1,25 @@
+{
+    "task": "110_exchange",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "exchange([1, 2, 3, 4], [1, 2, 3, 4])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "\"YES\"",
+            "expected": "\"YES\""
+        },
+        {
+            "example": "exchange([1, 2, 3, 4], [1, 5, 3, 4])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "\"NO\"",
+            "expected": "\"NO\""
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.5328021049499512,
+    "code_sha256": "37e648de5ca36822ae7ca853ec09213e4f598b44f0893ebf0b944610288b9d29",
+    "public_examples_sha256": "e7f2626d4d717088acbec9743dbbfffaa4a779ba5b42fcbf96cdc1add79d604f"
+}

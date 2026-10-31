@@ -1,0 +1,11 @@
+{
+    "id": "plot_transfer_05_plot_spec",
+    "arm": "plot_spec",
+    "status": "unsupported_or_truncated_output",
+    "attempted": false,
+    "rendered": false,
+    "within_canvas": null,
+    "generation_sha256": "1125c31bfd94b37aac8f90034726da5e98d122ff95cd09f1ffab2e35c9a95138",
+    "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+    "aesthetic_score": null
+}

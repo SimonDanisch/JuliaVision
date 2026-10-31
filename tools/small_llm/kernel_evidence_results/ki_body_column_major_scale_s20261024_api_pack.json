@@ -1,0 +1,90 @@
+{
+    "task": "ki_body_column_major_scale",
+    "seed": 20261024,
+    "arm": "api_pack",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,x,scales,rows::Int32,cols::Int32). x and out are FLATTENED Julia column-major matrices. For each valid matrix entry multiply x by scales[row], NOT scales[column]. rows and cols are positive. Launch rounds up; leave out padding after rows*cols unchanged. Buffers are distinct and Float32. Use a1D global index.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia kernel function `kernel!` that multiplies each element of a flattened column-major matrix `x` by a corresponding scale factor from `scales`.\nThe matrix has `rows` rows and `cols` columns.\nThe index `i` in the flattened array corresponds to a row `r` and column `c`.\nFor column-major order, the linear index `i` (1-based) corresponds to:\n`r = (i - 1) % rows + 1`\n`c = (i - 1) ÷ rows + 1`\nWait, let's verify column-major indexing in Julia.\nIn Julia, `A[r, c]` maps to linear index `i = r + (c - 1) * rows`.\nSo given `i`, we can find `r` and `c`:\n`r = (i - 1) % rows + 1`\n`c = (i - 1) ÷ rows + 1`\nThe problem says: \"For each valid matrix entry multiply x by scales[row], NOT scales[column].\"\nSo for each valid `i` (1 to `rows * cols`), we compute `r = (i - 1) % rows + 1`, and then `out[i] = x[i] * scales[r]`.\nIndices are 1-based.\nWe should use `KI.get_global_id().x` to get the 1-based global index `i`.\nWe need to check if `i <= rows * cols` to handle padding correctly.\nThe function signature is `kernel!(out, x, scales, rows::Int32, cols::Int32)`.\nAll arrays are `Float32`.\nWe should use `@inbounds` for performance, assuming `i` is within bounds when valid, or just use `@inbounds` inside the `if`.\nLet's write it out carefully.\n\n```julia\nfunction kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n```\n\nWait, should `r` be computed as `Int32`? Yes, `rows` is `Int32`, so `%` and `+` will keep it `Int32`.\nIs there any issue with `rows * cols` overflowing `Int32`? The problem says `rows` and `cols` are positive `Int32`, and typically matrix dimensions fit in `Int32` for GPU kernels, or we can just use `rows * cols` directly. It's fine.\nLet's double check the column-major mapping.\nJulia column-major: `A[1,1]` -> 1, `A[2,1]` -> 2, ..., `A[rows,1]` -> rows, `A[1,2]` -> rows + 1.\nSo `i = r + (c - 1) * rows`.\nGiven `i`, `r = (i - 1) % rows + 1` is correct.\n`c = (i - 1) ÷ rows + 1` is correct.\nWe only need `r` to index into `scales`.\nThe problem says \"multiply x by scales[row]\". So `out[i] = x[i] * scales[r]`.\nIndices are 1-based, so `scales[r]` is correct.\nWe should ensure `r` is within bounds of `scales`. `scales` should have length `rows`.\nThe code looks solid.\n\nOne minor point: `rows * cols` might be computed as `Int32`. It's fine.\nShould we use `@inbounds`? Yes.\nShould we return `nothing`? The prompt says \"Return nothing.\" but in Julia kernel functions, returning `nothing` explicitly or implicitly is fine. I'll just omit the return or explicitly `return nothing` as in the example `copy_kernel!`. The example has `return nothing`. I'll follow that.\n\nLet's verify the exact signature requested: `kernel!(out,x,scales,rows::Int32,cols::Int32)`\nI will write exactly that.\n\nOne thing: `KI.get_global_id().x` returns an integer type. Casting to `Int32` is safe.\nThe prompt says \"Use a1D global index.\" and \"a global1D index is KI.get_global_id().x.\"\nSo `i = KI.get_global_id().x` is fine. I'll keep the `Int32` cast to match `rows` and `cols` types, or just use it directly. It's fine.\n\nCode:\n```julia\nfunction kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n```\n\nWait, should `scales` be indexed by `r`? Yes.\nIs there any chance `rows` or `cols` could be 0? The prompt says \"rows and cols are positive.\"\nSo `rows > 0`, division/modulo is safe.\n\nLet's check if `@inbounds` is appropriate. Yes.\nShould I include `using KernelInterface as KI`? The prompt says \"optionally including imports. Use KernelInterface as KI\". I'll just assume `KI` is available or add `using KernelInterface as KI` if needed, but usually in these prompts, the global `KI` is already in scope. I'll just write the function.\n\nOne detail: `rows * cols` might be computed as `Int32`, but if `rows` and `cols` are large, it could overflow. However, GPU grid sizes are typically limited, and the prompt says they are `Int32`. I'll stick with `rows * cols`.\n\nAnother detail: `i` is 1-based. `r = (i - 1) % rows + 1` is correct.\nExample: rows=3, cols=2.\ni=1 -> r=1, c=1\ni=3 -> r=3, c=1\ni=4 -> r=1, c=2\ni=6 -> r=3, c=2\nMatches column-major.\n\nAll good.\n\nI will produce exactly the function code.\nNo extra text.\nCheck signature: `kernel!(out,x,scales,rows::Int32,cols::Int32)`\nMatches.\nReturn nothing: `return nothing` or just implicit. I'll keep `return nothing` to be safe, or omit it. The example `copy_kernel!` has `return nothing`. I'll include it.\n\nOne minor point: `KI.get_global_id().x` might already be `Int32` or `Int`. Casting to `Int32` is fine.\nI'll write it out.\n\n```julia\nfunction kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n```\n\nWait, should `scales` be indexed by `r` or `c`? The prompt says \"multiply x by scales[row], NOT scales[column].\" So `scales[r]` is correct.\nEverything looks correct.\nI will output only the code.\nOne thing: `rows * cols` might be better as `rows * cols` (Int32). It's fine.\nI'll produce the final answer. \nNo extra imports needed as per prompt \"optionally including imports\". I'll just give the function.\nDone. \nLet's double check the exact prompt: \"Write ONLY the Julia kernel function kernel! specified below, optionally including imports.\"\nI will provide just the function.\nAll good. \nOutput matches request. \nProceeds. \n(Self-Correction/Verification during thought)\nWait, `rows * cols` could potentially overflow `Int32` if both are large, but in GPU context, total elements usually fit in `Int32` or `Int`. I'll keep it as is.\nCould `i` be `Int` from `get_global_id()`? Yes. Casting to `Int32` is safe.\nThe prompt says \"Arguments are device arrays/scalars and indices are1-based.\"\n\"Launch rounds up; leave out padding after rows*cols unchanged.\" -> handled by `if i <= rows * cols`.\n\"Use a1D global index.\" -> `KI.get_global_id().x`.\nEverything matches.\nFinal code:\n```julia\nfunction kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n```\nLooks solid.\nI will output this exactly. \nOne minor point: `rows * cols` might be evaluated as `Int32` because `rows` and `cols` are `Int32`. That's fine.\nI'm ready. \nOutput matches. \nProceeds. \n[Final Check]\nSignature: `kernel!(out,x,scales,rows::Int32,cols::Int32)` -> matches.\nIndexing: 1-based -> matches.\nColumn-major: `r = (i - 1) % rows + 1` -> matches.\nScales: `scales[r]` -> matches.\nPadding: `if i <= rows * cols` -> matches.\nReturn: `nothing` -> matches.\nAll constraints satisfied.\nOutput generation. \n[Done] \n```julia\nfunction kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n```\nMatches request. Output matches exactly. \nProceeds. \n(Self-Correction/Note during generation prep)\nI should make sure `KI` is available. The prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\" So `KI` is already defined in the environment. I won't add `using` unless necessary, but it's fine either way. I'll just provide the function.\nAll good. \nOutput matches. \nProceeds. \n[Final Output Generation] -> *Proceeds*\n</think>\n\n```julia\nfunction kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, scales, rows::Int32, cols::Int32)\n    i = Int32(KI.get_global_id().x)\n    if i <= rows * cols\n        r = (i - 1) % rows + 1\n        @inbounds out[i] = x[i] * scales[r]\n    end\n    return nothing\nend\n",
+    "input_tokens": 1470,
+    "generated_tokens": 2552,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2560,
+    "decode_submissions": 2560,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 39.902621030807495,
+    "input_sha256": "a873d873617d420aae57612e86f176231db8671fff664f92852bfc758584ed2d",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261024,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2561,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": null
+}

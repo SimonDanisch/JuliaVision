@@ -1,0 +1,9 @@
+{
+    "id": "scene_ratio",
+    "passed": true,
+    "exitcode": 0,
+    "elapsed_seconds": 48.223459005355835,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   10     10  3.2s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "a3519ad6b3714d63138ffd3c1b66e7666371d4ab3a68e0b4649e568fc878f9a4"
+}

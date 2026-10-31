@@ -1,0 +1,35 @@
+{
+    "task": "scene_ratio",
+    "model": "qwen35-4b",
+    "thinking": false,
+    "scope": "fresh authored combination tasks; paired direct-code control, single greedy attempt",
+    "contract_sha256": "bb767fcfd52df78e83c8669834cca6e8c063de70105c5f8698b3e8ac33ba0c3c",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using Makie, write makeplot(x,y,scale) returning (fig,ax). Figure size (700,420). One Axis titled Scaled, xlabel Sample, ylabel Ratio. Orange scatter of y ./ scale versus x. Inputs are equal-length vectors, scale nonzero. No display, save, backend activation. Code only including imports."
+        }
+    ],
+    "answer": "```julia\nusing Makie\n\nfunction makeplot(x::AbstractVector, y::AbstractVector, scale::AbstractVector)\n    if length(x) != length(y) || length(y) != length(scale)\n        throw(ArgumentError(\"All input vectors must be of equal length.\"))\n    end\n    if any(iszero, scale)\n        throw(ArgumentError(\"Scale vector must not contain zero values.\"))\n    end\n\n    fig = Figure(size=(700, 420))\n    ax = Axis(fig[1, 1]; title=\"Scaled\", xlabel=\"Sample\", ylabel=\"Ratio\")\n\n    scatter!(ax, x, y ./ scale; color=:orange)\n\n    return fig, ax\nend\n```",
+    "code": "using Makie\n\nfunction makeplot(x::AbstractVector, y::AbstractVector, scale::AbstractVector)\n    if length(x) != length(y) || length(y) != length(scale)\n        throw(ArgumentError(\"All input vectors must be of equal length.\"))\n    end\n    if any(iszero, scale)\n        throw(ArgumentError(\"Scale vector must not contain zero values.\"))\n    end\n\n    fig = Figure(size=(700, 420))\n    ax = Axis(fig[1, 1]; title=\"Scaled\", xlabel=\"Sample\", ylabel=\"Ratio\")\n\n    scatter!(ax, x, y ./ scale; color=:orange)\n\n    return fig, ax\nend\n",
+    "input_tokens": 112,
+    "generated_tokens": 158,
+    "budget_tokens": 512,
+    "decode_steps_executed": 256,
+    "decode_submissions": 256,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 4.98199200630188,
+    "input_sha256": "a595347085b26bcbbe0847f47cd50538b42b22361881b2e9e7fa9a9335e3dac0",
+    "generation_source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93",
+        "run_scene_generalization.jl": "4c6385e0fdd28470da5cfe05d213ef7f39fdf1710b182de07caf390201104322"
+    }
+}

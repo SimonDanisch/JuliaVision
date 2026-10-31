@@ -1,0 +1,77 @@
+{
+    "task": "transfer_flat_transpose",
+    "seed": 20261028,
+    "arm": "tools_budget",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,rows::Int32,cols::Int32). x is a FLATTENED column-major rows-by-cols Float32 matrix; out is distinct and must hold its transposed cols-by-rows matrix, also flattened COLUMN-MAJOR. rows/cols are positive. Exactly rows*cols valid outputs, followed by padding that must stay unchanged. Handle rectangular matrices, not just squares; no scratch memory.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "The user wants a Julia GPU kernel function that transposes a flattened column-major matrix.\nLet's break down the requirements:\n1.  **Function Name**: `kernel!`\n2.  **Arguments**: `out`, `x`, `rows::Int32`, `cols::Int32`. `out` and `x` are device arrays.\n3.  **Indexing**: Use `KI.get_global_id().x` (1-based).\n4.  **Data Layout**:\n    *   `x`: Flattened column-major $rows \\times cols$ matrix.\n    *   `out`: Flattened column-major $cols \\times rows$ matrix.\n    *   The element at $(i, j)$ in the original matrix (1-based, $1 \\le i \\le rows$, $1 \\le j \\le cols$) is at linear index $j + (i-1) \\times cols$ in `x`.\n    *   In the transposed matrix, this element is at $(j, i)$.\n    *   The transposed matrix is $cols \\times rows$.\n    *   The linear index in `out` for $(j, i)$ is $i + (j-1) \\times rows$.\n5.  **Constraints**:\n    *   Work is rounded up (grid size might be larger than number of elements).\n    *   Guard inactive invocations (check bounds).\n    *   End in `return nothing`.\n    *   No scratch memory.\n    *   Handle rectangular matrices.\n    *   No host wrappers, KernelAbstractions, etc. Just KernelInterface.\n    *   Padding must stay unchanged (handled by bounds check).\n\nLet's derive the indices carefully.\nOriginal matrix $X$ has dimensions $rows \\times cols$.\nElement $X_{i,j}$ where $1 \\le i \\le rows$, $1 \\le j \\le cols$.\nLinear index in `x` (column-major): $idx\\_x = j + (i-1) \\times cols$.\n\nTransposed matrix $Y$ has dimensions $cols \\times rows$.\n$Y_{j,i} = X_{i,j}$.\nLinear index in `out` (column-major): $idx\\_out = i + (j-1) \\times rows$.\n\nSo, for a global thread ID `tid = KI.get_global_id().x`:\nWe need to determine if `tid` corresponds to a valid element in the output array `out`.\nThe size of `out` is `rows * cols`.\nIf `tid <= rows * cols`, then it's a valid thread.\nLet's find $i$ and $j$ from `tid`.\nSince `out` is column-major $cols \\times rows$:\nThe index `tid` corresponds to row $i$ and column $j$ in `out`.\nWait, `out` represents the transposed matrix.\nLet's stick to the indices in `out`.\n`out` has dimensions $cols \\times rows$.\nLet $r$ be the row index in `out` ($1 \\le r \\le cols$).\nLet $c$ be the column index in `out` ($1 \\le c \\le rows$).\nLinear index $tid = c + (r-1) \\times rows$.\nSo, $c = (tid - 1) \\% rows + 1$.\n$r = (tid - 1) ÷ rows + 1$.\n\nWait, let's verify.\nIf $rows=2, cols=3$. `out` is $3 \\times 2$.\nIndices:\n(1,1) -> 1\n(2,1) -> 2\n(3,1) -> 3\n(1,2) -> 1 + 2 = 3? No.\nFormula: $idx = c + (r-1) \\times rows$.\nFor $rows=2, cols=3$:\n$r=1, c=1 \\implies 1 + 0 = 1$.\n$r=2, c=1 \\implies 1 + 2 = 3$? No.\nWait. Column-major means column index varies slowest? No, row index varies fastest.\nStandard Julia column-major: index $= row + (col-1) \\times num\\_rows$.\nHere `out` has `cols` rows and `rows` columns.\nSo $num\\_rows$ for `out` is `cols`.\n$idx = r + (c-1) \\times cols$.\nLet's re-evaluate.\n`out` is a flattened $cols \\times rows$ matrix.\nSo it has `cols` rows and `rows` columns.\nLinear index $k$ ($1$-based) in `out`:\n$r = (k - 1) \\% cols + 1$ (row index)\n$c = (k - 1) ÷ cols + 1$ (column index)\n\nLet's check $rows=2, cols=3$. `out` is $3 \\times 2$.\n$k=1 \\implies r=1, c=1$.\n$k=2 \\implies r=2, c=1$.\n$k=3 \\implies r=3, c=1$.\n$k=4 \\implies r=1, c=2$.\n$k=5 \\implies r=2, c=2$.\n$k=6 \\implies r=3, c=2$.\nThis covers $3 \\times 2 = 6$ elements. Correct.\n\nNow, what element in `x` does this correspond to?\nThe transposed matrix $Y$ is defined as $Y_{r,c} = X_{c,r}$.\nSo we need to read from $X$ at row $c$ and column $r$.\n$X$ is $rows \\times cols$.\nRow $c$ must be $\\le rows$.\nColumn $r$ must be $\\le cols$.\nSince $r$ comes from $k \\% cols$, $1 \\le r \\le cols$.\nSince $c$ comes from $(k-1) ÷ cols + 1$, and $k \\le rows \\times cols$, $c \\le rows$.\nSo the indices are valid.\n\nIndex in `x` (which is $rows \\times cols$):\n$x$ has `rows` rows and `cols` columns.\nIndex $k\\_x = c + (r-1) \\times rows$.\n\nSo the algorithm is:\n1. `tid = KI.get_global_id().x`\n2. `n = rows * cols`\n3. If `tid > n`, return nothing.\n4. `r = (tid - 1) % cols + 1`\n5. `c = (tid - 1) ÷ cols + 1`\n6. `out[tid] = x[c + (r - 1) * rows]`\n7. `return nothing`\n\nWait, is `x` index correct?\n$x$ is $rows \\times cols$.\nElement at row $c$, col $r$.\nIndex $= c + (r-1) \\times rows$.\nYes.\n\nLet's double check with an example.\n$X = \\begin{pmatrix} 1 & 4 \\\\ 2 & 5 \\\\ 3 & 6 \\end{pmatrix}$ ($3 \\times 2$).\n`rows`=3, `cols`=2.\n`x` = [1, 2, 3, 4, 5, 6].\nTransposed $Y = \\begin{pmatrix} 1 & 2 & 3 \\\\ 4 & 5 & 6 \\end{pmatrix}$ ($2 \\times 3$).\n`out` should be [1, 4, 2, 5, 3, 6].\n\nLet's trace `tid`:\n`n` = 6.\n`tid`=1:\n`r` = (0)%2 + 1 = 1.\n`c` = 0÷2 + 1 = 1.\n`x_idx` = 1 + (0)*3 = 1.\n`out[1]` = `x[1]` = 1. Correct.\n\n`tid`=2:\n`r` = (1)%2 + 1 = 2.\n`c` = 1÷2 + 1 = 1.\n`x_idx` = 1 + (1)*3 = 4.\n`out[2]` = `x[4]` = 4. Correct.\n\n`tid`=3:\n`r` = (2)%2 + 1 = 1.\n`c` = 2÷2 + 1 = 2.\n`x_idx` = 2 + (0)*3 = 2.\n`out[3]` = `x[2]` = 2. Correct.\n\n`tid`=4:\n`r` = (3)%2 + 1 = 2.\n`c` = 3÷2 + 1 = 2.\n`x_idx` = 2 + (1)*3 = 5.\n`out[4]` = `x[5]` = 5. Correct.\n\n`tid`=5:\n`r` = (4)%2 + 1 = 1.\n`c` = 4÷2 + 1 = 3.\n`x_idx` = 3 + (0)*3 = 3.\n`out[5]` = `x[3]` = 3. Correct.\n\n`tid`=6:\n`r` = (5)%2 + 1 = 2.\n`c` = 5÷2 + 1 = 3.\n`x_idx` = 3 + (1)*3 = 6.\n`out[6]` = `x[6]` = 6. Correct.\n\nResult `out`: [1, 4, 2, 5, 3, 6]. Matches expectation.\n\nOne detail: `rows` and `cols` are `Int32`. Arithmetic should be fine.\nThe problem statement says \"Arguments are device arrays/scalars\".\nSo `out` and `x` are device arrays.\n`rows` and `cols` are scalars.\nThe function signature is `kernel!(out,x,rows::Int32,cols::Int32)`.\n\nCode structure:\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    tid = KI.get_global_id().x\n    n = rows * cols\n    if tid > n\n        return nothing\n    end\n    \n    # out is cols x rows flattened column-major\n    # tid corresponds to row r, col c in out\n    # r = (tid - 1) % cols + 1\n    # c = (tid - 1) ÷ cols + 1\n    \n    r = (tid - 1) % cols + 1\n    c = (tid - 1) ÷ cols + 1\n    \n    # x is rows x cols flattened column-major\n    # We want element at row c, col r in x\n    # x_idx = c + (r - 1) * rows\n    \n    x_idx = c + (r - 1) * rows\n    \n    out[tid] = x[x_idx]\n    return nothing\nend\n```\n\nWait, `rows` and `cols` are `Int32`.\n`n = rows * cols` is `Int32`.\n`tid` is `Int` (usually). Comparison is fine.\nArithmetic is fine.\n\nAre there any edge cases?\n`rows`=1, `cols`=1.\n`tid`=1.\n`r`=1, `c`=1.\n`x_idx`=1.\n`out[1]`=`x[1]`. Correct.\n\n`rows`=1, `cols`=5.\n`x` is $1 \\times 5$. `x`=[1, 2, 3, 4, 5].\n`out` is $5 \\times 1$. `out`=[1, 2, 3, 4, 5].\n`tid`=1: `r`=1, `c`=1. `x_idx`=1. `out[1]`=1.\n`tid`=2: `r`=2, `c`=1. `x_idx`=1 + 1*1 = 2. `out[2]`=2.\n...\n`tid`=5: `r`=5, `c`=1. `x_idx`=1 + 4*1 = 5. `out[5]`=5.\nCorrect.\n\n`rows`=5, `cols`=1.\n`x` is $5 \\times 1$. `x`=[1, 2, 3, 4, 5].\n`out` is $1 \\times 5$. `out`=[1, 2, 3, 4, 5].\n`tid`=1: `r`=1, `c`=1. `x_idx`=1. `out[1]`=1.\n`tid`=2: `r`=1, `c`=2. `x_idx`=2 + 0 = 2. `out[2]`=2.\n...\nCorrect.\n\nThe problem says \"Exactly rows*cols valid outputs, followed by padding that must stay unchanged.\"\nMy check `if tid > n return nothing` handles this.\n\nThe problem says \"Work is rounded up; guard inactive invocations.\"\nHandled.\n\n\"Handle rectangular matrices, not just squares\"\nHandled.\n\n\"No scratch memory.\"\nHandled.\n\n\"End the function in return nothing.\"\nHandled.\n\n\"Signature kernel!(out,x,rows::Int32,cols::Int32).\"\nHandled.\n\n\"x is a FLATTENED column-major rows-by-cols Float32 matrix\"\nHandled.\n\n\"out is distinct\n\nConsidering the limited time, I have to give the solution based on the thinking directly now.\n</think>\n\n```julia\nfunction kernel!(out, x, rows::Int32, cols::Int32)\n    tid = KI.get_global_id().x\n    n = rows * cols\n    if tid > n\n        return nothing\n    end\n    \n    # out is a flattened column-major cols-by-rows matrix\n    # Determine row (r) and column (c) indices in out for linear index tid\n    r = (tid - 1) % cols + 1\n    c = (tid - 1) ÷ cols + 1\n    \n    # x is a flattened column-major rows-by-cols matrix\n    # The element at (c, r) in the transposed matrix comes from (r, c) in x\n    # Linear index in x for row r, col c\n    x_idx = c + (r - 1) * rows\n    \n    out[tid] = x[x_idx]\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, rows::Int32, cols::Int32)\n    tid = KI.get_global_id().x\n    n = rows * cols\n    if tid > n\n        return nothing\n    end\n    \n    # out is a flattened column-major cols-by-rows matrix\n    # Determine row (r) and column (c) indices in out for linear index tid\n    r = (tid - 1) % cols + 1\n    c = (tid - 1) ÷ cols + 1\n    \n    # x is a flattened column-major rows-by-cols matrix\n    # The element at (c, r) in the transposed matrix comes from (r, c) in x\n    # Linear index in x for row r, col c\n    x_idx = c + (r - 1) * rows\n    \n    out[tid] = x[x_idx]\n    return nothing\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 623,
+    "generated_tokens": 3275,
+    "budget_tokens": 6144,
+    "context_tokens": 3920,
+    "truncated": false,
+    "rewinds": 1,
+    "forced_closes": 1,
+    "thinking_tokens": [
+        3072
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 47.048036098480225
+}

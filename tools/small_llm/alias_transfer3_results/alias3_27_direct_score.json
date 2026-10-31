@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.24814805202186108,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `DateTime` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nHint: a global variable of this name also exists in Dates.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:13\n [2] top-level scope\n   @ /input/program.jl:27\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:27\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 10, in test_cases\nAssertionError\n",
+  "program_sha256": "3d98f004bad12bbf00b3ce804ce794a45984d79cc63b747e7cd472babd35466d",
+  "test_suite_sha256": "f11db852052882d2cf894870d8b94e27dce4b809a16795a03b9cbfe5e89fe0b2",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "bf7ee3dffac551edab534207dfcf32b48e9e5316a6b20b3cb3c325ae613299a6"
+}

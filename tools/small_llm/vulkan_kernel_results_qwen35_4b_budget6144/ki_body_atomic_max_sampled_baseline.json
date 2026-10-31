@@ -1,0 +1,72 @@
+{
+    "task": "ki_body_atomic_max",
+    "arm": "sampled_baseline",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,labels,x,n::Int32). For every1<=i<=n atomically update out[labels[i]] to the maximum of its old value and x[i]. labels are valid1-based Int32 indices. x/out are Float32, out initially -Inf. Many workgroups contend for the same outputs: a normal load followed by an atomic STORE is NOT a valid maximum RMW. Use current Atomix.jl with explicit :monotonic ordering: only this independent reduction result is read after kernel completion. Ignore rounded-up threads past n. No scratch arrays or host reductions."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.5",
+        "quantization": "Q4_K/Q8 activations; Q6_K head",
+        "cache": "Float32 split"
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "8d746c5399564481084ee71be4a991537f369b21e3a9bf052212fc0c49cff830",
+    "answer": "The user wants me to write a Julia kernel function that:\n1. Uses KernelInterface (KI) with a global1D index accessed via KI.get_global_id().x\n2. Updates out[labels[i]] atomically to the maximum of its old value and x[i]\n3. Uses Atomix.jl with explicit :monotonic ordering (this is important for RMW operations)\n4. Arguments are device arrays/scalars and indices are 1-based\n5. out initially -Inf, x/out are Float32\n6. No scratch arrays or host reductions\n7. Only return the kernel! function code, nothing else\n\nThe key challenge here is that for a maximum reduction, we need to use an atomic RMW operation. In Atomix.jl, we can use atomic operations with specific ordering. The :monotonic ordering ensures that only the independent reduction result is read after kernel completion.\n\nSince we're dealing with maximum RMW, we need to use atomic min/max operations. In Atomix, this would typically use `@atomic` with the appropriate comparison.\n\nLet me write the kernel:\n\n```julia\nusing KernelInterface\nusing Atomix\n\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            old = out[labels[i]]\n            new_val = max(old, x[i])\n            # Use atomic monotonic update\n            @atomic out[labels[i]] = new_val order=:monotonic\n        end\n    end\nend\n```\n\nWait, I need to reconsider. The :monotonic ordering in Atomix is for ensuring that the reduction is independent. But for a simple maximum RMW, we might need to use atomic operations that support this.\n\n\n```julia\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            # Use atomic min/max with monotonic ordering\n            @atomic out[labels[i]] = max(out[labels[i]], x[i]) order=:monotonic\n        end\n    end\nend\n```\n\nI need to check if this is the correct approach for atomic maximum updates in Atomix.jl. The @atomic macro should handle the RMW operation with the specified ordering.\n\nActually, I should verify whether Atomix.jl provides specific atomic operations for maximum. Let me think about what's available:\n\nIn Atomix.jl, we can use @atomic with different operations. For maximum, we might need to use atomic compare-and-swap or similar. However, the standard approach is to use @atomic with the appropriate operation.\n\nFor maximum RMW, we typically need to use atomic operations that support this. In Julia with Atomix.jl, the @atomic macro can handle this with the right ordering.\n\nLet me simplify and focus on what's actually needed:\n\n```julia\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            @atomic out[labels[i]] = max(out[labels[i]], x[i]) order=:monotonic\n        end\n    end\nend\n```\n\nI'm uncertain about the exact syntax for @atomic with maximum operations. Let me reconsider what Atomix.jl actually supports for atomic maximum updates.\n\nIn Atomix.jl, the @atomic macro can handle RMW operations like maximum. The key is using the right ordering to ensure independent reductions are correctly computed.\n\n```julia\nusing KernelInterface\nusing Atomix\n\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            @atomic out[labels[i]] = max(out[labels[i]], x[i]) order=:monotonic\n        end\n    end\nend\n```\n\nI need to verify the exact syntax for @atomic with maximum operations in Atomix.jl, as the standard RMW operations may differ from what I'm assuming.\n</think>\n\n```julia\nusing KernelInterface\nusing Atomix\n\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            @atomic out[labels[i]] = max(out[labels[i]], x[i]) order=:monotonic\n        end\n    end\nend\n```",
+    "code": "using KernelInterface\nusing Atomix\n\nfunction kernel!(out::Vector{Float32}, labels::Vector{Int32}, x::Vector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        if idx > n\n            break\n        end\n        if labels[i] >= 1 && labels[i] <= length(out)\n            @atomic out[labels[i]] = max(out[labels[i]], x[i]) order=:monotonic\n        end\n    end\nend\n",
+    "input_tokens": 226,
+    "generated_tokens": 1185,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 1280,
+    "decode_submissions": 1280,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 20.130123138427734,
+    "input_sha256": "e43e947f04647576704e3ad2e7952e282ce87cc17f21b27768a9e8cae417b751",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261024,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 1281,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    }
+}

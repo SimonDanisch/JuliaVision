@@ -1,0 +1,37 @@
+{
+    "task": "077_iscube",
+    "arm": "baseline",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Implement the documented Julia function below. Return its COMPLETE definition, not just a function body. Include required standard-library imports. Code only.\n\n\n    iscube(a::Int)::Bool\n\nWrite a function that takes an integer `a` and returns `true` if this ingeger is a\ncube of some integer number.\n\nNote: you may assume the input is always valid.\n\n# Examples\n\n```jldoctest\njulia> iscube(1)\ntrue\n\njulia> iscube(2)\nfalse\n\njulia> iscube(-1)\ntrue\n\njulia> iscube(64)\ntrue\n\njulia> iscube(0)\ntrue\n\njulia> iscube(180)\nfalse\n```\n"
+        }
+    ],
+    "thinking": true,
+    "contract_sha256": "d20ca2596e7e7bd981fb0cc418d7a7d05717a7bc4b7ab03604914d9409ebe1fe",
+    "conditions_sha256": "d8ee7f46a44462207d47ee9ce8c2ae3f401e0394a811867d93f6882ce362a24b",
+    "generation_source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "humaneval_subset.jl": "e053a269d16075722c8fd2183c0a51903a5b084e7c466e8cad23bfc35fb8994f",
+        "qwen_text.jl": "832d645b2b007b85a39653e98822dd4e498dbf813ccf60ef70dedb547109c9b5",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "run_humaneval_subset.jl": "b6354101530e2563eb9a2860e507c8ce6a345111ed02f586d0de53593e13016a",
+        "qwen_weight_cache.jl": "f4959ba9735321dcc6847fca35a2abbd4c20fadd417651f067ce56d4e78e4b3d"
+    },
+    "answer": "The user wants me to implement a Julia function `iscube` that checks if an integer `a` is a perfect cube.\n\nKey requirements:\n1. Return the COMPLETE function definition (not just body)\n2. Include required standard-library imports\n3. Code only (no explanations)\n\nTo check if a number is a perfect cube:\n1. For positive numbers: take the cube root and check if it's an integer\n2. For negative numbers: take the cube root (which will be negative) and check if it's an integer\n3. For zero: it's a perfect cube (0 = 0³)\n\nIn Julia, I can use `cbrt()` for cube root, but I need to check if the result is an integer.\n\nLet me think about the approach:\n- Calculate the cube root\n- Check if it's close to an integer (due to floating point precision)\n- Or use integer arithmetic\n\nFor integer arithmetic approach:\n- For positive a: find integer n such that n³ = a\n- For negative a: find integer n such that n³ = a (n will be negative)\n- For zero: true\n\nA simple approach:\n1. Calculate cube root using `cbrt()`\n2. Round to nearest integer\n3. Check if that integer cubed equals the original\n\nLet me write the code:\n\n```julia\nfunction iscube(a::Int)::Bool\n    if a == 0\n        return true\n    end\n    \n    # Calculate cube root\n    root = cbrt(a)\n    \n    # Round to nearest integer\n    n = round(Int, root)\n    \n    # Check if n³ equals a\n    return n^3 == a\nend\n```\n\nWait, I need to be careful with negative numbers. `cbrt()` in Julia should handle negative numbers correctly (returning negative result for negative input).\n\nLet me verify the logic:\n- iscube(1): cbrt(1) = 1, round(1) = 1, 1^3 = 1 == 1 ✓\n\n\n- iscube(2): cbrt(2) ≈ 1.26, round(1.26) = 1, 1^3 = 1 ≠ 2 ✓\n- iscube(-1): cbrt(-1) = -1, round(-1) = -1, (-1)^3 = -1 == -1 ✓\n- iscube(64): cbrt(64) = 4, round(4) = 4, 4^3 = 64 == 64 ✓\n- iscube(0): returns true immediately ✓\n- iscube(180): cbrt(180) ≈ 5.65, round(5.65) = 6, 6^3 = 216 ≠ 180 ✓\n\nThe function handles all test cases correctly. I should verify the edge case where a is negative to ensure the cube root calculation works properly.\n\nFor negative inputs, `cbrt()` returns a negative value, which when rounded and cubed should match the original. Testing with -1 confirms this works: `cbrt(-1)` gives -1, and cubing it back yields -1.\n\nI'll use `round(Int, cbrt(a))` to get the nearest integer, then verify by cubing it back. This handles both positive and negative integers correctly.\n</think>\n\n```julia\nfunction iscube(a::Int)::Bool\n    if a == 0\n        return true\n    end\n    \n    root = cbrt(a)\n    n = round(Int, root)\n    \n    return n^3 == a\nend\n```",
+    "code": "function iscube(a::Int)::Bool\n    if a == 0\n        return true\n    end\n    \n    root = cbrt(a)\n    n = round(Int, root)\n    \n    return n^3 == a\nend\n",
+    "input_tokens": 195,
+    "generated_tokens": 802,
+    "budget_tokens": 2048,
+    "decode_steps_executed": 896,
+    "decode_submissions": 896,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 15.65505313873291,
+    "input_sha256": "45e0e3ea1517460b6f52ded778e5a2c02f33580d164dd6d5978f18f78e2c3427"
+}

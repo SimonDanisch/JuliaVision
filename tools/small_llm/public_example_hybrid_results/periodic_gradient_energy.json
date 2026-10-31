@@ -1,0 +1,11 @@
+{
+    "task": "periodic_gradient_energy",
+    "conditions_sha256": "94971cf99e4b338e4ddea509a47756a7abeb6331b2f9c663a9640fc76c4c1e97",
+    "model_sha256": "422e7a1446915be39889795b1e0b27831deb76b82c640a66c9ccd076b08ba669",
+    "symbolic_sha256": "4ec33cea29bd65ff7e02387c7ab076a60125208d422967f62e3dd60f4d6dc661",
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "x_prev_periodic\nx_next_periodic\nsub\nsquare\nhalf\nmul\nfinish\n",
+        "reason": "public_examples_match"
+    }
+}

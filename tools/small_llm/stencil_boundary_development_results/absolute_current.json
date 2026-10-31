@@ -1,0 +1,18 @@
+{
+    "id": "absolute_current",
+    "conditions_sha256": "b15d748b3eb80966f7850d0feddb7d40ecbea5e036c02417a0c89826e009ee98",
+    "mode": "unknown",
+    "parent_selection_sha256": "91adbacf729d9eae9f621703affd890f67ca5e8c28ff9824e34b151a164b60e4",
+    "proposal": {
+        "found": false,
+        "program": "",
+        "reason": "not_needed_or_infrastructure_failure",
+        "elapsed_seconds": 0,
+        "candidates": 0
+    },
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "x0\nx0\nneg\nmax\nfinish\n",
+        "reason": "public_examples_and_boundary_match"
+    }
+}

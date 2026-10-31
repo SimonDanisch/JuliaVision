@@ -1,0 +1,17 @@
+{
+    "collection": "julia_tasks_results",
+    "task": "makie_link",
+    "arm": "feedback_docs",
+    "source_sha256": "5b25696674984a7d22afd0be19c90d4f97c8cd53608efa5266e2a54b2025b5e1",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_link",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 2.713168144226074,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  KeyError: key :plot! not found\n  Stacktrace:\n    [1] getindex\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/nesting.jl:135 [inlined]\n    [2] getindex(attr::ComputePipeline.ComputeGraph, key::Symbol)\n      @ ComputePipeline /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/ComputePipeline.jl:802\n    [3] getproperty(block::Axis, name::Symbol)\n      @ Makie /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/makielayout/blocks.jl:809\n    [4] top-level scope\n      @ /input/candidate.jl:11\n    [5] top-level scope\n      @ /input/runner.jl:5\n    [6] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n    [7] macro expansion\n      @ /input/runner.jl:5 [inlined]\n    [8] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n    [9] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [10] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.1s\nRNG of the outermost testset: Random.Xoshiro(0x09971831cee1e770, 0x5d6493733535c292, 0x6bb3465de054d6cf, 0x994bcde22bb790ab, 0x6d57d390023055de)\n",
+    "log_truncated": false,
+    "code_sha256": "40edeb0033cb3da15a12b87b2702d71cb5d6f21ed14849576e86c3a844eb69cf"
+}

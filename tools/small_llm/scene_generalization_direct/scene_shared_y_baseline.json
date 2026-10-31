@@ -1,0 +1,35 @@
+{
+    "task": "scene_shared_y",
+    "model": "qwen35-4b",
+    "thinking": false,
+    "scope": "fresh authored combination tasks; paired direct-code control, single greedy attempt",
+    "contract_sha256": "1f0aef71ccd004bbdd55b3d8412e555fa735313949a1190b2f96350a2e0179cf",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using Makie, write makeplot(x,y) returning (fig,left,right). Figure size (800,360). Two side-by-side Axis objects: left title Raw, right title Absolute, both xlabel Time and ylabel Value. Red lines of y versus x on left, green scatter of abs.(y) versus x on right. Link ONLY y axes. No display, save, backend activation. Code only including imports."
+        }
+    ],
+    "answer": "```julia\nusing Makie\n\nfunction makeplot(x, y)\n    fig = Figure(size=(800, 360))\n    \n    # Left plot: Red line\n    ax_left = Axis(fig[1, 1], title=\"Raw\", xlabel=\"Time\", ylabel=\"Value\")\n    ax_left.plot!(x, y, color=:red)\n    \n    # Right plot: Green scatter of abs(y)\n    ax_right = Axis(fig[2, 1], title=\"Absolute\", xlabel=\"Time\", ylabel=\"Value\")\n    ax_right.scatter!(x, abs.(y), color=:green)\n    \n    # Link y-axes\n    linkyaxes(ax_left, ax_right)\n    \n    return fig, ax_left, ax_right\nend\n```",
+    "code": "using Makie\n\nfunction makeplot(x, y)\n    fig = Figure(size=(800, 360))\n    \n    # Left plot: Red line\n    ax_left = Axis(fig[1, 1], title=\"Raw\", xlabel=\"Time\", ylabel=\"Value\")\n    ax_left.plot!(x, y, color=:red)\n    \n    # Right plot: Green scatter of abs(y)\n    ax_right = Axis(fig[2, 1], title=\"Absolute\", xlabel=\"Time\", ylabel=\"Value\")\n    ax_right.scatter!(x, abs.(y), color=:green)\n    \n    # Link y-axes\n    linkyaxes(ax_left, ax_right)\n    \n    return fig, ax_left, ax_right\nend\n",
+    "input_tokens": 128,
+    "generated_tokens": 167,
+    "budget_tokens": 512,
+    "decode_steps_executed": 256,
+    "decode_submissions": 256,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 4.996978044509888,
+    "input_sha256": "867c814d5295e8da14fc73ceebc360bedfdf3c4f26943127aabfe51cb1d8088a",
+    "generation_source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93",
+        "run_scene_generalization.jl": "4c6385e0fdd28470da5cfe05d213ef7f39fdf1710b182de07caf390201104322"
+    }
+}

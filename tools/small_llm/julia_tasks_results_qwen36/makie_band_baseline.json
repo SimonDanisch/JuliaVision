@@ -1,0 +1,47 @@
+{
+    "task": "makie_band",
+    "category": "makie",
+    "arm": "baseline",
+    "model": "Qwen3.6-35B-A3B.Q4_K_S.gguf",
+    "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+    "cache": "Float32 grouped",
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2",
+        "no_alias",
+        "paired_expert_rows",
+        "capability_swiglu_q8"
+    ],
+    "thinking": false,
+    "contract_sha256": "d4a7929939849bc09deaf0cc5cccfd8de3959b02367e585795c8de97f0b3ce27",
+    "prompt_sha256": "087c0e5bb97f1498c0aca725887c1f0c7b04a4e4c0848b626756242bafdab3cf",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using Makie (not GLMakie), write makeplot(x,mu,sigma) returning (fig,ax). Figure size (640,400), axis xlabel Time, ylabel Value, title Estimate. Plot a semi-transparent blue band between mu .- sigma and mu .+ sigma, then a blue mean line labelled Mean. Add axislegend(ax,position=:lt). Do not display, save, or activate a backend. Code only including imports."
+        }
+    ],
+    "answer": "```julia\nusing Makie\n\nfunction makeplot(x, mu, sigma)\n    fig = Figure(size = (640, 400))\n    ax = Axis(fig[1, 1], xlabel = \"Time\", ylabel = \"Value\", title = \"Estimate\")\n    \n    # Plot the semi-transparent blue band\n    band!(ax, x, mu .- sigma, mu .+ sigma, color = (:blue, 0.3))\n    \n    # Plot the mean line\n    lines!(ax, x, mu, color = :blue, label = \"Mean\")\n    \n    # Add legend\n    axislegend(ax, position = :lt)\n    \n    return (fig, ax)\nend\n```",
+    "code": "using Makie\n\nfunction makeplot(x, mu, sigma)\n    fig = Figure(size = (640, 400))\n    ax = Axis(fig[1, 1], xlabel = \"Time\", ylabel = \"Value\", title = \"Estimate\")\n    \n    # Plot the semi-transparent blue band\n    band!(ax, x, mu .- sigma, mu .+ sigma, color = (:blue, 0.3))\n    \n    # Plot the mean line\n    lines!(ax, x, mu, color = :blue, label = \"Mean\")\n    \n    # Add legend\n    axislegend(ax, position = :lt)\n    \n    return (fig, ax)\nend\n",
+    "input_tokens": 136,
+    "generated_tokens": 158,
+    "budget_tokens": 512,
+    "decode_steps_executed": 512,
+    "decode_submissions": 512,
+    "eos_output_poll_chunk": null,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.552019119262695,
+    "input_sha256": "d3c04880e67086b238ed6b3833587421fd49f31e5ad3dbf0fafb4e50b21192fa"
+}

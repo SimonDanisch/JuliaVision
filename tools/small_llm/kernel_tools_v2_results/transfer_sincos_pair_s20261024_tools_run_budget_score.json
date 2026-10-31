@@ -1,0 +1,11 @@
+{
+    "id": "transfer_sincos_pair",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 25.93863296508789,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |   10     10  17.1s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "68d1c56806160fb5d34e3a27fd2b1626ee09cdee20106e4a1eb623cccc203e0e"
+}

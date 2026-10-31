@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.577941572992131,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: The IO stream does not support reading objects of type IOBuffer.\nStacktrace:\n [1] error(s::String)\n   @ Base ./error.jl:44\n [2] top-level scope\n   @ io.jl:1188\n [3] top-level scope\n   @ /input/program.jl:6\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:6\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 6, in test_cases\nAssertionError\n",
+  "program_sha256": "9dd9a8dff3a4b138d149a337346a9958f6bec62548eee1d731bfa994a120e0f8",
+  "test_suite_sha256": "c9223493fd99f37b3c40b8901f6e67625ac43d38ae2d7cd3a81dce3e3d72dbfe",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c"
+}

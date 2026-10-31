@@ -1,0 +1,11 @@
+{
+    "id": "077_iscube",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.26698803901672363,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    8      8  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "c30a9f070550c73bcd59c41e8ae74c4da58c4c9991194c03ff8d2090971311c6"
+}

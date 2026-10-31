@@ -1,0 +1,9 @@
+{
+    "id": "makie_link",
+    "passed": false,
+    "exitcode": 1,
+    "elapsed_seconds": 48.85949516296387,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  Plotting into an axis without `!` (e.g. `scatter` instead of `scatter!`)\n  Stacktrace:\n    [1] error(s::String)\n      @ Base ./error.jl:44\n    [2] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/figureplotting.jl:320\n    [3] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/figureplotting.jl:480\n    [4] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/recipes.jl:431\n    [5] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/recipes.jl:429\n    [6] top-level scope\n      @ /input/candidate.jl:11\n    [7] top-level scope\n      @ /input/runner.jl:5\n    [8] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n    [9] macro expansion\n      @ /input/runner.jl:5 [inlined]\n   [10] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n   [11] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [12] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  4.7s\nRNG of the outermost testset: Random.Xoshiro(0x07122f5259affad6, 0xc42ef57c58651226, 0xc3e1fe82ba5f2f34, 0x2aa899f2bb34670c, 0x51a53df82529eea0)\n",
+    "log_truncated": false,
+    "code_sha256": "a2c6efb280cfb3e62bf6bb67948c363a28e2c875639d036625dfd01b82d43a8c"
+}

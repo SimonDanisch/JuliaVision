@@ -1,0 +1,11 @@
+{
+    "id": "stable_groups",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.32567596435546875,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    4      4  0.1s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "3dbea880f70b67e434d38b0e7540687335b27fa787c40f80ff8458a9193e425b"
+}

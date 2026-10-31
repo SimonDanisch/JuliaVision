@@ -1,0 +1,179 @@
+{
+    "generation_sha256": "9802057089896ca699c97d9a692aac5058f080986dd773327d158bf8afd15aca",
+    "cases_sha256": "821ead39b5461dad49533ec04698ea2ef2e8103fc0d3dde1c7ade7212c16b030",
+    "result": {
+        "admitted": true,
+        "passed": false,
+        "code_sha256": "4b843025ece8e935d806fbb5e72c62e10d95c6e53e7344d88d01f8aabaa16198",
+        "rows": [
+            {
+                "n": 0,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 0,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 0,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 1,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 1,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 1,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 2,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 2,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 2,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 3,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 3,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 3,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 7,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 7,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 7,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 31,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 31,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 31,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 65,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 65,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 65,
+                "passed": false,
+                "cpu_match": false,
+                "gpu_match": false,
+                "padding": true,
+                "submissions": 1
+            }
+        ]
+    }
+}

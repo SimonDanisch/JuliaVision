@@ -1,0 +1,9 @@
+{
+    "id": "scene_shared_y",
+    "passed": true,
+    "exitcode": 0,
+    "elapsed_seconds": 51.524189949035645,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  5.2s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "62eb8cd78895c32509790b0d3767779a42f9410e0a47667598688e04ea2371cf"
+}

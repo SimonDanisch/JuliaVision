@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "checks": 5,
+    "run": "r1370",
+    "scope": "CPU mock/validation only; actual model and hardware results recorded separately",
+    "sources": {
+        "test_bayes_native_deployment.jl": "f3c3a058727d1a9d4c0b4b86fba24e1295b8fccfc1cc239802ee15f89f7b007a",
+        "deploy_bayes_native_audit.jl": "ec12ffe23dbc15a52a806433129781169949e19315676720447ae293c1cd5674"
+    }
+}

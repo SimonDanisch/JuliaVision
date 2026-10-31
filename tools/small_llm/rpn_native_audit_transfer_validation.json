@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU-only positive source-only grading-helper deployment qualification; no private cases transferred",
+    "passed": 8,
+    "source_sha256": {
+        "test_rpn_native_audit_transfer.jl": "d06fab043cb0be289d9d81052be928f13c04f6aecb0f635355b0ed957e07dbb5",
+        "rpn_native_audit_transfer.jl": "4b7bf2b592182f787bd2d6043e5497b856ed8c300e550e6482d7600f3c121122"
+    }
+}

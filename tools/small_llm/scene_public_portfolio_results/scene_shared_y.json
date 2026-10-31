@@ -1,0 +1,48 @@
+{
+    "task": "scene_shared_y",
+    "selected": "adapter",
+    "passed": true,
+    "attempts": [
+        {
+            "arm": "direct",
+            "probe": {
+                "id": "scene_shared_y",
+                "passed": false,
+                "exitcode": 1,
+                "elapsed_seconds": 46.76939797401428,
+                "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  KeyError: key :plot! not found\n  Stacktrace:\n    [1] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/nesting.jl:135\n    [2] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/ComputePipeline.jl:802\n    [3] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/makielayout/blocks.jl:809\n    [4] top-level scope\n      @ /input/candidate.jl:8\n    [5] top-level scope\n      @ /input/runner.jl:5\n    [6] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n    [7] macro expansion\n      @ /input/runner.jl:5 [inlined]\n    [8] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n    [9] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [10] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  3.1s\nRNG of the outermost testset: Random.Xoshiro(0x9561e849ad3be72e, 0x3cd2f729282a8b9e, 0xd8ef689e27ec444b, 0xb854f2572404457d, 0x92da793de976c5ea)\n",
+                "log_truncated": false,
+                "code_sha256": "69d0be359bd373f1f1280d25636559d417e3047ec23ec12d05fbf7eb2f2144d1"
+            },
+            "generation_seconds": 4.996978044509888,
+            "input_tokens": 128,
+            "output_budget": 512,
+            "code_sha256": "69d0be359bd373f1f1280d25636559d417e3047ec23ec12d05fbf7eb2f2144d1"
+        },
+        {
+            "arm": "adapter",
+            "probe": {
+                "id": "scene_shared_y",
+                "passed": true,
+                "exitcode": 0,
+                "elapsed_seconds": 48.63606905937195,
+                "diagnostic": "Test Summary: | Total  Time\ncontract      |     0  5.2s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "62eb8cd78895c32509790b0d3767779a42f9410e0a47667598688e04ea2371cf"
+            },
+            "generation_seconds": 7.994966983795166,
+            "input_tokens": 504,
+            "output_budget": 512,
+            "code_sha256": "62eb8cd78895c32509790b0d3767779a42f9410e0a47667598688e04ea2371cf"
+        }
+    ],
+    "private_score": {
+        "id": "scene_shared_y",
+        "passed": true,
+        "exitcode": 0,
+        "elapsed_seconds": 48.15285396575928,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  4.8s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "62eb8cd78895c32509790b0d3767779a42f9410e0a47667598688e04ea2371cf"
+    }
+}

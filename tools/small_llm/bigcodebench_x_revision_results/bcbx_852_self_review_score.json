@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.19555640104226768,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `Random` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nHint: Random is loaded but not imported in the active module Main.\nStacktrace:\n [1] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [2] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [3] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:1\nin expression starting at /input/program.jl:1\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 6, in test_cases\nAssertionError\n",
+  "program_sha256": "c2c8cb410045c878d75cb20fba960756a23b1fa3943bc05807b4c838e87dd849",
+  "test_suite_sha256": "7c3b17a1c1c782b7334a0b05bae46bb0a9f2d142a861557dd17883cb6db0fbf8",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c"
+}

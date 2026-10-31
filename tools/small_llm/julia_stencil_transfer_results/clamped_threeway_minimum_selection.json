@@ -1,0 +1,22 @@
+{
+    "id": "clamped_threeway_minimum",
+    "conditions_sha256": "ca234046f43a37a6c914bf160ecdd8e730b521248f584b453e9bf2aab7e043e1",
+    "generation_sha256": "1a583951c74887251054e1dee871c5a4566c9f513b02f5400952740aad2d988b",
+    "direct": {
+        "accepted": true,
+        "reason": "admitted disjoint pointwise subset",
+        "program": "x_prev_clamped\nx0\nmin\nx_next_clamped\nmin\nfinish\n"
+    },
+    "symbolic": {
+        "found": false,
+        "program": "",
+        "reason": "not_needed_or_infrastructure_failure",
+        "elapsed_seconds": 0,
+        "candidates": 0
+    },
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "x_prev_clamped\nx0\nmin\nx_next_clamped\nmin\nfinish\n",
+        "reason": "public_examples_match"
+    }
+}

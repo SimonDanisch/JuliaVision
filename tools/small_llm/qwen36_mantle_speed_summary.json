@@ -1,0 +1,78 @@
+{
+  "source": "dev/JuliaVision/tools/small_llm/qwen36_mantle_isolated_final.json",
+  "source_sha256": "f4112cf805f509cc419d8458f0849ca6652c792f546ffa42df9319c83527274e",
+  "feature": "replay_policy",
+  "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+  "statistics": {
+    "original": {
+      "n": 6,
+      "median": 70.46310089094558,
+      "minimum": 67.31042837143306,
+      "maximum": 73.77905868778164,
+      "q1": 67.31771270727228,
+      "q3": 73.68499022303416,
+      "samples": [
+        67.31042837143306,
+        67.3201408192187,
+        67.35201119593324,
+        73.77905868778164,
+        73.65363406811834,
+        73.57419058595791
+      ]
+    },
+    "final": {
+      "n": 12,
+      "median": 78.02323721193875,
+      "minimum": 76.65301370695418,
+      "maximum": 79.55215804364717,
+      "q1": 77.75606702514494,
+      "q3": 78.90384200409858,
+      "samples": [
+        76.65301370695418,
+        79.55215804364717,
+        78.82223200217275,
+        78.93104533807384,
+        79.1319974600063,
+        78.2856292675209,
+        77.68626331912625,
+        78.02875393232306,
+        77.7388075160148,
+        77.83650931588207,
+        77.80784555253534,
+        78.01772049155444
+      ]
+    },
+    "llama_cpp": {
+      "n": 12,
+      "median": 52.993006787,
+      "minimum": 25.259251316,
+      "maximum": 74.284260961,
+      "q1": 31.7773609575,
+      "q3": 73.39620439000001,
+      "samples": [
+        25.260203461,
+        25.259251316,
+        25.271359275,
+        74.284260961,
+        74.031790954,
+        73.181886841,
+        73.467643573,
+        53.770758002,
+        53.619191632,
+        51.327389777,
+        52.366821942,
+        51.295366005
+      ]
+    }
+  },
+  "final_vs_native_percent": 47.233082141470504,
+  "observed_worst_final_vs_best_native_percent": 3.188768004568021,
+  "final_vs_original_percent": 10.729213198683741,
+  "scope": "One fixed 8-token prompt/64 greedy decode tokens, F32 KV, capacity256, same Radeon and GGUF; not broad model/context superiority",
+  "feedback_modes": "Mantle device-resident token feedback; llama.cpp synchronized host logits/greedy feedback",
+  "contention_possible": true,
+  "all_samples_retained": true,
+  "isolated_model_residency": true,
+  "checked_logits_bitidentical_to_original_mantle": true,
+  "numerical_equivalence_to_llama_cpp_proven": false
+}

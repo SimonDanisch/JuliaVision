@@ -1,0 +1,9 @@
+{
+    "id": "stable_groups",
+    "passed": true,
+    "exitcode": 0,
+    "elapsed_seconds": 6.825623035430908,
+    "diagnostic": "[\"first\" => 9, \"second\" => 4]\nTest Summary: | Total  Time\ncontract      |     0  0.5s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "648f85ef4a4f71d63b0a77321d6a50da16c584a921570b34e058cf12c0577ea4"
+}

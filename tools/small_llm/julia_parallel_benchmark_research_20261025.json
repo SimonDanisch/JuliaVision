@@ -1,0 +1,35 @@
+{
+  "checked_date": "2026-10-25",
+  "scope": "Primary-source research notes, not locally reproduced results or a model ranking",
+  "sources": [
+    {
+      "title": "Generated, Parallel, Scalable? A Study of Agentic AI-Generated Julia Code on Supercomputers",
+      "url": "https://arxiv.org/html/2606.16534v1",
+      "published": "2026-06-15",
+      "reported_setup": "Agentic Julia documentation-assisted generation for pi integration, tiled GEMM and tiled Cholesky; Base.Threads, MPI.jl and Dagger.jl; single-node and two-node scaling.",
+      "reported_finding": "Small executable cases did not guarantee larger-scale reliability; authors report dependency, task-granularity, scheduling, deadlock, oversubscription and memory failures.",
+      "local_inference": "Kernel evaluation should separate functional correctness from scale, allocation limits, synchronization and steady-state performance. Our small stencil passes do not establish general HPC competence.",
+      "limits": "No reproduction here. Do not import paper model-parameter claims into our hardware sizing without checking the original model card. Different models, hardware and workloads from our 4B/Mantle study."
+    },
+    {
+      "title": "KernelAgentBench repository",
+      "url": "https://github.com/kikisq7/KernelAgentBench",
+      "reported_setup": "Julia Gray-Scott optimization with CPU, CUDA and KernelAbstractions tracks; corrected out-of-place baseline, correctness gate before speed, finite revision budget, separate JIT/end-to-end and steady-state timing.",
+      "local_inference": "A useful external methodology reference for bounded public-feedback kernel optimization, particularly avoiding in-place cross-block races and timing incorrect kernels.",
+      "limits": "Repository description, not a reproduced result or demonstrated model-quality improvement. Current stated GPU evaluator targets NVIDIA, not our Mantle backend. Public tasks may be contaminated."
+    },
+    {
+      "title": "A new LLM benchmark for Julia programming",
+      "url": "https://discourse.julialang.org/t/a-new-llm-benchmark-for-julia-programming/129193",
+      "published": "2025-05-21",
+      "reported_followup": "2026 discussion explicitly distinguishes functional pass@1 from idiomatic Julia code.",
+      "local_inference": "Do not label unit-test success as idiomatic, maintainable code or visually good Makie output. These need separately defined evaluation.",
+      "limits": "Author/community methodology discussion only, not a new local benchmark result."
+    }
+  ],
+  "not_established": [
+    "General performance-aware Julia/GPU code generation by our small model",
+    "Frontier equivalence",
+    "Aesthetic preference scores from unclipped Makie rendering"
+  ]
+}

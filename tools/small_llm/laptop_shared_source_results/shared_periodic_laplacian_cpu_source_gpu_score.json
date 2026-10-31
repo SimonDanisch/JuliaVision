@@ -1,0 +1,11 @@
+{
+    "id": "shared_periodic_laplacian",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 24.31401300430298,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    6      6  14.5s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "285ca5451334ebccb63931d8606ac9a412abd5144e5dbd12f319baeba37fa52f"
+}

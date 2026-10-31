@@ -1,0 +1,21 @@
+{
+    "task": "146_specialFilter",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "specialFilter([15, -73, 14, -15])",
+            "completed": false,
+            "error": "UndefVarError: `specialFilter` not defined in `Main`\nSuggestion: check for spelling errors or missing imports."
+        },
+        {
+            "example": "specialFilter([33, -2, -3, 45, 21, 109])",
+            "completed": false,
+            "error": "UndefVarError: `specialFilter` not defined in `Main`\nSuggestion: check for spelling errors or missing imports."
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.5984749794006348,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "public_examples_sha256": "973e807feecf3f66e9457f030f2a3e7e0f5e86de92d5ccb70bffa7e1594781c5"
+}

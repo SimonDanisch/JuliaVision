@@ -1,0 +1,11 @@
+{
+    "id": "074_total_match",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.3140690326690674,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    9      9  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "e306bf4fd4f27b4e252d26d89bc1776106b3bd88460fa2e7a4bcee0a82d8d2b3"
+}

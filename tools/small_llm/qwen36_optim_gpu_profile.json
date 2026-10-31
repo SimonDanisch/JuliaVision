@@ -1,0 +1,5413 @@
+{
+    "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "passes": [
+        {
+            "name": "updates",
+            "gpu_ms": 0.00012022843551635742,
+            "samples": 7
+        },
+        {
+            "name": "embedding_q4",
+            "gpu_ms": 0.004448452114105225,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.input_norm",
+            "gpu_ms": 0.006772868534088134,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.054303176708221434,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.conv",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.gdn",
+            "gpu_ms": 0.019717463424682617,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.out.q8",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.linear_attn.out",
+            "gpu_ms": 0.025448352184295656,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.residual_norm",
+            "gpu_ms": 0.0057709649047851565,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.gate_logits",
+            "gpu_ms": 0.01679190482711792,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.shared_input.q8",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 7
+        },
+        {
+            "name": "layers.0.mlp.experts.gate_up",
+            "gpu_ms": 0.05257990246582031,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.experts.swiglu",
+            "gpu_ms": 0.0014828173713684082,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.experts.down.q8",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.experts.down",
+            "gpu_ms": 0.037270815010070804,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.shared.swiglu",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.shared.down.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.shared.down",
+            "gpu_ms": 0.008375914340972901,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.shared.scalar_gate",
+            "gpu_ms": 0.0038473099365234375,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.mlp.combine",
+            "gpu_ms": 0.0034866246299743654,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.input_norm",
+            "gpu_ms": 0.005851117195129395,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05638713625717163,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026730788829803467,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.conv",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.gdn",
+            "gpu_ms": 0.019717463424682617,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.out.q8",
+            "gpu_ms": 0.0040476906623840335,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.out",
+            "gpu_ms": 0.028253682346343994,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.residual_norm",
+            "gpu_ms": 0.005971345630645752,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.gate_logits",
+            "gpu_ms": 0.019757539569854737,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared_input.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.gate_up",
+            "gpu_ms": 0.05907223798370361,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.down.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.down",
+            "gpu_ms": 0.036669672832489016,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.down.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.down",
+            "gpu_ms": 0.008375914340972901,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.shared.scalar_gate",
+            "gpu_ms": 0.003927462226867676,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.input_norm",
+            "gpu_ms": 0.005811041049957276,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05458370972442627,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02653040810394287,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.repeat_qk",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.gdn",
+            "gpu_ms": 0.01955715884399414,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.out.q8",
+            "gpu_ms": 0.0040476906623840335,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.out",
+            "gpu_ms": 0.02741208329772949,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.residual_norm",
+            "gpu_ms": 0.005851117195129395,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.gate_logits",
+            "gpu_ms": 0.019517082698822023,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared_input.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.down.q8",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.down",
+            "gpu_ms": 0.036228835235595704,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.down.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.down",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.shared.scalar_gate",
+            "gpu_ms": 0.003927462226867676,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.combine",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.residual",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.input_norm",
+            "gpu_ms": 0.006011421775817871,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.q",
+            "gpu_ms": 0.048732592529296875,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.k",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.v",
+            "gpu_ms": 0.0061316502113342285,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.prepare_q",
+            "gpu_ms": 0.00372708150100708,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.prepare_kv",
+            "gpu_ms": 0.0040476906623840335,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.attention",
+            "gpu_ms": 0.017352970859527587,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.combine",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.out.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.self_attn.out",
+            "gpu_ms": 0.026410179668426514,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.residual_norm",
+            "gpu_ms": 0.005811041049957276,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.gate_logits",
+            "gpu_ms": 0.018394950634002684,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared_input.q8",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.gate_up",
+            "gpu_ms": 0.05518485190200806,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.swiglu",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.down.q8",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.down",
+            "gpu_ms": 0.037631500316619874,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.down",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.input_norm",
+            "gpu_ms": 0.005811041049957276,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04953411543273926,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026289951232910155,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.conv",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.repeat_qk",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.gdn",
+            "gpu_ms": 0.01907624510192871,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.out.q8",
+            "gpu_ms": 0.004328223678588867,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.linear_attn.out",
+            "gpu_ms": 0.02568880905532837,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.residual_norm",
+            "gpu_ms": 0.00605149792098999,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.gate_logits",
+            "gpu_ms": 0.017994189182281493,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared_input.q8",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.gate_up",
+            "gpu_ms": 0.053100892353057864,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.down.q8",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.experts.down",
+            "gpu_ms": 0.03530708389663696,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.gate_up",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.down.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.down",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.4.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.input_norm",
+            "gpu_ms": 0.005931269485473633,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04829175493240356,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02713155028152466,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.002845406307220459,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.conv",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.repeat_qk",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.gdn",
+            "gpu_ms": 0.019757539569854737,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.out.q8",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.linear_attn.out",
+            "gpu_ms": 0.027291854862213135,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.residual_norm",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.gate_logits",
+            "gpu_ms": 0.02007814873123169,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared_input.q8",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.gate_up",
+            "gpu_ms": 0.053822262966156005,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.down.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.down",
+            "gpu_ms": 0.03510670317077637,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.down.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.shared.scalar_gate",
+            "gpu_ms": 0.0038873860816955566,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.combine",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.input_norm",
+            "gpu_ms": 0.005811041049957276,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04929365856170654,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026209798942565917,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.gdn",
+            "gpu_ms": 0.01959723498916626,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.out.q8",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.linear_attn.out",
+            "gpu_ms": 0.02705139799118042,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.residual_norm",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.gate_logits",
+            "gpu_ms": 0.01879571208572388,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared_input.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.gate_up",
+            "gpu_ms": 0.05510469961166382,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.down.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.down",
+            "gpu_ms": 0.03510670317077637,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.down.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.down",
+            "gpu_ms": 0.007854924453735352,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.combine",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.residual",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.shared_input.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.q",
+            "gpu_ms": 0.04905320169067383,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.k",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.v",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.prepare_q",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.prepare_kv",
+            "gpu_ms": 0.0037671576461791993,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.attention",
+            "gpu_ms": 0.018114417617797852,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.combine",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.out.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.self_attn.out",
+            "gpu_ms": 0.025929265926361085,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.gate_logits",
+            "gpu_ms": 0.018394950634002684,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared_input.q8",
+            "gpu_ms": 0.0025247971458435057,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.gate_up",
+            "gpu_ms": 0.053581806095123294,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.down.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.experts.down",
+            "gpu_ms": 0.0351868554611206,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.gate_up",
+            "gpu_ms": 0.008977056518554688,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.7.residual",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.input_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04949403928756714,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.conv",
+            "gpu_ms": 0.0034866246299743654,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.repeat_qk",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.gdn",
+            "gpu_ms": 0.018996092811584472,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.out.q8",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.linear_attn.out",
+            "gpu_ms": 0.025809037490844726,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.residual_norm",
+            "gpu_ms": 0.006933173114776611,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.gate_logits",
+            "gpu_ms": 0.018394950634002684,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared_input.q8",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.gate_up",
+            "gpu_ms": 0.052299369449615475,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.down.q8",
+            "gpu_ms": 0.0029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.experts.down",
+            "gpu_ms": 0.0345456371383667,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.down.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004408375968933106,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.8.residual",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.input_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04853221180343628,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026410179668426514,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0033263200492858885,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.gdn",
+            "gpu_ms": 0.01959723498916626,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.out.q8",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.linear_attn.out",
+            "gpu_ms": 0.02705139799118042,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.gate_logits",
+            "gpu_ms": 0.019797615715026855,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared_input.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.gate_up",
+            "gpu_ms": 0.05362188224029541,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.down",
+            "gpu_ms": 0.03486624629974365,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.down.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.down",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.shared.scalar_gate",
+            "gpu_ms": 0.00420799524307251,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.combine",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04901312554550171,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026249875087738038,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.gdn",
+            "gpu_ms": 0.019757539569854737,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.out.q8",
+            "gpu_ms": 0.004167919097900391,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.linear_attn.out",
+            "gpu_ms": 0.02653040810394287,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.gate_logits",
+            "gpu_ms": 0.018956016666412355,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.route",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared_input.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.gate_up",
+            "gpu_ms": 0.055224928047180176,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.down.q8",
+            "gpu_ms": 0.0029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.down",
+            "gpu_ms": 0.0345456371383667,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.down.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.down",
+            "gpu_ms": 0.007895000598907471,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004568680549621582,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.q",
+            "gpu_ms": 0.04813145035171509,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.k",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.v",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.prepare_q",
+            "gpu_ms": 0.0038072337913513184,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.prepare_kv",
+            "gpu_ms": 0.0037671576461791993,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.attention",
+            "gpu_ms": 0.01719266627883911,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.combine",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.out.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.self_attn.out",
+            "gpu_ms": 0.025969342071533202,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.gate_logits",
+            "gpu_ms": 0.018915940521240234,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared_input.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.gate_up",
+            "gpu_ms": 0.05406271983718872,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.down.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.down",
+            "gpu_ms": 0.034786094009399415,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.down.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.combine",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.049213506271362305,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.repeat_qk",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.gdn",
+            "gpu_ms": 0.019477006553649902,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.out.q8",
+            "gpu_ms": 0.003967538372039795,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.linear_attn.out",
+            "gpu_ms": 0.025849113636016847,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.gate_logits",
+            "gpu_ms": 0.018515179069519043,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared_input.q8",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.gate_up",
+            "gpu_ms": 0.05221921715927124,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.down.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.experts.down",
+            "gpu_ms": 0.034225027976989744,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.down.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.down",
+            "gpu_ms": 0.007854924453735352,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.12.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.input_norm",
+            "gpu_ms": 0.00653241166305542,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04853221180343628,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026249875087738038,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.conv",
+            "gpu_ms": 0.0033663961944580077,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.repeat_qk",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.gdn",
+            "gpu_ms": 0.019477006553649902,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.out.q8",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.linear_attn.out",
+            "gpu_ms": 0.027251778717041014,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.gate_logits",
+            "gpu_ms": 0.020118224876403808,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared_input.q8",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.gate_up",
+            "gpu_ms": 0.0540226436920166,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.swiglu",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.down.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.down",
+            "gpu_ms": 0.03510670317077637,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.gate_up",
+            "gpu_ms": 0.008496142776489258,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.residual",
+            "gpu_ms": 0.0013625889358520509,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.input_norm",
+            "gpu_ms": 0.006492335517883301,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.049333734706878664,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026730788829803467,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.conv",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.gdn",
+            "gpu_ms": 0.019477006553649902,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.out.q8",
+            "gpu_ms": 0.0038072337913513184,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.linear_attn.out",
+            "gpu_ms": 0.027211702571868897,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.gate_logits",
+            "gpu_ms": 0.019276625827789308,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared_input.q8",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.gate_up",
+            "gpu_ms": 0.05526500419235229,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.down.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.down",
+            "gpu_ms": 0.03414487568664551,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.q",
+            "gpu_ms": 0.048852820964813234,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.v",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.prepare_q",
+            "gpu_ms": 0.00372708150100708,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.prepare_kv",
+            "gpu_ms": 0.003927462226867676,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.attention",
+            "gpu_ms": 0.018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.combine",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.out.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.self_attn.out",
+            "gpu_ms": 0.026009418216705323,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.gate_logits",
+            "gpu_ms": 0.019356778118133546,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared_input.q8",
+            "gpu_ms": 0.002645025581359863,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.gate_up",
+            "gpu_ms": 0.05257990246582031,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.down.q8",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.experts.down",
+            "gpu_ms": 0.035267007751464845,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.gate_up",
+            "gpu_ms": 0.00889690422821045,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.down.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004568680549621582,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.15.residual",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.input_norm",
+            "gpu_ms": 0.006572487808227539,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04993487688446045,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.gdn",
+            "gpu_ms": 0.019477006553649902,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.out.q8",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.linear_attn.out",
+            "gpu_ms": 0.025889189781188964,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.residual_norm",
+            "gpu_ms": 0.006291954792022705,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.gate_logits",
+            "gpu_ms": 0.018354874488830566,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared_input.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.gate_up",
+            "gpu_ms": 0.05197876028823852,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.down.q8",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.experts.down",
+            "gpu_ms": 0.03406472339630127,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.shared.scalar_gate",
+            "gpu_ms": 0.00464883283996582,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.16.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048652440238952634,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.repeat_qk",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.gdn",
+            "gpu_ms": 0.019917844150543214,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.out.q8",
+            "gpu_ms": 0.004167919097900391,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.linear_attn.out",
+            "gpu_ms": 0.026690712684631347,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.residual_norm",
+            "gpu_ms": 0.006853020824432373,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.gate_logits",
+            "gpu_ms": 0.019276625827789308,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared_input.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.gate_up",
+            "gpu_ms": 0.055224928047180176,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.down",
+            "gpu_ms": 0.03414487568664551,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.down.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.down",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.combine",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.residual",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.input_norm",
+            "gpu_ms": 0.006612563953399658,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04877266867446899,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026410179668426514,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.gdn",
+            "gpu_ms": 0.020198377166748046,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.out.q8",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.linear_attn.out",
+            "gpu_ms": 0.027572387878417967,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.gate_logits",
+            "gpu_ms": 0.019517082698822023,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared_input.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.gate_up",
+            "gpu_ms": 0.053702034530639646,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.down.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.down",
+            "gpu_ms": 0.03390441881561279,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.down.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004328223678588867,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.input_norm",
+            "gpu_ms": 0.006572487808227539,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.shared_input.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.q",
+            "gpu_ms": 0.05001502917480469,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.k",
+            "gpu_ms": 0.005730888759613037,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.v",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.prepare_q",
+            "gpu_ms": 0.0037671576461791993,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.prepare_kv",
+            "gpu_ms": 0.004167919097900391,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.attention",
+            "gpu_ms": 0.01723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.combine",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.out.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.self_attn.out",
+            "gpu_ms": 0.027211702571868897,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.gate_logits",
+            "gpu_ms": 0.019356778118133546,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared_input.q8",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.gate_up",
+            "gpu_ms": 0.05474401430511475,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.down.q8",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.down",
+            "gpu_ms": 0.03418495183181763,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.down.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.down",
+            "gpu_ms": 0.00797515288925171,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.input_norm",
+            "gpu_ms": 0.006572487808227539,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05029556219100952,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026891093410491944,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.gdn",
+            "gpu_ms": 0.019917844150543214,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.out.q8",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.linear_attn.out",
+            "gpu_ms": 0.02556858061981201,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.residual_norm",
+            "gpu_ms": 0.0068129446792602535,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.gate_logits",
+            "gpu_ms": 0.018314798343658446,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared_input.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.gate_up",
+            "gpu_ms": 0.05274020704650879,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.down.q8",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.experts.down",
+            "gpu_ms": 0.03578799763870239,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.gate_up",
+            "gpu_ms": 0.00841599048614502,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.down.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.shared.scalar_gate",
+            "gpu_ms": 0.00464883283996582,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.20.residual",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.input_norm",
+            "gpu_ms": 0.006732792388916015,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04845205951309204,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02665063653945923,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.conv",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.gdn",
+            "gpu_ms": 0.019997996440887452,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.out.q8",
+            "gpu_ms": 0.003967538372039795,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.linear_attn.out",
+            "gpu_ms": 0.0270113218460083,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.gate_logits",
+            "gpu_ms": 0.019757539569854737,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared_input.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.swiglu",
+            "gpu_ms": 0.0012824366455078124,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.down",
+            "gpu_ms": 0.034906322444915774,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.gate_up",
+            "gpu_ms": 0.008295762050628663,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.down.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004568680549621582,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.input_norm",
+            "gpu_ms": 0.006492335517883301,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04793106962585449,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.conv",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.gdn",
+            "gpu_ms": 0.01959723498916626,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.out.q8",
+            "gpu_ms": 0.00420799524307251,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.linear_attn.out",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.gate_logits",
+            "gpu_ms": 0.01919647353744507,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared_input.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.gate_up",
+            "gpu_ms": 0.0550646234664917,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.down",
+            "gpu_ms": 0.03402464725112915,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004568680549621582,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.input_norm",
+            "gpu_ms": 0.006612563953399658,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.shared_input.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.q",
+            "gpu_ms": 0.0494138869972229,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.k",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.v",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.prepare_q",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.prepare_kv",
+            "gpu_ms": 0.003606853065490723,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.attention",
+            "gpu_ms": 0.017433123149871825,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.combine",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.out.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.self_attn.out",
+            "gpu_ms": 0.026410179668426514,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.gate_logits",
+            "gpu_ms": 0.01907624510192871,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared_input.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.gate_up",
+            "gpu_ms": 0.05470393815994263,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.down",
+            "gpu_ms": 0.0347460178642273,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.gate_up",
+            "gpu_ms": 0.008656447357177735,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.down",
+            "gpu_ms": 0.007854924453735352,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.residual",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.input_norm",
+            "gpu_ms": 0.006492335517883301,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.049213506271362305,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026249875087738038,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.conv",
+            "gpu_ms": 0.0029255585975646974,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.repeat_qk",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.gdn",
+            "gpu_ms": 0.019757539569854737,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.out.q8",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.linear_attn.out",
+            "gpu_ms": 0.02604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.gate_logits",
+            "gpu_ms": 0.018515179069519043,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared_input.q8",
+            "gpu_ms": 0.00280533016204834,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.gate_up",
+            "gpu_ms": 0.052299369449615475,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.down.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.experts.down",
+            "gpu_ms": 0.03530708389663696,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.gate_up",
+            "gpu_ms": 0.008576295066833496,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.down.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.24.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048852820964813234,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02661056039428711,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.0033263200492858885,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.gdn",
+            "gpu_ms": 0.0196773872795105,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.out.q8",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.linear_attn.out",
+            "gpu_ms": 0.027572387878417967,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.residual_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.gate_logits",
+            "gpu_ms": 0.018996092811584472,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.route",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared_input.q8",
+            "gpu_ms": 0.002645025581359863,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.gate_up",
+            "gpu_ms": 0.05530508033752441,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.down.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.down",
+            "gpu_ms": 0.03438533255767822,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.down.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004608756694793701,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.residual",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.input_norm",
+            "gpu_ms": 0.006692716243743896,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04877266867446899,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026690712684631347,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.repeat_qk",
+            "gpu_ms": 0.0014427412261962891,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.gdn",
+            "gpu_ms": 0.019757539569854737,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.out.q8",
+            "gpu_ms": 0.0038072337913513184,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.linear_attn.out",
+            "gpu_ms": 0.0261697227973938,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.gate_logits",
+            "gpu_ms": 0.019517082698822023,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared_input.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.gate_up",
+            "gpu_ms": 0.055585613353729246,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.down.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.down",
+            "gpu_ms": 0.035267007751464845,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.gate_up",
+            "gpu_ms": 0.008776675792694092,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004608756694793701,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.residual",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.shared_input.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.q",
+            "gpu_ms": 0.0485722879486084,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.k",
+            "gpu_ms": 0.005650736469268799,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.v",
+            "gpu_ms": 0.005530508033752442,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.prepare_q",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.prepare_kv",
+            "gpu_ms": 0.0038072337913513184,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.attention",
+            "gpu_ms": 0.017433123149871825,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.combine",
+            "gpu_ms": 0.001723274242401123,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.out.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.self_attn.out",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.residual_norm",
+            "gpu_ms": 0.006572487808227539,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.gate_logits",
+            "gpu_ms": 0.018635407505035402,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared_input.q8",
+            "gpu_ms": 0.0024847210006713866,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.gate_up",
+            "gpu_ms": 0.05426310056304932,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.down.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.experts.down",
+            "gpu_ms": 0.03462578942871094,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.down.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.down",
+            "gpu_ms": 0.007774772163391113,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004448452114105225,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.27.residual",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04905320169067383,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.conv",
+            "gpu_ms": 0.003446548484802246,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.repeat_qk",
+            "gpu_ms": 0.0016030458068847656,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.gdn",
+            "gpu_ms": 0.01963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.out.q8",
+            "gpu_ms": 0.0040476906623840335,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.linear_attn.out",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.gate_logits",
+            "gpu_ms": 0.018234646053314207,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared_input.q8",
+            "gpu_ms": 0.0025247971458435057,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.gate_up",
+            "gpu_ms": 0.052619978610992435,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.down.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.experts.down",
+            "gpu_ms": 0.034705941719055174,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.gate_up",
+            "gpu_ms": 0.008696523502349854,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.down.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004889289710998535,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.28.residual",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.input_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04841198336791992,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02705139799118042,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0033263200492858885,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.gdn",
+            "gpu_ms": 0.02015830102157593,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.out.q8",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.linear_attn.out",
+            "gpu_ms": 0.026851017265319823,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.gate_logits",
+            "gpu_ms": 0.019356778118133546,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared_input.q8",
+            "gpu_ms": 0.002645025581359863,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.gate_up",
+            "gpu_ms": 0.05257990246582031,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.down.q8",
+            "gpu_ms": 0.002604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.experts.down",
+            "gpu_ms": 0.034225027976989744,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.down.q8",
+            "gpu_ms": 0.0018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.down",
+            "gpu_ms": 0.00793507674407959,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.shared.scalar_gate",
+            "gpu_ms": 0.0047289851303100585,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.29.residual",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.input_norm",
+            "gpu_ms": 0.006572487808227539,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048371907222747805,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.0261697227973938,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.conv",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.gdn",
+            "gpu_ms": 0.01955715884399414,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.out.q8",
+            "gpu_ms": 0.003927462226867676,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.linear_attn.out",
+            "gpu_ms": 0.026690712684631347,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.residual_norm",
+            "gpu_ms": 0.006211802501678467,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.gate_logits",
+            "gpu_ms": 0.01955715884399414,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared_input.q8",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.gate_up",
+            "gpu_ms": 0.05566576564407349,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.down.q8",
+            "gpu_ms": 0.0028854824523925782,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.down",
+            "gpu_ms": 0.03486624629974365,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.gate_up",
+            "gpu_ms": 0.008335838195800782,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.down.q8",
+            "gpu_ms": 0.0021641118392944337,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004608756694793701,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.residual",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.input_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.q",
+            "gpu_ms": 0.04821160264205933,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.k",
+            "gpu_ms": 0.005931269485473633,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.v",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.prepare_q",
+            "gpu_ms": 0.0037671576461791993,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.prepare_kv",
+            "gpu_ms": 0.003606853065490723,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.attention",
+            "gpu_ms": 0.01767358002090454,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.combine",
+            "gpu_ms": 0.0018835788230895996,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.out.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.self_attn.out",
+            "gpu_ms": 0.02612964665222168,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.gate_logits",
+            "gpu_ms": 0.018915940521240234,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared_input.q8",
+            "gpu_ms": 0.0027251778717041018,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.gate_up",
+            "gpu_ms": 0.05330127307891846,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.experts.down",
+            "gpu_ms": 0.03578799763870239,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.gate_up",
+            "gpu_ms": 0.008736599647521973,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.down.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.down",
+            "gpu_ms": 0.007734696018218994,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.mlp.combine",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.31.residual",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.048732592529296875,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.0032862439041137694,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.conv",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.gdn",
+            "gpu_ms": 0.019517082698822023,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.out.q8",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.linear_attn.out",
+            "gpu_ms": 0.02608957050704956,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.gate_logits",
+            "gpu_ms": 0.01871555979537964,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared_input.q8",
+            "gpu_ms": 0.0025247971458435057,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.gate_up",
+            "gpu_ms": 0.051938684143066405,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.down.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.experts.down",
+            "gpu_ms": 0.03450556099319458,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.down.q8",
+            "gpu_ms": 0.0018034265327453614,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.32.residual",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.input_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04793106962585449,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02661056039428711,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.conv",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.gdn",
+            "gpu_ms": 0.02003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.out.q8",
+            "gpu_ms": 0.004087766807556153,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.linear_attn.out",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.gate_logits",
+            "gpu_ms": 0.018555255214691164,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.route",
+            "gpu_ms": 0.0075343152923583985,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared_input.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.gate_up",
+            "gpu_ms": 0.0559062225151062,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.down",
+            "gpu_ms": 0.03534716004180908,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.gate_up",
+            "gpu_ms": 0.00885682808303833,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.down.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004608756694793701,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.residual",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.input_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04869251638412476,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.conv",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015629696617126465,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.gdn",
+            "gpu_ms": 0.019917844150543214,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.out.q8",
+            "gpu_ms": 0.0038473099365234375,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.linear_attn.out",
+            "gpu_ms": 0.027211702571868897,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.residual_norm",
+            "gpu_ms": 0.006171726356506348,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.gate_logits",
+            "gpu_ms": 0.019436930408477784,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared_input.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.gate_up",
+            "gpu_ms": 0.05410279598236084,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.down.q8",
+            "gpu_ms": 0.002645025581359863,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.down",
+            "gpu_ms": 0.03462578942871094,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.gate_up",
+            "gpu_ms": 0.008536218921661377,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.swiglu",
+            "gpu_ms": 0.001162208209991455,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.down",
+            "gpu_ms": 0.007895000598907471,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004688908985137939,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.combine",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.residual",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.shared_input.q8",
+            "gpu_ms": 0.001963731113433838,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.q",
+            "gpu_ms": 0.048612364093780516,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.k",
+            "gpu_ms": 0.005811041049957276,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.v",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.prepare_q",
+            "gpu_ms": 0.00372708150100708,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.prepare_kv",
+            "gpu_ms": 0.004127842952728272,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.attention",
+            "gpu_ms": 0.017914036891937254,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.combine",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.out.q8",
+            "gpu_ms": 0.002204187984466553,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.self_attn.out",
+            "gpu_ms": 0.026450255813598632,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.residual_norm",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.gate_logits",
+            "gpu_ms": 0.018274722198486328,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared_input.q8",
+            "gpu_ms": 0.0024446448554992675,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.gate_up",
+            "gpu_ms": 0.05454363357925415,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.swiglu",
+            "gpu_ms": 0.0010019036293029786,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.down.q8",
+            "gpu_ms": 0.002685101726531982,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.down",
+            "gpu_ms": 0.036108606800079344,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.gate_up",
+            "gpu_ms": 0.009057208808898926,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.down.q8",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.residual",
+            "gpu_ms": 0.0009217513389587403,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.input_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04905320169067383,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02604949436187744,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003085863178253174,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.conv",
+            "gpu_ms": 0.0032461677589416503,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.repeat_qk",
+            "gpu_ms": 0.0015228935165405274,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.gdn",
+            "gpu_ms": 0.019236549682617187,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.out.q8",
+            "gpu_ms": 0.0040476906623840335,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.linear_attn.out",
+            "gpu_ms": 0.02576896134567261,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.residual_norm",
+            "gpu_ms": 0.006372107082366943,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.gate_logits",
+            "gpu_ms": 0.01859533135986328,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared_input.q8",
+            "gpu_ms": 0.0023644925651550293,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.gate_up",
+            "gpu_ms": 0.052058912578582764,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.down.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.experts.down",
+            "gpu_ms": 0.034425408702850345,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.swiglu",
+            "gpu_ms": 0.0010820559196472168,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.down.q8",
+            "gpu_ms": 0.0020839595489501954,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.down",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.mlp.combine",
+            "gpu_ms": 0.003206091613769531,
+            "samples": 6
+        },
+        {
+            "name": "layers.36.residual",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002003807258605957,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04785091733551025,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.02665063653945923,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.conv",
+            "gpu_ms": 0.0030457870330810547,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.repeat_qk",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.gdn",
+            "gpu_ms": 0.019276625827789308,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.out.q8",
+            "gpu_ms": 0.004007614517211914,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.linear_attn.out",
+            "gpu_ms": 0.027091474136352538,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.residual_norm",
+            "gpu_ms": 0.006211802501678467,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.gate_logits",
+            "gpu_ms": 0.019316701972961425,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.route",
+            "gpu_ms": 0.007614467582702637,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared_input.q8",
+            "gpu_ms": 0.0024847210006713866,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.gate_up",
+            "gpu_ms": 0.055224928047180176,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.down.q8",
+            "gpu_ms": 0.002765254016876221,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.down",
+            "gpu_ms": 0.035387236186981204,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.swiglu",
+            "gpu_ms": 0.0012022843551635742,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.down.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004488528259277344,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.residual",
+            "gpu_ms": 0.0013225127906799315,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.input_norm",
+            "gpu_ms": 0.006412183227539062,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.shared_input.q8",
+            "gpu_ms": 0.002244264129638672,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.04737000359344482,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_z.weight",
+            "gpu_ms": 0.026490331958770753,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_a.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.in_proj_b.weight",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.conv",
+            "gpu_ms": 0.003125939323425293,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.repeat_qk",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.gdn",
+            "gpu_ms": 0.0196773872795105,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.out.q8",
+            "gpu_ms": 0.0038873860816955566,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.linear_attn.out",
+            "gpu_ms": 0.02713155028152466,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.residual_norm",
+            "gpu_ms": 0.006251878646850586,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.gate_logits",
+            "gpu_ms": 0.019917844150543214,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.route",
+            "gpu_ms": 0.007574391437530518,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared_input.q8",
+            "gpu_ms": 0.0021240356941223146,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.swiglu",
+            "gpu_ms": 0.0012423605003356933,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.down.q8",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.down",
+            "gpu_ms": 0.034786094009399415,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.gate_up",
+            "gpu_ms": 0.008456066631317139,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.down.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.down",
+            "gpu_ms": 0.007694619873046875,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004528604404449463,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.combine",
+            "gpu_ms": 0.003166015468597412,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.residual",
+            "gpu_ms": 0.00140266508102417,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.input_norm",
+            "gpu_ms": 0.0064522593727111815,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.shared_input.q8",
+            "gpu_ms": 0.0020438834037780763,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.q",
+            "gpu_ms": 0.049574191577911375,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.k",
+            "gpu_ms": 0.00561066032409668,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.v",
+            "gpu_ms": 0.005570584178924561,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.prepare_q",
+            "gpu_ms": 0.0034866246299743654,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.prepare_kv",
+            "gpu_ms": 0.0037671576461791993,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.attention",
+            "gpu_ms": 0.018314798343658446,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.combine",
+            "gpu_ms": 0.0019236549682617188,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.out.q8",
+            "gpu_ms": 0.002284340274810791,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.self_attn.out",
+            "gpu_ms": 0.026330027378082276,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.residual_norm",
+            "gpu_ms": 0.006572487808227539,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.gate_logits",
+            "gpu_ms": 0.018314798343658446,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.route",
+            "gpu_ms": 0.007654543727874756,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared_input.q8",
+            "gpu_ms": 0.0029656347427368165,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.gate_up",
+            "gpu_ms": 0.05602645095062256,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.swiglu",
+            "gpu_ms": 0.0010419797744750977,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.down.q8",
+            "gpu_ms": 0.002645025581359863,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.down",
+            "gpu_ms": 0.0347460178642273,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.gate_up",
+            "gpu_ms": 0.008616371212005616,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.swiglu",
+            "gpu_ms": 0.001122132064819336,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.down.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.down",
+            "gpu_ms": 0.007814848308563233,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.shared.scalar_gate",
+            "gpu_ms": 0.004568680549621582,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.combine",
+            "gpu_ms": 0.0030057108879089356,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.residual",
+            "gpu_ms": 0.0009618274841308594,
+            "samples": 6
+        },
+        {
+            "name": "final_norm",
+            "gpu_ms": 0.006091574066162109,
+            "samples": 6
+        },
+        {
+            "name": "lm_head.q8",
+            "gpu_ms": 0.0018435026779174805,
+            "samples": 6
+        },
+        {
+            "name": "lm_head",
+            "gpu_ms": 1.8092776499404908,
+            "samples": 6
+        },
+        {
+            "name": "argmax.parts",
+            "gpu_ms": 0.006332030937194824,
+            "samples": 6
+        },
+        {
+            "name": "argmax",
+            "gpu_ms": 0.002564873291015625,
+            "samples": 6
+        },
+        {
+            "name": "advance_decode",
+            "gpu_ms": 0.0016831980972290038,
+            "samples": 6
+        }
+    ],
+    "scope": "Instrumented per-pass GPU costs; not an end-to-end speed measurement",
+    "pass_count": 1048,
+    "complete": true,
+    "normal_final_waitidle": true,
+    "optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared"
+    ],
+    "source_sha256": {
+        "qwen36_moe_model.jl": "1d897bb03d689d854bba44a99194d4f370b4c4f21270150d01505e7c8e3d63c2",
+        "qwen36_gguf_kernels.jl": "5ecd5f1a86b6c86266961e37efc2be6f5d3bffb5a9104984786c57dba165be1f",
+        "qwen36_optim.jl": "2ed8b5a959d0e107e19cce07f111952be8e5949398058d90f8c7f2b6cc071344",
+        "profile_qwen36_optim.jl": "4c4b896a79ea9c5038ea90b243699e8e0394e8864ba80307ee1ba94b2a14d9fe"
+    },
+    "top_passes": [
+        {
+            "name": "lm_head",
+            "gpu_ms": 1.8092776499404908,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.mlp.experts.gate_up",
+            "gpu_ms": 0.05907223798370361,
+            "samples": 6
+        },
+        {
+            "name": "layers.1.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05638713625717163,
+            "samples": 6
+        },
+        {
+            "name": "layers.39.mlp.experts.gate_up",
+            "gpu_ms": 0.05602645095062256,
+            "samples": 6
+        },
+        {
+            "name": "layers.33.mlp.experts.gate_up",
+            "gpu_ms": 0.0559062225151062,
+            "samples": 6
+        },
+        {
+            "name": "layers.30.mlp.experts.gate_up",
+            "gpu_ms": 0.05566576564407349,
+            "samples": 6
+        },
+        {
+            "name": "layers.26.mlp.experts.gate_up",
+            "gpu_ms": 0.055585613353729246,
+            "samples": 6
+        },
+        {
+            "name": "layers.25.mlp.experts.gate_up",
+            "gpu_ms": 0.05530508033752441,
+            "samples": 6
+        },
+        {
+            "name": "layers.14.mlp.experts.gate_up",
+            "gpu_ms": 0.05526500419235229,
+            "samples": 6
+        },
+        {
+            "name": "layers.10.mlp.experts.gate_up",
+            "gpu_ms": 0.055224928047180176,
+            "samples": 6
+        },
+        {
+            "name": "layers.17.mlp.experts.gate_up",
+            "gpu_ms": 0.055224928047180176,
+            "samples": 6
+        },
+        {
+            "name": "layers.37.mlp.experts.gate_up",
+            "gpu_ms": 0.055224928047180176,
+            "samples": 6
+        },
+        {
+            "name": "layers.3.mlp.experts.gate_up",
+            "gpu_ms": 0.05518485190200806,
+            "samples": 6
+        },
+        {
+            "name": "layers.6.mlp.experts.gate_up",
+            "gpu_ms": 0.05510469961166382,
+            "samples": 6
+        },
+        {
+            "name": "layers.22.mlp.experts.gate_up",
+            "gpu_ms": 0.0550646234664917,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.21.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.38.mlp.experts.gate_up",
+            "gpu_ms": 0.05494439503097534,
+            "samples": 6
+        },
+        {
+            "name": "layers.19.mlp.experts.gate_up",
+            "gpu_ms": 0.05474401430511475,
+            "samples": 6
+        },
+        {
+            "name": "layers.23.mlp.experts.gate_up",
+            "gpu_ms": 0.05470393815994263,
+            "samples": 6
+        },
+        {
+            "name": "layers.2.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.05458370972442627,
+            "samples": 6
+        },
+        {
+            "name": "layers.35.mlp.experts.gate_up",
+            "gpu_ms": 0.05454363357925415,
+            "samples": 6
+        },
+        {
+            "name": "layers.0.linear_attn.in_proj_qkv.weight",
+            "gpu_ms": 0.054303176708221434,
+            "samples": 7
+        },
+        {
+            "name": "layers.27.mlp.experts.gate_up",
+            "gpu_ms": 0.05426310056304932,
+            "samples": 6
+        },
+        {
+            "name": "layers.34.mlp.experts.gate_up",
+            "gpu_ms": 0.05410279598236084,
+            "samples": 6
+        },
+        {
+            "name": "layers.11.mlp.experts.gate_up",
+            "gpu_ms": 0.05406271983718872,
+            "samples": 6
+        },
+        {
+            "name": "layers.13.mlp.experts.gate_up",
+            "gpu_ms": 0.0540226436920166,
+            "samples": 6
+        },
+        {
+            "name": "layers.5.mlp.experts.gate_up",
+            "gpu_ms": 0.053822262966156005,
+            "samples": 6
+        },
+        {
+            "name": "layers.18.mlp.experts.gate_up",
+            "gpu_ms": 0.053702034530639646,
+            "samples": 6
+        },
+        {
+            "name": "layers.9.mlp.experts.gate_up",
+            "gpu_ms": 0.05362188224029541,
+            "samples": 6
+        }
+    ]
+}

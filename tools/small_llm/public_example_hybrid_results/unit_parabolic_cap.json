@@ -1,0 +1,11 @@
+{
+    "task": "unit_parabolic_cap",
+    "conditions_sha256": "94971cf99e4b338e4ddea509a47756a7abeb6331b2f9c663a9640fc76c4c1e97",
+    "model_sha256": "9802057089896ca699c97d9a692aac5058f080986dd773327d158bf8afd15aca",
+    "symbolic_sha256": "3517d20e3f9068f403a1380d3423614af0339f873d0074454abbccecd824300e",
+    "selected": {
+        "selected": "symbolic_public_examples",
+        "program": "zero\none\nx0\nsquare\nsub\nmax\nfinish\n",
+        "reason": "neural_public_example_failure"
+    }
+}

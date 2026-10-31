@@ -1,0 +1,13 @@
+{
+    "scope": "shared representation-keyed memory kernel qualification ONLY; no model integration or intelligence claim",
+    "device": "llvmpipe (LLVM 21.1.8, 256 bits)",
+    "passed": 201,
+    "failed": 0,
+    "errors": 0,
+    "elapsed_seconds": 25.36272406578064,
+    "source_sha256": {
+        "knn_memory.jl": "82e34ec6583a42b2d527f098ede8dec787a4e3fa51565afd838ef6a2db4079fb",
+        "test_knn_memory.jl": "03c856228e117837dc5c49db95746f2304b55fb0906a810609ea26409a42ae82",
+        "validate_knn_memory.jl": "e68848dff6fa6c7d4519cdcbf4e7e36ed54050df709a28f4e1d8ff13b757756e"
+    }
+}

@@ -1,0 +1,40 @@
+{
+    "id": "plot_transfer_02_julia_source",
+    "arm": "julia_source",
+    "status": "rendered_unclipped",
+    "attempted": true,
+    "rendered": true,
+    "within_canvas": true,
+    "render": {
+        "rendered": true,
+        "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_02_julia_source.png",
+        "dimensions": {
+            "width": 800,
+            "height": 500
+        },
+        "elapsed_seconds": 37.53665494918823,
+        "sha256": "f0a2d42e5847e6f7299c129d869d8e7619bba83bd4a692113dfd494848a3a407",
+        "layout": {
+            "canvas": [
+                800,
+                500
+            ],
+            "axes": [
+                {
+                    "title": "Samples",
+                    "decorated_bounds": [
+                        16.000004,
+                        16.0,
+                        784.0,
+                        484.0
+                    ],
+                    "within_canvas": true
+                }
+            ]
+        },
+        "diagnostic": "LAYOUT_REPORT={\"canvas\":[800,500],\"axes\":[{\"title\":\"Samples\",\"decorated_bounds\":[16.000004,16.0,784.0,484.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+    },
+    "generation_sha256": "cb0f44b804c3fc64eccf32b9729b1429e5999d3976b1657fdf13556428d1b98e",
+    "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+    "aesthetic_score": null
+}

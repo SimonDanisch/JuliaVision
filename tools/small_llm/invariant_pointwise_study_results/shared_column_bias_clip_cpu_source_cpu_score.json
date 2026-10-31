@@ -1,0 +1,11 @@
+{
+    "id": "shared_column_bias_clip",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.5855429172515869,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    4      4  0.2s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "277ea45aee60b213516bf901a62944eeb4758d69ce44946bad1b1e5add6ef5d7"
+}

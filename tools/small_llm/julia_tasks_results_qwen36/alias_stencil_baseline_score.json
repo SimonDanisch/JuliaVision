@@ -1,0 +1,11 @@
+{
+    "id": "alias_stencil",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.6449470520019531,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  0.3s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "68288c4f48564f4b47c0b08cf2a4bc6a98577a31a2468052810483386bd0a0e3"
+}

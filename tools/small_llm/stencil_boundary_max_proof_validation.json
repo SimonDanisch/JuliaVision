@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "passed": 81,
+    "scope": "Supplementary exact max-envelope boundary proof, no primary score changes or neural regeneration",
+    "sources": {
+        "audit_boundary_transfer_replacements.jl": "fb5cfc3536cf07477ae685c7f8819a7f367f5c3818a846deb6b104b05146a08b",
+        "stencil_boundary_max_proof.jl": "8097770ee91a9fc967d2a14cfb3e1780b0d321c641f76b32a4bb74e94776d252",
+        "test_stencil_boundary_max_proof.jl": "86e44f226939138878266afa9bb2a7e260fa5cc4c0c8e7b6d7e992fafa2d8cce"
+    }
+}

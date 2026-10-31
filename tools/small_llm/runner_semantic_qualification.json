@@ -1,0 +1,310 @@
+{
+    "complete": false,
+    "scope": "Handwritten neural graph routing and shared lowering; synthetic GPU qualification, not production TRELLIS asset quality or throughput",
+    "devices": [
+        "Radeon8060S",
+        "AppleM5 Metal",
+        "AppleM5 Metal4"
+    ],
+    "checks_each_device": {
+        "trellis_sparse_decoder": 79,
+        "bound_tuple": 17,
+        "activation_preparation": 193,
+        "automatic_activation": 192,
+        "swiglumm": 12
+    },
+    "runs": {
+        "trellis": [
+            "r173",
+            "r174"
+        ],
+        "tuple": [
+            "r169",
+            "r171"
+        ],
+        "activation": [
+            "r167",
+            "r171"
+        ]
+    },
+    "trellis": {
+        "radeon": [
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 12,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 10
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            }
+        ],
+        "metal": [
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 12,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 10
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            }
+        ],
+        "metal4": [
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 12,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 10
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            }
+        ]
+    },
+    "audit": "runner_graph_routes_trellis.json",
+    "exported_graph_fusion_equivalence": 48,
+    "pending": [
+        "Bonsai handwritten neural graphs",
+        "Experimental Qwen handwritten frontends beyond shared activation API"
+    ],
+    "source_sha256": {
+        "dev/JuliaVision/Trellis2Runner/src/decoder.jl": "f8ddd026cf0d39d5831decf5f896dc0dadad6a33bb3cd87e2d29a107b2bcda35",
+        "dev/JuliaVision/Trellis2Runner/test/test_decodergraph.jl": "164067ad0fc63175a7c5e91cc241d9a84e7ef8a9aedd0cd1ea301f03135037a8",
+        "dev/JuliaVision/Trellis2Runner/src/decodergraph.jl": "3d744160550a9fa0793bfa18f5e94a7b0991d2b6f781da74c8ca071114954722",
+        "dev/JuliaVision/DNNKernels/src/genericfusion.jl": "bcd4b8dddbf1f85f42aa8f604d9eb3fa8b7afca0980977952b6f66a6eb87a2f7",
+        "dev/JuliaVision/DNNKernels/src/emit.jl": "d5b082423add3d6638d84bcb3be0c43a44196a5369140a1a6326b4a641619f98",
+        "dev/JuliaVision/DNNKernels/test/test_bound_tuple.jl": "5ffd194b6aba06e86a24aaee1a4396483062374206fa8f1597e5556d913f8556"
+    }
+}

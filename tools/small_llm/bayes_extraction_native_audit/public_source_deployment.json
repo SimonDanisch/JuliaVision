@@ -1,0 +1,14 @@
+{
+    "complete": true,
+    "public_source_sha256": {
+        "portable_evidence.jl": "bfe5c9ff4f579fb6292e48b55bbdb231aedf712be6631308b598e258a7f92de2",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "bayes_json.jl": "b4a4b1f941670d83af5cf83523e053a147f9ed59066a4251624f1f5bc3ab80f9",
+        "runtime_provenance.jl": "dd08934390cce607a3437f0df0bc377fa7c9f7c4ea054d32aa488f16b744e45b",
+        "bayes_native_parity.jl": "35264b7f40f109ac4e24b02d5d3c617ccd1e65ccf95f539e2ce01950eb9ebe2a",
+        "gpu_watchdog.py": "60677cf2165ad7e4dc2dcc3b7d9e92c0567f72097bd7a135d43538fb712744c2",
+        "run_bayes_native_audit.jl": "9668d1e31a2569af097d4d40ac7672de0da9525b41831615fa89454654981710",
+        "test_bayes_native_parity.jl": "6b5e810004ca0bdecd15946be8222631e02030fdad628a030d9cfd4658116a94"
+    },
+    "privacy": "NO private packet/expected arrays transferred through this file API"
+}

@@ -1,0 +1,11 @@
+{
+    "id": "transfer_atomic_sum",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 26.3039288520813,
+    "diagnostic": "WARNING: Imported binding KernelInterface.KI was undeclared at import time during import to Main.\nWARNING: import of KernelInterface.KI into Main conflicts with an existing identifier; ignored.\n┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    8      8  14.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "4bfa0f358c01bf544d810ba201c972bf18a6eb8af47178304d1ddc4561338472"
+}

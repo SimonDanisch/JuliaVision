@@ -1,0 +1,17 @@
+{
+    "complete": true,
+    "device": "llvmpipe (LLVM 21.1.8, 256 bits)",
+    "scope": "SOFTWARE Vulkan shared trie arithmetic + existing sampler; not model quality or Radeon qualification",
+    "passed": 74,
+    "cpu_prefix_checks": 18773,
+    "all_constraint_choices_negative_infinity_rejected": true,
+    "decode_submission_invariant": true,
+    "source_sha256": {
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec",
+        "token_prefix_trie_gpu.jl": "c8e1ed72bb70a511fb6416ab55292aecdafe5f78d2406a24f6294b701109077f",
+        "test_token_prefix_trie.jl": "c25ae6289d753c5afe664748aa04f55406c3e1bc120fee4f30eb699a940b7c73",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "test_token_prefix_trie_gpu.jl": "e0c32aaa9963e5477f5bf20e338128135c90c6017779a3e1da8915b78c332d16"
+    }
+}

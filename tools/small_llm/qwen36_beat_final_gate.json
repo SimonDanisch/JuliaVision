@@ -1,0 +1,36 @@
+{
+    "default_optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared",
+        "down_wg64",
+        "fuse_router_gate",
+        "fuse_boundary_norm",
+        "fuse_boundary_q8",
+        "parallel_q8",
+        "dense_unroll32",
+        "down_rows2"
+    ],
+    "complete": true,
+    "source_sha256": {
+        "qwen36_moe_model.jl": "6cbad831f77c23be8d4a128834567a916f308ee1de98c6405caa429634756b4b",
+        "qwen36_gguf_kernels.jl": "6947e201b758408ccdeb0cee1fd5fd8f998c4b4a568a136ca3967bf0f6cbdf60",
+        "qwen36_optim.jl": "e171c42b5bcb1ab153a623fef126d49544218ec1f8dbd07d7497b743ddc014cc",
+        "test_qwen36_optim.jl": "0dea81f32f86b7384de24844d0eaaa5a712e8fa5ef03b734d34dd88fca8ad099"
+    },
+    "backends": [
+        {
+            "backend": "radeon",
+            "checks": 474,
+            "passed": true,
+            "normal_final_waitidle": true
+        },
+        {
+            "backend": "llvmpipe",
+            "checks": 474,
+            "passed": true,
+            "normal_final_waitidle": true
+        }
+    ]
+}

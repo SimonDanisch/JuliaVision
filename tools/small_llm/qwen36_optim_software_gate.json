@@ -1,0 +1,14 @@
+{
+    "checks": 102,
+    "backend": "llvmpipe",
+    "passed": true,
+    "existing_regressions_passed": true,
+    "hardware_qualified": false,
+    "existing_regression_checks": 238,
+    "source_sha256": {
+        "qwen36_moe_model.jl": "1f282814ccd788af54131f30c3e16fa558a2c6eff54f05095f5cc46d9332f7ca",
+        "qwen36_gguf_kernels.jl": "5ecd5f1a86b6c86266961e37efc2be6f5d3bffb5a9104984786c57dba165be1f",
+        "qwen36_optim.jl": "8b9504892b76ca008155c92008316cbbf99df05edf7a43a9ccebc01a0d5e6b20",
+        "test_qwen36_optim.jl": "9afa1b4d490a1672fdff49e84d2e09a96fecda3cff7cb902eb2cf35e2fdbd051"
+    }
+}

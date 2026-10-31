@@ -1,0 +1,16 @@
+{
+    "task": "034_unique_elements",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "unique_elements([5, 3, 5, 2, 3, 3, 9, 0, 123])",
+            "completed": true,
+            "value": "[0, 2, 3, 5, 9, 123]"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.43305397033691406,
+    "code_sha256": "4314e15df9df2748d6fa9f8c84f175f103e9936e71b8913a8cafd9da623855bf",
+    "public_examples_sha256": "00a516266726a7d44a49d01172acb9782ad92172ad7170f914eb232f3f18a693"
+}

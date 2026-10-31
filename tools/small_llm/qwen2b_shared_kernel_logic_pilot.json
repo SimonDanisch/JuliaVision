@@ -1,0 +1,154 @@
+{
+    "scope": "finite ground Horn status; shared solver kernels in neural graph; exact status readout ceiling; no learned latent adapter",
+    "summary": [
+        {
+            "mode": "no_evidence",
+            "count": 4,
+            "accuracy": 0.25
+        },
+        {
+            "mode": "text",
+            "count": 4,
+            "accuracy": 0.25
+        },
+        {
+            "mode": "solver_kernel_oracle",
+            "count": 4,
+            "accuracy": 1
+        }
+    ],
+    "rows": [
+        {
+            "id": 1,
+            "mode": "no_evidence",
+            "depth": 8,
+            "expected": "entailed",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 4.728952431,
+            "proof_status": null
+        },
+        {
+            "id": 1,
+            "mode": "text",
+            "depth": 8,
+            "expected": "entailed",
+            "prediction": "entailed",
+            "correct": true,
+            "prompt_tokens": 350,
+            "seconds": 0.660558178,
+            "proof_status": null
+        },
+        {
+            "id": 1,
+            "mode": "solver_kernel_oracle",
+            "depth": 8,
+            "expected": "entailed",
+            "prediction": "entailed",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.260753949,
+            "proof_status": "entailed"
+        },
+        {
+            "id": 3,
+            "mode": "no_evidence",
+            "depth": 6,
+            "expected": "unknown",
+            "prediction": "unknown",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.279669011,
+            "proof_status": null
+        },
+        {
+            "id": 3,
+            "mode": "text",
+            "depth": 6,
+            "expected": "unknown",
+            "prediction": "entailed",
+            "correct": false,
+            "prompt_tokens": 289,
+            "seconds": 1.07330324,
+            "proof_status": null
+        },
+        {
+            "id": 3,
+            "mode": "solver_kernel_oracle",
+            "depth": 6,
+            "expected": "unknown",
+            "prediction": "unknown",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.238999468,
+            "proof_status": "unknown"
+        },
+        {
+            "id": 4,
+            "mode": "no_evidence",
+            "depth": 6,
+            "expected": "inconsistent",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 0.301600291,
+            "proof_status": null
+        },
+        {
+            "id": 4,
+            "mode": "text",
+            "depth": 6,
+            "expected": "inconsistent",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 305,
+            "seconds": 0.618529483,
+            "proof_status": null
+        },
+        {
+            "id": 4,
+            "mode": "solver_kernel_oracle",
+            "depth": 6,
+            "expected": "inconsistent",
+            "prediction": "inconsistent",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.242984089,
+            "proof_status": "inconsistent"
+        },
+        {
+            "id": 2,
+            "mode": "no_evidence",
+            "depth": 7,
+            "expected": "refuted",
+            "prediction": "unknown",
+            "correct": false,
+            "prompt_tokens": 115,
+            "seconds": 0.321279482,
+            "proof_status": null
+        },
+        {
+            "id": 2,
+            "mode": "text",
+            "depth": 7,
+            "expected": "refuted",
+            "prediction": "entailed",
+            "correct": false,
+            "prompt_tokens": 322,
+            "seconds": 0.890930879,
+            "proof_status": null
+        },
+        {
+            "id": 2,
+            "mode": "solver_kernel_oracle",
+            "depth": 7,
+            "expected": "refuted",
+            "prediction": "refuted",
+            "correct": true,
+            "prompt_tokens": 115,
+            "seconds": 0.219053622,
+            "proof_status": "refuted"
+        }
+    ]
+}

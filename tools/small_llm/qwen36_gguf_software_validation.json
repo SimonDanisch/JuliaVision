@@ -1,0 +1,21 @@
+{
+    "complete": true,
+    "scope": "Packed-format software qualification only; NOT full35B numerical/speed proof",
+    "project": "/home/sim/Programmieren/VulkanDev/Project.toml",
+    "device": "llvmpipe SOFTWARE Vulkan",
+    "host_layout_checks": 11,
+    "software_kernel_checks": 48,
+    "software_tiled_layout_checks": 8,
+    "source_sha256": {
+        "qwen36_moe_model.jl": "67d6f69c8cfd20ee571e66a9b3eff87f46b2d6639cb80ade2a5cfe0612042361",
+        "qwen36_gguf_kernels.jl": "8ee926f1f163f4e5e593f6a67e742feb4e45c29383c4325baefbed0797756bbd",
+        "qwen36_gguf.jl": "d9fd105cf49085e1ae77e06894ad3e3f2ef47b3d09b86216f75ac6bd575b02f9",
+        "reference_gguf_q5.py": "e0551ebd0dfe16410a04df382d06f77026e793b99ea457874ce270ba24af92da",
+        "test_qwen36_gguf.jl": "5e7d1ab23a3008d5c6b4e86c5fd3b249e3c1c9c797f5f06df0edd06f9ab36f5a"
+    },
+    "actual_gguf_native_subset_errors": {
+        "A_log": 7.450581e-9,
+        "dt_bias": 0,
+        "conv1d": 0
+    }
+}

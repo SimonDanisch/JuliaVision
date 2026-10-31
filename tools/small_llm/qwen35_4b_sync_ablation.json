@@ -1,0 +1,131 @@
+{
+    "name": "Qwen3.5-4B Q4_K",
+    "tokens": 64,
+    "prompt": [
+        27175,
+        667,
+        17839,
+        958,
+        3145,
+        63368,
+        5638,
+        13
+    ],
+    "complete": true,
+    "old_tps": 62.5568278199255,
+    "new_tps": 65.28714584148427,
+    "percent": 4.3645403974418295,
+    "tokens_and_logits_bitidentical": true,
+    "rows": [
+        {
+            "trial": 1,
+            "automatic": true,
+            "elapsed": 0.980477924,
+            "tokens_per_second": 65.27428964326177,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 1,
+            "automatic": false,
+            "elapsed": 1.023055383,
+            "tokens_per_second": 62.55770808059958,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 2,
+            "automatic": false,
+            "elapsed": 1.023268204,
+            "tokens_per_second": 62.54469722583112,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 2,
+            "automatic": true,
+            "elapsed": 0.980830572,
+            "tokens_per_second": 65.2508209134411,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 3,
+            "automatic": true,
+            "elapsed": 0.980091853,
+            "tokens_per_second": 65.30000203970678,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 3,
+            "automatic": false,
+            "elapsed": 1.024597664,
+            "tokens_per_second": 62.4635427628693,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 4,
+            "automatic": false,
+            "elapsed": 1.023084175,
+            "tokens_per_second": 62.55594755925142,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 4,
+            "automatic": true,
+            "elapsed": 0.98003604,
+            "tokens_per_second": 65.30372087132632,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 5,
+            "automatic": true,
+            "elapsed": 0.978379142,
+            "tokens_per_second": 65.41431358519293,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 5,
+            "automatic": false,
+            "elapsed": 1.021958005,
+            "tokens_per_second": 62.624882516576605,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 6,
+            "automatic": false,
+            "elapsed": 1.002434804,
+            "tokens_per_second": 63.84455103176965,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        },
+        {
+            "trial": 6,
+            "automatic": true,
+            "elapsed": 1.17917667,
+            "tokens_per_second": 54.27515793710539,
+            "submissions": 64,
+            "passes": 688,
+            "barrier_passes": 0
+        }
+    ],
+    "scope": "Shared Mantle synchronization only; unchanged Qwen3.5 Q4_K kernels; device-resident feedback",
+    "model_source_sha256": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0"
+}

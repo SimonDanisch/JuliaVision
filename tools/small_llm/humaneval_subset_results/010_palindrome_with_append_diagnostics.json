@@ -1,0 +1,20 @@
+{
+    "task": "010_palindrome_with_append",
+    "scope": "advisory type analysis at public input signatures; no hidden assertions/values, not proof of correctness",
+    "analysis_completed": true,
+    "payload": {
+        "version": "0.12.3",
+        "completed": true,
+        "rows": [
+            {
+                "signature": "Tuple{String}",
+                "report_count": 1,
+                "kind": "JET",
+                "text": "═════ 1 possible error found ═════\n┌ palindrome_with_append(s::String) @ Main /input/candidate.jl:16\n│ no matching method found `convert(::Type{String}, ::Nothing)`: convert(String, _10::Nothing)\n└────────────────────\n"
+            }
+        ]
+    },
+    "elapsed_seconds": 1.0595488548278809,
+    "diagnostic": "JET_DIAGNOSTICS={\"version\":\"0.12.3\",\"completed\":true,\"rows\":[{\"signature\":\"Tuple{String}\",\"report_count\":1,\"kind\":\"JET\",\"text\":\"═════ 1 possible error found ═════\\n┌ palindrome_with_append(s::String) @ Main /input/candidate.jl:16\\n│ no matching method found `convert(::Type{String}, ::Nothing)`: convert(String, _10::Nothing)\\n└────────────────────\\n\"}]}\nTest Summary: | Total  Time\ncontract      |     0  0.5s\nCONTRACT_PASSED\n",
+    "code_sha256": "16cfc4d0d732e8e034c634cdeada20d8980116836863df360719135042c6e832"
+}

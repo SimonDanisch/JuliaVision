@@ -1,0 +1,14 @@
+{
+    "collection": "julia_scene_v2_results",
+    "task": "makie_band",
+    "arm": "baseline",
+    "source_sha256": "25057fd2bf15d6aa0b259f3f05460a4e195966cd4df5a8ffa380f8a6503554c8",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_band",
+    "passed": false,
+    "diagnostic": "ArgumentError: missing field",
+    "elapsed_seconds": 0,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "depot_order": "withsystem"
+}

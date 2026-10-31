@@ -1,0 +1,11 @@
+{
+    "id": "110_exchange",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.3235960006713867,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    7      7  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "cc9c2dcb4af313c8dce22b2e55d0d4a61ca24908520f048d284c3ace4796fa07"
+}

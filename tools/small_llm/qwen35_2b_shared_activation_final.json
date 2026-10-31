@@ -1,0 +1,187 @@
+{
+    "complete": true,
+    "width": 2048,
+    "layers": 24,
+    "tokens": 64,
+    "prompt": [
+        27175,
+        667,
+        17839,
+        958,
+        3145,
+        63368,
+        5638,
+        13
+    ],
+    "rates": {
+        "reuse": 140.5712241444925,
+        "unfused": 133.75748475523505,
+        "automatic": 140.5823707412829
+    },
+    "tokens_and_logits_bitidentical": true,
+    "rows": [
+        {
+            "trial": 1,
+            "condition": "automatic",
+            "elapsed": 0.455694369,
+            "tokens_per_second": 140.44500953664408,
+            "submissions": 64,
+            "passes": 440,
+            "barrier_passes": 342
+        },
+        {
+            "trial": 1,
+            "condition": "reuse",
+            "elapsed": 0.455247936,
+            "tokens_per_second": 140.5827351186497,
+            "submissions": 64,
+            "passes": 464,
+            "barrier_passes": 366
+        },
+        {
+            "trial": 1,
+            "condition": "unfused",
+            "elapsed": 0.480663935,
+            "tokens_per_second": 133.14916169027742,
+            "submissions": 64,
+            "passes": 518,
+            "barrier_passes": 456
+        },
+        {
+            "trial": 2,
+            "condition": "unfused",
+            "elapsed": 0.47923536,
+            "tokens_per_second": 133.54607222638998,
+            "submissions": 64,
+            "passes": 518,
+            "barrier_passes": 456
+        },
+        {
+            "trial": 2,
+            "condition": "reuse",
+            "elapsed": 0.454642084,
+            "tokens_per_second": 140.77007442188304,
+            "submissions": 64,
+            "passes": 464,
+            "barrier_passes": 366
+        },
+        {
+            "trial": 2,
+            "condition": "automatic",
+            "elapsed": 0.454894537,
+            "tokens_per_second": 140.69195119834995,
+            "submissions": 64,
+            "passes": 440,
+            "barrier_passes": 342
+        },
+        {
+            "trial": 3,
+            "condition": "automatic",
+            "elapsed": 0.455687859,
+            "tokens_per_second": 140.44701594737901,
+            "submissions": 64,
+            "passes": 440,
+            "barrier_passes": 342
+        },
+        {
+            "trial": 3,
+            "condition": "reuse",
+            "elapsed": 0.455668329,
+            "tokens_per_second": 140.4530355235639,
+            "submissions": 64,
+            "passes": 464,
+            "barrier_passes": 366
+        },
+        {
+            "trial": 3,
+            "condition": "unfused",
+            "elapsed": 0.478162554,
+            "tokens_per_second": 133.8456963319633,
+            "submissions": 64,
+            "passes": 518,
+            "barrier_passes": 456
+        },
+        {
+            "trial": 4,
+            "condition": "unfused",
+            "elapsed": 0.478793656,
+            "tokens_per_second": 133.66927317850678,
+            "submissions": 64,
+            "passes": 518,
+            "barrier_passes": 456
+        },
+        {
+            "trial": 4,
+            "condition": "reuse",
+            "elapsed": 0.4553225,
+            "tokens_per_second": 140.5597131703353,
+            "submissions": 64,
+            "passes": 464,
+            "barrier_passes": 366
+        },
+        {
+            "trial": 4,
+            "condition": "automatic",
+            "elapsed": 0.455233486,
+            "tokens_per_second": 140.5871974892462,
+            "submissions": 64,
+            "passes": 440,
+            "barrier_passes": 342
+        },
+        {
+            "trial": 5,
+            "condition": "automatic",
+            "elapsed": 0.454600812,
+            "tokens_per_second": 140.78285456296103,
+            "submissions": 64,
+            "passes": 440,
+            "barrier_passes": 342
+        },
+        {
+            "trial": 5,
+            "condition": "reuse",
+            "elapsed": 0.45552043,
+            "tokens_per_second": 140.49863800839844,
+            "submissions": 64,
+            "passes": 464,
+            "barrier_passes": 366
+        },
+        {
+            "trial": 5,
+            "condition": "unfused",
+            "elapsed": 0.477734721,
+            "tokens_per_second": 133.9655611926938,
+            "submissions": 64,
+            "passes": 518,
+            "barrier_passes": 456
+        },
+        {
+            "trial": 6,
+            "condition": "unfused",
+            "elapsed": 0.477414743,
+            "tokens_per_second": 134.0553490196678,
+            "submissions": 64,
+            "passes": 518,
+            "barrier_passes": 456
+        },
+        {
+            "trial": 6,
+            "condition": "reuse",
+            "elapsed": 0.454416122,
+            "tokens_per_second": 140.84007345144326,
+            "submissions": 64,
+            "passes": 464,
+            "barrier_passes": 366
+        },
+        {
+            "trial": 6,
+            "condition": "automatic",
+            "elapsed": 0.455264747,
+            "tokens_per_second": 140.57754399331955,
+            "submissions": 64,
+            "passes": 440,
+            "barrier_passes": 342
+        }
+    ],
+    "scope": "Shared DNNKernels activation representation/reuse and expression-to-Q8; fixed model/weights/core sync"
+}

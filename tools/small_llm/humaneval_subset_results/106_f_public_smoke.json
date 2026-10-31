@@ -1,0 +1,16 @@
+{
+    "task": "106_f",
+    "scope": "public prompt examples only; runtime completion/observed values, NOT hidden correctness tests or the frozen JET policy",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "f(5)",
+            "completed": true,
+            "value": "[1, 2, 6, 24, 15]"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.37990283966064453,
+    "code_sha256": "3ca2f9471a0ef0752dc1152303d34725b0edde33560d2defa2d86958ec52ebfe",
+    "public_examples_sha256": "5a2b32932d007308b8c4c9833cc4d706576b467274bf3ec141f92b78d0ea4041"
+}

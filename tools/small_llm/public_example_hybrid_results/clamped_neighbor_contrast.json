@@ -1,0 +1,11 @@
+{
+    "task": "clamped_neighbor_contrast",
+    "conditions_sha256": "94971cf99e4b338e4ddea509a47756a7abeb6331b2f9c663a9640fc76c4c1e97",
+    "model_sha256": "32ec41fef0037acbe8800b48723a7d223a2996ee02261b5d48263f800586b8d2",
+    "symbolic_sha256": "c6270163cb8f5c9e99e3961caf45da183cbc18d3258c5512f99eac1cd77a03f3",
+    "selected": {
+        "selected": "symbolic_public_examples",
+        "program": "x0\nx0\nx_next_clamped\nsub\nadd\nfinish\n",
+        "reason": "neural_public_example_failure"
+    }
+}

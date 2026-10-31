@@ -1,0 +1,12 @@
+{
+    "id": "bayes_extract_02_compact_network_demonstrations",
+    "pid": 3756467,
+    "conditions_sha256": "202aa9d6ea2b3799d0283cd4bdc41cafd69f2f9a7aff4b53a6401825d6b36bac",
+    "attempt_sha256": "14563f3a2f9205cffccefcf495712b8bcfbefd2aa8c64caaec8dd39dac35b7ae",
+    "terminal_status": "lost_process",
+    "original_process_absent": true,
+    "shared_lock_observed_free": true,
+    "normal_final_waitidle": false,
+    "regeneration_permitted": false,
+    "observation": "Tool reported r1566 lost; OS PID3756467 absent and lslocks showed no holder. Kernel journal inaccessible, cause unknown. Fresh recovery gate passed normally; this does NOT establish normal cleanup of old context."
+}

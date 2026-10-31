@@ -1,0 +1,70 @@
+{
+    "complete": true,
+    "scope": "Julia/Python prompt-hash compatibility only, no neural output",
+    "rows": [
+        {
+            "id": "alias3_27_direct",
+            "input_sha256": "008df7691243df7fe768439171aebd653fecbbb7b5b4a6ca1e0aa5f9b0092d1a"
+        },
+        {
+            "id": "alias3_27_public_docs",
+            "input_sha256": "a26e7b7d9fb1941801f05af2ba01a65880b3b8dccbddcaa502570ff33b15133e"
+        },
+        {
+            "id": "alias3_309_public_docs",
+            "input_sha256": "1c283629e425ae221eb41c58eb99161c8b3477bc5c97cd084a188d90d1db70f8"
+        },
+        {
+            "id": "alias3_309_direct",
+            "input_sha256": "1dbc74f527c13de7a8c0c5627689fac568ca0e340af0099417cde2be66b98b5f"
+        },
+        {
+            "id": "alias3_939_direct",
+            "input_sha256": "e5e5f80430a9f09dfbc39aba39333f3990a9b4625a65ebd11af363cd0d7c91d2"
+        },
+        {
+            "id": "alias3_939_public_docs",
+            "input_sha256": "8c2324f83d49179b86f6434ed388dfbb3fea5666db1b3b03a12fd6784c79919e"
+        },
+        {
+            "id": "alias3_277_public_docs",
+            "input_sha256": "1f5b8463b83e15753c881e889fe5c43f08ae50c3e987c42f85e26cca9f23ebcb"
+        },
+        {
+            "id": "alias3_277_direct",
+            "input_sha256": "a9ae8df9f700dd4a199d50bef992d5a40952bc77c5a5bbbc074bc27df1e5bcaf"
+        },
+        {
+            "id": "alias3_311_direct",
+            "input_sha256": "e03541bfe93594b44f30f147f3f89e1cebcfad52eaf95eb77fbd0535be61c9b7"
+        },
+        {
+            "id": "alias3_311_public_docs",
+            "input_sha256": "7148b51b1a1dc4de99bc1c4db96051b1bd74fb29408e62a5fcf6afe46feed357"
+        },
+        {
+            "id": "alias3_137_public_docs",
+            "input_sha256": "d51fb5860e051ed27b43ad92523e3c5ba21648fe7f382c3f2e395f83c39307f9"
+        },
+        {
+            "id": "alias3_137_direct",
+            "input_sha256": "dc0aca179de92ed7a5f99b57ac3def2f7367e02306c5fe68af0bcb7413ba8d3a"
+        },
+        {
+            "id": "alias3_651_direct",
+            "input_sha256": "8c922f1b205bf020d265347d028fa231176ca26282292bd6812c119d9e97fa63"
+        },
+        {
+            "id": "alias3_651_public_docs",
+            "input_sha256": "dfdca645788f8a7c671992ca1b3431283653b1b64234d2faf5e63f9917ec115e"
+        },
+        {
+            "id": "alias3_1060_public_docs",
+            "input_sha256": "374df8b35daacc940819e170b3e13cb7982d2c56a7dadf59b65e304d75ffd004"
+        },
+        {
+            "id": "alias3_1060_direct",
+            "input_sha256": "ed6a50e0484e64b5c213d7fee9d815d80a92d2c3ff4c5d5a0ce602fd11a2f7b3"
+        }
+    ]
+}

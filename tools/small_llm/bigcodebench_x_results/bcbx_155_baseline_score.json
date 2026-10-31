@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.3980725669534877,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: MethodError: no method matching IOBuffer(::Base.PipeEndpoint)\nThe type `IOBuffer` exists, but no method is defined for this combination of argument types when trying to construct it.\n\nClosest candidates are:\n  IOBuffer(!Matched::LaTeXStrings.LaTeXString)\n   @ LaTeXStrings /home/sim/.julia/packages/LaTeXStrings/xwv3L/src/LaTeXStrings.jl:127\n  IOBuffer(!Matched::SubString{String})\n   @ Base strings/io.jl:309\n  IOBuffer(!Matched::String)\n   @ Base strings/io.jl:308\n  ...\n\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:5\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:5\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 17, in <module>\n    tests.test_cases(runner)\n  File \"/input/tests.py\", line 37, in test_cases\n    assert exit_code == 0, f\"Non-zero exit code for input:\\n{input_text}\"\n           ^^^^^^^^^^^^^^\nAssertionError: Non-zero exit code for input:\n1 2 3 4 4 3 7 1\n6 2 3 4 3 4 4 1\n\n",
+  "program_sha256": "bc7b9161c65bbbecd44a709e6cadb5b73af38408d2ad7e147a30fece9d8e797b",
+  "test_suite_sha256": "042a38c80020cee6597dc3a6b516e3165205b114a84dabcf57c796a16a23c0f8",
+  "scope": "Local Julia functional stdin/stdout test result; not plot aesthetics or GPU performance",
+  "scorer_sha256": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77"
+}

@@ -1,0 +1,11 @@
+{
+    "id": "software_vulkan_isolation",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 153,
+    "elapsed_seconds": 8.525438070297241,
+    "diagnostic": "PHASE=before_import\nPHASE=after_import\nPHASE=before_device\n",
+    "log_truncated": false,
+    "code_sha256": "a297f41c32a30ee367121851db199c620f964dc61d5ee8c48955d8104477d573"
+}

@@ -1,0 +1,17 @@
+{
+    "collection": "scene_generalization_direct",
+    "task": "scene_ratio",
+    "arm": "baseline",
+    "source_sha256": "69e38aaf7ae470210d39af0385f9fa5f24f15bd818f41f23dc14ec8c38dd0440",
+    "previous_passed": true,
+    "changed": false,
+    "id": "scene_ratio",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 2.5534679889678955,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   10     10  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "a3519ad6b3714d63138ffd3c1b66e7666371d4ab3a68e0b4649e568fc878f9a4"
+}

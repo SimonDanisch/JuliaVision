@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.1962124879937619,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: ParseError:\n# Error @ /input/program.jl:257:9\n\n    Wait\n#       \u2514 \u2500\u2500 unterminated string literal\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:257\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:257\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 10, in test_cases\nAssertionError\n",
+  "program_sha256": "56238badecfc675f63d4645e301929c56b4800f8ff8da5c12c23b967bd51dea3",
+  "test_suite_sha256": "b4f914d3e3b626fb6c277745ed892b316ed554f41de56f2d78207f9e17e2ad2d",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

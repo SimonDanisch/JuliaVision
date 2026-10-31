@@ -1,0 +1,48 @@
+{
+    "complete": true,
+    "scope": "full-model Q4/Q6 cache correctness and setup latency ONLY, not intelligence or steady-state throughput",
+    "cachebase": "gen/qwen35-4b/mantle-q4k-cache",
+    "loads": [
+        {
+            "phase": "create_or_complete_source_fingerprinted_cache",
+            "seconds": 109.32238912582397
+        },
+        {
+            "phase": "reload_existing_cache",
+            "seconds": 42.99215912818909
+        }
+    ],
+    "checks": {
+        "all_weight_bytes_equal": true,
+        "exact_logits": true,
+        "maxabs": 0,
+        "exact_greedy": true,
+        "first_tokens": [
+            71093,
+            73,
+            67383,
+            198,
+            1628,
+            11290,
+            34936,
+            476
+        ],
+        "reloaded_tokens": [
+            71093,
+            73,
+            67383,
+            198,
+            1628,
+            11290,
+            34936,
+            476
+        ]
+    },
+    "elapsed_seconds": 229.60237193107605,
+    "source_sha256": {
+        "verify_qwen_weight_cache.jl": "16eb0c8ced773ba2d973174395dd94cef7bd23b7957e2a28fedf9eff5ca50241",
+        "gpu_window.jl": "0637443787c3c18cd9fdbe904f1729744930656084b3c37597c4be115ca2ba0a",
+        "qwen35.jl": "4ef061375b1aa985186740097bd33de368837e03118815f84ffebe6b95650be0",
+        "qwen_weight_cache.jl": "f4959ba9735321dcc6847fca35a2abbd4c20fadd417651f067ce56d4e78e4b3d"
+    }
+}

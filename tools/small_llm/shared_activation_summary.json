@@ -1,0 +1,513 @@
+{
+    "implemented": [
+        "Shared prepared Q8_1 activations with graph-local logical-value/version/layout/policy keys",
+        "Conservative automatic sharing across pure matrix products",
+        "Generic dense scalar-expression producer to Q8 fusion",
+        "SwiGLU product lowering using same shared producer",
+        "Capability-only serial/subgroup kernel selection",
+        "Public API for handwritten graph declarations; Qwen3.5 migrated",
+        "In-graph read/write alias barrier fix in shared Mantle phase"
+    ],
+    "checks": {
+        "radeon": 394,
+        "metal": 394,
+        "metal4": 394,
+        "existing_int8_radeon": 298,
+        "existing_fusion_radeon": 61,
+        "compile_golden_each_platform": 10
+    },
+    "full_model_radeon": [
+        {
+            "width": 2048,
+            "before_tps": 133.75748475523505,
+            "reuse_tps": 140.5712241444925,
+            "after_tps": 140.5823707412829,
+            "gain_percent": 5.102432958078418,
+            "passes_before": 518,
+            "passes_after": 440
+        },
+        {
+            "width": 2560,
+            "before_tps": 66.7672544807644,
+            "reuse_tps": 69.32592987225429,
+            "after_tps": 69.58075074832954,
+            "gain_percent": 4.213886416994583,
+            "passes_before": 688,
+            "passes_after": 584
+        }
+    ],
+    "generic_fixture": {
+        "radeon": {
+            "samples": [
+                {
+                    "trial": 1,
+                    "condition": "unfused",
+                    "seconds": 0.002906893,
+                    "replays": 128,
+                    "microseconds": 22.7101015625,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 1,
+                    "condition": "reuse",
+                    "seconds": 0.002233937,
+                    "replays": 128,
+                    "microseconds": 17.4526328125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 1,
+                    "condition": "automatic",
+                    "seconds": 0.002041498,
+                    "replays": 128,
+                    "microseconds": 15.949203125,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 2,
+                    "condition": "automatic",
+                    "seconds": 0.002005936,
+                    "replays": 128,
+                    "microseconds": 15.671375,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 2,
+                    "condition": "reuse",
+                    "seconds": 0.002170214,
+                    "replays": 128,
+                    "microseconds": 16.954796875000003,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 2,
+                    "condition": "unfused",
+                    "seconds": 0.00246158,
+                    "replays": 128,
+                    "microseconds": 19.23109375,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 3,
+                    "condition": "unfused",
+                    "seconds": 0.00246201,
+                    "replays": 128,
+                    "microseconds": 19.234453125,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 3,
+                    "condition": "reuse",
+                    "seconds": 0.002159874,
+                    "replays": 128,
+                    "microseconds": 16.874015625,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 3,
+                    "condition": "automatic",
+                    "seconds": 0.002004006,
+                    "replays": 128,
+                    "microseconds": 15.656296875,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 4,
+                    "condition": "automatic",
+                    "seconds": 0.002004095,
+                    "replays": 128,
+                    "microseconds": 15.6569921875,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 4,
+                    "condition": "reuse",
+                    "seconds": 0.002161834,
+                    "replays": 128,
+                    "microseconds": 16.889328125000002,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 4,
+                    "condition": "unfused",
+                    "seconds": 0.002458709,
+                    "replays": 128,
+                    "microseconds": 19.2086640625,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 5,
+                    "condition": "unfused",
+                    "seconds": 0.00245603,
+                    "replays": 128,
+                    "microseconds": 19.187734375,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 5,
+                    "condition": "reuse",
+                    "seconds": 0.002154113,
+                    "replays": 128,
+                    "microseconds": 16.8290078125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 5,
+                    "condition": "automatic",
+                    "seconds": 0.002003526,
+                    "replays": 128,
+                    "microseconds": 15.652546874999999,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 6,
+                    "condition": "automatic",
+                    "seconds": 0.002061309,
+                    "replays": 128,
+                    "microseconds": 16.103976562499998,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 6,
+                    "condition": "reuse",
+                    "seconds": 0.002166764,
+                    "replays": 128,
+                    "microseconds": 16.927843749999997,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 6,
+                    "condition": "unfused",
+                    "seconds": 0.00245805,
+                    "replays": 128,
+                    "microseconds": 19.203515624999998,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 7,
+                    "condition": "unfused",
+                    "seconds": 0.00246239,
+                    "replays": 128,
+                    "microseconds": 19.237421875,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 7,
+                    "condition": "reuse",
+                    "seconds": 0.002155903,
+                    "replays": 128,
+                    "microseconds": 16.8429921875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 7,
+                    "condition": "automatic",
+                    "seconds": 0.002047588,
+                    "replays": 128,
+                    "microseconds": 15.99678125,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 8,
+                    "condition": "automatic",
+                    "seconds": 0.00208864,
+                    "replays": 128,
+                    "microseconds": 16.317500000000003,
+                    "submissions": 128,
+                    "passes": 4
+                },
+                {
+                    "trial": 8,
+                    "condition": "reuse",
+                    "seconds": 0.002252949,
+                    "replays": 128,
+                    "microseconds": 17.6011640625,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 8,
+                    "condition": "unfused",
+                    "seconds": 0.002530413,
+                    "replays": 128,
+                    "microseconds": 19.7688515625,
+                    "submissions": 128,
+                    "passes": 6
+                }
+            ],
+            "median_us": {
+                "reuse": 16.9085859375,
+                "unfused": 19.2327734375,
+                "automatic": 15.8102890625
+            },
+            "outputs_bitidentical": true,
+            "scope": "Generic expression feeding two Q4_K matmuls, 4096 input/1024 output, one column; not full-model throughput"
+        },
+        "apple": {
+            "samples": [
+                {
+                    "trial": 1,
+                    "condition": "unfused",
+                    "seconds": 0.016796125,
+                    "replays": 128,
+                    "microseconds": 131.2197265625,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 1,
+                    "condition": "reuse",
+                    "seconds": 0.007721167,
+                    "replays": 128,
+                    "microseconds": 60.3216171875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 1,
+                    "condition": "automatic",
+                    "seconds": 0.007677375,
+                    "replays": 128,
+                    "microseconds": 59.9794921875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 2,
+                    "condition": "automatic",
+                    "seconds": 0.00767775,
+                    "replays": 128,
+                    "microseconds": 59.982421875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 2,
+                    "condition": "reuse",
+                    "seconds": 0.007686166,
+                    "replays": 128,
+                    "microseconds": 60.048171875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 2,
+                    "condition": "unfused",
+                    "seconds": 0.008328834,
+                    "replays": 128,
+                    "microseconds": 65.069015625,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 3,
+                    "condition": "unfused",
+                    "seconds": 0.008332542,
+                    "replays": 128,
+                    "microseconds": 65.097984375,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 3,
+                    "condition": "reuse",
+                    "seconds": 0.007707375,
+                    "replays": 128,
+                    "microseconds": 60.2138671875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 3,
+                    "condition": "automatic",
+                    "seconds": 0.007722833,
+                    "replays": 128,
+                    "microseconds": 60.334632812500004,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 4,
+                    "condition": "automatic",
+                    "seconds": 0.007680958,
+                    "replays": 128,
+                    "microseconds": 60.007484375,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 4,
+                    "condition": "reuse",
+                    "seconds": 0.007701375,
+                    "replays": 128,
+                    "microseconds": 60.1669921875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 4,
+                    "condition": "unfused",
+                    "seconds": 0.008363292,
+                    "replays": 128,
+                    "microseconds": 65.33821875,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 5,
+                    "condition": "unfused",
+                    "seconds": 0.008330792,
+                    "replays": 128,
+                    "microseconds": 65.0843125,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 5,
+                    "condition": "reuse",
+                    "seconds": 0.00771025,
+                    "replays": 128,
+                    "microseconds": 60.236328125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 5,
+                    "condition": "automatic",
+                    "seconds": 0.007721583,
+                    "replays": 128,
+                    "microseconds": 60.3248671875,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 6,
+                    "condition": "automatic",
+                    "seconds": 0.007719208,
+                    "replays": 128,
+                    "microseconds": 60.3063125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 6,
+                    "condition": "reuse",
+                    "seconds": 0.007699667,
+                    "replays": 128,
+                    "microseconds": 60.1536484375,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 6,
+                    "condition": "unfused",
+                    "seconds": 0.008393625,
+                    "replays": 128,
+                    "microseconds": 65.5751953125,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 7,
+                    "condition": "unfused",
+                    "seconds": 0.008342958,
+                    "replays": 128,
+                    "microseconds": 65.17935937499999,
+                    "submissions": 128,
+                    "passes": 6
+                },
+                {
+                    "trial": 7,
+                    "condition": "reuse",
+                    "seconds": 0.007712833,
+                    "replays": 128,
+                    "microseconds": 60.2565078125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 7,
+                    "condition": "automatic",
+                    "seconds": 0.007693125,
+                    "replays": 128,
+                    "microseconds": 60.1025390625,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 8,
+                    "condition": "automatic",
+                    "seconds": 0.007673833,
+                    "replays": 128,
+                    "microseconds": 59.9518203125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 8,
+                    "condition": "reuse",
+                    "seconds": 0.007701833,
+                    "replays": 128,
+                    "microseconds": 60.1705703125,
+                    "submissions": 128,
+                    "passes": 5
+                },
+                {
+                    "trial": 8,
+                    "condition": "unfused",
+                    "seconds": 0.008360583,
+                    "replays": 128,
+                    "microseconds": 65.31705468749999,
+                    "submissions": 128,
+                    "passes": 6
+                }
+            ],
+            "median_us": {
+                "reuse": 60.192218749999995,
+                "unfused": 65.24820703124999,
+                "automatic": 60.055011718749995
+            },
+            "outputs_bitidentical": true,
+            "scope": "Generic expression feeding two Q4_K matmuls, 4096 input/1024 output, one column; not full-model throughput"
+        }
+    },
+    "limitations": [
+        "Initial shared activation-fusion slice, not arbitrary cross-kernel fusion",
+        "Q4_K/Q6_K activation preparation; existing elementwise/GEMM/reduction fusion remains separate",
+        "Automatic sharing deliberately refuses arbitrary caller bindings and clears at unknown/write boundaries",
+        "Dense equal-extent scalar maps only; no new broadcast/view/conv fusion",
+        "Generic fixture results are not full-model throughput on Apple",
+        "No new runner/backend/device-name selection branches"
+    ],
+    "normal_waitidle": true,
+    "source_sha256": {
+        "dev/JuliaVision/DNNKernels/src/DNNKernels.jl": "b8d1d416163e94a97effbb065fe783f657ad3176bef264f0c4c77aa9e003f38c",
+        "dev/JuliaVision/DNNKernels/src/activationprep.jl": "233485e729f00c365c6aa1c980d742e4c041a5713f7fcfa85b29d51f2d397263",
+        "dev/JuliaVision/DNNKernels/test/test_activationprep.jl": "4a039654dfdfc20ca4eb78274060930fa3f5dea61291557a197205f44e024ca5",
+        "dev/JuliaVision/tools/small_llm/qwen35.jl": "57ce1e3c1c09c6cb2678cdf949127641eead63b7cb7498d65c8bdba05357446c",
+        "dev/Mantle/test/test_recorded_buffer_sync.jl": "ff37c44a13a10d59e2e70aaa4b708b4e43592529b15ff958de93c95526fadfb2",
+        "dev/JuliaVision/DNNKernels/src/emit.jl": "b484f7184a38e67294c1b8ecb6de1d6ad043054c7ea6efd27bb79984f90465dd",
+        "dev/Mantle/src/phases.jl": "12e2b1914e8939a0d03df232a8a6420d960df2ba44b1c5381e899ba19dca415c"
+    }
+}

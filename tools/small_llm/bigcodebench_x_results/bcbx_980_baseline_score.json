@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 3.041484805988148,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `STDIN` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:41\n [2] top-level scope\n   @ /input/program.jl:127\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:127\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 17, in <module>\n    tests.test_cases(runner)\n  File \"/input/tests.py\", line 10, in test_cases\n    assert code == 0\n           ^^^^^^^^^\nAssertionError\n",
+  "program_sha256": "d22dd908320f2d9037a6a077539655a98eefb86e005c3df851c59887e7cfc0cc",
+  "test_suite_sha256": "19232136174103b31007d6dcc697d27260673c54ab26e47c261b40cc3ca7e1c7",
+  "scope": "Local Julia functional stdin/stdout test result; not plot aesthetics or GPU performance",
+  "scorer_sha256": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77"
+}

@@ -1,0 +1,10 @@
+{
+    "task": "ki_body_clamped_stencil",
+    "conditions_sha256": "bdf6cd15f4ffe458b8c39af0017d04a5231ba498e16a2c5bc2c78bf2fdfc6377",
+    "baseline_sha256": "268ed59aa171ad9e4e7fa2f57a7076d1c28278d045b498489e7a21c0eebede2b",
+    "accepted": false,
+    "reason": "unknown/impure expression or loop-carried dependency",
+    "code": "",
+    "certificate": null,
+    "selected_code": "using KernelInterface\n\nfunction kernel!(out::AbstractVector{Float32}, x::AbstractVector{Float32}, n::Int32)\n    for i in 1:n\n        idx = KI.get_global_id().x\n        neighbor1 = x[max(i-1, 1)]\n        neighbor2 = x[i]\n        neighbor3 = x[min(i+1, n)]\n        out[idx] = (neighbor1 + neighbor2 + neighbor3) / 3.0f0\n    end\nend\n"
+}

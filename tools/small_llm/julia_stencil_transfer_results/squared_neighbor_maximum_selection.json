@@ -1,0 +1,22 @@
+{
+    "id": "squared_neighbor_maximum",
+    "conditions_sha256": "ca234046f43a37a6c914bf160ecdd8e730b521248f584b453e9bf2aab7e043e1",
+    "generation_sha256": "2558856df5db7d35419fe0eb137bd9216dde94abb28f7f12f5442e3ea651917e",
+    "direct": {
+        "accepted": true,
+        "reason": "admitted disjoint pointwise subset",
+        "program": "x_prev_clamped\nsquare\nx_next_clamped\nsquare\nmax\nfinish\n"
+    },
+    "symbolic": {
+        "found": false,
+        "program": "",
+        "reason": "not_needed_or_infrastructure_failure",
+        "elapsed_seconds": 0,
+        "candidates": 0
+    },
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "x_prev_clamped\nsquare\nx_next_clamped\nsquare\nmax\nfinish\n",
+        "reason": "public_examples_match"
+    }
+}

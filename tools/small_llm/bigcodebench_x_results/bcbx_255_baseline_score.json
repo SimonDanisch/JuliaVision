@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.23486395203508437,
+  "stdout_tail": "",
+  "stderr_tail": "\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 17, in <module>\n    tests.test_cases(runner)\n  File \"/input/tests.py\", line 6, in test_cases\n    assert code == 0\n           ^^^^^^^^^\nAssertionError\n",
+  "program_sha256": "65a642379ccfce0b548662bd71add72907f86fd28417134f760b6bb96e8a055b",
+  "test_suite_sha256": "cde8d7178ca67935f3860e4a94971e625b5200210c3ae9977bc4902fd028deb9",
+  "scope": "Local Julia functional stdin/stdout test result; not plot aesthetics or GPU performance",
+  "scorer_sha256": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77"
+}

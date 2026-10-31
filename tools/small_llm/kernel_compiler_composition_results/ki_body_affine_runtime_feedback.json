@@ -1,0 +1,13 @@
+{
+    "task": "ki_body_affine",
+    "arm": "runtime_feedback",
+    "conditions_sha256": "b3db2ad662cb8c8ea8216157df3173451e9e79e1c70481dc337aa1b8ad408d1e",
+    "selected_source_sha256": "f586df70772abb0e607de22040f571b32b76476b62e373d45b2b6cde813985ac",
+    "original_code_sha256": "95637e7c0297b1850d9a763d4ed56b8fc002af597cade131d53953f5d1222456",
+    "pointwise_accepted": false,
+    "pointwise_reason": "explicit simple argument types required",
+    "certificate": null,
+    "void_tail_accepted": true,
+    "void_tail_reason": "append void tail; preserve existing math/statements/explicit returns",
+    "code": "using KernelInterface\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    #= none:3 =#\n    #= none:4 =#\n    i = (KI.get_global_id()).x\n    #= none:5 =#\n    if 1 <= i <= n\n        #= none:6 =#\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    nothing\nend\n"
+}

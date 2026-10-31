@@ -1,0 +1,44 @@
+{
+    "task": "scene_ratio",
+    "scope": "constrained scene workflow; adapter supplies API syntax, not intrinsic coding gain",
+    "version": "v2",
+    "model": "qwen35-4b",
+    "thinking": false,
+    "inputs": [
+        "x",
+        "y",
+        "scale"
+    ],
+    "messages": [
+        {
+            "system": "Describe the requested plot using this declarative schema. Return ONE valid JSON object. It has these keys:\n\"size\": [integer width, integer height], each between 200 and 2000.\n\"axes\": array of objects. Each has \"id\" (a unique STRING, never a number),\n\"row\" and \"col\" (ONE-BASED integer grid positions 1..4).\nOptional \"title\", \"xlabel\", \"ylabel\" are strings.\n\"plots\": array in draw order. Each has \"kind\", \"axis\" (an axis id STRING), \"x\".\nThe ONLY kinds are \"lines\", \"scatter\", \"band\". Use \"lines\", NOT \"line\".\nFor lines/scatter also include \"y\"; for band include \"lower\" and \"upper\" instead.\nOptional color STRING: blue/red/black/green/orange/gray/purple.\nOptional alpha NUMBER between 0 and 1, optional label STRING.\nData values x/y/lower/upper are input-name strings, numbers, or actual nested JSON\nOBJECTS. An absolute-value expression is {\"op\":\"abs\",\"arg\":\"a\"}.\nAn elementwise sum is {\"op\":\"+\",\"left\":\"a\",\"right\":\"b\"}.\nReplace a/b with supplied input names or nested expressions. Binary operators\nallowed: + - * /. DO NOT encode expression objects inside strings or escape them.\n\"links\": array of {\"dimension\":\"x\" or \"y\",\"axes\":[axis id strings]}.\n\"legends\": array of {\"axis\":axis id STRING,\"position\":\"lt\"/\"rt\"/\"lb\"/\"rb\"}.\n\"returns\": ordered array containing \"fig\" and requested axis id STRINGS.\nUse [] for empty links or legends. No extra fields, code, comments, or prose.\n"
+        },
+        {
+            "user": "Using Makie, write makeplot(x,y,scale) returning (fig,ax). Figure size (700,420). One Axis titled Scaled, xlabel Sample, ylabel Ratio. Orange scatter of y ./ scale versus x. Inputs are equal-length vectors, scale nonzero. No display, save, backend activation. Code only including imports.\nInstead of Julia code, return scene JSON. Available input names: x, y, scale"
+        }
+    ],
+    "answer": "```json\n{\n  \"size\": [700, 420],\n  \"axes\": [\n    {\n      \"id\": \"axis1\",\n      \"row\": 1,\n      \"col\": 1,\n      \"title\": \"Scaled\",\n      \"xlabel\": \"Sample\",\n      \"ylabel\": \"Ratio\"\n    }\n  ],\n  \"plots\": [\n    {\n      \"kind\": \"scatter\",\n      \"axis\": \"axis1\",\n      \"x\": \"x\",\n      \"y\": {\"op\": \"/\", \"left\": \"y\", \"right\": \"scale\"},\n      \"color\": \"orange\"\n    }\n  ],\n  \"links\": [],\n  \"legends\": [],\n  \"returns\": [\"axis1\"]\n}\n```",
+    "code": "using Makie\nfunction makeplot(x,y,scale)\nfig=Figure(size=(700,420))\nax1=Axis(fig[1,1];title=\"Scaled\",xlabel=\"Sample\",ylabel=\"Ratio\")\nscatter!(ax1,x,(y ./ scale);color=:orange)\n(ax1,)\nend",
+    "input_tokens": 490,
+    "generated_tokens": 178,
+    "budget_tokens": 512,
+    "decode_steps_executed": 256,
+    "decode_submissions": 256,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 16.54698896408081,
+    "input_sha256": "d7fc2355530010d6b002b0046c1734d7d00aa16383b34cc523f77fdc279038a2",
+    "scene_json": "{\n  \"size\": [700, 420],\n  \"axes\": [\n    {\n      \"id\": \"axis1\",\n      \"row\": 1,\n      \"col\": 1,\n      \"title\": \"Scaled\",\n      \"xlabel\": \"Sample\",\n      \"ylabel\": \"Ratio\"\n    }\n  ],\n  \"plots\": [\n    {\n      \"kind\": \"scatter\",\n      \"axis\": \"axis1\",\n      \"x\": \"x\",\n      \"y\": {\"op\": \"/\", \"left\": \"y\", \"right\": \"scale\"},\n      \"color\": \"orange\"\n    }\n  ],\n  \"links\": [],\n  \"legends\": [],\n  \"returns\": [\"axis1\"]\n}",
+    "validation_error": null,
+    "contract_sha256": "bb767fcfd52df78e83c8669834cca6e8c063de70105c5f8698b3e8ac33ba0c3c",
+    "adapter_sha256": "46a9c7191f09a49fbc0d6cd530f9580417e9dcb7a31db4b813a63f8cc8268d9f",
+    "generation_source_sha256": {
+        "run_julia_tasks.jl": "9ba0dad161c076ffb18f0d71acfd03a759a42dd70ddae6f92ab6dec91d31b5d4",
+        "prefill_qwen35.jl": "8703c99d6042949469a64aacb33f1784fea875267bb7b8d00c1df1216deb60a9",
+        "models.toml": "f131103fa038227c7639ae7c9615b00268498461d995968749fa70320f4b2d12",
+        "qwen_text.jl": "3284dca9f474adbc633dee5d61c4859e38e565b66fa108ad090a57134d6e1d28",
+        "run_makie_scene.jl": "22849e1acbe5ca1b03cfd8a597f22f66da51c1927b0c761bcdf65eded0ecf3c3",
+        "qwen35.jl": "31c31af2d563a9874a7c026b523af53aac19fbb41dd1ffbf3500902f0bd8ae93"
+    }
+}

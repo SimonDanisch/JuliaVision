@@ -1,0 +1,11 @@
+{
+    "id": "makie_update",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 2.393787145614624,
+    "diagnostic": "ERROR: LoadError: ParseError:\n# Error @ /input/candidate.jl:4:12\nfunction solve!(plot::Plot, x::AbstractVector, y::AbstractVector, colors::AbstractVector)\n    Compute the number of points to update\n#          └ ── Expected `end`\nStacktrace:\n [1] top-level scope\n   @ /input/candidate.jl:4\n [2] include(mapexpr::Function, mod::Module, _path::String)\n   @ Base ./Base.jl:307\n [3] top-level scope\n   @ /input/runner.jl:3\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/candidate.jl:4\nin expression starting at /input/runner.jl:3\n",
+    "log_truncated": false,
+    "code_sha256": "df7e50ad4f6eff43a4e7fa40c1781fedb30264b8e77eacc8383c7d005216e22f"
+}

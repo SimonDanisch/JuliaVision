@@ -1,0 +1,13 @@
+{
+    "complete": true,
+    "scope": "Prospective next-cohort PREPARATION only; NO candidate generation or quality comparison",
+    "snapshot_unit_tests": 3,
+    "original_reference_programs_passed": 8,
+    "prior_task_overlap": 0,
+    "manifest_sha256": "8170d29a12f9b240de0ea44d7906d6a5c1d2f8f5862bde68edff2ebd91aa2e8e",
+    "reference_receipt_sha256": "ea349652940046843fb09e41338c185525c8379785e4504792cb3f10e6945c57",
+    "source_sha256": {
+        "test_snapshot_followup_bigcodebench_x.py": "4d370c49432aa63f4df177b1d175be55cfdbf888ffd0a6495580e0d605b01c4f",
+        "snapshot_followup_bigcodebench_x.py": "5a4561ab85e7dec4afcea7206b42705ad22f1c2cb50b1818c3d0ddc90b902109"
+    }
+}

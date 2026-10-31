@@ -1,0 +1,12 @@
+{
+  "scope": "Pre-output validity correction, not a task-quality result",
+  "prototype": "reasoning_budget_results/conditions.json",
+  "prototype_task_outputs": 0,
+  "finding": "The forced closing-token mask can overwrite NaN, positive infinity or all-masked raw neural logits before the sampler checks them.",
+  "action": "Do not roll out prototype task generation. Preserve it and register the guarded sibling protocol separately.",
+  "guarded_protocol": "safe_reasoning_budget_results/conditions.json",
+  "guard": "Read-only neural-logit reduction before steering sets the existing sampler's sticky invalid-inference flag; normal generation rejects it.",
+  "qualification": "safe_reasoning_budget_software_validation.json",
+  "guarded_task_outputs": 0,
+  "limitations": "Software checks alone do not qualify real-model GPU integration or establish improved code generation."
+}

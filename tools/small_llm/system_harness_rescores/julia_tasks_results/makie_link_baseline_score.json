@@ -1,0 +1,17 @@
+{
+    "collection": "julia_tasks_results",
+    "task": "makie_link",
+    "arm": "baseline",
+    "source_sha256": "95c103742203a6220e058464e9c0484063dd602b77a9ca95fc5ff6f8f8a6a54d",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_link",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 2.557675838470459,
+    "diagnostic": "┌ Warning: Found `resolution` in the theme when creating a `Scene`. The `resolution` keyword for `Scene`s and `Figure`s has been deprecated. Use `Figure(; size = ...` or `Scene(; size = ...)` instead, which better reflects that this is a unitless size and not a pixel resolution. The key could also come from `set_theme!` calls or related theming functions.\n└ @ Makie /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/scenes.jl:308\nERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  ArgumentError: Number of arguments must be compatible with given or derived Rect size. Got 3 arguments for a Rect{1} expecting 2.\n  Stacktrace:\n    [1] top-level scope\n      @ /home/sim/.julia/packages/GeometryBasics/J6kyK/src/primitives/rectangles.jl:91\n    [2] top-level scope\n      @ /home/sim/.julia/packages/GeometryBasics/J6kyK/src/primitives/rectangles.jl:78\n    [3] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/scenes.jl:313\n    [4] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/scenes.jl:280\n    [5] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/figures.jl:193\n    [6] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/figures.jl:178\n    [7] top-level scope\n      @ /input/candidate.jl:4\n    [8] top-level scope\n      @ /input/runner.jl:5\n    [9] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n   [10] macro expansion\n      @ /input/runner.jl:5 [inlined]\n   [11] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n   [12] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [13] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.1s\nRNG of the outermost testset: Random.Xoshiro(0xae0bf54dbab2aec2, 0xfa54a6fa1d5db939, 0xc3ae19003aca5657, 0x9ee750d88008f82e, 0xc7c39d28b8fe5362)\n",
+    "log_truncated": false,
+    "code_sha256": "930ea7313c836bfe25283d62f5d5bb1603de264c8898fe48297070eacda53143"
+}

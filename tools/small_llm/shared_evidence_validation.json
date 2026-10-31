@@ -1,0 +1,19 @@
+{
+    "date": "2026-10-24",
+    "cpu": "Lavapipe/llvmpipe",
+    "gpu": "Radeon 8060S",
+    "checks_per_device": {
+        "finite_factor": 30,
+        "horn_and_status": 42,
+        "bayesian_readout": 6
+    },
+    "cross_device_comparisons": 33,
+    "shared_kernel_source": true,
+    "inputs": "CPU-packed indexed arrays",
+    "source_sha256": {
+        "portable_evidence.jl": "bfe5c9ff4f579fb6292e48b55bbdb231aedf712be6631308b598e258a7f92de2",
+        "test_portable_evidence.jl": "50da02c5cddde6698a46d839a28f4b6873c8f6a2604975b307383b9280d7d803",
+        "reference/structured_evidence.jl": "61bfa5a191825fb4277205205b9e9c559f5940a12bfa2f7184011f71955dbe93"
+    },
+    "julia": "1.12.7"
+}

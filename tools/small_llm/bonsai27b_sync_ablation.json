@@ -1,0 +1,130 @@
+{
+    "name": "Bonsai2 27B PTQ1",
+    "tokens": 32,
+    "prompt": [
+        27175,
+        667,
+        17839,
+        958,
+        3145,
+        63368,
+        5638,
+        13
+    ],
+    "complete": true,
+    "old_tps": 29.741454841274304,
+    "new_tps": 30.77842685036282,
+    "percent": 3.4866216687202467,
+    "tokens_and_logits_bitidentical": true,
+    "rows": [
+        {
+            "trial": 1,
+            "automatic": true,
+            "elapsed": 1.023863778,
+            "tokens_per_second": 31.25415771862573,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 661
+        },
+        {
+            "trial": 1,
+            "automatic": false,
+            "elapsed": 1.060116256,
+            "tokens_per_second": 30.18536865073787,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 807
+        },
+        {
+            "trial": 2,
+            "automatic": false,
+            "elapsed": 1.069378297,
+            "tokens_per_second": 29.923928781584387,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 807
+        },
+        {
+            "trial": 2,
+            "automatic": true,
+            "elapsed": 1.038157748,
+            "tokens_per_second": 30.82383198665874,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 661
+        },
+        {
+            "trial": 3,
+            "automatic": true,
+            "elapsed": 1.024456139,
+            "tokens_per_second": 31.23608594042502,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 661
+        },
+        {
+            "trial": 3,
+            "automatic": false,
+            "elapsed": 1.064411139,
+            "tokens_per_second": 30.06357114043693,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 807
+        },
+        {
+            "trial": 4,
+            "automatic": false,
+            "elapsed": 1.102290863,
+            "tokens_per_second": 29.03045019615662,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 807
+        },
+        {
+            "trial": 4,
+            "automatic": true,
+            "elapsed": 1.049860505,
+            "tokens_per_second": 30.480239848626365,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 661
+        },
+        {
+            "trial": 5,
+            "automatic": true,
+            "elapsed": 1.05092325,
+            "tokens_per_second": 30.4494167390435,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 661
+        },
+        {
+            "trial": 5,
+            "automatic": false,
+            "elapsed": 1.082581301,
+            "tokens_per_second": 29.558980900964222,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 807
+        },
+        {
+            "trial": 6,
+            "automatic": false,
+            "elapsed": 1.094320549,
+            "tokens_per_second": 29.2418889778154,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 807
+        },
+        {
+            "trial": 6,
+            "automatic": true,
+            "elapsed": 1.041225308,
+            "tokens_per_second": 30.733021714066904,
+            "submissions": 64,
+            "passes": 807,
+            "barrier_passes": 661
+        }
+    ],
+    "scope": "Shared Mantle synchronization only; original Bonsai kernels and host greedy feedback"
+}

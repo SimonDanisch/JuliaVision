@@ -1,0 +1,5738 @@
+{
+  "rows": [
+    {
+      "qualified": "Makie.ABLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Absolute",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AbstractCamera",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AbstractLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AbstractPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AbstractScene",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Accum",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AmbientLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AngularTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Annotation",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Arc",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Arrows",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Arrows2D",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Arrows3D",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Aspect",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Atomic",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Attributes",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Auto",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Axis",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Axis3",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Axis3D",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.AxisAspect",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.BBox",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.Band",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.BarPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Between",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.BezierPath",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Billboard",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Block",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Bottom",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.BottomLeft",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.BottomRight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Box",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.BoxPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Bracket",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Button",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Camera",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Camera2D",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Camera3D",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Card",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Categorical",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.CellGrid",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Checkbox",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Circle",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ClosePath",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Colorbar",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Consume",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Container",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Contour",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Contour3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Contourf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ConversionTrait",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.CrossBar",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.CurveTo",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Cycle",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Cycled",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.DataAspect",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.DataInspector",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.DataShader",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.DateTimeTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Dendrogram",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Density",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.DirectionalLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ECDFPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.EllipticalArc",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.EmptyCamera",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.EnvironmentLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Errorbars",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Events",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Exclusively",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.FastPixel",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Figure",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.FilePath",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Fixed",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.GridBased",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.GridLayout",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.GridPosition",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.GridSubposition",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.HLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.HSpan",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Heatmap",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Hexbin",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Hist",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.HoverMenu",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Image",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ImageLike",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Inside",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.IntervalSlider",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.IntervalsBetween",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.KeysEvent",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LScene",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Label",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LayoutObservables",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Left",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Legend",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LegendElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LegendEntry",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LineElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LineSegments",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LineTo",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LinearTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Lines",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Linestyle",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.LogTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.MakieScreen",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.MarkerElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Menu",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Mesh",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.MeshScatter",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Mixed",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Modal",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.MouseEvent",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.MoveTo",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.MultiplesTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.NoConversion",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Observable",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.OldAxis",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.OneOf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Outside",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ParamForm",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PathText",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Pattern",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.Pie",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Plane3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Plane3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Plot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PlotList",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PlotSpec",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point2",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point2d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point2f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point2i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point3",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point3i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point4",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point4d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point4f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Point4i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PointBased",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PointLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PolarAxis",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Poly",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PolyElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Protrusion",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.PseudologTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.QQNorm",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.QQPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Quaternion",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Quaternionf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.RGBAf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.RGBf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.RainClouds",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rangebars",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.RaymarchAlgorithm",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.RealVector",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Record",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.RecordEvents",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect2",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect2d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect2f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect2i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect3",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rect3i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.RectLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rectd",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Rectf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Recti",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Relative",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Resampler",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Reverse",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ReversibleScale",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Right",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.SSAO",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Scatter",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ScatterLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Scene",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.ScrollEvent",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Series",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Slider",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.SliderGrid",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Sphere",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Spinner",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.SpotLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Spy",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.StageCamera",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Stairs",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Stem",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.StepHist",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Stepper",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.StreamPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Subfigure",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.SunSkyLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Surface",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.SymlogTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Table",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.TablePlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Tabs",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Text",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.TextLabel",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Textbox",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Theme",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.TimeSeries",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Toggle",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Tooltip",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Top",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.TopLeft",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.TopRight",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Transformation",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Tricontour",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Tricontourf",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Triplot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Tubes",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VSpan",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec2",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec2d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec2f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec2i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec3",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec3i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec4",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec4d",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec4f",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Vec4i",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VecTypes",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VertexGrid",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VideoStream",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Violin",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Volume",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VolumeLike",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.VolumeSlices",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Voronoiplot",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Voxels",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Waterfall",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.WilkinsonTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.Wireframe",
+      "kind": "type"
+    },
+    {
+      "qualified": "Makie.abline!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ablines",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ablines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.activate_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.add_tab!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.addmouseevents!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.annotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.annotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arc",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arc!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arrows",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arrows!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arrows2d",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arrows2d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arrows3d",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.arrows3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.assetpath",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.attributes",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.autolimits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.available_gradients",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.available_marker_symbols",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.available_plotting_methods",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.axis3d",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.axis3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.axiscolorbar",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.axislegend",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.band",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.band!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.barplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.barplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.bottom",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.boundingbox",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.boxplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.boxplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.bracket",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.bracket!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.broadcast_foreach",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cam2d",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cam2d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cam3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cam3d_cad!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cam_relative!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.camera",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cameracontrols",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cameracontrols!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.campixel",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.campixel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.card_accessory",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.categorical_colors",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.center!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cgrad",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.cleanup_globals",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.close!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.colgap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.colorbuffer",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.colsize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.connect!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.connect_screen",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.content",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.content_scene",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contents",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contour",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contour!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contour3d",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contour3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contourf",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.contourf!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.convert_arguments",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.convert_attribute",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.convert_form_input",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.crossbar",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.crossbar!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.current_axis",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.current_axis!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.current_figure",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.current_figure!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.data_limits",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.datashader",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.datashader!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.deactivate_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.decompose",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.default_theme",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.dendrogram",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.dendrogram!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.density",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.density!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.deregister_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.disconnect!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.dropped_files",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ecdfplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ecdfplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.entered_window",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.errorbars",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.errorbars!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.events",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.fill_between!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.filter_cards!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.filter_fields!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.findplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.get_lights",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.grid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.gridnest!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hasfocus",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.heatmap",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.heatmap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.height",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.help",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hexbin",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hexbin!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hgrid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hidedecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hiderdecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hidespines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hidethetadecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hidexdecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hideydecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hidezdecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hist",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hist!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hlines",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hlines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hovered_scene",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hspan",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.hspan!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.image",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.image!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.insertplots!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.interactions",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.is_mouseinside",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ispressed",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.keyboard_buttons",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.labelslider!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.labelslidergrid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.left",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.left_subsup",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.lift",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.limits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.lines",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.lines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.linesegments",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.linesegments!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.linkaxes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.linkxaxes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.linkyaxes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mesh",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mesh!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.meshscatter",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.meshscatter!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mouse_buttons",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mouse_position",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mouseover",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mouseposition",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.mouseposition_px",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ncols",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.nrows",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.off",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.old_cam3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.old_cam3d_cad!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.old_cam3d_turntable!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.on",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onany",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousedownoutside",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseenter",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftdoubleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftdown",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftdrag",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftdragstart",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftdragstop",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseleftup",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddledoubleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddledown",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddledrag",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddledragstart",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddledragstop",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmousemiddleup",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseout",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouseover",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightdoubleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightdown",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightdrag",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightdragstart",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightdragstop",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onmouserightup",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.onpick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.open!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.origin!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.pathtext",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.pathtext!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.pick",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.pie",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.pie!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.pixelarea",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.plot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.plot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.plotkey",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.plotlist",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.plotlist!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.plots",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.poly",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.poly!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.push_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.qqnorm",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.qqnorm!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.qqplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.qqplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.qrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.quiver",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.quiver!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rainclouds",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rainclouds!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rangebars",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rangebars!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.record",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.record_events",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.record_longrunning",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.recordframe!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.refresh_contentsize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.register_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.register_position_transforms!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.register_positions_transformed!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.register_positions_transformed_f32c!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.register_projected_positions!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.register_projected_rotations_2d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.remove_tab!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.replace_automatic!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.replace_content!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.replay_events",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.resample_cmap",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.reset_limits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.resize_to_layout!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rich",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.right",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rlims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rotate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rotate_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rowgap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.rowsize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.save",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.scale!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.scatter",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.scatter!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.scatterlines",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.scatterlines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.scroll",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.select_line",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.select_point",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.select_rectangle",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.series",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.series!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_ambient_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_close_to!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_directional_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_lights!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_shading_algorithm!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_tab!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.set_theme!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.showgradients",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.spy",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.spy!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stage_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stairs",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stairs!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stem",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stem!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stephist",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.stephist!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.streamplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.streamplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.string_boundingbox",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.subscript",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.subsup",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.superscript",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.surface",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.surface!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.swap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tableplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tableplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.text",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.text!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.textlabel",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.textlabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme_black",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme_dark",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme_ggplot2",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme_latexfonts",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme_light",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.theme_minimal",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.thetalims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tight_ticklabel_spacing!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tight_xticklabel_spacing!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tight_yticklabel_spacing!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tightlimits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.timeseries",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.timeseries!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_align",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_color",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_colormap",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_font",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_fontsize",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_ndim",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_rotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_value",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_vector",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.to_world",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tooltip",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tooltip!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.top",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.translate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.translate_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.translated",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.translation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tricontour",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tricontour!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tricontourf",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tricontourf!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.trim!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.triplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.triplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tubes",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.tubes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.unicode_input",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.update!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.update_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.update_theme!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.used_attributes",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.vgrid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.viewport",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.violin",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.violin!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.vlines",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.vlines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.volume",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.volume!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.volumeslices",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.volumeslices!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.voronoiplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.voronoiplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.voxels",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.voxels!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.vspan",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.vspan!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.waterfall",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.waterfall!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.width",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.widths",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.window_area",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.window_open",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.wireframe",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.wireframe!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.with_theme",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.with_updates_suspended",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xlabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xlims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xticklabels",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xtickrange",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xtickrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xtickrotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.xticks!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ylabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ylims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.yticklabels",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ytickrange",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ytickrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ytickrotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.yticks!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.zlabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.zlims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.zoom!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.zticklabels",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ztickrange",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ztickrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.ztickrotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Makie.zticks!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ABLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Absolute",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AbstractCamera",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AbstractLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AbstractPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AbstractScene",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Accum",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AmbientLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AngularTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Annotation",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Arc",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Arrows",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Arrows2D",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Arrows3D",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Aspect",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Atomic",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Attributes",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Auto",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Axis",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Axis3",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Axis3D",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.AxisAspect",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.BBox",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.Band",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.BarPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Between",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.BezierPath",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Billboard",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Block",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Bottom",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.BottomLeft",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.BottomRight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Box",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.BoxPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Bracket",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Button",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Camera",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Camera2D",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Camera3D",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Card",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Categorical",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.CellGrid",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Checkbox",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Circle",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ClosePath",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Colorbar",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Consume",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Container",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Contour",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Contour3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Contourf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ConversionTrait",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.CrossBar",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.CurveTo",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Cycle",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Cycled",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.DataAspect",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.DataInspector",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.DataShader",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.DateTimeTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Dendrogram",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Density",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.DirectionalLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ECDFPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.EllipticalArc",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.EmptyCamera",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.EnvironmentLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Errorbars",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Events",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Exclusively",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.FastPixel",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Figure",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.FilePath",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Fixed",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.GridBased",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.GridLayout",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.GridPosition",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.GridSubposition",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.HLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.HSpan",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Heatmap",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Hexbin",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Hist",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.HoverMenu",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Image",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ImageLike",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Inside",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.IntervalSlider",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.IntervalsBetween",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.KeysEvent",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LScene",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Label",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LayoutObservables",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Left",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Legend",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LegendElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LegendEntry",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LineElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LineSegments",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LineTo",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LinearTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Lines",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Linestyle",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.LogTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.MakieScreen",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.MarkerElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Menu",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Mesh",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.MeshScatter",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Mixed",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Modal",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.MouseEvent",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.MoveTo",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.MultiplesTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.NoConversion",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Observable",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.OldAxis",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.OneOf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Outside",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ParamForm",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PathText",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Pattern",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.Pie",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Plane3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Plane3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Plot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PlotList",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PlotSpec",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point2",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point2d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point2f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point2i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point3",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point3i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point4",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point4d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point4f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Point4i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PointBased",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PointLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PolarAxis",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Poly",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PolyElement",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Protrusion",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.PseudologTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.QQNorm",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.QQPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Quaternion",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Quaternionf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.RGBAf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.RGBf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.RainClouds",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rangebars",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.RaymarchAlgorithm",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.RealVector",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Record",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.RecordEvents",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect2",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect2d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect2f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect2i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect3",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rect3i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.RectLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rectd",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Rectf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Recti",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Relative",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Resampler",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Reverse",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ReversibleScale",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Right",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.SSAO",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Scatter",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ScatterLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Scene",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.ScrollEvent",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Series",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Slider",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.SliderGrid",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Sphere",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Spinner",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.SpotLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Spy",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.StageCamera",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Stairs",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Stem",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.StepHist",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Stepper",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.StreamPlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Subfigure",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.SunSkyLight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Surface",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.SymlogTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Table",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.TablePlot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Tabs",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Text",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.TextLabel",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Textbox",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Theme",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.TimeSeries",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Toggle",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Tooltip",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Top",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.TopLeft",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.TopRight",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Transformation",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Tricontour",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Tricontourf",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Triplot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Tubes",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VLines",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VSpan",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec2",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec2d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec2f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec2i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec3",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec3d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec3f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec3i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec4",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec4d",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec4f",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Vec4i",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VecTypes",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VertexGrid",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VideoStream",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Violin",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Volume",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VolumeLike",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.VolumeSlices",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Voronoiplot",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Voxels",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Waterfall",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.WilkinsonTicks",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.Wireframe",
+      "kind": "type"
+    },
+    {
+      "qualified": "CairoMakie.abline!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ablines",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ablines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.activate_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.add_tab!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.addmouseevents!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.annotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.annotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arc",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arc!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arrows",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arrows!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arrows2d",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arrows2d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arrows3d",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.arrows3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.assetpath",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.attributes",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.autolimits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.available_gradients",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.available_marker_symbols",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.available_plotting_methods",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.axis3d",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.axis3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.axiscolorbar",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.axislegend",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.band",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.band!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.barplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.barplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.bottom",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.boundingbox",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.boxplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.boxplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.bracket",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.bracket!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.broadcast_foreach",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cam2d",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cam2d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cam3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cam3d_cad!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cam_relative!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.camera",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cameracontrols",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cameracontrols!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.campixel",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.campixel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.card_accessory",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.categorical_colors",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.center!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cgrad",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.cleanup_globals",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.close!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.colgap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.colorbuffer",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.colsize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.connect!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.connect_screen",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.content",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.content_scene",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contents",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contour",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contour!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contour3d",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contour3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contourf",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.contourf!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.convert_arguments",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.convert_attribute",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.convert_form_input",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.crossbar",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.crossbar!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.current_axis",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.current_axis!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.current_figure",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.current_figure!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.data_limits",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.datashader",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.datashader!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.deactivate_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.decompose",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.default_theme",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.dendrogram",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.dendrogram!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.density",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.density!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.deregister_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.disconnect!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.dropped_files",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ecdfplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ecdfplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.entered_window",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.errorbars",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.errorbars!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.events",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.fill_between!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.filter_cards!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.filter_fields!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.findplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.get_lights",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.grid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.gridnest!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hasfocus",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.heatmap",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.heatmap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.height",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.help",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hexbin",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hexbin!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hgrid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hidedecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hiderdecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hidespines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hidethetadecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hidexdecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hideydecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hidezdecorations!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hist",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hist!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hlines",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hlines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hovered_scene",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hspan",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.hspan!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.image",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.image!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.insertplots!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.interactions",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.is_mouseinside",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ispressed",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.keyboard_buttons",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.labelslider!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.labelslidergrid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.left",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.left_subsup",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.lift",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.limits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.lines",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.lines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.linesegments",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.linesegments!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.linkaxes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.linkxaxes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.linkyaxes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mesh",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mesh!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.meshscatter",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.meshscatter!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mouse_buttons",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mouse_position",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mouseover",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mouseposition",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.mouseposition_px",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ncols",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.nrows",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.off",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.old_cam3d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.old_cam3d_cad!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.old_cam3d_turntable!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.on",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onany",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousedownoutside",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseenter",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftdoubleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftdown",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftdrag",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftdragstart",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftdragstop",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseleftup",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddledoubleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddledown",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddledrag",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddledragstart",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddledragstop",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmousemiddleup",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseout",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouseover",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightdoubleclick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightdown",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightdrag",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightdragstart",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightdragstop",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onmouserightup",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.onpick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.open!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.origin!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.pathtext",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.pathtext!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.pick",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.pie",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.pie!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.pixelarea",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.plot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.plot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.plotkey",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.plotlist",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.plotlist!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.plots",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.poly",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.poly!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.push_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.qqnorm",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.qqnorm!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.qqplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.qqplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.qrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.quiver",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.quiver!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rainclouds",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rainclouds!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rangebars",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rangebars!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.record",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.record_events",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.record_longrunning",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.recordframe!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.refresh_contentsize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.register_interaction!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.register_position_transforms!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.register_positions_transformed!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.register_positions_transformed_f32c!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.register_projected_positions!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.register_projected_rotations_2d!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.remove_tab!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.replace_automatic!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.replace_content!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.replay_events",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.resample_cmap",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.reset_limits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.resize_to_layout!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rich",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.right",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rlims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rotate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rotate_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rowgap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.rowsize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.save",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.scale!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.scatter",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.scatter!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.scatterlines",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.scatterlines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.scroll",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.select_line",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.select_point",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.select_rectangle",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.series",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.series!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_ambient_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_close_to!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_directional_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_light!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_lights!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_shading_algorithm!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_tab!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.set_theme!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.showgradients",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.spy",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.spy!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stage_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stairs",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stairs!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stem",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stem!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stephist",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.stephist!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.streamplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.streamplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.string_boundingbox",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.subscript",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.subsup",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.superscript",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.surface",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.surface!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.swap!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tableplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tableplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.text",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.text!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.textlabel",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.textlabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme_black",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme_dark",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme_ggplot2",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme_latexfonts",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme_light",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.theme_minimal",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.thetalims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tight_ticklabel_spacing!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tight_xticklabel_spacing!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tight_yticklabel_spacing!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tightlimits!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.timeseries",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.timeseries!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_align",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_color",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_colormap",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_font",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_fontsize",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_ndim",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_rotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_value",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_vector",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.to_world",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tooltip",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tooltip!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.top",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.translate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.translate_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.translated",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.translation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tricontour",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tricontour!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tricontourf",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tricontourf!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.trim!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.triplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.triplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tubes",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.tubes!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.unicode_input",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.update!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.update_cam!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.update_theme!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.used_attributes",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.vgrid!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.viewport",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.violin",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.violin!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.vlines",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.vlines!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.volume",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.volume!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.volumeslices",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.volumeslices!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.voronoiplot",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.voronoiplot!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.voxels",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.voxels!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.vspan",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.vspan!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.waterfall",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.waterfall!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.width",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.widths",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.window_area",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.window_open",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.wireframe",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.wireframe!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.with_theme",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.with_updates_suspended",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xlabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xlims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xticklabels",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xtickrange",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xtickrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xtickrotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.xticks!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ylabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ylims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.yticklabels",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ytickrange",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ytickrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ytickrotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.yticks!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.zlabel!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.zlims!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.zoom!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.zticklabels",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ztickrange",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ztickrotation",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.ztickrotation!",
+      "kind": "function"
+    },
+    {
+      "qualified": "CairoMakie.zticks!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Base64.Base64DecodePipe",
+      "kind": "type"
+    },
+    {
+      "qualified": "Base64.Base64EncodePipe",
+      "kind": "type"
+    },
+    {
+      "qualified": "Base64.base64decode",
+      "kind": "function"
+    },
+    {
+      "qualified": "Base64.base64encode",
+      "kind": "function"
+    },
+    {
+      "qualified": "Base64.stringmime",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.cor",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.cov",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.mean",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.mean!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.median",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.median!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.middle",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.quantile",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.quantile!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.std",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.stdm",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.var",
+      "kind": "function"
+    },
+    {
+      "qualified": "Statistics.varm",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.AbstractTriangular",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Adjoint",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Bidiagonal",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.BunchKaufman",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Cholesky",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.CholeskyPivoted",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.ColumnNorm",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Diagonal",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Eigen",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Factorization",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.GeneralizedEigen",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.GeneralizedSVD",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.GeneralizedSchur",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Givens",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Hermitian",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Hessenberg",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.LAPACKException",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.LDLt",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.LQ",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.LU",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.LowerTriangular",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.NoPivot",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.PosDefException",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.QR",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.QRPivoted",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.RankDeficientException",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.RowMaximum",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.RowNonZero",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.SVD",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Schur",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.SingularException",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.SymTridiagonal",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Symmetric",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Transpose",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.Tridiagonal",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.UniformScaling",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.UnitLowerTriangular",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.UnitUpperTriangular",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.UpperHessenberg",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.UpperTriangular",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.ZeroPivotException",
+      "kind": "type"
+    },
+    {
+      "qualified": "LinearAlgebra.adjoint",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.adjoint!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.axpby!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.axpy!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.bunchkaufman",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.bunchkaufman!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.checksquare",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.cholesky",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.cholesky!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.cond",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.condskeel",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.convert",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.copy_adjoint!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.copy_transpose!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.copyto!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.copytrito!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.cross",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.det",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.diag",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.diagind",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.diagm",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.diagview",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.dot",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigen",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigen!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigmax",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigmin",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigvals",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigvals!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.eigvecs",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.factorize",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.fillstored!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.givens",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.haszero",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.hermitian",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.hermitian_type",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.hermitianpart",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.hermitianpart!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.hessenberg",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.hessenberg!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.inertia",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.isbanded",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.isdiag",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.ishermitian",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.isposdef",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.isposdef!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.issuccess",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.issymmetric",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.istril",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.istriu",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.kron",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.kron!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.ldiv!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.ldlt",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.ldlt!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lmul!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.logabsdet",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.logdet",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lowrankdowndate",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lowrankdowndate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lowrankupdate",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lowrankupdate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lq",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lq!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lu",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lu!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.lyap",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.matprod_dest",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.mul!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.norm",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.normalize",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.normalize!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.nullspace",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.opnorm",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.ordschur",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.ordschur!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.peakflops",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.pinv",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.qr",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.qr!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.rank",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.rdiv!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.reflect!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.rmul!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.rotate!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.schur",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.schur!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.svd",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.svd!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.svdvals",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.svdvals!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.sylvester",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.symmetric",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.symmetric_type",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.tr",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.transpose",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.transpose!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.tril",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.tril!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.triu",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.triu!",
+      "kind": "function"
+    },
+    {
+      "qualified": "LinearAlgebra.zeroslike",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.AbstractRNG",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.MersenneTwister",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.RandomDevice",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.Sampler",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.SamplerSimple",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.SamplerTrivial",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.SamplerType",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.TaskLocalRNG",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.Xoshiro",
+      "kind": "type"
+    },
+    {
+      "qualified": "Random.bitrand",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.default_rng",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.rand!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randcycle",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randcycle!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randexp",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randexp!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randn!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randperm",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randperm!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randstring",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randsubseq",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.randsubseq!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.seed!",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.shuffle",
+      "kind": "function"
+    },
+    {
+      "qualified": "Random.shuffle!",
+      "kind": "function"
+    }
+  ],
+  "julia_version": "1.12.7",
+  "complete": true,
+  "scope": "Installed exported callable/type names only. No signatures, replacement APIs, semantic relevance or valid argument combinations guaranteed. No generated candidate or benchmark tests read.",
+  "project_sha256": "ce432cb2380f0ecfb5b3220b8985a207e8eb2e9b6be1bc19751564f60ce7d3c3",
+  "manifest_sha256": "5be02c10f5f7bdd0594deaae2aebebe7da4a17dc00e101117cff19438ceed065",
+  "source_sha256": "12e634668c76a519a61e41ebc000259aadc01f2620026d451326cfd6c929acc3"
+}

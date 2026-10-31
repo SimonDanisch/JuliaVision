@@ -1,0 +1,185 @@
+{
+  "complete": true,
+  "scope": "Post-execution ROOT-only first-visible-failure taxonomy, NOT causal diagnosis, grading changes, model feedback, or proof of general intelligence. Every frozen condition retained.",
+  "counts_by_arm": {
+    "direct": {
+      "undefined_name": 4,
+      "other_julia_runtime_error": 1,
+      "method_error": 1,
+      "syntax_error": 2
+    },
+    "public_docs": {
+      "undefined_name": 2,
+      "syntax_error": 3,
+      "method_error": 2,
+      "other_julia_runtime_error": 1
+    }
+  },
+  "rows": [
+    {
+      "id": "doc_588_direct",
+      "task": "BigCodeBench/588",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": false
+    },
+    {
+      "id": "doc_588_public_docs",
+      "task": "BigCodeBench/588",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "doc_958_public_docs",
+      "task": "BigCodeBench/958",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "syntax_error",
+      "truncated": true
+    },
+    {
+      "id": "doc_958_direct",
+      "task": "BigCodeBench/958",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "doc_924_direct",
+      "task": "BigCodeBench/924",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "doc_924_public_docs",
+      "task": "BigCodeBench/924",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "method_error",
+      "truncated": true
+    },
+    {
+      "id": "doc_720_public_docs",
+      "task": "BigCodeBench/720",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "method_error",
+      "truncated": true
+    },
+    {
+      "id": "doc_720_direct",
+      "task": "BigCodeBench/720",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "other_julia_runtime_error",
+      "truncated": false
+    },
+    {
+      "id": "doc_493_direct",
+      "task": "BigCodeBench/493",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "method_error",
+      "truncated": false
+    },
+    {
+      "id": "doc_493_public_docs",
+      "task": "BigCodeBench/493",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "syntax_error",
+      "truncated": false
+    },
+    {
+      "id": "doc_229_public_docs",
+      "task": "BigCodeBench/229",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "other_julia_runtime_error",
+      "truncated": true
+    },
+    {
+      "id": "doc_229_direct",
+      "task": "BigCodeBench/229",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "doc_1038_direct",
+      "task": "BigCodeBench/1038",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "syntax_error",
+      "truncated": true
+    },
+    {
+      "id": "doc_1038_public_docs",
+      "task": "BigCodeBench/1038",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "undefined_name",
+      "truncated": true
+    },
+    {
+      "id": "doc_350_public_docs",
+      "task": "BigCodeBench/350",
+      "arm": "public_docs",
+      "status": "failed",
+      "symptom": "syntax_error",
+      "truncated": true
+    },
+    {
+      "id": "doc_350_direct",
+      "task": "BigCodeBench/350",
+      "arm": "direct",
+      "status": "failed",
+      "symptom": "syntax_error",
+      "truncated": true
+    }
+  ],
+  "inputs_sha256": {
+    "conditions.json": "c790db711a0372e62e021b5e2604c55ed43162b9efe662a651a5addda3b6e4e5",
+    "summary.json": "94baf7ee2fcfd7eb7b398560025e20ff1aa56117e3d4206d2a1fc1e23b0ddd9c",
+    "doc_588_direct.json": "518dd92f7f72b44352b069524c1e5b95579dc1aeaa942ab814faa54cf568dc4e",
+    "doc_588_direct_score.json": "43eb5a74da6bc4380724803bcfd7548d82d3973976594e0c4305e93ccfa6276b",
+    "doc_588_public_docs.json": "7423dea54ac9e3094720b2957a98dd3e1668436005ea45f06e789d03e245a9b3",
+    "doc_588_public_docs_score.json": "20603ac3caa576d1ddca08a4f963ad8f3e440d386fe9620b382c0e917087f551",
+    "doc_958_public_docs.json": "c94ea5a19124db9cc6b24a376f442dfb8320add40153fe4cb0ba41e3c37ce7c9",
+    "doc_958_public_docs_score.json": "336415fd0899041901f7026502c1f98a6e6f082a1c4753bb326dc80c8d9de848",
+    "doc_958_direct.json": "3610f2401c2b6a789a40eeaa9b41df714beaf3c18c587c066da629e7b39c5d6f",
+    "doc_958_direct_score.json": "995b4ae7d9de730df2816e5f9b3d5ca10de9e96c221ecc23edcd18ebd3274f7d",
+    "doc_924_direct.json": "274079fcef7b5ffc28d442894368b071be6dc037a764be5aa1751e3839b65129",
+    "doc_924_direct_score.json": "9d0c202d47fc34623d8a0269b16a78200dfef1a0e51db5cce27e513817b96845",
+    "doc_924_public_docs.json": "0dc8555b7ac6555e4b7298efe8457810ee6e2c25a58a2705242f2772c29f2e8e",
+    "doc_924_public_docs_score.json": "a42a1fc92e8bd748b7e0d9610e500616090b4f7eab769be8fd69422a8a4a766a",
+    "doc_720_public_docs.json": "1b1eb439834e03ba5f563f8c08b74ce6b7b9955c0597bf0bc998b234b62d81a4",
+    "doc_720_public_docs_score.json": "802812b9fa2230059f40dd1bdb633dcb5b11f7d2dd522cd3b3a23955dd0fc63d",
+    "doc_720_direct.json": "13fb0d1b8ce57d99aad8a84e1594b6dc9efb9f40366251964428a5543e801a64",
+    "doc_720_direct_score.json": "9c013da6651f0568bd331211e41eef04ab2e5c542a055c3ae1bbe8f41cbe9de3",
+    "doc_493_direct.json": "2935b664ec4eb6f93a08d99dbfba2352db43bccbd8e8007c26a7cadc71a7c418",
+    "doc_493_direct_score.json": "8cacfb9b380879616a51bd5ba0e521995862599bb2a9ba7aa61c7c1b7a916e9f",
+    "doc_493_public_docs.json": "5daeece0e83e79a0e6a7068907806de4193fc079f4e4eda3c965659ff1d569d3",
+    "doc_493_public_docs_score.json": "684b864229237d5219972ec82ce6e5111f2ee596f51ff00433816b57b305edd7",
+    "doc_229_public_docs.json": "d39a7440d0d2005041633202f28e383e4b2588aa17834a0c1a40b7dd6ffbd1eb",
+    "doc_229_public_docs_score.json": "4c85e710015ff7fa2ef92102c2912edcc8989c92e5c7dcaac6eb63b054a1a588",
+    "doc_229_direct.json": "fa285a928b64a1011520c4c12029c48c6598486651bd2ece00f2061ac2a5c141",
+    "doc_229_direct_score.json": "bb4b4a0090d259cd4d6897a8bd01bea59178cb4838040fbafd1cd094045e07fa",
+    "doc_1038_direct.json": "ccb44031bb5af69d3308fa1c4e7a9c160930bcd80d6f40eee198abc00831a2bf",
+    "doc_1038_direct_score.json": "f0b6b89eebe0a20caeb92253083c02081d06c9e2efc5fd49a284a05adb1a1913",
+    "doc_1038_public_docs.json": "07ac26d9408137fdd77b040283b7d6127508b64661dd2db74767e78efbf98b8f",
+    "doc_1038_public_docs_score.json": "78e0180343bb51aa655ee85ef5dfcf23a8844d0426b01929266f9425355515a9",
+    "doc_350_public_docs.json": "791949636829605618d1a2bcf8318320e8cf6d19dc9bf3f8edd936b6a46d9b85",
+    "doc_350_public_docs_score.json": "353c1ecb97f539c1b8f89ceb51a74475922b7955ce239c2e11836bbdb2a9fb39",
+    "doc_350_direct.json": "b928e9159aa68ea82b3a3c74021f4060fe9b94999b43e48138bcebe8e48494c8",
+    "doc_350_direct_score.json": "9634b8335ff0335d2c7ad4b0308a2c9729ee0d523dac026ba0b5baafa986e54a"
+  },
+  "analyzer_sha256": "19e1bc9f8d662336a4abb22dc4f492065e239ebf3ba9be96b901abac83f94c6f"
+}

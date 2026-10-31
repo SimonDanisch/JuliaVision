@@ -1,0 +1,14 @@
+{
+    "task": "ki_body_column_major_scale",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: GPU compilation of MethodInstance for kernel!(::Lava.LavaDeviceArray{Float32, 1}, ::Lava.LavaDeviceArray{Float32, 1}, ::Lava.LavaDeviceArray{Float32, 1}, ::Int32, ::Int32) failed\nKernelError: kernel returns a value of type `Union{Nothing, Float32}`\n\nMake sure your kernel function ends in `return`, `return nothing` or `nothing`.\n\nin expression starting at public_kernel_probe.jl:9"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "a830b88eacf165cacaf8c5754fa1eec93e7e6a1f927aa32f87415c81e6ee1b1e",
+    "fixture_sha256": "f400ab7ab619e1e128427210cc5e311b6f805493d35489211db0073e42a95260",
+    "code_sha256": "196de7d7c28ea3dacb6ac279b004a4e2762a3500f69cdb569ae533f6f5934953",
+    "elapsed_seconds": 22.673233032226562
+}

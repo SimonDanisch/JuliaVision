@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU-only infrastructure inventory validation, NOT model quality",
+    "passed": 12,
+    "source_sha256": {
+        "test_laptop_experiment_progress.jl": "dfa5c27aa7aba70d30e6d9915353cc9cc1221b766d883c525dfbdee96408ce4c",
+        "laptop_experiment_progress.jl": "22086bbb2803a7576e8aaa901d59570d3257122e0b0585dfe191d398a92a4063"
+    }
+}

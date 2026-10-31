@@ -1,0 +1,39 @@
+{
+    "rendered": true,
+    "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/render_results/trusted_makie_link.png",
+    "dimensions": {
+        "width": 720,
+        "height": 480
+    },
+    "elapsed_seconds": 35.02174496650696,
+    "sha256": "b7840e404785136f250bc89698057acef5d34133824737e8c307cd50ab611990",
+    "layout": {
+        "canvas": [
+            720,
+            480
+        ],
+        "axes": [
+            {
+                "title": "Signal",
+                "decorated_bounds": [
+                    15.999996,
+                    248.5,
+                    704.0,
+                    464.0
+                ],
+                "within_canvas": true
+            },
+            {
+                "title": "",
+                "decorated_bounds": [
+                    24.175999,
+                    15.999996,
+                    704.0,
+                    230.5
+                ],
+                "within_canvas": true
+            }
+        ]
+    },
+    "diagnostic": "LAYOUT_REPORT={\"canvas\":[720,480],\"axes\":[{\"title\":\"Signal\",\"decorated_bounds\":[15.999996,248.5,704.0,464.0],\"within_canvas\":true},{\"title\":\"\",\"decorated_bounds\":[24.175999,15.999996,704.0,230.5],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+}

@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.19360643904656172,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: SystemError: opening file \"task_func_data/Output.txt\": No such file or directory\nStacktrace:\n [1] systemerror(p::String, errno::Int32; extrainfo::Nothing)\n   @ Base ./error.jl:186\n [2] open(fname::String; lock::Bool, read::Nothing, write::Nothing, create::Nothing, truncate::Nothing, append::Bool)\n   @ Base ./iostream.jl:317\n [3] open\n   @ ./iostream.jl:296 [inlined]\n [4] open(fname::String, mode::String; lock::Bool)\n   @ Base ./iostream.jl:380\n [5] open(fname::String, mode::String)\n   @ Base ./iostream.jl:379\n [6] top-level scope\n   @ /input/program.jl:20\n [7] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [8] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [9] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:20\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 9, in test_cases\nAssertionError\n",
+  "program_sha256": "3685d7a47d725afe8dd552dca1c60d75c4871bc26a4864a8efc7d3d6e9b6d18a",
+  "test_suite_sha256": "101ec99ea1a2f467065a3e99f594066e2a04b2a409dbfb0634304ab0aa00946e",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

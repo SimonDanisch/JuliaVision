@@ -1,0 +1,26 @@
+{
+    "id": "squared_neighbor_maximum",
+    "conditions_sha256": "b15d748b3eb80966f7850d0feddb7d40ecbea5e036c02417a0c89826e009ee98",
+    "mode": "periodic",
+    "parent_selection_sha256": "dbbec3fb6f7588158978d8a9ffec770109b66e314592f379d65e4b9c62a91113",
+    "proposal": {
+        "found": true,
+        "reason": "public_example_and_boundary_match",
+        "program": "x_prev_periodic\nsquare\nx_next_periodic\nsquare\nmax\nfinish\n",
+        "mode": "periodic",
+        "operations": 5,
+        "candidates": 5622,
+        "unique_states": 2470,
+        "elapsed_seconds": 0.171788763,
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10,
+        "scope": "First fit to public examples within explicit boundary feature subset; no guarantee beyond these constraints. Shared numeric CPU/GPU evaluator."
+    },
+    "selected": {
+        "selected": "symbolic_public_boundary",
+        "program": "x_prev_periodic\nsquare\nx_next_periodic\nsquare\nmax\nfinish\n",
+        "reason": "public_boundary_contract_failure"
+    }
+}

@@ -1,0 +1,7 @@
+{
+    "complete": true,
+    "scope": "CPU-only v2 scorer preflight and parent-generation interlock; no model/Device",
+    "conditions_sha256": "69dc7e90257ae43baff8de85f9dedee2592496c2a2f3b8a66704a275484683b2",
+    "pending": 16,
+    "parent_interlock_verified": true
+}

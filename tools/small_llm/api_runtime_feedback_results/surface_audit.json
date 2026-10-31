@@ -1,0 +1,20 @@
+[
+    {
+        "task": "ki_launch",
+        "parse_problem": false,
+        "qualified_lowlevel_launch_calls": [
+        ],
+        "requires_review": false,
+        "scope": "post-hoc public-spec audit; does NOT change frozen functional scores",
+        "limitation": "Aliases, shadowed names, dead code and indirect calls require manual/type-aware review"
+    },
+    {
+        "task": "ki_launch",
+        "parse_problem": false,
+        "qualified_lowlevel_launch_calls": [
+        ],
+        "requires_review": false,
+        "scope": "post-hoc public-spec audit; does NOT change frozen functional scores",
+        "limitation": "Aliases, shadowed names, dead code and indirect calls require manual/type-aware review"
+    }
+]

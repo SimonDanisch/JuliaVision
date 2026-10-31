@@ -1,0 +1,23 @@
+{
+    "task": "146_specialFilter",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "specialFilter([15, -73, 14, -15])",
+            "completed": false,
+            "matches_public_example": false,
+            "error": "UndefVarError: `specialFilter` not defined in `Main`\nSuggestion: check for spelling errors or missing imports."
+        },
+        {
+            "example": "specialFilter([33, -2, -3, 45, 21, 109])",
+            "completed": false,
+            "matches_public_example": false,
+            "error": "UndefVarError: `specialFilter` not defined in `Main`\nSuggestion: check for spelling errors or missing imports."
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.6033618450164795,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "public_examples_sha256": "6a83176b8aad0069f0c681f1bf54063f0bdc2079473f9dd837f575929b7779b4"
+}

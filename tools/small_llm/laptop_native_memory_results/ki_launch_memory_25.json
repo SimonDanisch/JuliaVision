@@ -1,0 +1,68 @@
+{
+    "answer": "```julia\nusing KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    # Validate dimensions\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"Output and input arrays must have the same length.\"))\n    end\n\n    # Ensure arrays are launchable (e.g., launchable arrays)\n    if !islaunchable(out) || !islaunchable(x)\n        throw(ArgumentError(\"KernelInterface kernels require launchable arrays.\"))\n    end\n\n    # Launch the kernel\n    any(islaunchable, [out, x]) && KernelInterface.launch(kernel, ndrange=length(x), workgroupsize=64)\n\n    # Synchronize the backend\n    KernelInterface.sync(kernel.backend)\n\n    return out\nend\n```",
+    "code": "using KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    # Validate dimensions\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"Output and input arrays must have the same length.\"))\n    end\n\n    # Ensure arrays are launchable (e.g., launchable arrays)\n    if !islaunchable(out) || !islaunchable(x)\n        throw(ArgumentError(\"KernelInterface kernels require launchable arrays.\"))\n    end\n\n    # Launch the kernel\n    any(islaunchable, [out, x]) && KernelInterface.launch(kernel, ndrange=length(x), workgroupsize=64)\n\n    # Synchronize the backend\n    KernelInterface.sync(kernel.backend)\n\n    return out\nend\n",
+    "input_tokens": 160,
+    "generated_tokens": 174,
+    "budget_tokens": 512,
+    "decode_steps_executed": 256,
+    "decode_submissions": 256,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 5.359932899475098,
+    "input_sha256": "a98e6c47cca7c4c3df8bd4ece5bd80c61f1c07c693d25a5a8380006c9afb253b",
+    "memory_weight": 0.25,
+    "memory_temperature": 32,
+    "memory_topk": 8,
+    "shuffled_labels": false,
+    "final_memory_status": 0,
+    "worst_memory_status": 0,
+    "datastore_registration_sha256": "1b2e5fde40fe097c960f9c1e84fcb22e998daa03a0dfb588f2944d1df74ac291",
+    "scope": "native final-RMSNorm hidden-state retrieval and probability mixing, not a trained latent bridge",
+    "id": "ki_launch_memory_25",
+    "task": "ki_launch",
+    "arm": "memory_25",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+        }
+    ],
+    "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480",
+    "conditions_sha256": "c59afd1e953344f19f7c10302cd4a053545824937ad72a9f8e617cb6755e7c8a",
+    "attempt_sha256": "0f3d4563ababcfb96982cd0279c86b304b00ec43083c7de31bdfcf6d1f956748",
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/DNNKernels",
+            "git_head": null,
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/tmp/small-llm-bosgame-20261025/dev/JuliaVision/BonsaiRunner",
+            "git_head": null,
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    }
+}

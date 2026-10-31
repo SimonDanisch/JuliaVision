@@ -1,0 +1,13 @@
+{
+    "task": "ki_body_column_major_scale",
+    "arm": "self_review",
+    "conditions_sha256": "b3db2ad662cb8c8ea8216157df3173451e9e79e1c70481dc337aa1b8ad408d1e",
+    "selected_source_sha256": "bf8702b768eb8c2123449d83bf3d9ac07fc3bb53d6955576e8a4aee4ab6d041b",
+    "original_code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pointwise_accepted": false,
+    "pointwise_reason": "one function definition required",
+    "certificate": null,
+    "void_tail_accepted": false,
+    "void_tail_reason": "one top-level kernel! entry required",
+    "code": ""
+}

@@ -1,0 +1,11 @@
+{
+    "id": "transfer_atomic_sum",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 26.474308967590332,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    8      8  14.2s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "c5ff80a7c38cf19b00e3f205db3192a75c241688bc42e9679b860749e632139a"
+}

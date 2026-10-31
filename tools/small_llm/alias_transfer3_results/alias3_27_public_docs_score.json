@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.24673984909895808,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `isdict` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:16\n [2] top-level scope\n   @ /input/program.jl:41\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:41\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 10, in test_cases\nAssertionError\n",
+  "program_sha256": "f3e9149879ca715f308331a39a766c28fe12d4bbcccecbf06d03d71203686721",
+  "test_suite_sha256": "f11db852052882d2cf894870d8b94e27dce4b809a16795a03b9cbfe5e89fe0b2",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "722a53ec19a4a405b343c84dd73203c0f730f6256afeab3a19e4dd6ecc57264b"
+}

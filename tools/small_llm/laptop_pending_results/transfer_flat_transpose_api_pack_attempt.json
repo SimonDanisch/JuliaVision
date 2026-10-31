@@ -1,0 +1,9 @@
+{
+    "id": "transfer_flat_transpose_api_pack",
+    "conditions_sha256": "1691c3dde59845f7ae81d80b1be9f0ec7c5ffbeea729b42bcb2ceb7cdd0e25ff",
+    "original_sha256": "6bb3c6b334e870966a49ac688857585b4e668771bea2fdba8df12f36945f2ab6",
+    "seed": 20261024,
+    "budget_tokens": 2048,
+    "thinking_budget": 1024,
+    "started_unix_seconds": 1.792886879090746e9
+}

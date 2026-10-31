@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.397095877910033,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: ArgumentError: invalid index: \"Category\" of type SubString{String}\nStacktrace:\n [1] top-level scope\n   @ indices.jl:316\n [2] top-level scope\n   @ indices.jl:293\n [3] top-level scope\n   @ indices.jl:369\n [4] top-level scope\n   @ indices.jl:361\n [5] top-level scope\n   @ abstractarray.jl:1342\n [6] top-level scope\n   @ /input/program.jl:22\n [7] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [8] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [9] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:14\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 9, in test_cases\nAssertionError\n",
+  "program_sha256": "9f2980f7f9191f11eaddf8df97884a46df1f2f7bb7ee8940ad58a57edfe45207",
+  "test_suite_sha256": "484bf5a3a0964e3c1f24d4658e6a8b6c7e064e620971a5206bd18edccacb29be",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "7208ab9b7e75996a1c5b23544429ded466a1206a1cc606cfe60123484da20b46"
+}

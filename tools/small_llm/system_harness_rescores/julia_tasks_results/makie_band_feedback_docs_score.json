@@ -1,0 +1,17 @@
+{
+    "collection": "julia_tasks_results",
+    "task": "makie_band",
+    "arm": "feedback_docs",
+    "source_sha256": "5dab1c5a6350171c77e148313a86863e64178a90fac4647357bdf52c66552de2",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_band",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 2.6791129112243652,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  KeyError: key :legend not found\n  Stacktrace:\n    [1] getindex\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/nesting.jl:135 [inlined]\n    [2] getindex(attr::ComputePipeline.ComputeGraph, key::Symbol)\n      @ ComputePipeline /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/ComputePipeline.jl:802\n    [3] getproperty(block::Axis, name::Symbol)\n      @ Makie /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/makielayout/blocks.jl:809\n    [4] top-level scope\n      @ /input/candidate.jl:16\n    [5] top-level scope\n      @ /input/runner.jl:5\n    [6] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n    [7] macro expansion\n      @ /input/runner.jl:5 [inlined]\n    [8] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n    [9] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [10] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.1s\nRNG of the outermost testset: Random.Xoshiro(0x7621351c00f4aa02, 0xb225627b549637e5, 0x54b5a1753a0c695b, 0x50f6ac572abfaf5c, 0x6adc3a3a4c332bfc)\n",
+    "log_truncated": false,
+    "code_sha256": "5d067cd7be2ca937203a475dc80361906bc161fa00afd485c95f0661c936edac"
+}

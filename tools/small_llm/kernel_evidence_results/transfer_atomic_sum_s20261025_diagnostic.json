@@ -1,0 +1,14 @@
+{
+    "task": "transfer_atomic_sum",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: ParseError:\n# Error @ public_kernel_probe.jl:1:6\nusing KernelInterface as KI\n#    └────────────────────┘ ── `using` with `as` renaming requires a `:` and context module\nin expression starting at public_kernel_probe.jl:1"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "28196199163dbd4ae67eb5eba824ee29dbf5c0ef5723dbcadf88a536ac688a08",
+    "fixture_sha256": "b42b8d0b883b4e76d9b26cf99f1d8fd1749afd5b7806825134235a4a87000e14",
+    "code_sha256": "5be1e931835df21050e7680fefe819502326afe1f14c7016fb294523a4b8ea14",
+    "elapsed_seconds": 9.50200605392456
+}

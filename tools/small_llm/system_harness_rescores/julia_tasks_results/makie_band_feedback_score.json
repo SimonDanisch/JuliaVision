@@ -1,0 +1,17 @@
+{
+    "collection": "julia_tasks_results",
+    "task": "makie_band",
+    "arm": "feedback",
+    "source_sha256": "efe4891365ea2ed652473b871d25116d95a63f3fda782c1f2a734c9afa83ab3f",
+    "previous_passed": false,
+    "changed": false,
+    "id": "makie_band",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 2.7065460681915283,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  UndefVarError: `Line` not defined in `Main`\n  Suggestion: check for spelling errors or missing imports.\n  Hint: a global variable of this name also exists in Interpolations.\n  Hint: a global variable of this name also exists in GeometryBasics.\n  Stacktrace:\n   [1] top-level scope\n     @ /input/candidate.jl:8\n   [2] top-level scope\n     @ /input/runner.jl:5\n   [3] macro expansion\n     @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n   [4] macro expansion\n     @ /input/runner.jl:5 [inlined]\n   [5] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [6] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [7] _start()\n     @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.1s\nRNG of the outermost testset: Random.Xoshiro(0xcd197c7ae836b959, 0x1ce4c01ad44fda70, 0x2c06d7e46e1bd991, 0x457f70ac79c8386b, 0xe66608f8e02b136b)\n",
+    "log_truncated": false,
+    "code_sha256": "a988d69b9b132e637e2c441c12a906b8c935764efd79a38d6866b45ce43b0aa1"
+}

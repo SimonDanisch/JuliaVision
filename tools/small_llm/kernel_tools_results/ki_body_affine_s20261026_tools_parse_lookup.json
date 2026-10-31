@@ -1,0 +1,109 @@
+{
+    "task": "ki_body_affine",
+    "seed": 20261026,
+    "arm": "tools_parse_lookup",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,x,alpha::Float32,beta::Float32,n::Int32). Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n. Launches round up; leave all out entries after n unchanged, including when n=0. All input/output storage is distinct and may contain padding. Float32 arithmetic.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "98eac8919ad3f942521afbe3e9d833f06b2d554a53b594ac9fe58a6bcc5b1c9a",
+    "answer": "Good, the syntax is correct. The kernel looks correct:\n- Gets the global 1D index\n- Checks if it's within bounds (1 <= i <= n, where 1 is implicit since global IDs are 1-based)\n- If within bounds, computes `out[i] = muladd(alpha, x[i], beta)`\n- If not within bounds (i > n), does nothing, leaving out[i] unchanged\n- Returns nothing\n\nThis satisfies all the requirements:\n- Uses KI.get_global_id().x for the global 1D index\n- Computes muladd(alpha, x[i], beta) for 1 <= i <= n\n- Launches round up (handled by the kernel launch configuration, not the kernel itself)\n- Leaves all out entries after n unchanged (the if condition ensures this)\n- Works when n=0 (no threads will satisfy i <= 0 since i >= 1)\n- Float32 arithmetic (alpha and beta are Float32, muladd produces Float32)\n- Returns nothing\n\nThe answer is the kernel function code only.\n</think>\n\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n",
+    "calls": [
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "KernelInterface"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "# `KernelInterface`\n\nThe `KernelInterface` (or `KI`) module defines the API interface for backends to define various lower-level device and host-side functionality. The `KI` interface is used to define the higher-level device-side functionality in `KernelAbstractions`.\n\nBoth provide APIs for host and device-side functionality, but `KI` focuses on lower-level functionality that is shared amongst backends, while `KernelAbstractions` provides higher-level functionality such as writing kernels that work on arrays with an arbitrary number of dimensions, or convenience functions like allocating arrays on a backend.\n\n\n`KernelInterface` exports: @launch, Backend, CoopMatReduce, Kernel, TENSOR_CLAMP_CONSTANT, TENSOR_CLAMP_TO_EDGE, TENSOR_CLAMP_UNDEFINED, TensorLayout, TensorView, _print, allocate, argconvert, barrier, coopmat_perelement, coopmat_reduce, copyto!, device, device!, dot4x8, functional, get_backend, get_global_id, get_global_size, get_group_id, get_local_id, get_local_size, get_max_sub_group_size, get_num_groups, get_num_sub_groups, get_sub_group_id, get_sub_group_local_id, get_sub_group_size, kernel_function, launch, launch_configuration, localmemory, max_num_groups, max_work_group_dims, max_work_group_size, multiprocessor_count, ndevices, ones, pagelock!, priority!, record_event, shfl, shfl_down, shfl_up, shfl_xor, sub_group_all, sub_group_any, sub_group_ballot, sub_group_barrier, sub_group_exclusive_scan, sub_group_reduce, sub_group_scan, sub_group_size, supports_atomics, supports_coopmat_perelement, supports_coopmat_reduce, supports_flexible_coopmat_shapes, supports_float64, supports_independent_subgroups, supports_linear_subgroups, supports_partitionable_subgroups, supports_shuffle, supports_subgroups, supports_tensor_addressing, supports_unified, synchronize, tensor_clampbits, tensor_layout, tensor_load, tensor_setclampvalue, tensor_setdim, tensor_setstride, tensor_slice, tensor_store, tensor_view, unsafe_free!, versioninfo, wait_event, zeros\nOther names it defines: AcceleratedMatrix, Accumulator, CoopMatrix, DeviceCaps, Flat, GeometryConfig, HostMeshOutput, LAUNCH_KWARGS, LaunchDims, LineList, LineListAdjacency, LineStrip, LineStripAdjacency, MACRO_KWARGS, MAX_MESH_VERTICES, MatrixA, MatrixB, MatrixScope, MatrixShape, MatrixUse, MeshConfig, MeshEmitter, NativeEmitter, ObjectConfig, PatchList, PointList, PrimitiveEmitter, ShuffleOp, SubgroupScope, Topology, TriangleList, TriangleStrip, VertexIndex, WorkgroupMatrix, WorkgroupScope, argument_types, assign_args!, bestshape, call_kernel, capped_prod, caps, check_dims, check_launch, check_work_group_size, clip_y, coopmat_add, coopmat_convert, coopmat_getcomp, coopmat_length, coopmat_load, coopmat_mul, coopmat_muladd, coopmat_setcomp, coopmat_store, coopmat_undef, coopmat_zero, dFdx, dFdy, discard, emit!, emit_vertex!, end_primitive!, endprimitive!, eval, finish!, firstinputvertex, flatnames, frag_coord, frag_coord_w, frag_coord_x, frag_coord_xy, frag_coord_y, frag_coord_z, include, inline_body, inputvertices, instance_index, isbetter, isflat, launch_geometry, launch_groups, matrix_shapes, matrixscope, matrixuse, mesh_group_index, mesh_thread_index, nprimitives, nvertices, packed_layout, pad3, primitive_fields!, primitive_id_in, primitivecount, primitivedata, primitives, primitivestride, primitivevertices, prod_exceeds, rebuild_expr, rt_hit_bary_u, rt_hit_bary_v, rt_hit_object_execute_shader, rt_hit_object_trace_ray, rt_ignore_intersection, rt_instance_custom_index, rt_instance_id, rt_launch_id_x, rt_primitive_id, rt_ray_tmax, rt_reorder_thread, sample_texture_2d, segment_mask, set_mesh_groups!, set_mesh_line!, set_mesh_outputs!, set_mesh_point!, set_mesh_primitive_data!, set_mesh_triangle!, set_mesh_vertex!, set_point_size!, shfl_fallback, shfl_packed, shfl_types, shfl_unsupported, shfl_word_tuple, shfl_words, shuffle_as_words, shuffle_source, smoothnames, split_kwargs, sub_group_reduce_add, sub_group_reduce_add_types, supports, threads_to_workgroupsize, throw_launch_error\n[truncated]"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "KernelInterface.get_global_id"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "```julia\nget_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n```\n\nThe 1-based index of the work-item within the launch, as integers of type `T`: `(get_group_id(T) - 1) * get_local_size(T) + get_local_id(T)` per dimension.\n\nSee [`get_local_id`](@ref) for the supported types `T`.\n\n!!! note\n    The fallback derives this from the primitive queries. Backend implementations with a native builtin **should** override it, returning the same values:\n\n    ```\n    @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n    ```\n\n\n\nMethods:\nget_global_id()\nget_global_id(::Type{T}) where T"
+        },
+        {
+            "call": {
+                "name": "check_syntax",
+                "arguments": [
+                    {
+                        "code": "function kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "no syntax errors"
+        }
+    ],
+    "input_tokens": 594,
+    "generated_tokens": 1465,
+    "budget_tokens": 6144,
+    "context_tokens": 3255,
+    "truncated": false,
+    "rewinds": 3,
+    "finished_thinking": true,
+    "elapsed_seconds": 27.928228855133057
+}

@@ -1,0 +1,27 @@
+{
+    "task": "ki_launch",
+    "arm": "direct",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle the specified edge cases."
+        },
+        {
+            "user": "Using current KernelInterface.jl, write function solve!(kernel, out, x). kernel is an ALREADY COMPILED KernelInterface.Kernel whose backend is stored in kernel.backend; its body doubles x into out. Validate equal lengths or throw DimensionMismatch BEFORE launch. Launch it with workgroup size 64 and ndrange=length(x), using the KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel). KernelInterface rounds ndrange up automatically, and zero ndrange launches nothing. Synchronize kernel.backend after launch; return the exact out object. Code only including imports."
+        }
+    ],
+    "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480",
+    "registration_sha256": "c720f88c9b400d4622f612aa6bffeab6b44809b28317f6abe2cc232124442825",
+    "generation_source_sha256": "b0bc1a9950d4bff8b0b5e6fb3d08c58bd4cd5ddd2a9e964bad8f21fa1b53a406",
+    "answer": "```julia\nusing KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    # Validate dimensions\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"Output and input arrays must have the same length.\"))\n    end\n\n    # Ensure arrays are mutable if needed (KernelInterface typically requires mutable output)\n    if !isnothing(out) && !isowned(out)\n        # If out is not owned, we might need to ensure it's a buffer or handle it.\n        # For this specific request, we assume out is a buffer or we can modify it in place.\n        # KernelInterface kernels usually write to the buffer provided.\n    end\n\n    # Launch kernel\n    # workgroup size 64, ndrange = length(x)\n    # KernelInterface rounds ndrange up automatically.\n    # If length(x) is 0, ndrange is 0, kernel launches nothing, which is correct.\n    KernelInterface.@kernel kernel.backend(\n        out, x;\n        workgroup_size = 64,\n        ndrange = length(x)\n    )\n\n    # Synchronize the backend\n    KernelInterface.sync!(kernel.backend)\n\n    # Return the exact out object\n    return out\nend\n```",
+    "code": "using KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    # Validate dimensions\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"Output and input arrays must have the same length.\"))\n    end\n\n    # Ensure arrays are mutable if needed (KernelInterface typically requires mutable output)\n    if !isnothing(out) && !isowned(out)\n        # If out is not owned, we might need to ensure it's a buffer or handle it.\n        # For this specific request, we assume out is a buffer or we can modify it in place.\n        # KernelInterface kernels usually write to the buffer provided.\n    end\n\n    # Launch kernel\n    # workgroup size 64, ndrange = length(x)\n    # KernelInterface rounds ndrange up automatically.\n    # If length(x) is 0, ndrange is 0, kernel launches nothing, which is correct.\n    KernelInterface.@kernel kernel.backend(\n        out, x;\n        workgroup_size = 64,\n        ndrange = length(x)\n    )\n\n    # Synchronize the backend\n    KernelInterface.sync!(kernel.backend)\n\n    # Return the exact out object\n    return out\nend\n",
+    "input_tokens": 160,
+    "generated_tokens": 280,
+    "budget_tokens": 512,
+    "decode_steps_executed": 384,
+    "decode_submissions": 384,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 18.572566032409668,
+    "input_sha256": "a98e6c47cca7c4c3df8bd4ece5bd80c61f1c07c693d25a5a8380006c9afb253b"
+}

@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.19683681498281658,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `n` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:22\n [2] top-level scope\n   @ /input/program.jl:56\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:56\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 18, in test_cases\nAssertionError\n",
+  "program_sha256": "3b07bc84e9aa677974d8a1bc764fbc737f3ed42536b01c43c906b1ad0e777fe1",
+  "test_suite_sha256": "8f01e9c4b2cbca372363e2dae979f2555739136ae361af287276ff9d42147614",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "64e07d58eaa1fb069d986acff1c084a8aa5b10cd116f4b29d7fbeeea5f5cf99f"
+}

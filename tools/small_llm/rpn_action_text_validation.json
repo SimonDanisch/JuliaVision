@@ -1,0 +1,51 @@
+{
+    "complete": true,
+    "scope": "PRIVATE CPU tokenizer/action concatenation check, NOT model quality; never deployed",
+    "rows": [
+        {
+            "id": "central_periodic_gradient",
+            "passed": true,
+            "tokens": 18
+        },
+        {
+            "id": "half_diffusion_update",
+            "passed": true,
+            "tokens": 32
+        },
+        {
+            "id": "clamped_neighbor_energy",
+            "passed": true,
+            "tokens": 28
+        },
+        {
+            "id": "positive_forward_increment",
+            "passed": true,
+            "tokens": 16
+        },
+        {
+            "id": "unit_interval_projection",
+            "passed": true,
+            "tokens": 13
+        },
+        {
+            "id": "clamped_morphological_range",
+            "passed": true,
+            "tokens": 38
+        },
+        {
+            "id": "nonnegative_limited_slope",
+            "passed": true,
+            "tokens": 28
+        },
+        {
+            "id": "periodic_neighbor_sum_energy",
+            "passed": true,
+            "tokens": 23
+        }
+    ],
+    "source_sha256": {
+        "rpn_pointwise_interface.jl": "559dfd00dcfed93a68db1acc77c74cfa4760b415f23adfb44137b98745e8018a",
+        "rpn_prefix_grammar.jl": "e038c1eff144cb7f4eef075edd73aa081010d74b0d44bbdf36de97f3a84cc1eb",
+        "qualify_rpn_stencil_tasks.jl": "1c913d77c99317622f780a22dd158d88d74e6e312b2f88b538937768f00bf1ae"
+    }
+}

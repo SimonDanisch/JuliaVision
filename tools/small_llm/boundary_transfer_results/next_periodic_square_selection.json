@@ -1,0 +1,53 @@
+{
+    "id": "next_periodic_square",
+    "conditions_sha256": "f3c32741fac62607bbe860bd4bfa2a9596fc5347246ceb662525075ca368d99e",
+    "generation_sha256": "cae7fe6cbe9b408a892805cfab3ec1c7b20778b86e10ad1b438192ec06a26181",
+    "mode": "periodic",
+    "direct": {
+        "accepted": true,
+        "reason": "admitted disjoint pointwise subset",
+        "program": "x_prev_periodic\nsquare\nfinish\n"
+    },
+    "choices": {
+        "example": {
+            "selected": "symbolic_public_examples",
+            "program": "x_next_periodic\nsquare\nfinish\n",
+            "reason": "neural_public_example_failure"
+        },
+        "boundary": {
+            "selected": "symbolic_public_boundary",
+            "program": "x_next_periodic\nsquare\nfinish\n",
+            "reason": "public_example_or_boundary_failure"
+        },
+        "plain_proposal": {
+            "found": true,
+            "reason": "public_example_match",
+            "program": "x_next_periodic\nsquare\nfinish\n",
+            "operations": 2,
+            "peak_stack": 1,
+            "candidates": 15,
+            "unique_states": 15,
+            "elapsed_seconds": 0.111432644,
+            "max_cost": 8,
+            "candidate_budget": 2000000,
+            "state_budget": 100000,
+            "seconds": 10,
+            "scope": "Public-example-only symbolic synthesis, NOT model intelligence or correctness beyond these examples. First match, no hidden-score selection; all numeric operations use shared CPU/GPU evaluator."
+        },
+        "boundary_proposal": {
+            "found": true,
+            "reason": "public_example_and_boundary_match",
+            "program": "x_next_periodic\nsquare\nfinish\n",
+            "mode": "periodic",
+            "operations": 2,
+            "candidates": 13,
+            "unique_states": 13,
+            "elapsed_seconds": 0.118283393,
+            "max_cost": 8,
+            "candidate_budget": 2000000,
+            "state_budget": 100000,
+            "seconds": 10,
+            "scope": "First fit to public examples within explicit boundary feature subset; no guarantee beyond these constraints. Shared numeric CPU/GPU evaluator."
+        }
+    }
+}

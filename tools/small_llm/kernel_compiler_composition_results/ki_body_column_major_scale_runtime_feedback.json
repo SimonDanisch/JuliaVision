@@ -1,0 +1,26 @@
+{
+    "task": "ki_body_column_major_scale",
+    "arm": "runtime_feedback",
+    "conditions_sha256": "b3db2ad662cb8c8ea8216157df3173451e9e79e1c70481dc337aa1b8ad408d1e",
+    "selected_source_sha256": "e71496296203eae2ddc6e137f2f20b6a83160967ba231b5bafe8861b46aba4f7",
+    "original_code_sha256": "014da2b978dcf1b890837f324c04d0a7af96c93ab160092eac097dcab960129c",
+    "pointwise_accepted": true,
+    "pointwise_reason": "admitted disjoint pointwise subset",
+    "certificate": {
+        "output": "out",
+        "induction": "i",
+        "stores_per_invocation": 1,
+        "limit": "rows * cols",
+        "preconditions": [
+            "distinct input/output storage",
+            "original serial accesses are in bounds",
+            "Float32 vector data, Int/Int32 scalars, ordinary Base arithmetic bindings",
+            "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+        ],
+        "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task",
+        "additional_admission": "integer-only loop bound, native-Int induction for 1:N, no shadowed runtime/math bindings"
+    },
+    "void_tail_accepted": true,
+    "void_tail_reason": "append void tail; preserve existing math/statements/explicit returns",
+    "code": "import KernelInterface as KI\nfunction kernel!(out::AbstractVector{Float32}, x::AbstractVector{Float32}, scales::AbstractVector{Float32}, rows::Int32, cols::Int32)\n    #= none:2 =#\n    #= none:4 =#\n    i = (KI.get_global_id()).x\n    #= none:6 =#\n    if i <= rows * cols\n        #= none:8 =#\n        begin\n            #= none:10 =#\n            row = mod1(i, rows)\n            #= none:12 =#\n            col = div(i - 1, rows) + 1\n            #= none:14 =#\n            out[i] = x[i] * scales[row]\n        end\n    end\n    #= none:19 =#\n    nothing\n    nothing\nend\n"
+}

@@ -1,0 +1,53 @@
+{
+    "task": "077_iscube",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "iscube(1)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "iscube(2)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "false",
+            "expected": "false"
+        },
+        {
+            "example": "iscube(-1)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "iscube(64)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "iscube(0)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "iscube(180)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "false",
+            "expected": "false"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.559622049331665,
+    "code_sha256": "c30a9f070550c73bcd59c41e8ae74c4da58c4c9991194c03ff8d2090971311c6",
+    "public_examples_sha256": "b6d191f0ddc202a458df87f769d9a6fe6b0a1ee0da9ab6f17da87a069031ae47"
+}

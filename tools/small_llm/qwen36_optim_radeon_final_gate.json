@@ -1,0 +1,18 @@
+{
+    "checks": 348,
+    "backend": "Radeon 8060S",
+    "passed": true,
+    "default_optimizations": [
+        "reuse_q8",
+        "narrow_experts",
+        "small_dense",
+        "fuse_shared"
+    ],
+    "normal_final_waitidle": true,
+    "source_sha256": {
+        "qwen36_moe_model.jl": "1d897bb03d689d854bba44a99194d4f370b4c4f21270150d01505e7c8e3d63c2",
+        "qwen36_gguf_kernels.jl": "5ecd5f1a86b6c86266961e37efc2be6f5d3bffb5a9104984786c57dba165be1f",
+        "qwen36_optim.jl": "2ed8b5a959d0e107e19cce07f111952be8e5949398058d90f8c7f2b6cc071344",
+        "test_qwen36_optim.jl": "4f36e4d05382d3e8e04c0760350d19c1832b4528ba5331423dcb2f3dfc6a7768"
+    }
+}

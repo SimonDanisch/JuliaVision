@@ -1,0 +1,16 @@
+{
+    "complete": true,
+    "device": "llvmpipe (LLVM 21.1.8, 256 bits)",
+    "scope": "SOFTWARE Vulkan full 248320-vocabulary API prefix constraint, trusted logits only; no model quality",
+    "passed": 46,
+    "headers": 1432,
+    "sparse_edges": 4005,
+    "source_sha256": {
+        "token_prefix_trie_gpu.jl": "c8e1ed72bb70a511fb6416ab55292aecdafe5f78d2406a24f6294b701109077f",
+        "julia_callable_inventory.json": "f7484452b1822e5d71ec58d0743587c44d51abe96f5c75844f551e04a28d2ff1",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "token_prefix_trie.jl": "65b6ac5ddb31c5e487d22f179c9c4e5349c2ca2b07841b8e19245b30b7e6879c",
+        "test_callable_prefix_graph.jl": "782641a9450153c385e587c1ee1e2389dd9d58af7e3c6238f5a589b5108ff3d6",
+        "safe_reasoning_budget.jl": "96dd4f93856887307fc6ea69c5438b134af6eca651f6dd67dfa3f7745fff42ec"
+    }
+}

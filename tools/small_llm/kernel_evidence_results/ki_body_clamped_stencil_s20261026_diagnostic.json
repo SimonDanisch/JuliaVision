@@ -1,0 +1,14 @@
+{
+    "task": "ki_body_clamped_stencil",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: ParseError:\n# Error @ public_kernel_probe.jl:1:6\nusing KernelInterface as KI\n#    └────────────────────┘ ── `using` with `as` renaming requires a `:` and context module\nin expression starting at public_kernel_probe.jl:1"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "e542adb56c4469df6d3cc8fbfe43321ac757a9d9d95bfa024195f3c34f8490a8",
+    "fixture_sha256": "814d02f73a9b61361439b31f9d0e753b9b5be20d8d27f0e63a6bf3c225fe402b",
+    "code_sha256": "42711b20ca1cbe7e14b26ca21e474b978c1b55b5aad2af69f328e46119dc7d5e",
+    "elapsed_seconds": 9.423660039901733
+}

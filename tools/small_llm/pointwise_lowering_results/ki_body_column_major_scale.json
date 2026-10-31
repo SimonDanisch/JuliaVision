@@ -1,0 +1,22 @@
+{
+    "task": "ki_body_column_major_scale",
+    "conditions_sha256": "bdf6cd15f4ffe458b8c39af0017d04a5231ba498e16a2c5bc2c78bf2fdfc6377",
+    "baseline_sha256": "304b0a4abe3af7fca2a2c41f07bb3ff878aad7c09f8df09f804e4833d7942b7d",
+    "accepted": true,
+    "reason": "admitted disjoint pointwise subset",
+    "code": "import KernelInterface as KI\nfunction kernel!(out::AbstractVector{Float32}, x::AbstractVector{Float32}, scales::AbstractVector{Float32}, rows::Int32, cols::Int32)\n    #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:85 =#\n    i = (KI.get_global_id()).x\n    #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:86 =#\n    if i <= rows * cols\n        #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:87 =#\n        begin\n            #= none:5 =#\n            row = mod1(i, rows)\n            #= none:6 =#\n            col = div(i - 1, rows) + 1\n            #= none:7 =#\n            out[i] = x[i] * scales[row]\n            #= none:8 =#\n        end\n    end\n    #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:89 =#\n    nothing\nend\n",
+    "certificate": {
+        "output": "out",
+        "induction": "i",
+        "stores_per_invocation": 1,
+        "limit": "rows * cols",
+        "preconditions": [
+            "distinct input/output storage",
+            "original serial accesses are in bounds",
+            "Float32 vector data, Int/Int32 scalars, ordinary Base arithmetic bindings",
+            "one-dimensional launch with unique one-based global x IDs, covering 1:N"
+        ],
+        "guarantee": "under these preconditions, each valid invocation executes exactly one original iteration and writes only its unique output index; no claim about whether the original arithmetic solves the task"
+    },
+    "selected_code": "import KernelInterface as KI\nfunction kernel!(out::AbstractVector{Float32}, x::AbstractVector{Float32}, scales::AbstractVector{Float32}, rows::Int32, cols::Int32)\n    #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:85 =#\n    i = (KI.get_global_id()).x\n    #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:86 =#\n    if i <= rows * cols\n        #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:87 =#\n        begin\n            #= none:5 =#\n            row = mod1(i, rows)\n            #= none:6 =#\n            col = div(i - 1, rows) + 1\n            #= none:7 =#\n            out[i] = x[i] * scales[row]\n            #= none:8 =#\n        end\n    end\n    #= /home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/pointwise_kernel_lowering.jl:89 =#\n    nothing\nend\n"
+}

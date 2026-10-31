@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "passed": 14,
+    "scope": "Supplementary strict admission, never a replacement primary score",
+    "sources": {
+        "test_julia_stencil_admission_v3.jl": "6a59a48d28635debbc1b2c7a26368e7db6d804c9acd220e6119bdb4d5c355779",
+        "julia_stencil_admission_v3.jl": "bd7cd9732887a04c0d55c91694b42d9914d4de6e7e2a87bf6c07a98b2978c46d"
+    }
+}

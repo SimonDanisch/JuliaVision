@@ -1,0 +1,11 @@
+{
+    "id": "106_f",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.31714487075805664,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    4      4  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "f5e1de848519ebc83d19f20f41dea40ad82f9f9a1972daa5aae1e4de42ea93b9"
+}

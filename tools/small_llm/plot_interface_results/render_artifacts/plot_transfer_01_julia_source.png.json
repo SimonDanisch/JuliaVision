@@ -1,0 +1,29 @@
+{
+    "rendered": true,
+    "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_01_julia_source.png",
+    "dimensions": {
+        "width": 720,
+        "height": 480
+    },
+    "elapsed_seconds": 31.973050832748413,
+    "sha256": "03a0da6f9953dfdffafea02c2554b958eb5354f568b66cdea0db1ca51db23c31",
+    "layout": {
+        "canvas": [
+            720,
+            480
+        ],
+        "axes": [
+            {
+                "title": "Calibration",
+                "decorated_bounds": [
+                    16.000004,
+                    16.0,
+                    704.0,
+                    464.0
+                ],
+                "within_canvas": true
+            }
+        ]
+    },
+    "diagnostic": "LAYOUT_REPORT={\"canvas\":[720,480],\"axes\":[{\"title\":\"Calibration\",\"decorated_bounds\":[16.000004,16.0,704.0,464.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+}

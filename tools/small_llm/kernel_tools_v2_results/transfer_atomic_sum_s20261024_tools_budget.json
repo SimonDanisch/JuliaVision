@@ -1,0 +1,129 @@
+{
+    "task": "transfer_atomic_sum",
+    "seed": 20261024,
+    "arm": "tools_budget",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,labels,x,n::Int32). out/x Float32, labels Int32; all storage is distinct. For every1<=i<=n atomically ADD x[i] into out[labels[i]], retaining out's initial values. labels are valid1-based indices, and many workgroups contend. n can be0. Use Atomix.jl with explicit :monotonic ordering; results are observed only after kernel completion. A separate normal load followed by an atomic STORE is not a valid RMW. No scratch arrays or host reductions.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "Good, the code parses correctly. Now let me review the requirements once more:\n\n1. ✅ Julia GPU function kernel\n2. ✅ Optional imports (using KernelInterface: KI and using Atomix)\n3. ✅ 1-based global 1D index KI.get_global_id().x\n4. ✅ Arguments are device arrays/scalars, NOT ordinary host Vector objects\n5. ✅ No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions\n6. ✅ Work is rounded up; guard inactive invocations (if gid > n)\n7. ✅ End the function in return nothing\n8. ✅ Signature kernel!(out,labels,x,n::Int32)\n9. ✅ out/x Float32, labels Int32\n10. ✅ all storage is distinct\n11. ✅ For every1<=i<=n atomically ADD x[i] into out[labels[i]], retaining out's initial values\n12. ✅ labels are valid1-based indices, and many workgroups contend\n13. ✅ n can be0 (handled by if gid > n check)\n14. ✅ Use Atomix.jl with explicit :monotonic ordering\n15. ✅ results are observed only after kernel completion\n16. ✅ A separate normal load followed by an atomic STORE is not a valid RMW (using @atomic with += which is a proper RMW)\n17. ✅ No scratch arrays or host reductions\n\nThe code looks correct. Let me provide the final answer.\n</think>\n\n```julia\nusing KernelInterface: KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    gid = KI.get_global_id().x\n    if gid > n\n        return nothing\n    end\n    idx = labels[gid]\n    val = x[gid]\n    @atomic :monotonic out[idx] += val\n    return nothing\nend\n```",
+    "code": "using KernelInterface: KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    gid = KI.get_global_id().x\n    if gid > n\n        return nothing\n    end\n    idx = labels[gid]\n    val = x[gid]\n    @atomic :monotonic out[idx] += val\n    return nothing\nend\n",
+    "calls": [
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "Atomix.@atomic"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "```julia\nAtomix.@atomic\n```\n\nA superset of `Base.@atomic` supporting atomic operations on array elements. Atomic operations on fields dispatches to `Base.@atomic`.\n\n\nMethods:\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, ex)\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, order, ex)\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, a1, op, a2)\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, order, a1, op, a2)"
+        },
+        {
+            "call": {
+                "name": "lookup",
+                "arguments": [
+                    {
+                        "name": "Base.@atomic"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "```julia\n@atomic var\n@atomic order ex\n```\n\nMark `var` or `ex` as being performed atomically, if `ex` is a supported expression. If no `order` is specified it defaults to :sequentially_consistent.\n\n```julia\n@atomic a.b.x = new\n@atomic a.b.x += addend\n@atomic :release a.b.x = new\n@atomic :acquire_release a.b.x += addend\n@atomic m[idx] = new\n@atomic m[idx] += addend\n@atomic :release m[idx] = new\n@atomic :acquire_release m[idx] += addend\n```\n\nPerform the store operation expressed on the right atomically and return the new value.\n\nWith assignment (`=`), this operation translates to a `setproperty!(a.b, :x, new)` or, in case of reference, to a `setindex_atomic!(m, order, new, idx)` call, with `order` defaulting to `:sequentially_consistent`.\n\nWith any modifying operator this operation translates to a `modifyproperty!(a.b, :x, op, addend)[2]` or, in case of reference, to a `modifyindex_atomic!(m, order, op, addend, idx...)[2]` call, with `order` defaulting to `:sequentially_consistent`.\n\n```julia\n@atomic a.b.x max arg2\n@atomic a.b.x + arg2\n@atomic max(a.b.x, arg2)\n@atomic :acquire_release max(a.b.x, arg2)\n@atomic :acquire_release a.b.x + arg2\n@atomic :acquire_release a.b.x max arg2\n@atomic m[idx] max arg2\n@atomic m[idx] + arg2\n@atomic max(m[idx], arg2)\n@atomic :acquire_release max(m[idx], arg2)\n@atomic :acquire_release m[idx] + arg2\n@atomic :acquire_release m[idx] max arg2\n```\n\nPerform the binary operation expressed on the right atomically. Store the result into the field or the reference in the first argument, and return the values `(old, new)`.\n\nThis operation translates to a `modifyproperty!(a.b, :x, func, arg2)` or, in case of reference to a `modifyindex_atomic!(m, order, func, arg2, idx)` call, with `order` defaulting to `:sequentially_consistent`.\n\nSee [Per-field atomics](@ref man-atomics) section in the manual for more details.\n\n# Examples\n\n```jldoctest\njulia> mutable struct Atomic{T}; @atomic x::T; end\n\njulia> a = Atomic(1)\nAtomic{Int64}(1)\n\njulia> @atomic a.x # fetch field x of a, with sequential consistency\n1\n\njulia> @atomic :sequentially_consistent a.x = 2 # set field x of a, with sequential consistency\n2\n\njulia> @atomic a.x += 1 # increment field x of a, with sequential consistency\n3\n\njulia> @atomic a.x + 1 # increment field x of a, with sequential consistency\n3 => 4\n\njulia> @atomic a.x # fetch field x of a, with sequential consistency\n4\n\njulia> @atomic max(a.x, 10) # change field x of a to the max value, with sequential consistency\n4 => 10\n\njulia> @atomic a.x max 5 # again change field x of a to the max value, with sequential consistency\n10 => 10\n```\n\n```jldoctest\njulia> mem = AtomicMemory{Int}(undef, 2);\n\njulia> @atomic mem[1] = 2 # set mem[1] to value 2 with sequential consistency\n2\n\njulia> @atomic :monotonic mem[1] # fetch the first value of mem, with monotonic consistency\n2\n\njulia> @atomic mem[1] += 1 # increment the first value of mem, with sequential consistency\n3\n\njulia> @atomic mem[1] + 1 # increment the first value of mem, with sequential consistency\n3 => 4\n\njulia> @atomic mem[1] # fetch the first value of mem, with sequential consistency\n4\n\njulia> @atomic max(mem[1], 10) # change the first value of mem to the max value, with sequential consistency\n4 => 10\n\njulia> @atomic mem[1] max 5 # again change the first value of mem to the max value, with sequential consistency\n10 => 10\n```\n\n!!! compat \"Julia 1.7\"\n    Atomic fields functionality requires at least Julia 1.7.\n\n\n!!! compat \"Julia 1.12\"\n    Atomic reference functionality requires at least Julia 1.12.\n\n\n\nMethods:\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, order, a1, op, a2)\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, a1, op, a2)\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, order, ex)\nvar\"@atomic\"(__source__::LineNumberNode, __module__::Module, ex)"
+        },
+        {
+            "call": {
+                "name": "check_syntax",
+                "arguments": [
+                    {
+                        "code": "using KernelInterface as KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    gid = KI.get_global_id().x\n    if gid > n\n        return nothing\n    end\n    idx = labels[gid]\n    val = x[gid]\n    @atomic :monotonic out[idx] += val\n    return nothing\nend"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "ParseError:\n# Error @ candidate.jl:1:6\nusing KernelInterface as KI\n#    └────────────────────┘ ── `using` with `as` renaming requires a `:` and context module"
+        },
+        {
+            "call": {
+                "name": "check_syntax",
+                "arguments": [
+                    {
+                        "code": "using KernelInterface: KI\nusing Atomix\n\nfunction kernel!(out, labels, x, n::Int32)\n    gid = KI.get_global_id().x\n    if gid > n\n        return nothing\n    end\n    idx = labels[gid]\n    val = x[gid]\n    @atomic :monotonic out[idx] += val\n    return nothing\nend"
+                    }
+                ]
+            },
+            "malformed": null,
+            "response": "no syntax errors"
+        }
+    ],
+    "input_tokens": 649,
+    "generated_tokens": 2711,
+    "budget_tokens": 6144,
+    "context_tokens": 4779,
+    "truncated": false,
+    "rewinds": 4,
+    "forced_closes": 0,
+    "thinking_tokens": [
+        1037,
+        476,
+        393,
+        33,
+        321
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 47.295902967453
+}

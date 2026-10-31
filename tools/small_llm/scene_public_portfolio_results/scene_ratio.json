@@ -1,0 +1,32 @@
+{
+    "task": "scene_ratio",
+    "selected": "direct",
+    "passed": true,
+    "attempts": [
+        {
+            "arm": "direct",
+            "probe": {
+                "id": "scene_ratio",
+                "passed": true,
+                "exitcode": 0,
+                "elapsed_seconds": 48.74430203437805,
+                "diagnostic": "Test Summary: | Total  Time\ncontract      |     0  3.3s\nCONTRACT_PASSED\n",
+                "log_truncated": false,
+                "code_sha256": "a3519ad6b3714d63138ffd3c1b66e7666371d4ab3a68e0b4649e568fc878f9a4"
+            },
+            "generation_seconds": 4.98199200630188,
+            "input_tokens": 112,
+            "output_budget": 512,
+            "code_sha256": "a3519ad6b3714d63138ffd3c1b66e7666371d4ab3a68e0b4649e568fc878f9a4"
+        }
+    ],
+    "private_score": {
+        "id": "scene_ratio",
+        "passed": true,
+        "exitcode": 0,
+        "elapsed_seconds": 47.91337704658508,
+        "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   10     10  3.0s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "a3519ad6b3714d63138ffd3c1b66e7666371d4ab3a68e0b4649e568fc878f9a4"
+    }
+}

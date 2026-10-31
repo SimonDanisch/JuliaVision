@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.24386625096667558,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `stdin` not defined in `Main`\nSuggestion: add an appropriate import or assignment. This global was declared but not assigned.\nHint: a global variable of this name also exists in Base.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:4\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:4\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 10, in test_cases\nAssertionError\n",
+  "program_sha256": "b6df4e3163c2930f7b04fe26a805f3c6d06e4d6771d3cb88b574ff121f725c66",
+  "test_suite_sha256": "b4f914d3e3b626fb6c277745ed892b316ed554f41de56f2d78207f9e17e2ad2d",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

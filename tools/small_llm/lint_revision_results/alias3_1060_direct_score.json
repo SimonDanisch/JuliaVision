@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.3967176029691473,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: MethodError: no method matching IOBuffer(::Base.PipeEndpoint)\nThe type `IOBuffer` exists, but no method is defined for this combination of argument types when trying to construct it.\n\nClosest candidates are:\n  IOBuffer(!Matched::LaTeXStrings.LaTeXString)\n   @ LaTeXStrings /home/sim/.julia/packages/LaTeXStrings/xwv3L/src/LaTeXStrings.jl:127\n  IOBuffer(!Matched::SubString{String})\n   @ Base strings/io.jl:309\n  IOBuffer(!Matched::String)\n   @ Base strings/io.jl:308\n  ...\n\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:4\n [2] top-level scope\n   @ /input/program.jl:137\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:137\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 9, in test_cases\nAssertionError\n",
+  "program_sha256": "d8e5981f03b9b595365bd18e440a705970abd3e4735828e149f3e2e825353147",
+  "test_suite_sha256": "484bf5a3a0964e3c1f24d4658e6a8b6c7e064e620971a5206bd18edccacb29be",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "7f7dac62b2bd0b80ebd825972bc08985d4fffc68bf6e37533218451e7fb97033"
+}

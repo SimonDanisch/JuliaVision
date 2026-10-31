@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.247780556906946,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: ParseError:\n# Error @ /input/program.jl:24:5\n    files = []\n#   \u250c\u2500\u2500\n    try\n        # Use Base.Filesystem.ls if available, otherwise fallback to shell or manual\n\u22ee\n        # Actually, `cd` is `cd` in `Base`? No, `cd` is `cd` in `Base`?\n        # Wait, `cd` is `cd` in `Base`?\n#\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518 \u2500\u2500 try without catch or finally\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:88\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:88\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 20, in test_cases\nAssertionError\n",
+  "program_sha256": "96a467b57572022d3f3690fe67c4e06038b8777d3a2994480da6522b9dd6fcc9",
+  "test_suite_sha256": "f29c855fa79d9bb5c1707590bf0369009e85484e69e84a659261f83abd76e7aa",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

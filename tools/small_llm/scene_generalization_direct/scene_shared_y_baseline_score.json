@@ -1,0 +1,9 @@
+{
+    "id": "scene_shared_y",
+    "passed": false,
+    "exitcode": 1,
+    "elapsed_seconds": 48.815168142318726,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  KeyError: key :plot! not found\n  Stacktrace:\n    [1] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/nesting.jl:135\n    [2] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/ComputePipeline/src/ComputePipeline.jl:802\n    [3] top-level scope\n      @ /home/sim/Programmieren/VulkanDev/dev/Makie/Makie/src/makielayout/blocks.jl:809\n    [4] top-level scope\n      @ /input/candidate.jl:8\n    [5] top-level scope\n      @ /input/runner.jl:5\n    [6] macro expansion\n      @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n    [7] macro expansion\n      @ /input/runner.jl:5 [inlined]\n    [8] include(mod::Module, _path::String)\n      @ Base ./Base.jl:306\n    [9] exec_options(opts::Base.JLOptions)\n      @ Base ./client.jl:317\n   [10] _start()\n      @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  3.3s\nRNG of the outermost testset: Random.Xoshiro(0x481f2226f459c923, 0x5153f2a6fc45516d, 0xd7c83f1064269558, 0x28cf40486485feb8, 0x90aef7689d949f2a)\n",
+    "log_truncated": false,
+    "code_sha256": "69d0be359bd373f1f1280d25636559d417e3047ec23ec12d05fbf7eb2f2144d1"
+}

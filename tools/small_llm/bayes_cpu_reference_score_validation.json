@@ -1,0 +1,10 @@
+{
+    "complete": true,
+    "checks": 6,
+    "run": "r1406",
+    "scope": "CPU mock/validation only; actual model and hardware results recorded separately",
+    "sources": {
+        "test_bayes_cpu_reference_score.jl": "27f25e9a592bd4514969d1f3a75ff4536c8a371b70582aff1034350d70296e55",
+        "score_bayes_cpu_reference.jl": "2e6ea842c2f3dc83d74a79837143e9ac985d15b32f1c8aea4489e2938d4c6cf8"
+    }
+}

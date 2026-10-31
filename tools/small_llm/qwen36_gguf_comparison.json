@@ -1,0 +1,39 @@
+{
+  "scope": "First short-context GPU comparison; single64-token timing samples, not a statistical benchmark or intelligence result",
+  "host": "Bosgame",
+  "device": "Radeon8060S RADV STRIX_HALO",
+  "julia_project": "/home/sim/Programmieren/VulkanDev/Project.toml",
+  "checkpoint": "models/Qwen3.6-35B-A3B-Q4_K_S/Qwen3.6-35B-A3B.Q4_K_S.gguf",
+  "checkpoint_bytes": 19889904096,
+  "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+  "prompt_tokens": 8,
+  "decode_tokens": 64,
+  "context_capacity": 256,
+  "kv_precision": "Float32",
+  "llamacpp_vulkan_synchronized_greedy_tokens_per_second": 73.176677145,
+  "mantle_device_feedback_tokens_per_second": 58.17604267585057,
+  "mantle_synchronized_greedy_tokens_per_second": 37.35470109085411,
+  "llamacpp_warm_sequential_prefill_seconds": 0.107985010,
+  "mantle_warm_sequential_prefill_seconds": 0.147273989,
+  "prompt_next_token_agreement": "8/8",
+  "same64_token_synchronized_greedy_continuation": true,
+  "mantle_decode_graph_submissions_per_token": 1,
+  "gpu_format_and_layout_checks_passed": 67,
+  "full_logit_equivalence_verified": false,
+  "observed_arithmetic_difference": "llama.cpp Vulkan Q8 activation scale/sum stored Float16; Mantle Float32. Contribution to full logit drift not isolated.",
+  "maximum_prompt_logit_difference": 1.8227749,
+  "normal_final_synchronization": true,
+  "own_gpu_worker_retired_under_external_flock": true,
+  "sources": [
+    "qwen36_gguf_vulkan_reference/reference.json",
+    "qwen36_gguf_vulkan_reference/provenance.json",
+    "qwen36_gguf_validation/timing_attempt1.json",
+    "qwen36_gguf_validation/result.json"
+  ],
+  "not_established": [
+    "4K/32K/million-token throughput",
+    "repeat-sample performance variability",
+    "Julia/Makie/GPU-kernel task accuracy for this35B model",
+    "full numerical equivalence or source of all logit differences"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+    "scope": "trusted runtime API documentation only; not candidate execution or model accuracy",
+    "cards": [
+        {
+            "package": "Makie",
+            "name": "band",
+            "defined": true,
+            "documented": true,
+            "text": "  # return a new figure, axis, and plot\n  f, ax, pl = band(args...; kw...)\n  # creates an axis in a subfigure grid position\n     ax, pl = band(f[row, col], args...; kw...)\n  # Creates a plot in the given axis or scene.\n         pl = band!(ax::Union{Scene, AbstractAxis}, args...; kw...)\n  # Creates a SpecApi plot, which can be used in `S.Axis(plots=[plot])`.\n       spec = SpecApi.Band(args...; kw...)\n\n  Plots a band between lower and upper bounds.\n\n  Arguments\n  =========\n\n  Conversion target: lowerpoints::AbstractVector{<:GeometryBasics.Point{N,\n  <:Real}} where {N}, upperpoints::AbstractVector{<:GeometryBasics.Point{N,\n  <:Real}} where {N}\n\n  Arguments\n  =========\n\n  Conversion target: lowerpoints::AbstractVector{<:GeometryBasics.Point{N,\n  <:Real}} where {N}, upperpoints::AbstractVector{<:GeometryBasics.Point{N,\n  <:Real}} where {N}\n\n    •  xs, ys_lower, ys_upper Plots a band from ys_lower to ys_upper\n       along xs. xs is an AbstractVector{<:Real} containing x-values, and\n       ys_lower, ys_upper are AbstractVector{<:Real} containing the lower\n       and upper y-limits of the band.\n    •  xs, lowerupper Plots a band where lowerupper is an\n       AbstractVector{<:Interval} containing the lower and upper limits\n       of the band as intervals.\n    •  lower, upper Plots a ruled surface between the points in lower and\n       upper. Both are AbstractVector{<:Point{D, <:Real}} containing the\n       (x, y) or (x, y, z) coordinates of the lower and upper limits of\n       the band respectively.\n    •  Setting direction = :y will reinterpret (x, y) as (y, x). (2D only)\n\n  Example\n  =======\n\n  f = Figure()\n  Axis(f[1, 1])\n  \n  xs = 1:0.2:10\n  ys_low = -0.2 .* sin.(xs) .- 0.25\n  ys_high = 0.2 .* sin.(xs) .+ 0.25\n  \n  band!(xs, ys_low, ys_high)\n  band!(xs, ys_low .- 1, ys_high .-1, color = :red)\n  \n  f\n\n  See the online documentation for more examples.\n\n  Attributes\n  ==========\n\n  Generic Attributes: clip_planes, cycle, depth_shift, fxaa, model, name,\n  overdraw, rasterize, space, ssao, transformation, transparency, visible\n\n  DataInspector Attributes: inspectable, inspector_label\n\n  3D Shading Attributes: backlight, diffuse, material, shading, shininess,\n  specular\n\n  Colormapping Attributes: alpha, colormap, colorrange, colorscale, highclip,\n  lowclip, nan_color\n\n  Plot Attributes: strokecolor, matcap, strokeedges, uv_transform,\n  strokewidth, interpolate, color, direction, strokecolormap\n\n  For more information and examples on specific attributes check\n  ?Band.attribute. For nested attributes check help(Band, :outer, :inner).",
+            "truncated": false,
+            "full_document_sha256": "809691743ada8115c2c782a006de2ae067dcc0c9566a0262a10c6aaee7a86b12"
+        },
+        {
+            "package": "Makie",
+            "name": "Axis",
+            "defined": true,
+            "documented": true,
+            "text": "  Makie.Axis <: Block\n\n  A 2D axis which can be plotted into.\n\n  Constructors\n\n  Axis(fig_or_scene; palette = nothing, kwargs...)\n\n  Attributes\n\n  (type ?Makie.Axis.x in the REPL for more information about attribute x)\n\n  Attributes\n  ==========\n\n  Block Attributes: tellheight, tellwidth, halign, height, valign, alignmode,\n  width, dim1_conversion, dim2_conversion, x_unit_in_ticklabel,\n  y_unit_in_ticklabel, x_unit_in_label, y_unit_in_label, xlabel_suffix,\n  ylabel_suffix, xlabel, ylabel, title, titlefont, titlesize, titlegap,\n  titlevisible, titlealign, titlecolor, titlelineheight, subtitle,\n  subtitlefont, subtitlesize, subtitlegap, subtitlevisible, subtitlecolor,\n  subtitlelineheight, xlabelfont, ylabelfont, xlabelcolor, ylabelcolor,\n  xlabelsize, ylabelsize, xlabelvisible, ylabelvisible, xlabelpadding,\n  ylabelpadding, xlabelrotation, ylabelrotation, xticklabelfont,\n  yticklabelfont, xticklabelcolor, yticklabelcolor, xticklabelsize,\n  yticklabelsize, xticklabelsvisible, yticklabelsvisible, xticklabelspace,\n  yticklabelspace, xticklabelpad, yticklabelpad, xticklabelrotation,\n  yticklabelrotation, xticklabelalign, yticklabelalign, xticksize, yticksize,\n  xticksvisible, yticksvisible, xtickalign, ytickalign, xtickwidth,\n  ytickwidth, xtickcolor, ytickcolor, xticksmirrored, yticksmirrored,\n  xpanlock, ypanlock, xzoomlock, yzoomlock, xrectzoom, yrectzoom, spinewidth,\n  xgridvisible, ygridvisible, xgridwidth, ygridwidth, xgridcolor, ygridcolor,\n  xgridstyle, ygridstyle, xminorgridvisible, yminorgridvisible,\n  xminorgridwidth, yminorgridwidth, xminorgridcolor, yminorgridcolor,\n  xminorgridstyle, yminorgridstyle, bottomspinevisible, leftspinevisible,\n  topspinevisible, rightspinevisible, bottomspinecolor, leftspinecolor,\n  topspinecolor, rightspinecolor, aspect, xautolimitmargin, yautolimitmargin,\n  xticks, xtickformat, yticks, ytickformat, panbutton, xpankey, ypankey,\n  xzoomkey, yzoomkey, zoombutton, resetlimitskey, recomputelimitskey,\n  xaxisposition, yaxisposition, xtrimspine, ytrimspine, backgroundcolor,\n  flip_ylabel, autolimitaspect, limits, yreversed, xreversed,\n  xminorticksvisible, xminortickalign, xminorticksize, xminortickwidth,\n  xminortickcolor, xminorticks, yminorticksvisible, yminortickalign,\n  yminorticksize, yminortickwidth, yminortickcolor, yminorticks, xscale, yscale\n\n  For more information and examples on specific attributes check\n  ?plot.attribute. For nested attributes check help(plot, :outer, :inner).",
+            "truncated": false,
+            "full_document_sha256": "a33d9fcbc242eca811c2f4f3715fb1b949c0800e64fae3862809c4013ced63e9"
+        },
+        {
+            "package": "Makie",
+            "name": "Figure",
+            "defined": true,
+            "documented": true,
+            "text": "  Figure(; kwargs...)\n\n  Construct a Figure which allows to place Blocks like Axis, Colorbar and\n  Legend inside.\n\n  Keyword Arguments\n  =================\n\n    •  size: Figure size as (width, height) tuple (default: (800, 600))\n    •  figure_padding: Padding around the figure content. Either a single\n       number or tuple (left, right, bottom, top)\n    •  backgroundcolor: Background color of the figure\n\n  Automatic Legend and Colorbar\n  –––––––––––––––––––––––––––––\n\n    •  legend: Automatic legend from labeled plots. true, false, or\n       NamedTuple with options like (position=:lt, title=\"Legend\").\n       Position can be a Symbol (:lt, :rt, :lb, :rb) for overlay or grid\n       position like [1, 2].\n    •  colorbar: Automatic colorbar from colormapped plots. true, false,\n       or NamedTuple with options like (position=[1,2], label=\"Values\").\n\n  Hover Bar\n  –––––––––\n\n    •  gui: Enable hover bar with save/copy/reset buttons. true, false,\n       or NamedTuple with style options.\n\n  Examples\n  ========\n\n  f = Figure(size=(800, 600))\n  f = Figure(; legend=(position=:lt,))\n  f = Figure(; colorbar=(position=[1, 2], label=\"Values\"))\n  f = Figure(; gui=true)",
+            "truncated": false,
+            "full_document_sha256": "56da09624381d883e01c7edc5291e64a8b7fb23cc2ab0e02e5f406a4fe0bd2f3"
+        },
+        {
+            "package": "Makie",
+            "name": "axislegend",
+            "defined": true,
+            "documented": true,
+            "text": "  axislegend(ax, args...; position = :rt, kwargs...)\n  axislegend(ax, args...; position = (1, 1), kwargs...)\n  axislegend(ax = current_axis(); kwargs...)\n  axislegend(title::AbstractString; kwargs...)\n  axislegend(ax, title::AbstractString; kwargs...)\n\n  Create a legend that sits inside an Axis's plot area.\n\n  The position can be a Symbol where the first letter controls the horizontal\n  alignment and can be l, r or c, and the second letter controls the vertical\n  alignment and can be t, b or c. Or it can be a tuple where the first element\n  is set as the Legend's halign and the second element as its valign.\n\n  With the keywords merge and unique you can control how plot objects with the\n  same labels are treated. If merge is true, all plot objects with the same\n  label will be layered on top of each other into one legend entry. If unique\n  is true, all plot objects with the same plot type and label will be reduced\n  to one occurrence.\n\n  Note: This is equivalent to Legend(ax; position, kwargs...).",
+            "truncated": false,
+            "full_document_sha256": "8d197ff32c8fb662ef657545ed4e075e5b0b610822463a31737936b8081848b9"
+        },
+        {
+            "package": "Makie",
+            "name": "linkxaxes!",
+            "defined": true,
+            "documented": true,
+            "text": "  linkxaxes!(a::Axis, others...)\n\n  Link the x axes of all given Axis so that they stay synchronized.",
+            "truncated": false,
+            "full_document_sha256": "c00c85debcd3f06a65105f9090f5eb1812b6c54661a345c16c0758dbfe8ed669"
+        },
+        {
+            "package": "Makie",
+            "name": "title!",
+            "defined": false,
+            "documented": false,
+            "text": "",
+            "truncated": false,
+            "full_document_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+    ]
+}

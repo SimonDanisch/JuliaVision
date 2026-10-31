@@ -1,0 +1,90 @@
+{
+    "task": "transfer_sincos_pair",
+    "seed": 20261025,
+    "arm": "api_pack",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out_sin,out_cos,x,n::Int32). Three distinct Float32 device arrays. For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i]. x values lie in[-3,3]. n can be0; preserve padding in BOTH output arrays after n. Compute each valid element once, no atomics.\n\nInstalled public API/source context:\n### kernelinterface_global_id\n  get_global_id([::Type{T}=Int])::@NamedTuple{x::T, y::T, z::T}\n\n  The 1-based index of the work-item within the launch, as integers of type T:\n  (get_group_id(T) - 1) * get_local_size(T) + get_local_id(T) per dimension.\n\n  See get_local_id for the supported types T.\n\n  │ Note\n  │\n  │  The fallback derives this from the primitive queries. Backend\n  │  implementations with a native builtin should override it,\n  │  returning the same values:\n  │\n  │  @device_override get_global_id(::Type{T})::@NamedTuple{x::T, y::T, z::T} where {T}\n\n### atomix_readme\n# Atomix\n\n[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliaconcurrent.github.io/Atomix.jl/dev/)\n[![CI](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/JuliaConcurrent/Atomix.jl/actions/workflows/ci.yml)\n\nAtomix.jl implements `@atomic`, `@atomicswap`, and `@atomicreplace` that\nare superset of the macros in `Base`.  In addition to atomic operations on the\nfields as implemented in `Base`, they support atomic operations on array\nelements.\n\n```julia\njulia> using Atomix: @atomic, @atomicswap, @atomicreplace\n\njulia> A = ones(Int, 3);\n\njulia> @atomic A[1] += 1;  # fetch-and-increment\n\njulia> @atomic A[1]\n2\n\njulia> @atomicreplace A[begin+1] 1 => 42  # compare-and-swap\n(old = 1, success = true)\n\njulia> @inbounds @atomic :monotonic A[begin+1]  # specify ordering and skip bound check\n42\n\njulia> @atomicswap A[end] = 123\n1\n\njulia> A[end]\n123\n```\n\nAtomic operations on GPU arrays are atomic with respect to the threads of the device,\nlike the plain atomics of CUDA C or HIP. They are not guaranteed to be atomic with respect\nto the host or other devices accessing the same memory.\n\n\n### atomix_atomic_implementation\n\"\"\"\n    Atomix.@atomic\n\nA superset of `Base.@atomic` supporting atomic operations on array elements.\nAtomic operations on fields dispatches to `Base.@atomic`.\n\"\"\"\n:(@atomic)\n\nmacro atomic(ex)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($ex)))\nend\n\nmacro atomic(order, ex)\n    ans = atomic_impl(order, ex)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $ex)))\nend\n\nmacro atomic(a1, op, a2)\n    ans = atomic_impl(QuoteNode(:sequentially_consistent), a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($a1, $op, $a2)))\nend\n\nmacro atomic(order, a1, op, a2)\n    ans = atomic_impl(order, a1, op, a2)\n    ans === nothing || return ans\n    esc(:($Base.@atomic($order, $a1, $op, $a2)))\nend\n\nfunction ref_expr(ex)\n    @nospecialize\n    isexpr(ex, :ref) || return nothing\n    m = esc(ex.args[1])\n    indices = map(esc, ex.args[2:end])\n    return :(referenceable($m)[$(indices...)])\nend\n\nfunction order_expr(order)\n    @nospecialize\n    if order isa QuoteNode\n        llvm_ordering_from_juila(order.value)\n    else\n        :(llvm_ordering_from_juila($(esc(order))))\n    end\nend\n\nfunction atomic_impl(order, ex)\n    @nospecialize\n    if ex isa Expr\n        if (ref = ref_expr(ex)) !== nothing\n            return :(Atomix.get($ref, $(order_expr(order))))\n        elseif isexpr(ex, :call, 3)\n            return atomic_impl(order, ex.args[2], ex.args[1], ex.args[3])\n        elseif ex.head === :(=)\n            l, r = ex.args[1], esc(ex.args[2])\n            if (ref = ref_expr(l)) !== nothing\n                return :(Atomix.set!($ref, $r, $(order_expr(order))))\n            end\n        elseif length(ex.args) == 2\n            shead = string(ex.head)\n            if endswith(shead, '=')\n                op = Symbol(shead[1:prevind(shead, end)])\n                ans = atomic_impl(order, ex.args[1], op, ex.args[2])\n                ans === nothing || return :($ans[2])\n            end\n        end\n    end\n    return nothing\nend\n\nfunction atomic_impl(order, a1, op, a2)\n    @nospecialize\n    ref = ref_expr(a1)\n    ref === nothing && return nothing\n    :(Atomix.modify!($ref, $(esc(op)), $(esc(a2)), $(order_expr(order))))\nend\n\n### installed_generic_copy_kernel\nfunction copy_kernel!(out, x, n::Int32)\n    i = Int32(KI.get_global_id().x)\n    i <= n && (@inbounds out[i] = eltype(out)(x[i]))\n    return nothing\nend"
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "Here's a thinking process:\n\n1.  **Analyze User Input:**\n   - **Role:** Julia GPU programmer\n   - **Output:** ONLY executable kernel code (optional imports)\n   - **Framework:** `KernelInterface` as `KI`\n   - **Indexing:** 1-based global 1D index `KI.get_global_id().x`\n   - **Arguments:** Device arrays/scalars, NOT host `Vector` objects\n   - **Constraints:**\n     - No host wrappers/devices\n     - No `KernelAbstractions @kernel`\n     - No CPU loops over whole input\n     - No host reductions\n     - Work rounded up; guard inactive invocations\n     - End function with `return nothing`\n     - Signature: `kernel!(out_sin, out_cos, x, n::Int32)`\n     - Three distinct `Float32` device arrays\n     - For `1 <= i <= n`, write `sin(x[i])` into `out_sin[i]` and `cos(x[i])` into `out_cos[i]`\n     - `x` values lie in `[-3, 3]`\n     - `n` can be `0`; preserve padding in BOTH output arrays after `n`\n     - Compute each valid element once, no atomics\n   - **Context Provided:**\n     - `KernelInterface.get_global_id` API\n     - `Atomix` atomic macros (not needed here)\n     - `copy_kernel!` example showing how to use `KI.get_global_id().x`, guard with `i <= n`, and `return nothing`\n\n2.  **Identify Key Requirements:**\n   - Function signature: `function kernel!(out_sin, out_cos, x, n::Int32)`\n   - Get global index: `i = KI.get_global_id().x`\n   - Guard: `i <= n && return nothing` (or `if i <= n ... end; return nothing`)\n   - Compute: `out_sin[i] = sin(x[i])`, `out_cos[i] = cos(x[i])`\n   - Use `@inbounds` for performance/safety on device\n   - Return `nothing` at the end\n   - No extra fluff, just the kernel code\n   - Optional imports: `using KernelInterface as KI` (or just assume it's available, but I'll add it if needed, though the prompt says \"optional imports\")\n\n3.  **Draft Code:**\n   ```julia\n   function kernel!(out_sin, out_cos, x, n::Int32)\n       i = KI.get_global_id().x\n       if i <= n\n           @inbounds begin\n               out_sin[i] = sin(x[i])\n               out_cos[i] = cos(x[i])\n           end\n       end\n       return nothing\n   end\n   ```\n\n4.  **Check Constraints:**\n   - *Only executable kernel code?* Yes.\n   - *Optional imports?* I'll add `using KernelInterface as KI` at the top if needed, but usually it's fine to just provide the function. The prompt says \"(optional imports)\".\n   - *1-based global 1D index KI.get_global_id().x?* Used.\n   - *Arguments are device arrays/scalars?* Yes, standard Julia array syntax works for device arrays in this context.\n   - *No host wrappers/devices, KernelAbstractions @kernel, CPU loops, host reductions?* Checked.\n   - *Work rounded up; guard inactive invocations?* `i <= n` guard handles it.\n   - *End in return nothing?* Yes.\n   - *Signature kernel!(out_sin,out_cos,x,n::Int32)?* Matches.\n   - *Three distinct Float32 device arrays?* Type isn't strictly enforced in signature, but I can add `::Array{Float32,1}` or similar if needed. The prompt says \"Three distinct Float32 device arrays\", but doesn't require type annotations in the signature. I'll stick to the exact signature requested.\n   - *For 1<=i<=n, write sin/cos?* Yes.\n   - *x values in [-3,3]?* Irrelevant to code structure, just context.\n   - *n can be 0; preserve padding?* The guard `i <= n` naturally handles `n=0` (no threads will execute the body), preserving whatever padding was there.\n   - *Compute each valid element once, no atomics?* Yes, direct assignment.\n   - *End function in return nothing?* Yes.\n\n   One minor point: `@inbounds` is good practice. I'll use it.\n   Should I type the arguments? The prompt says \"Signature kernel!(out_sin,out_cos,x,n::Int32)\". I'll stick to that.\n   Should I add `using KernelInterface as KI`? The prompt says \"(optional imports)\". I'll include it for completeness.\n\n   Let's refine:\n   ```julia\n   using KernelInterface as KI\n\n   function kernel!(out_sin, out_cos, x, n::Int32)\n       i = KI.get_global_id().x\n       if i <= n\n           @inbounds begin\n               out_sin[i] = sin(x[i])\n               out_cos[i] = cos(x[i])\n           end\n       end\n       return nothing\n   end\n   ```\n\n   Check against constraints:\n   - \"Work is rounded up; guard inactive invocations.\" -> `i <= n` handles it.\n   - \"preserve padding in BOTH output arrays after n\" -> Since we only write when `i <= n`, indices `> n` are untouched, preserving padding.\n   - \"Compute each valid element once, no atomics.\" -> Direct assignment.\n   - \"End the function in return nothing.\" -> Explicit `return nothing`.\n   - Signature matches exactly.\n   - Uses `KI.get_global_id().x`.\n   - No extra fluff.\n\n   One thing: `@inbounds` might be considered a macro that could be problematic if not supported on all backends, but it's standard in Julia GPU programming. I'll keep it or remove it to be safe. The prompt example uses `@inbounds`. I'll keep it.\n\n   Wait, the prompt says \"Three distinct Float32 device arrays.\" I could add type annotations if needed, but the signature is explicitly given as `kernel!(out_sin,out_cos,x,n::Int32)`. I'll stick to that.\n\n   Let's verify the exact wording: \"Signature kernel!(out_sin,out_cos,x,n::Int32).\"\n   I will output exactly the function.\n\n   One detail: `KI.get_global_id().x` returns an integer. In Julia GPU contexts, it's fine.\n   I'll make sure the code is strictly just the function and optional imports.\n\n   Final check of the code:\n   ```julia\n   using KernelInterface as KI\n\n   function kernel!(out_sin, out_cos, x, n::Int32)\n       i = KI.get_global_id().x\n       if i <= n\n           @inbounds begin\n               out_sin[i] = sin(x[i])\n               out_cos[i] = cos(x[i])\n           end\n       end\n       return nothing\n   end\n   ```\n   Matches all constraints. Ready. Output matches request. No extra text.✅\n   I will produce exactly this. \n   One minor consideration: `@inbounds` might be omitted to be strictly minimal, but it's fine. I'll keep it. The prompt example uses it.\n   All good.✅\n   Output matches request.✅\n   Proceeds. \n   [Output Generation] -> *Self-Correction/Refinement during thought*: \n   The prompt says \"Return only the requested executable kernel code.\" and \"(optional imports)\". I'll include the import. \n   I'll make sure the formatting is exact.\n   Code:\n   ```julia\n   using KernelInterface as KI\n\n   function kernel!(out_sin, out_cos, x, n::Int32)\n       i = KI.get_global_id().x\n       if i <= n\n           @inbounds begin\n               out_sin[i] = sin(x[i])\n               out_cos[i] = cos(x[i])\n           end\n       end\n       return nothing\n   end\n   ```\n   This is correct. No extra text. Matches all constraints. Proceeds. \n   One thing: `@inbounds` might cause issues if the array bounds aren't checked, but in GPU kernels, bounds checks are often disabled anyway. It's fine.\n   I'll output exactly this.✅\n   Final check of the prompt: \"Work is rounded up; guard inactive invocations.\" -> `i <= n` does this.\n   \"preserve padding in BOTH output arrays after n\" -> Unwritten indices keep their values.\n   \"Compute each valid element once, no atomics.\" -> Direct assignment.\n   \"End the function in return nothing.\" -> `return nothing` at the end.\n   All good. \n   Output matches. \n   [Done] \n   *Self-Correction/Note during generation prep*: I should ensure no markdown formatting interferes if they want raw code, but markdown code blocks are standard. I'll provide just the code block.\n   The prompt says \"Return only the requested executable kernel code.\" I will output exactly the Julia code.\n   Ready. \n   Output matches response. \n   [Proceeds]\n</think>\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds begin\n            out_sin[i] = sin(x[i])\n            out_cos[i] = cos(x[i])\n        end\n    end\n    return nothing\nend\n```",
+    "code": "using KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        @inbounds begin\n            out_sin[i] = sin(x[i])\n            out_cos[i] = cos(x[i])\n        end\n    end\n    return nothing\nend\n",
+    "input_tokens": 1484,
+    "generated_tokens": 2123,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 2176,
+    "decode_submissions": 2176,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 35.56691908836365,
+    "input_sha256": "3f191bc9d398291bdf4d15d555c367457e9a8356f5a032e50b8035c784c2a750",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261025,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 2177,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": null
+}

@@ -1,0 +1,23 @@
+{
+    "barrier_passes": 765,
+    "matches_prior_bosgame_greedy_sequence": true,
+    "model": "Qwen3.6-35B-A3B Q4_K_S",
+    "repeat_logits_bitidentical": true,
+    "ram_GiB": 32,
+    "optional_metal4_checks": 513,
+    "max_tokens_per_second": 36.364916532669625,
+    "device": "Apple M5",
+    "normal_final_waitidle": true,
+    "median_tokens_per_second": 36.3112558297473,
+    "memory_caveat": "System-wide swap activity increased during the combined load/warmup/benchmark interval; per-sample paging was not instrumented",
+    "passes": 927,
+    "min_tokens_per_second": 36.30263780451389,
+    "scope": "Warmed short-context decode, not prefill/long-context/task quality; no Apple llama.cpp comparison",
+    "tokens_per_trial": 64,
+    "one_submission_per_token": true,
+    "checkpoint_sha256": "97cc5853d3c163c9cb81782ffc8ee18d909c67f8a3c6b4816b98f1103125c6c6",
+    "mac_disk_free_KiB_after": 6992452,
+    "trials": 3,
+    "default_metal_checks": 616,
+    "prompt_tokens": 8
+}

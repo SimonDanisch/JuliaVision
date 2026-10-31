@@ -1,0 +1,11 @@
+{
+    "id": "ki_body_atomic_max",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 26.69389796257019,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    9      9  14.5s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "0afbd00f6df641770691b61a5bc02300642685141b7847d9c72c497c946b0f36"
+}

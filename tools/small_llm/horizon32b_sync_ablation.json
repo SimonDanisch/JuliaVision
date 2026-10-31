@@ -1,0 +1,85 @@
+{
+    "name": "Horizon32B Q4_K_M",
+    "tokens": 32,
+    "prefix_tokens": 8,
+    "complete": true,
+    "old_tps": 8.4679025634393,
+    "new_tps": 8.390440967396895,
+    "percent": -0.914767210204448,
+    "tokens_and_logits_bitidentical": true,
+    "rows": [
+        {
+            "trial": 1,
+            "automatic": true,
+            "elapsed": 3.699456076,
+            "tokens_per_second": 8.649920243031964,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1096
+        },
+        {
+            "trial": 1,
+            "automatic": false,
+            "elapsed": 4.014336158,
+            "tokens_per_second": 7.9714300797227855,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1294
+        },
+        {
+            "trial": 2,
+            "automatic": false,
+            "elapsed": 3.754822845,
+            "tokens_per_second": 8.52237277788268,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1294
+        },
+        {
+            "trial": 2,
+            "automatic": true,
+            "elapsed": 3.706018877,
+            "tokens_per_second": 8.634602537670776,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1096
+        },
+        {
+            "trial": 3,
+            "automatic": true,
+            "elapsed": 3.928173641,
+            "tokens_per_second": 8.146279397123015,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1096
+        },
+        {
+            "trial": 3,
+            "automatic": false,
+            "elapsed": 3.803441767,
+            "tokens_per_second": 8.41343234899592,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1294
+        },
+        {
+            "trial": 4,
+            "automatic": false,
+            "elapsed": 3.713304964,
+            "tokens_per_second": 8.617660092622545,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1294
+        },
+        {
+            "trial": 4,
+            "automatic": true,
+            "elapsed": 3.95999994,
+            "tokens_per_second": 8.080808203244569,
+            "submissions": 320,
+            "passes": 1294,
+            "barrier_passes": 1096
+        }
+    ],
+    "scope": "Shared Mantle synchronization only; fixed teacher-forced sequence; original bucketcall and per-token host logit readback"
+}

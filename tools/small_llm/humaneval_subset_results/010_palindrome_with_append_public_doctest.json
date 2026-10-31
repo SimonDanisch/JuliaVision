@@ -1,0 +1,32 @@
+{
+    "task": "010_palindrome_with_append",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "palindrome_with_append(\"\")",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "\"\"",
+            "expected": "\"\""
+        },
+        {
+            "example": "palindrome_with_append(\"cat\")",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "\"catac\"",
+            "expected": "\"catac\""
+        },
+        {
+            "example": "palindrome_with_append(\"cata\")",
+            "completed": true,
+            "matches_public_example": false,
+            "actual": "\"catatac\"",
+            "expected": "\"catac\""
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.5130689144134521,
+    "code_sha256": "16cfc4d0d732e8e034c634cdeada20d8980116836863df360719135042c6e832",
+    "public_examples_sha256": "32f14f0c62413caea3df895b0d923f043d5b9af70506958f320c519293571d07"
+}

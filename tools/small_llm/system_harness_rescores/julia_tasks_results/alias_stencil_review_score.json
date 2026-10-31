@@ -1,0 +1,17 @@
+{
+    "collection": "julia_tasks_results",
+    "task": "alias_stencil",
+    "arm": "review",
+    "source_sha256": "71ff834c28a892990c625d1501626837e0a38e182897066ffc2a5cfd3563b00e",
+    "previous_passed": false,
+    "changed": false,
+    "id": "alias_stencil",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 1.2476329803466797,
+    "diagnostic": "ERROR: LoadError: ParseError:\n# Error @ /input/candidate.jl:42:58\n    # Explicitly set endpoints if out is x to be absolutely sure, though the loop logic above\n    # leaves them as is (which is correct for views too).\n#                                                        └ ── unterminated string literal\nStacktrace:\n [1] top-level scope\n   @ /input/candidate.jl:42\n [2] include(mapexpr::Function, mod::Module, _path::String)\n   @ Base ./Base.jl:307\n [3] top-level scope\n   @ /input/runner.jl:3\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/candidate.jl:42\nin expression starting at /input/runner.jl:3\n",
+    "log_truncated": false,
+    "code_sha256": "a42c700a994a5b7989055a0227e944d6af4c220b2f574ac2406a5679365a60c1"
+}

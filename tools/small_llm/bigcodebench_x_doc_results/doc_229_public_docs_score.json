@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.24910978693515062,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: Expected 3 lines of input\nStacktrace:\n [1] error(s::String)\n   @ Base ./error.jl:44\n [2] top-level scope\n   @ /input/program.jl:8\n [3] top-level scope\n   @ /input/program.jl:42\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:42\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 14, in test_cases\nAssertionError\n",
+  "program_sha256": "1a3e8650ecddfb2083b2045e064022ada6ec64aab8fe3ac57fe01ab0ff933372",
+  "test_suite_sha256": "6ca9f720e7328193052540bd4699cbbaecfd6ebaca062aaffa51f2fffe4fe6c8",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

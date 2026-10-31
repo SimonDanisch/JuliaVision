@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-24",
+  "hardware": "Ryzen AI Max+ 395 / Radeon 8060S / 128 GB UMA",
+  "scope": "diagnosis, not quality evaluation or a byte-identical engine comparison",
+  "llamacpp_commit": "d4abd57",
+  "llamacpp_backend": "Vulkan / RADV STRIX_HALO",
+  "checkpoint_source": "gen/qwen35-4b, converted locally with llama.cpp convert_hf_to_gguf.py --outtype f16",
+  "quantization": {
+    "mantle": "Q4_K layer projections, Q6_K output head, FP32 input embeddings and small recurrent projections",
+    "llamacpp": "--pure Q4_K, tied token embeddings/output head Q6_K, ssm_alpha/ssm_beta overrides F32",
+    "caveat": "Same source checkpoint and closely matched policy, not byte-identical quantization; input embedding precision differs. No MTP/speculative decoding enabled."
+  },
+  "cache_precision": {
+    "mantle": "F32",
+    "llamacpp": "F16, flash attention on",
+    "f32_attempt": "This llama-bench revision rejects f32 for -ctk/-ctv; unsupported output retained in llamacpp_qwen4b_f32_unsupported.txt."
+  },
+  "decode": [
+    {"initial_context": 26, "new_tokens": 128, "mantle_median_tps": 63.2456, "llamacpp_mean_tps": 67.192284},
+    {"initial_context": 4096, "new_tokens": 128, "mantle_median_tps": 50.8062, "llamacpp_mean_tps": 63.987285}
+  ],
+  "method_caveats": [
+    "Mantle historical unprofiled results versus new llama.cpp measurements, not interleaved trials; shared desktop and CPU workloads remain possible confounders.",
+    "llama-bench uses random input tokens, excludes tokenization/sampling and synchronizes each decode; Mantle uses GPU-resident greedy feedback. Not an answer-quality comparison.",
+    "llama.cpp mean of 3 runs versus Mantle median; raw sample data retained.",
+    "4K gap includes cache precision and different attention kernels; this experiment does not isolate each contribution."
+  ],
+  "gpu_profile": {
+    "file": "qwen4b_decode_profile.json",
+    "submissions_per_generated_token": 1,
+    "short_context_attention_ms": 0.2848,
+    "context_4096_attention_ms": 4.2137,
+    "layer_projections_ms": 11.2,
+    "output_head_ms": 2.3,
+    "caveat": "Diagnostic timestamps; sums of per-pass costs are not a frame latency measurement."
+  },
+  "external_sources": [
+    "https://github.com/BAEM1N/llm-bench",
+    "https://developer.amd.com/playbooks/user-guide/",
+    "https://huggingface.co/Qwen/Qwen3.5-35B-A3B",
+    "https://huggingface.co/openai/gpt-oss-20b"
+  ]
+}

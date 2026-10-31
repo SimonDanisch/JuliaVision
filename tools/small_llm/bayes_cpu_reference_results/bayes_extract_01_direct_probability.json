@@ -1,0 +1,26 @@
+{
+  "id": "bayes_extract_01_direct_probability",
+  "answer": "{\"probability\":0.909091}\n",
+  "raw_answer": "{\"probability\":0.909091}<|im_end|>\n<|endoftext|>",
+  "generated_ids": [
+    4754,
+    84425,
+    763,
+    15,
+    13,
+    24,
+    15,
+    24,
+    15,
+    24,
+    16,
+    92,
+    248046,
+    198,
+    248044
+  ],
+  "eos_completed": true,
+  "truncated_or_time_limited": false,
+  "elapsed_seconds": 14.374047662015073,
+  "input_tokens": 357
+}

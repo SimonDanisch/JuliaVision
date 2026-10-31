@@ -1,0 +1,7 @@
+{
+    "device": "llvmpipe software CPU backend",
+    "scope": "exact top-k/nucleus arithmetic and GPU-state feedback, not model quality",
+    "cases": 20,
+    "draws": 148,
+    "full_vocabulary": 248320
+}

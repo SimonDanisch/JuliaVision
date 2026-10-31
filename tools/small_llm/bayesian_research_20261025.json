@@ -1,0 +1,21 @@
+{
+  "checked_date": "2026-10-25",
+  "scope": "Primary-source context; not reproduced results or the provenance of our authored8 tasks",
+  "papers": [
+    {
+      "title": "From Prompts to Posteriors: Can LLM Agents Perform Bayesian Inference in Context?",
+      "url": "https://arxiv.org/abs/2610.29331v1",
+      "submitted": "2026-10-21",
+      "abstract_level_finding": "The authors evaluate probabilistic coherence, quantitative updating and downstream effects. They report frequent Bayesian violations without tools, with substantially improved posterior approximation when reasoning and code execution are available.",
+      "local_boundary": "Our restricted-network/exact-solver study is much narrower and fictional. It is NOT a replication, does not execute model code, and has no result yet. A tool solver cannot repair incorrect problem extraction automatically."
+    },
+    {
+      "title": "BayesBench: Evaluating LLM Belief Trajectories Under Multi-Turn Evidence Accumulation",
+      "url": "https://arxiv.org/abs/2606.30850v1",
+      "submitted": "2026-06-29",
+      "abstract_level_finding": "Three sequential simulation settings distinguish latent estimation, prediction and persona-framed prediction. The authors report that improved latent inference does not necessarily transfer to accurate outcome predictions.",
+      "local_boundary": "Single-turn posterior arithmetic is insufficient to establish sequential belief updating or using uncertainty to make good decisions. Do not confuse this paper with other unrelated projects also named BayesBench."
+    }
+  ],
+  "interpretation": "Exact solver parity is infrastructure, faithful text-to-network extraction is a separate empirical hurdle, and reliable downstream action is another. None alone establishes broad intelligence, clinical/legal/tax reliability or calibrated uncertainty."
+}

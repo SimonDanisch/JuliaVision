@@ -1,0 +1,29 @@
+{
+    "scope": "authored Base Julia development diagnostic, not held-out; only static-positive candidates revised",
+    "comparison": "baseline, self-review and public-execution feedback all 0/3 on these Base tasks",
+    "budget": "one extra 512-token revision on two static-positive candidates, separate CPU diagnostic costs; no reference solution in prompts",
+    "passed": 0,
+    "total": 3,
+    "rows": [
+        {
+            "task": "stable_groups",
+            "status": "no static-diagnostic revision generated; retain baseline failure"
+        },
+        {
+            "task": "missing_windows",
+            "status": "failed",
+            "generation_seconds": 5.843415975570679,
+            "diagnostics_seconds": 1.049036979675293,
+            "budget_tokens": 512,
+            "truncated": false
+        },
+        {
+            "task": "alias_stencil",
+            "status": "failed",
+            "generation_seconds": 6.923062086105347,
+            "diagnostics_seconds": 0.17057299613952637,
+            "budget_tokens": 512,
+            "truncated": false
+        }
+    ]
+}

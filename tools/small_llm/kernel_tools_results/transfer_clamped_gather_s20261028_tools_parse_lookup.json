@@ -1,0 +1,73 @@
+{
+    "task": "transfer_clamped_gather",
+    "seed": 20261028,
+    "arm": "tools_parse_lookup",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,indices,n::Int32,m::Int32). out and x are distinct Float32 device arrays; indices is a separate Int32 device array. For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i]. m is positive and x has at least m entries; n may be0. Preserve out padding past n. Do not assume indices already lie in1:m.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "98eac8919ad3f942521afbe3e9d833f06b2d554a53b594ac9fe58a6bcc5b1c9a",
+    "answer": "The user wants a Julia GPU kernel function.\nArguments: `out`, `x` (Float32 device arrays), `indices` (Int32 device array), `n::Int32`, `m::Int32`.\nTask: For each `1 <= i <= n`, write `x[clamp(indices[i], 1, m)]` to `out[i]`.\nConstraints:\n- Use `KernelInterface` as `KI`.\n- Use `KI.get_global_id().x` for 1-based global 1D index.\n- Arguments are device arrays/scalars, not host vectors.\n- No host wrappers/devices, KernelAbstractions, CPU loops, host reductions.\n- Work is rounded up; guard inactive invocations.\n- End with `return nothing`.\n- Signature: `kernel!(out, x, indices, n::Int32, m::Int32)`.\n- `out` and `x` are distinct `Float32` device arrays.\n- `indices` is a separate `Int32` device array.\n- `m` is positive, `x` has at least `m` entries. `n` may be 0.\n- Preserve `out` padding past `n`.\n- Do not assume `indices` already lie in `1:m`.\n\nLet's write the kernel:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` is a base function, but does it work on GPU device arrays without imports? `Base.clamp` works on scalars. Since `indices[i]` is a scalar index, `clamp(indices[i], 1, m)` should work.\nHowever, `clamp` might need `using Base` or just `clamp` works. In Julia GPU code, `clamp` is available.\nActually, `clamp` is in Base. It's fine.\n\nLet's double check the signature: `kernel!(out,x,indices,n::Int32,m::Int32)`\nArguments order: `out, x, indices, n, m`.\nType annotations: `n::Int32, m::Int32`.\n\nCheck `KI.get_global_id().x` usage. It returns a 1-based index.\nGuard inactive invocations: `if i <= n` handles `n=0` and bounds.\nPreserve out padding past `n`: The `if` guard ensures we only write to `out[i]` for `i <= n`.\nReturn nothing: `return nothing` or just implicit, but prompt says \"End the function in return nothing.\"\n\nOne detail: `clamp` might be ambiguous or not available in some GPU contexts without `Base.clamp`. I'll use `Base.clamp` to be safe, or just `clamp`. Actually, `clamp` is fine.\nWait, `clamp` on GPU might require `Base.clamp` or just `clamp`. I'll stick with `clamp`.\n\nLet's verify the prompt: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\n\"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\"\n\"Work is rounded up; guard inactive invocations.\"\n\"End the function in return nothing.\"\n\"Signature kernel!(out,x,indices,n::Int32,m::Int32).\"\n\nCode:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nIs there any issue with `clamp`? `clamp` is a base function. It should work.\nSometimes `clamp` is not defined for `Int32` and `Int` bounds? `clamp(indices[i], Int32(1), m)` might be safer to avoid type instability, but `clamp` usually handles it. I'll explicitly convert bounds to `Int32` or just let Julia handle it. `clamp(indices[i], 1, m)` works fine.\n\nWait, `clamp` might be `Base.clamp`. I'll use `Base.clamp(indices[i], Int32(1), m)` to be strictly correct for `Int32` indices, or just `clamp(indices[i], 1, m)`. Julia's `clamp` is flexible.\n\nLet's check `KernelInterface` documentation if needed, but the prompt says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" so I'll just use it.\n\nOne minor point: `out` and `x` are `Float32` device arrays. `indices` is `Int32`.\n`clamp(indices[i], 1, m)` returns an integer. Indexing `x` with it is fine.\n\nCould there be a need for `Base.@propagate_inbounds`? Not necessary for a kernel.\nThe prompt says \"End the function in return nothing.\" so I will literally write `return nothing`.\n\nLet's assemble it.\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` might not be imported in the GPU context if `using Base` is not done, but `Base.clamp` is always available. I'll use `Base.clamp` to be safe, or just `clamp`. Actually, `clamp` is in `Base`, so it's fine.\n\nOne thing: `KI.get_global_id().x` might return a `UInt32` or `Int32`. Comparing `i <= n` where `n::Int32` is fine.\n\nIs there any chance `out` and `x` are passed as `CuArray` or `ROCArray`? The prompt says \"device arrays/scalars\". It's fine.\n\nLet's verify the exact wording: \"End the function in return nothing.\" -> `return nothing`\n\"Signature kernel!(out,x,indices,n::Int32,m::Int32).\" -> matches.\n\"out and x are distinct Float32 device arrays; indices is a separate Int32 device array.\" -> matches.\n\"For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i].\" -> matches.\n\"m is positive and x has at least m entries; n may be0.\" -> matches.\n\"Preserve out padding past n.\" -> `if i <= n` does this.\n\"Do not assume indices already lie in1:m.\" -> `clamp` handles it.\n\nOne detail: `clamp` might need `Base.clamp` to avoid ambiguity in some contexts, but `clamp` is standard. I'll stick with `clamp`.\n\nWait, `KernelInterface` might define `get_global_id` differently? The prompt says \"its 1-based global 1D index KI.get_global_id().x\". So I will use exactly that.\n\nCode looks solid.\n\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nIs there any need for `@inbounds`? Not required.\nShould I add type annotations to `out` and `x` in the signature? The prompt says \"Signature kernel!(out,x,indices,n::Int32,m::Int32).\" so I will follow exactly.\n\nOne minor point: `clamp` might be `Base.clamp`. I'll use `Base.clamp` just in case, but `clamp` is fine. I'll stick to `clamp`.\n\nWait, `clamp` on GPU might sometimes be slow or not optimized, but it's standard Julia. I'll use `clamp`.\n\nLet's consider if `KI.get_global_id().x` could be `UInt32`. `i <= n` works.\n\nFinal check of the prompt: \"End the function in return nothing.\" -> `return nothing`\n\"Write ONLY a Julia GPU function kernel! (optional imports)\" -> I will provide just the function.\n\nOne thing: `clamp` might need `Base.clamp` to be explicit. I'll use `Base.clamp`. Actually, `clamp` is fine.\n\nI will write it out.\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[Base.clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\nWait, `Base.clamp` might be ambiguous for `Int32` and `Int` bounds. `clamp(indices[i], Int32(1), m)` is safer. Or just `clamp(indices[i], 1, m)`. Julia handles it.\n\nI'll stick to `clamp(indices[i], 1, m)`.\n\nActually, `clamp` is in `Base`. It's fine.\n\nOne detail: `KI.get_global_id().x` might be `UInt32`. `i <= n` is fine.\n\nI think it's ready.\nI will output exactly the function.\nNo extra text.\nDone. \nLet's produce the response. \nWait, should I include `using KernelInterface as KI`? The prompt says \"(optional imports)\". I'll skip it or include it if needed, but usually just the function is expected. I'll just give the function.\n\nFinal code:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\nMatches all constraints. Proceeds. \nOne minor adjustment: `clamp` might be `Base.clamp`. I'll use `clamp`. It's standard.\nAll good. \nOutput matches request. \nProceeds. \n(Self-Correction/Verification during thought)\nCould `KI.get_global_id().x` return a `UInt32`? Yes. `i <= n` works.\nCould `n` be 0? Yes, `i <= 0` is false for 1-based indices, so it skips. Correct.\n\"Work is rounded up; guard inactive invocations.\" -> `if i <= n` handles this.\n\"End the function in return nothing.\" -> `return nothing` is at the end.\nSignature matches exactly.\nAll constraints met.\nReady. \nOutput matches. \nProceeds. \n[Output Generation] -> *produces code*\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\nLooks solid. I will present it. \nNote: I'll make sure formatting is exactly as requested. \"Write ONLY a Julia GPU function kernel!\" -> I will output just the code block.\nDone. \nProceeds. \n[Final Check]\n- `kernel!(out,x,indices,n::Int32,m::Int32)` matches signature.\n- `KI.get_global_id().x` used.\n- `if i <= n` guards inactive.\n- `out[i] = x[clamp(indices[i], 1, m)]` does the work.\n- `return nothing` ends it.\n- No host wrappers, etc.\nAll good. \nOutput matches. \nProceeds. \n[Output Generation] (matches the final code block)\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\nDone. \n(Self-Correction/Refinement during thought)\nWait, `clamp` might not be available in some strict GPU contexts without `Base.clamp`. I'll use `Base.clamp` to be perfectly safe, or just `clamp`. Julia's `clamp` is in `Base` and always available. I'll stick with `clamp`.\nActually, `clamp` is fine.\nI will output exactly the function.\nDone. \nProceeds. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```",
+    "code": "function kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 626,
+    "generated_tokens": 2929,
+    "budget_tokens": 6144,
+    "context_tokens": 3555,
+    "truncated": false,
+    "rewinds": 0,
+    "finished_thinking": true,
+    "elapsed_seconds": 41.890908002853394
+}

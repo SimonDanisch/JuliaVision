@@ -1,0 +1,45 @@
+{
+    "task": "074_total_match",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "total_match(String[], String[])",
+            "completed": false,
+            "matches_public_example": false,
+            "error": "ArgumentError: reducing over an empty collection is not allowed; consider supplying `init` to the reducer"
+        },
+        {
+            "example": "total_match([\"hi\", \"admin\"], [\"hI\", \"Hi\"])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "2-element Vector{String}:\n \"hI\"\n \"Hi\"",
+            "expected": "2-element Vector{String}:\n \"hI\"\n \"Hi\""
+        },
+        {
+            "example": "total_match([\"hi\", \"admin\"], [\"hi\", \"hi\", \"admin\", \"project\"])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "2-element Vector{String}:\n \"hi\"\n \"admin\"",
+            "expected": "2-element Vector{String}:\n \"hi\"\n \"admin\""
+        },
+        {
+            "example": "total_match([\"hi\", \"admin\"], [\"hI\", \"hi\", \"hi\"])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "3-element Vector{String}:\n \"hI\"\n \"hi\"\n \"hi\"",
+            "expected": "3-element Vector{String}:\n \"hI\"\n \"hi\"\n \"hi\""
+        },
+        {
+            "example": "total_match([\"4\"], [\"1\", \"2\", \"3\", \"4\", \"5\"])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "1-element Vector{String}:\n \"4\"",
+            "expected": "1-element Vector{String}:\n \"4\""
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.640941858291626,
+    "code_sha256": "4a5048f75f6b6ae56cb8f00723dee6330b101b3b73deefd716743caa17e697ae",
+    "public_examples_sha256": "b9d3fc9b15c9e5f205c239452977c7a3a8b6b41011c7ff3af7c94205bf2caf4c"
+}

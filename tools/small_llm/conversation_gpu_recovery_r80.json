@@ -1,0 +1,10 @@
+{
+  "run": "r80",
+  "completed_parity_cases": 0,
+  "normal_waitidle": false,
+  "event_utc": "2026-10-24T16:10:29Z",
+  "journal": "gfx_0.0.0 timeout; Julia PID838973; ring reset succeeded; device wedged but recovered through reset",
+  "stage": "after FP32 model load and baseline_short98-token prefill start; exact failing dispatch unknown",
+  "cleanup": "affected own persistent worker SIGKILL-retired under external shared flock; explicit recovery release sent",
+  "interpretation": "infrastructure/device-loss failure, not model quality or completed native parity; CPU preparation continues; no automatic GPU retry"
+}

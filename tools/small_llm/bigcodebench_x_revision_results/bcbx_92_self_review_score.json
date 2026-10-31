@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.491818492067978,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `backend` not defined in `Makie`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] getproperty(x::Module, f::Symbol)\n   @ Base ./Base_compiler.jl:47\n [2] top-level scope\n   @ /input/program.jl:13\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:13\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 13, in test_cases\nAssertionError: Expected exit code 0 on valid input\n",
+  "program_sha256": "101f0777e694cd99b3f84294094f8a4bad16dce716af12f183b81f23f3c57184",
+  "test_suite_sha256": "296360f279b002aa3df8805d20626f851facf2642e4a3aed71c31ac7d94d6074",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "44b6178b1bf3332285b384b3b6917ee4a609fca5ae8e541ff9c7e4bbdfca569c"
+}

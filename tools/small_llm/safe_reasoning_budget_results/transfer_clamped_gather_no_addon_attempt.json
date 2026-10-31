@@ -1,0 +1,10 @@
+{
+    "task": "transfer_clamped_gather",
+    "arm": "no_addon",
+    "conditions_sha256": "034e3f73080d583f7a44c861676900dea52a13ed8457c75df02ea82de2a87940",
+    "original_sha256": "1e02e6e43e26ac3b75855ec52c67c876cc12755871fa60609bcfa91957b781f3",
+    "seed": 20261024,
+    "budget_tokens": 2048,
+    "thinking_budget": 1024,
+    "started_unix_seconds": 1.792880802128127e9
+}

@@ -1,0 +1,11 @@
+{
+    "id": "plot_transfer_06_julia_source",
+    "arm": "julia_source",
+    "status": "unsupported_or_truncated_output",
+    "attempted": false,
+    "rendered": false,
+    "within_canvas": null,
+    "generation_sha256": "10f68ba6e5cddf4254ce006e7b496e754abc9fd833173a19923390cd272c9a91",
+    "render_conditions_sha256": "91011917f5cde1eec39502a7e553f1e202f5160c5f21489d83f8898ef256a4cc",
+    "aesthetic_score": null
+}

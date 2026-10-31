@@ -1,0 +1,6 @@
+{
+    "complete": false,
+    "scope": "CPU-only expanded public-doc capture attempt; no corpus written and no model-quality evidence",
+    "observed": "Nonzero child exit with empty captured stderr under existing150CPU/180wall-second jail limits; original helper did not retain returncode, precise cause unproven",
+    "source_sha256": "3295d4605aaf76cb5bc4465442ddae8038078f8331223327d101a7cb537fcdc8"
+}

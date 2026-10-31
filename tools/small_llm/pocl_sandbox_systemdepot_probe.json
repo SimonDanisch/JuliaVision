@@ -1,0 +1,11 @@
+{
+    "id": "ka_tail",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 3.2061338424682617,
+    "diagnostic": "hwloc/linux: failed to find sysfs cpu topology directory, aborting linux discovery.\nTest Summary: | Pass  Total  Time\ncontract      |   10     10  1.4s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "06e45c5b7095e2bd629d9a939844fe5fcb1ef2d66b0a667daebcde0d521e376c"
+}

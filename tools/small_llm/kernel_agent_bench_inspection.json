@@ -1,0 +1,25 @@
+{
+  "scope": "External workload/source inspection ONLY; no source execution, candidate generation, timing or frontier-quality claim.",
+  "primary_source": "https://github.com/kikisq7/KernelAgentBench",
+  "commit": "3800d90fd6fcbd61c7291ff9a2be921c4b958821",
+  "local_checkout": "gen/kernel-agent-bench",
+  "inspected_files": [
+    "README.md",
+    "kernels/gray_scott/ka/candidate.jl",
+    "kernels/gray_scott/reference.jl"
+  ],
+  "workload": "Two-field, fixed-boundary, five-point Gray-Scott reaction-diffusion solver; separate input/output fields avoid in-place cross-block races.",
+  "documented_protocol": {
+    "tracks": ["Julia CPU", "Julia CUDA", "Julia KernelAbstractions"],
+    "current_portable_gpu_target": "CUDA-backed KernelAbstractions; Radeon/Vulkan results would require an independently qualified adaptation",
+    "correctness_gate": true,
+    "scored_quantity": "Steady-state timestep speedup; compilation and total time recorded separately",
+    "agent_limit": "At most five candidate evaluations with a declared improvement stopping threshold"
+  },
+  "limitations": [
+    "One PDE workload does not establish general kernel-writing intelligence.",
+    "No claim of an official upstream result on Mantle or Radeon.",
+    "A local adaptation must qualify boundaries, swaps, multistep evolution, floating-point tolerance, mutants, tail dimensions and timing synchronization before generated code is scored.",
+    "No root project/package change or upstream agent/API workflow was launched."
+  ]
+}

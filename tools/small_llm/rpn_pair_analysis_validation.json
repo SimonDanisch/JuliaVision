@@ -1,0 +1,9 @@
+{
+    "complete": true,
+    "scope": "CPU-only paired endpoint analysis qualification, not quality evidence",
+    "passed": 10,
+    "source_sha256": {
+        "test_summarize_rpn_pairs.jl": "643360ec253feaf2ea53a4323ea84f674948eff6fad5bdaa809ec2a7a9890ab2",
+        "summarize_rpn_pairs.jl": "1cc7c7e3b2e1f86637796451cbbf8557081d3127e78b41f8557f697b44704b70"
+    }
+}

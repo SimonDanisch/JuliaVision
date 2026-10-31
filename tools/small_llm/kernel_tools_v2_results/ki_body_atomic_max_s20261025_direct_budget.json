@@ -1,0 +1,77 @@
+{
+    "task": "ki_body_atomic_max",
+    "seed": 20261025,
+    "arm": "direct_budget",
+    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code.",
+    "prompt": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,labels,x,n::Int32). For every1<=i<=n atomically update out[labels[i]] to the maximum of its old value and x[i]. labels are valid1-based Int32 indices. x/out are Float32, out initially -Inf. Many workgroups contend for the same outputs: a normal load followed by an atomic STORE is NOT a valid maximum RMW. Use current Atomix.jl with explicit :monotonic ordering: only this independent reduction result is read after kernel completion. Ignore rounded-up threads past n. No scratch arrays or host reductions.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "The user wants a Julia kernel function `kernel!` that updates an array `out` based on `labels` and `x`.\nSpecifically, for each `i` from 1 to `n`, we want to perform `out[labels[i]] = max(out[labels[i]], x[i])`.\nThe constraints are:\n1. Use `KernelAbstractions` or similar low-level GPU programming model implied by \"KernelInterface as KI\". The prompt mentions `KI.get_global_id().x`. This suggests a specific interface, likely from `KernelAbstractions.jl` or a similar package like `GPUArrays.jl` or custom wrapper. However, the prompt says \"Use KernelInterface as KI\". This looks like a specific naming convention for the module providing the interface. Let's assume `KI` is the module name.\n2. Arguments: `out`, `labels`, `x`, `n::Int32`.\n3. `out` and `x` are `Float32`. `labels` are `Int32`.\n4. `out` is initially `-Inf`.\n5. Many workgroups contend for the same outputs.\n6. \"a normal load followed by an an atomic STORE is NOT a valid maximum RMW\". This implies we need an atomic maximum operation.\n7. \"Use current Atomix.jl with explicit :monotonic ordering\". This is a huge clue. `Atomix.jl` is a package for atomic operations. The prompt asks to use `Atomix.jl`.\n8. \"Return nothing\".\n9. \"Signature kernel!(out,labels,x,n::Int32)\".\n10. \"1-based indices\".\n\nLet's look at `Atomix.jl` documentation or typical usage.\n`Atomix.jl` provides atomic operations. Usually, it might look like `Atomix.max!(out, labels[i], x[i], :monotonic)` or similar.\nHowever, `Atomix.jl` might not exist or might be a hypothetical package in the context of this prompt, or a very specific one.\nWait, the prompt says \"Use current Atomix.jl\". This implies the package exists.\nLet's check standard Julia GPU atomic operations. Usually `atomic_max!` is available in `GPUArrays` or `Base`.\nBut the prompt specifically mentions `Atomix.jl`.\nIf `Atomix.jl` is the target, the syntax might be `Atomix.max!(ptr, val, order)`.\nHowever, `out` is an array. We need to get a pointer or handle to `out[labels[i]]`.\nIn `KernelAbstractions`, accessing `out[labels[i]]` might give a value, not a reference.\nUsually, kernels take arrays and indices.\nIf `KI` is the interface, maybe `KI.get_global_id().x` gives the thread index.\nLet's assume the thread index `i` corresponds to the loop index.\nThe prompt says \"For every 1<=i<=n\".\nSo `i = KI.get_global_id().x`.\nCheck `i <= n`.\nIndex `idx = labels[i]`.\nWe need to update `out[idx]`.\nIn `Atomix.jl`, how do we address memory?\nOften `Atomix` works on pointers or specific handles.\nIf `out` is a `DeviceArray`, we might need `Base.pointer(out)` or similar, but indices are 1-based.\n`Atomix.jl` might support array indexing directly in atomic calls or require conversion.\nLet's hypothesize the syntax based on \"explicit :monotonic ordering\".\n`Atomix.max!(out, idx, x[i], :monotonic)`?\nOr `Atomix.max!(Base.pointer(out) + idx - 1, x[i], :monotonic)`?\nOr maybe `Atomix` provides a high-level interface.\nGiven \"Use current Atomix.jl\", and the specific ordering requirement.\nLet's assume `Atomix.max!(out, labels[i], x[i], :monotonic)` is the likely syntax if `Atomix` supports array indexing.\nHowever, `Atomix.jl` is likely a package that wraps atomic instructions.\nLet's consider the possibility that `Atomix.jl` is a typo for `Base.Atomic` or similar, but the prompt is specific.\nActually, there is a package `Atomix.jl`? A quick mental check suggests `Atomix` might be a package for atomic operations on GPU or CPU.\nIf it's GPU specific, it likely works with `DeviceArray`.\nThe syntax `Atomix.max!(A, i, x, order)` seems plausible for a high-level API.\nHowever, `out` is the array. `labels[i]` is the index.\nLet's write the code assuming `Atomix.max!(out, labels[i], x[i], :monotonic)` is the call.\nWait, `Atomix.jl` might require the pointer.\nIf `out` is a `DeviceArray`, `Base.pointer(out)` gives the pointer.\nIndex is `labels[i]`. Since 1-based, offset is `labels[i] - 1`.\nSo `Atomix.max!(Base.pointer(out) + labels[i] - 1, x[i], :monotonic)`.\nBut `Atomix.jl` might handle the offset.\nLet's look at the constraint \"Use KernelInterface as KI\".\nThis suggests `KI` is a module.\nCode structure:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        idx = labels[i]\n        # Atomic max\n        # ...\n    end\nend\n```\nRegarding `Atomix.jl` syntax:\nIf `Atomix.jl` is the package, the function is likely `Atomix.max!`.\nDoes it take an array and index?\nMany atomic packages on GPU (like `CUDA.jl`'s `atomic_max!`) take `(A, i, x)`.\n`CUDA.atomic_max!(A, i, x)` updates `A[i]`.\n`Atomix.jl` might follow this convention.\nThe ordering `:monotonic` is specified.\nSo `Atomix.max!(out, idx, x[i], :monotonic)`.\nOr `Atomix.max!(out, idx, x[i], KI.Order(:monotonic))`?\nThe prompt says \"explicit :monotonic ordering\". This suggests the symbol `:monotonic` is passed directly.\nSo `Atomix.max!(out, labels[i], x[i], :monotonic)`.\n\nLet's verify \"a normal load followed by an atomic STORE is NOT a valid maximum RMW\".\nThis confirms we must use an atomic RMW operation, not load-max-store.\n`Atomix.max!` is the RMW.\n\nWhat about `KI`?\n`KI.get_global_id().x` is the global thread index.\nThe loop condition `i <= n` handles the bounds.\n`labels` are valid 1-based indices.\n`out` is `Float32`.\n`x` is `Float32`.\n`n` is `Int32`.\n\nOne detail: `Atomix.jl` might not exist or might be a distractor, but the prompt says \"Use current Atomix.jl\".\nIf `Atomix.jl` is a real package, I should use its API.\nSearching memory for `Atomix.jl`:\nThere is a package `Atomix.jl`?\nActually, `Atomix` is a package for atomic operations in Julia?\nMaybe it's `Base.Atomix`? No.\nMaybe it's `GPUArrays.Atomix`?\nOr maybe the user is referring to a specific internal API or a less known package.\nHowever, the prompt is very specific about \"explicit :monotonic ordering\".\nThis looks like the syntax for `std::memory_order` in C++, but in Julia, it's likely a symbol.\nIf `Atomix.jl` is the package, the function `max!` likely takes the ordering.\nLet's assume the signature is `Atomix.max!(A, i, x, order)`.\n\nWait, `out` might be a `DeviceArray`.\nDoes `Atomix.max!` accept a `DeviceArray`?\nUsually, yes, for high-level APIs.\nIf it requires a pointer, the prompt would likely mention pointers or `Base.pointer`.\nGiven \"Arguments are device arrays/scalars\", passing `out` directly suggests the API accepts arrays.\n\nSo the code:\n```julia\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        idx = labels[i]\n        Atomix.max!(out, idx, x[i], :monotonic)\n    end\nend\n```\nIs `Atomix` imported? The prompt says \"optionally including imports\".\nSo I should include `using Atomix` or `using .KI`?\n\"Use KernelInterface as KI\". This might mean `KI` is already available or I should use `KI` as the module name.\nUsually, this implies `using KernelInterface as KI` or just `KI` is in scope.\nThe prompt says \"Use KernelInterface as KI\". This is an instruction for the code style.\nIt might mean `using KernelInterface as KI`.\nAnd `using Atomix`.\n\nLet's check if `Atomix.jl` is a real package.\nThere is a package `Atomix.jl` on GitHub?\nIt seems `Atomix` might be a package for atomic operations.\nIf so, `Atomix.max!` is the function.\nThe ordering `:monotonic` is standard.\n\nOne potential issue: `labels[i]` might be out of bounds for `out`?\n\"labels are valid 1-based Int32 indices\".\nThis implies `1 <= labels[i] <= length(out)`.\nSo `idx` is safe.\n\nWhat about `x[i]`?\n`i` goes up to `n`. `x` must have size at least `n`.\nThe prompt implies valid inputs.\n\nResult:\n```julia\nusing Atomix\nusing KernelInterface as KI\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.max!(out, labels[i], x[i], :monotonic)\n    end\nend\n```\nWait, `Atomix.jl` might require `Atomix.max!` to take the array, index, and value.\nOr maybe `Atomix.max!(ptr, val, order)`?\nIf `out` is a device array, `Atomix` might need `Base.pointer(out)`.\nHowever, \"Arguments are device arrays\" usually implies the API handles arrays.\nIf `Atomix.jl` is a low-level wrapper, it might need pointers.\nBut \"Use current Atomix.jl\" suggests using the package as intended.\nIf `Atomix.jl` provides a high-level interface, it takes arrays.\nGiven the ambiguity, the array interface is safer if \"Arguments are device arrays\" is emphasized.\nAlso, `Atomix.max!` with `:monotonic` matches the description.\n\nLet's double check `Atomix.jl` existence.\nThere is a package `Atomix.jl`?\nActually, `Atomix` might be a typo for `Base.Atomix`? No.\nMaybe `CUDA.Atomix`?\nOr `GPUArrays.Atomix`?\nThe prompt says \"Use current Atomix.jl\". This implies `Atomix.jl` is the package name.\nI will assume `using Atomix` is correct.\n\nOne more thing: `KI.get_global_id().x`.\nThis returns the global index.\nThe check `i <= n` is correct.\n`labels` and `x` are indexed by `i`.\n`out` is indexed by `labels[i]`.\n\nIs there any chance `Atomix.max!` returns the new value?\n\"Return nothing\" applies to the kernel.\n`Atomix.max!` likely returns nothing or the new value.\nThe kernel returns nothing.\n\nFinal code structure:\n```julia\nusing Atomix\nusing KernelInterface as KI\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.max!(out, labels[i], x[i], :monotonic)\n    end\nend\n```\nWait, `Atomix.jl` might not exist in the standard environment, but the prompt asks to use it.\nSo I must include the import.\nThe prompt says \"optionally including imports\".\nSo `using Atomix` is good.\n\nWhat if `Atomix.jl` uses a different function name?\n\"maximum of its old value and x[i]\" -> `max!`.\n\"explicit :monotonic ordering\" -> `:monotonic`.\nThis seems consistent.\n\nOne nuance: `labels` are `Int32`. `out` indices are `Int32`?\nJulia arrays are `Int` based. `Int32` is compatible.\n`x` is `Float32`.\n`out` is `Float32`.\n`max` works on `Float32`.\n\nIs `Atomix.max!` the correct function?\nMaybe `Atomix.atomic_max!`?\nUsually `max!` is the convention in Julia for in-place max (like `max!` in some packages).\nOr `Base.max!`? No, `Base.max!` is for sorting or something else?\nActually `Base.max!` updates an array with max of two arrays.\nFor atomic, it's usually `atomic_max!`.\nBut the prompt says \"Use current Atomix.jl\".\nIf `Atomix.jl` defines `max!`, I use `max!`.\nIf it defines `atomic_max!`, I use `atomic_max!`.\nGiven \"maximum ...\n\nConsidering the limited time, I have to give the solution based on the thinking directly now.\n</think>\n\n```julia\nusing Atomix\nusing KernelInterface as KI\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.max!(out, labels[i], x[i], :monotonic)\n    end\nend\n```",
+    "code": "using Atomix\nusing KernelInterface as KI\n\nfunction kernel!(out, labels, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        Atomix.max!(out, labels[i], x[i], :monotonic)\n    end\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 226,
+    "generated_tokens": 3144,
+    "budget_tokens": 6144,
+    "context_tokens": 3392,
+    "truncated": false,
+    "rewinds": 1,
+    "forced_closes": 1,
+    "thinking_tokens": [
+        3072
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 43.52997016906738
+}

@@ -1,0 +1,23 @@
+{
+    "complete": true,
+    "scope": "CPU-only frozen v2 tokenizer/capacity preflight; no model or GPU setup",
+    "conditions_sha256": "69dc7e90257ae43baff8de85f9dedee2592496c2a2f3b8a66704a275484683b2",
+    "prompt_tokens": [
+        420,
+        420,
+        425,
+        425,
+        427,
+        427,
+        423,
+        423,
+        424,
+        424,
+        427,
+        427,
+        436,
+        436,
+        424,
+        424
+    ]
+}

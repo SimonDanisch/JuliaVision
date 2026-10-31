@@ -1,0 +1,18 @@
+{
+    "task": "106_f",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "f(5)",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "5-element Vector{Int64}:\n  1\n  2\n  6\n 24\n 15",
+            "expected": "5-element Vector{Int64}:\n  1\n  2\n  6\n 24\n 15"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.5276439189910889,
+    "code_sha256": "3ca2f9471a0ef0752dc1152303d34725b0edde33560d2defa2d86958ec52ebfe",
+    "public_examples_sha256": "ac4371eaa246b585ece4d04bb87c5b36a8b4ff5daf9e552ec66f44b7158810b6"
+}

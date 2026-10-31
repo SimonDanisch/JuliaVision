@@ -1,0 +1,16 @@
+{
+    "complete": false,
+    "scope": "software Vulkan equivalence and one submission per replay; NOT Radeon performance or model-quality evidence",
+    "result": {
+        "passed": false,
+        "exitcode": 1,
+        "diagnostic": "bwrap: Can't mkdir /input: Read-only file system\n",
+        "elapsed_seconds": 0.009675025939941406
+    },
+    "source_sha256": {
+        "test_gpu_sampling_tiled.jl": "ef97006df6df87021a9debd7489e2b89135c6c7ca091f80b978fcc89c7e81918",
+        "gpu_sampling.jl": "c782220c051d90bda006debe3957d7b731c77e72797888c964c0f9d9b690c730",
+        "julia_sandbox.sh": "479440d8b31938cf238a29ecbdb984a8bcc0d84f3434e33a680c6948a73cde6a",
+        "gpu_sampling_tiled.jl": "fdb53c66c4083e92d54951b0ef9ca48754d00bbd236f59477c4cf93b9bff6b36"
+    }
+}

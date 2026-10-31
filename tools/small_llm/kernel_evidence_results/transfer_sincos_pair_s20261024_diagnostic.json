@@ -1,0 +1,14 @@
+{
+    "task": "transfer_sincos_pair",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: ParseError:\n# Error @ public_kernel_probe.jl:1:6\nusing KernelInterface as KI\n#    └────────────────────┘ ── `using` with `as` renaming requires a `:` and context module\nin expression starting at public_kernel_probe.jl:1"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "81325585fdde56b12d20603cf2a689b6e24e52b2504c191fc93a69db5199e756",
+    "fixture_sha256": "42845a918e814bac9d8cddc6adb8434a90b0e087d0d0ef3473d24d61a8629455",
+    "code_sha256": "5e9f8f8e1b3dc1e1005b95d19db5cc540565e81c6cd5c23dd05968305ce81282",
+    "elapsed_seconds": 9.45115613937378
+}

@@ -1,0 +1,11 @@
+{
+    "id": "146_specialFilter",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.2765998840332031,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    7      7  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "0059f80eed01fca73c11e9892a06b44e21402d7e7ffb811bee85512c9021ae09"
+}

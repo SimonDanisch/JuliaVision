@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-26",
+  "protocol": "8 authored kernel tasks x 5 seeds, Qwen3.6-35B-A3B on the Radeon, thinking, 6144 generated tokens over all rounds, sampler as the kernel evidence study; per-round thinking budget 3072 closed with Qwen's wording",
+  "passed_of_40": {
+    "direct": 13,
+    "api_pack": 20,
+    "runtime_feedback": 20,
+    "tools_parse_lookup": 20,
+    "direct_budget": 13,
+    "tools_budget": 23,
+    "tools_run_budget": 28
+  },
+  "paired": {
+    "tools_run_budget vs direct": "19-4 p=0.003",
+    "tools_run_budget vs api_pack": "15-7 p=0.13",
+    "tools_run_budget vs runtime_feedback": "14-6 p=0.12",
+    "tools_run_budget vs tools_budget": "14-9 p=0.40",
+    "tools_budget vs tools_parse_lookup": "3-0",
+    "direct_budget vs direct": "0-0"
+  },
+  "passes_per_gpu_hour": {
+    "direct": 26.1,
+    "api_pack": 32.5,
+    "runtime_feedback": 22.1,
+    "tools_budget": 49.7,
+    "tools_run_budget": 52.7,
+    "direct_budget": 30.4
+  },
+  "run_tool": "6 of 40 answers called run_julia (20 calls); all 6 passed",
+  "budget": "no effect on direct; ends the tool arms' plan-but-never-call loops (truncations 11 -> 3)",
+  "remaining_failures_tools_run_budget": {
+    "kernel_contract": 7,
+    "unknown_or_misused_api": 1,
+    "syntax": 1,
+    "no_answer_within_budget": 1,
+    "wrong_result": 1,
+    "other": 1
+  },
+  "next": "check the final answer with the public probe and return a raised error as one more tool response",
+  "caveat": "8 authored development tasks; arms differ in system prompt and tool list, which changes every seed's trajectory"
+}

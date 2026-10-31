@@ -1,0 +1,9 @@
+{
+    "id": "makie_update",
+    "passed": true,
+    "exitcode": 0,
+    "elapsed_seconds": 49.64415693283081,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    8      8  3.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "74eeeaddb924d180073645ff03e78bd0d195610a55cb111c83fec07f468e2c5b"
+}

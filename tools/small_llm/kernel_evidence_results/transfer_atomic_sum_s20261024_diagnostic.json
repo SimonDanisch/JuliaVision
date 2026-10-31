@@ -1,0 +1,14 @@
+{
+    "task": "transfer_atomic_sum",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: argument_usage: cannot say what `Tuple{var\"#kernel!\", Lava.LavaDeviceArray{Float32, 1}, Lava.LavaDeviceArray{Int32, 1}, Lava.LavaDeviceArray{Float32, 1}, Int32}` does to argument(s) 1.\n\nThe walk reached a call to `Atomix.atomic_add!`, which `Atomix` does not define, so the call stays dynamic and a device compiler rejects it, and those arguments lead into it:\n\n    (%12)(_2, %14, %16, :monotonic)\n\nIt will not guess. If this is a construct the device cannot run either --\na `ccall`, recursion, a call the optimiser left dynamic -- the backend\nwas going to refuse it too, and the kernel is what needs changing. If it\nis a device intrinsic, declare what it does with `Mantle.intrinsic_usage`;\nif it is a callable with no body on this side, declare it with\n`Mantle.argument_usage`.\nin expression starting at public_kernel_probe.jl:9"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "28196199163dbd4ae67eb5eba824ee29dbf5c0ef5723dbcadf88a536ac688a08",
+    "fixture_sha256": "b42b8d0b883b4e76d9b26cf99f1d8fd1749afd5b7806825134235a4a87000e14",
+    "code_sha256": "683704f4e4b88cdfbbaa633a8ed26e4d9102f06e4449ca889bd58c26325a990b",
+    "elapsed_seconds": 17.51432514190674
+}

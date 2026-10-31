@@ -1,0 +1,14 @@
+{
+    "task": "ki_body_atomic_max",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: argument_usage: cannot say what `Tuple{var\"#kernel!\", Lava.LavaDeviceArray{Float32, 1}, Lava.LavaDeviceArray{Int32, 1}, Lava.LavaDeviceArray{Float32, 1}, Int32}` does to argument(s) 1.\n\nThe walk reached a call to `KernelInterface.atomic_max`, which `KernelInterface` does not define, so the call stays dynamic and a device compiler rejects it, and those arguments lead into it:\n\n    (%16)(_2, %13, %15, :monotonic)\n\nIt will not guess. If this is a construct the device cannot run either --\na `ccall`, recursion, a call the optimiser left dynamic -- the backend\nwas going to refuse it too, and the kernel is what needs changing. If it\nis a device intrinsic, declare what it does with `Mantle.intrinsic_usage`;\nif it is a callable with no body on this side, declare it with\n`Mantle.argument_usage`.\nin expression starting at public_kernel_probe.jl:11"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "48c281996b9e7cb046da8eb28ead76b62300a25ce30f12cf7fa2ac54878e0a78",
+    "fixture_sha256": "dabe40344838b9d3318114da114d3549fa0bfc3134cee1441b3145aaa2b58fa5",
+    "code_sha256": "02b5b8e823f129c424e045ddb7cb2d5449d85671e79136f50ddcfab262834fa5",
+    "elapsed_seconds": 17.053081035614014
+}

@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.540321227046661,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: The IO stream does not support reading objects of type IOBuffer.\nStacktrace:\n [1] error(s::String)\n   @ Base ./error.jl:44\n [2] top-level scope\n   @ io.jl:1188\n [3] top-level scope\n   @ /input/program.jl:6\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:6\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 17, in <module>\n    tests.test_cases(runner)\n  File \"/input/tests.py\", line 6, in test_cases\n    assert code == 0\n           ^^^^^^^^^\nAssertionError\n",
+  "program_sha256": "4bbbe9924d409a3188b64bc880ff0f5b26684b7254ceaa621c35e3f4fc9014a5",
+  "test_suite_sha256": "c9223493fd99f37b3c40b8901f6e67625ac43d38ae2d7cd3a81dce3e3d72dbfe",
+  "scope": "Local Julia functional stdin/stdout test result; not plot aesthetics or GPU performance",
+  "scorer_sha256": "00106eaff3cba2840f7b7be08a8cdf45e63e7be194fbeb532448a2c40b4e2d77"
+}

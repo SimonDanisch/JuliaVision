@@ -1,0 +1,11 @@
+{
+    "id": "sandbox_boundaries",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.3073098659515381,
+    "diagnostic": "ISOLATION_CHECKS_PASSED\nTest Summary: | Pass  Total  Time\ncontract      |    9      9  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

@@ -1,0 +1,11 @@
+{
+    "id": "ki_body_affine",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 26.062257051467896,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    5      5  13.7s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "34a160c37ef0033c5dfd5aa7a83e8a2428a162c260887318765e2d69062960bd"
+}

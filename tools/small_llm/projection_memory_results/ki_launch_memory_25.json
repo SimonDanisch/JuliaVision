@@ -1,0 +1,57 @@
+{
+    "task": "ki_launch",
+    "arm": "memory_25",
+    "conditions_sha256": "4d78a522ff99842734d9ad91a51000deedbf4d3e7802345839f173b4ee3d3616",
+    "contract_sha256": "0f6308ac3ad3c29c35dc757bf397fae3e8f4ac4ff7f779994bbdf0247340d480",
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "497a45d1ab117c26dd6f34763cf58521851e365cc6a1282615962d45ac174f26",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "23ce7207bb1173206e1ffca81e78a6ec67635ce3b76d0bdbd96cf064f23bb19e",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "a4c839620b3c2b205805bb9822a9df03dcdacecebe7960b0157cca1abf444f67"
+            }
+        }
+    },
+    "answer": "The user wants me to write a Julia function that uses KernelInterface.jl to launch a kernel that doubles an array x into out. Let me break down the requirements:\n\n1. Function signature: `solve!(kernel, out, x)`\n2. kernel is already compiled KernelInterface.Kernel\n3. The kernel's backend is stored in kernel.backend\n4. Validate equal lengths or throw DimensionMismatch before launch\n5. Launch with workgroup size 64 and ndrange=length(x)\n6. Use KernelInterface kernel-call interface (not CUDA, not KernelAbstractions @kernel)\n7. KernelInterface rounds ndrange up automatically\n8. Zero ndrange launches nothing\n9. Synchronize kernel.backend after launch\n10. Return the exact out object\n11. Code only including imports\n\nLet me write this:\n\n```julia\nusing KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    # Validate equal lengths\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"out and x must have equal length\"))\n    end\n    \n    # Launch kernel\n    KernelInterface.launch(kernel, ndrange=length(x), workgroupsize=64)\n    \n    # Synchronize backend\n    KernelInterface.synchronize(kernel.backend)\n    \n    return out\nend\n```\n\nWait, I need to check the KernelInterface API more carefully. Let me think about the correct way to launch a kernel.\n\nIn KernelInterface, you typically use `KernelInterface.launch(kernel, ndrange=...)` or similar. Let me verify the correct syntax.\n\nActually, looking at KernelInterface.jl documentation, the typical usage is:\n- `KernelInterface.launch(kernel, ndrange=...)` to launch\n- `KernelInterface.synchronize(kernel.backend)` to synchronize\n\nBut I should also check if there's a specific way to call it. Let me think about the kernel-call interface.\n\nActually, in KernelInterface, you can call kernels directly like:\n\n\n```julia\nKernelInterface.update!(kernel, out, x)\n```\n\nOr use the `@kernel` macro style but without KernelAbstractions.\n\nKernelInterface provides a `KernelInterface.update!` method that takes the kernel, output, and input arrays. The kernel, ndrange, and workgroupsize parameters are passed to the launch function. I need to ensure the kernel is properly configured with the correct workgroup size and that synchronization happens after the kernel completes.\n\n```julia\nusing KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"out and x must have equal length\"))\n    end\n    \n    KernelInterface.launch(kernel, ndrange=length(x), workgroupsize=64)\n    KernelInterface.synchronize(kernel.backend)\n    return out\nend\n```\n\nI should verify the exact KernelInterface API syntax for launching kernels with workgroup size and ndrange parameters.\n</think>\n\n```julia\nusing KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"out and x must have equal length\"))\n    end\n    \n    KernelInterface.launch(kernel, ndrange=length(x), workgroupsize=64)\n    KernelInterface.synchronize(kernel.backend)\n    return out\nend\n```",
+    "code": "using KernelInterface\n\nfunction solve!(kernel::KernelInterface.Kernel, out::AbstractArray, x::AbstractArray)\n    if length(out) != length(x)\n        throw(DimensionMismatch(\"out and x must have equal length\"))\n    end\n    \n    KernelInterface.launch(kernel, ndrange=length(x), workgroupsize=64)\n    KernelInterface.synchronize(kernel.backend)\n    return out\nend\n",
+    "input_tokens": 158,
+    "generated_tokens": 728,
+    "budget_tokens": 2048,
+    "decode_steps_executed": 768,
+    "decode_submissions": 768,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 26.150534868240356,
+    "input_sha256": "a98e6c47cca7c4c3df8bd4ece5bd80c61f1c07c693d25a5a8380006c9afb253b",
+    "memory_weight": 0.25,
+    "memory_temperature": 32,
+    "memory_topk": 8,
+    "shuffled_labels": false,
+    "memory_status": 0,
+    "datastore_registration_sha256": "a9d535dd7d5b0f088bfb6f50664f3fd1dad3e93d383fbbdb47b5bb0b41860407",
+    "scope": "published-source output-projection retrieval, not a trained latent-memory bridge"
+}

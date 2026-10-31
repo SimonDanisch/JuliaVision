@@ -1,0 +1,23 @@
+{
+    "lavapipe": "Test.TestCounts(true, 0, 0, 0, 0, 487, 0, 0, 1, \"27.7s\")",
+    "radeon": "Test.TestCounts(true, 0, 0, 0, 0, 525, 0, 0, 0, \"43.6s\")",
+    "normal_final_waitidle": true,
+    "source_sha256": {
+        "qwen36_moe_model.jl": "14c5727db62d9806cbcf54d6fc3e04fb9106938a7151ce2e5de18260c192c7f1",
+        "qwen36_gguf_kernels.jl": "6947e201b758408ccdeb0cee1fd5fd8f998c4b4a568a136ca3967bf0f6cbdf60",
+        "qwen36_optim.jl": "55fbfe7bb119372522ad4cae95e4245dd7ccbd9f5488442acaaf79339c2428c8",
+        "test_qwen36_optim.jl": "7e0eae820f86ade3a4d42bb3083609b06e2cd7fe55c3b530a3bf5ca05ec34ad4",
+        "test_qwen36_fusion.jl": "b072c768f4bb9697bea498af90c58eeff466be31013d3c028ca9e01a59ba2c58",
+        "test_qwen36_moe_model.jl": "bf53865e1a83bde024c54a274a8af621e2635279565eec84a631d51f74964abd",
+        "benchmark_qwen36_device.jl": "9df1244327c9246206874c456425a2aee7a90a8c5189998813b91affa29cb70b",
+        "test_qwen36_gguf.jl": "bd1b92daab5f4a763f19e69596dddb52e457bfa24a4e5932d921aa14b01da431"
+    },
+    "apple": {
+        "metal4_tests": 525,
+        "metal4_run": "r101",
+        "default_tests": 525,
+        "metal4_report_error": "test and finally cleanup passed; later top-level testset binding was local to try scope",
+        "default_run": "r97",
+        "normal_waitidle": true
+    }
+}

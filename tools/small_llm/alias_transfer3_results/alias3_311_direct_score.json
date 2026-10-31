@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.25033395492937416,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `Generator` not defined in `Random`\nSuggestion: check for spelling errors or missing imports.\nHint: a global variable of this name also exists in Base.\nStacktrace:\n [1] getproperty(x::Module, f::Symbol)\n   @ Base ./Base_compiler.jl:47\n [2] top-level scope\n   @ /input/program.jl:27\n [3] top-level scope\n   @ /input/program.jl:87\n [4] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [5] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [6] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:87\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 7, in test_cases\nAssertionError\n",
+  "program_sha256": "dd84fccdb5e2366b34e31f040c0a9f1ff55d0dda41aef093e3d72620bd4d2b25",
+  "test_suite_sha256": "cdcea6c8e77e86f7427c737dd7bbceaef085384ec7630f45840efc62a76aaf7a",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "f8fa208b3feb848ee037071c5272a3dba6096f6df893555f9537d25f08cd6e4b"
+}

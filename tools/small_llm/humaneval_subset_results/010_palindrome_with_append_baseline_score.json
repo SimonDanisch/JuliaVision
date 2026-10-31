@@ -1,0 +1,11 @@
+{
+    "id": "010_palindrome_with_append",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 1.4322679042816162,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 4 passed, 1 failed, 0 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Test Failed at /input/runner.jl:8\n  Expression: palindrome_with_append(\"xyx\") == \"xyx\"\n   Evaluated: \"xyxyx\" == \"xyx\"\n\nStacktrace:\n [1] top-level scope\n   @ /input/runner.jl:5\n [2] macro expansion\n   @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n [3] macro expansion\n   @ /input/runner.jl:8 [inlined]\n [4] macro expansion\n   @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:680 [inlined]\nTest Summary: | Pass  Fail  Total  Time\ncontract      |    4     1      5  0.8s\nRNG of the outermost testset: Random.Xoshiro(0x062e6c28579cd3be, 0x895254ef4d59ba72, 0x185cb3c15bcba850, 0x4560cfeb354cde0e, 0x019a9d2b7fbe5f06)\n",
+    "log_truncated": false,
+    "code_sha256": "16cfc4d0d732e8e034c634cdeada20d8980116836863df360719135042c6e832"
+}

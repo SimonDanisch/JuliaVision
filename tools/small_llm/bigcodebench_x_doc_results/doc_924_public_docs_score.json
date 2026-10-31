@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.37952823599334806,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: MethodError: no method matching eachline(::Base.PipeEndpoint; io::Base.PipeEndpoint)\nThis method does not support all of the given keyword arguments (and may not support any).\n\nClosest candidates are:\n  eachline(::IO; keep) got unsupported keyword argument \"io\"\n   @ Base io.jl:1233\n  eachline(; ...)\n   @ Base io.jl:1233\n  eachline(!Matched::Base.AbstractCmd; keep) got unsupported keyword argument \"io\"\n   @ Base process.jl:351\n  ...\n\nStacktrace:\n [1] top-level scope\n   @ error.jl:175\n [2] top-level scope\n   @ io.jl:1233\n [3] top-level scope\n   @ io.jl:716\n [4] top-level scope\n   @ io.jl:716\n [5] top-level scope\n   @ io.jl:716\n [6] top-level scope\n   @ /input/program.jl:4\n [7] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [8] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [9] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:4\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 36, in test_cases\nAssertionError\n",
+  "program_sha256": "e6a99ed8f19c3b0107071149de65b9b0bc5ff84bb58cf7c3781f7a555350f971",
+  "test_suite_sha256": "279b4b308b33b5bea04575ff45a892b7bb63637789f5f1eb5c6f6f53835b2d4a",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

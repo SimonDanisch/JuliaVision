@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 0.24662371503654867,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: UndefVarError: `STDIN` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:7\n [2] top-level scope\n   @ /input/program.jl:63\n [3] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [4] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [5] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:63\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 12, in test_cases\nAssertionError\n",
+  "program_sha256": "873a7d4a9494a005ca1efb8ad2f174890e0f5f7ebd49f7966e50317c5ba000c6",
+  "test_suite_sha256": "2f7978d2e873faf192d5c017b6b5b95fd40639672cbf836c4de0609e7697138e",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "36e123fa7f75d319a07b0e3940fbe3adf612977ccb99a03a4e1d74879d52d9e5"
+}

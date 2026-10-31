@@ -1,0 +1,26 @@
+{
+    "task": "missing_windows",
+    "scope": "advisory type analysis at public input signatures; no hidden assertions/values, not proof of correctness",
+    "analysis_completed": true,
+    "payload": {
+        "version": "0.12.3",
+        "completed": true,
+        "rows": [
+            {
+                "signature": "Tuple{Vector{Union{Missing, Float64}}, Int64}",
+                "report_count": 1,
+                "kind": "JET",
+                "text": "═════ 1 possible error found ═════\n┌ solve(x::Vector{Union{Missing, Float64}}, width::Int64) @ Main /input/candidate.jl:15\n│ `Main.mean` is not defined: mean\n└────────────────────\n"
+            },
+            {
+                "signature": "Tuple{Vector{Float64}, Int64}",
+                "report_count": 1,
+                "kind": "dispatch",
+                "text": "No applicable method for solve at public signature Tuple{Vector{Float64}, Int64}"
+            }
+        ]
+    },
+    "elapsed_seconds": 1.049036979675293,
+    "diagnostic": "JET_DIAGNOSTICS={\"version\":\"0.12.3\",\"completed\":true,\"rows\":[{\"signature\":\"Tuple{Vector{Union{Missing, Float64}}, Int64}\",\"report_count\":1,\"kind\":\"JET\",\"text\":\"═════ 1 possible error found ═════\\n┌ solve(x::Vector{Union{Missing, Float64}}, width::Int64) @ Main /input/candidate.jl:15\\n│ `Main.mean` is not defined: mean\\n└────────────────────\\n\"},{\"signature\":\"Tuple{Vector{Float64}, Int64}\",\"report_count\":1,\"kind\":\"dispatch\",\"text\":\"No applicable method for solve at public signature Tuple{Vector{Float64}, Int64}\"}]}\nTest Summary: | Total  Time\ncontract      |     0  0.5s\nCONTRACT_PASSED\n",
+    "code_sha256": "2e89193f95e12796d5c3e0d497bc124c50630e0f59923877c706ad5a9781934b"
+}

@@ -1,0 +1,18 @@
+{
+    "id": "neighbor_box_upper_gap",
+    "conditions_sha256": "b15d748b3eb80966f7850d0feddb7d40ecbea5e036c02417a0c89826e009ee98",
+    "mode": "clamped",
+    "parent_selection_sha256": "29d88863b77fad930767ce5ba746876a57ca020aaeadf2f5b6253c748bdef6d6",
+    "proposal": {
+        "found": false,
+        "program": "",
+        "reason": "not_needed_or_infrastructure_failure",
+        "elapsed_seconds": 0,
+        "candidates": 0
+    },
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "x_prev_clamped\nx_next_clamped\nmax\nx0\nsub\nfinish\n",
+        "reason": "public_examples_and_boundary_match"
+    }
+}

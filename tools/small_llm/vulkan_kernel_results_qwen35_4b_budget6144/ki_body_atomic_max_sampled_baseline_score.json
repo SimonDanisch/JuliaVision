@@ -1,0 +1,11 @@
+{
+    "id": "ki_body_atomic_max",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 7.364701986312866,
+    "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nERROR: LoadError: @atomic modify expression missing field access or indexing\nStacktrace:\n [1] error(s::String)\n   @ Base ./error.jl:44\n [2] make_atomic(order::Any, a1::Any, op::Any, a2::Any)\n   @ Base ./expr.jl:1377\n [3] make_atomic(order::Any, ex::Any)\n   @ Base ./expr.jl:1362\n [4] include(mapexpr::Function, mod::Module, _path::String)\n   @ Base ./Base.jl:307\n [5] top-level scope\n   @ /input/runner.jl:23\n [6] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [7] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [8] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/candidate.jl:11\nin expression starting at /input/candidate.jl:4\nin expression starting at /input/runner.jl:23\n",
+    "log_truncated": false,
+    "code_sha256": "c2df20c472aa69fd984409df94cafce8e9409058315eae6cd59bb7a9f7d016de"
+}

@@ -1,0 +1,11 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.4519033029209822,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: MethodError: no method matching split(::Char, ::String)\nThe function `split` exists, but no method is defined for this combination of argument types.\n\nClosest candidates are:\n  split(!Matched::T, ::Any; limit, keepempty) where T<:AbstractString\n   @ Base strings/util.jl:897\n  split(!Matched::AbstractString; limit, keepempty)\n   @ Base strings/util.jl:904\n\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:23\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:20\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 24, in test_cases\nAssertionError\n",
+  "program_sha256": "a10faacbbec6a019f7a8fc134aab2fb7332e6b9f82dd93f23a7976dd67d3467f",
+  "test_suite_sha256": "66f5837f768e81064a9036c6e127191bb95e6dc17bd8df4bed387225ab6550df",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "dc7cb51b1467c33d19562454b2b384c40e4fa45327d1c8233eefc09413971295"
+}

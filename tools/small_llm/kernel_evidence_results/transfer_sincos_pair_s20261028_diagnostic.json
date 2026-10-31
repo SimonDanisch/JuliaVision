@@ -1,0 +1,14 @@
+{
+    "task": "transfer_sincos_pair",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": true,
+        "observed": "Float32[0.0, 0.84147096, -0.84147096, -9.0]"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "81325585fdde56b12d20603cf2a689b6e24e52b2504c191fc93a69db5199e756",
+    "fixture_sha256": "42845a918e814bac9d8cddc6adb8434a90b0e087d0d0ef3473d24d61a8629455",
+    "code_sha256": "0f3718172382edc20ec05c0d47de6d785378085d8adf32648f5729c0592ddb02",
+    "elapsed_seconds": 26.10997200012207
+}

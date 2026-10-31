@@ -1,0 +1,11 @@
+{
+    "id": "shared_block_reverse",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 0.39276790618896484,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |    6      6  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "b61c9ef41a4073792ce25764a97da5f29e1e146e0993f97d9c4359c2d79c641a"
+}

@@ -1,0 +1,77 @@
+{
+    "task": "transfer_sincos_pair",
+    "seed": 20261025,
+    "arm": "direct_budget",
+    "system": "You are a Julia GPU programmer. Return only the requested executable kernel code.",
+    "prompt": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out_sin,out_cos,x,n::Int32). Three distinct Float32 device arrays. For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i]. x values lie in[-3,3]. n can be0; preserve padding in BOTH output arrays after n. Compute each valid element once, no atomics.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "The user wants a Julia GPU kernel function that computes sine and cosine for a given array of Float32 values.\nKey constraints:\n- Use `KernelInterface` (KI) and `KI.get_global_id().x` for 1-based indexing.\n- Arguments are device arrays/scalars.\n- No host wrappers, CPU loops, or KernelAbstractions.\n- Work is rounded up; guard inactive invocations.\n- Signature: `kernel!(out_sin, out_cos, x, n::Int32)`\n- For 1 <= i <= n, write `sin(x[i])` to `out_sin[i]` and `cos(x[i])` to `out_cos[i]`.\n- x values are in [-3, 3].\n- n can be 0; preserve padding in BOTH output arrays after n.\n- Compute each valid element once, no atomics.\n- End function in `return nothing`.\n\nLet's draft the kernel:\n```julia\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        val = x[i]\n        out_sin[i] = sin(val)\n        out_cos[i] = cos(val)\n    end\n    return nothing\nend\n```\n\nWait, `sin` and `cos` in Julia are generic. On GPU, they should work if the backend supports them, or we might need `Base.sin` and `Base.cos`, or just `sin` and `cos`. Since it's a standard Julia GPU kernel, `sin` and `cos` should dispatch to the appropriate device implementation.\n\nCheck constraints:\n- \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" -> `i = KI.get_global_id().x`\n- \"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\" -> handled\n- \"No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions.\" -> handled\n- \"Work is rounded up; guard inactive invocations.\" -> `if i <= n` handles this.\n- \"End the function in return nothing.\" -> `return nothing` at the end.\n- \"Signature kernel!(out_sin,out_cos,x,n::Int32).\" -> matches.\n- \"Three distinct Float32 device arrays.\" -> types are inferred or we can specify `::Vector{Float32}` but the prompt says \"Three distinct Float32 device arrays\", so we can just use the names.\n- \"For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i].\" -> handled.\n- \"x values lie in[-3,3].\" -> irrelevant for correctness, just context.\n- \"n can be0; preserve padding in BOTH output arrays after n.\" -> guarded by `if i <= n`, so padding is untouched.\n- \"Compute each valid element once, no atomics.\" -> handled.\n\nOne minor point: `KI.get_global_id().x` returns an integer. In Julia, array indexing is 1-based, so `x[i]` is correct.\nShould we specify types for arguments? The prompt says \"Signature kernel!(out_sin,out_cos,x,n::Int32)\". I'll stick to that.\nMaybe add `using KernelInterface as KI` at the top as requested \"(optional imports)\".\n\nLet's verify `KI.get_global_id().x` syntax. KernelInterface.jl typically uses `KI.get_global_id(:x)` or `KI.get_global_id().x`. The prompt explicitly says `KI.get_global_id().x`, so I'll use that.\n\nWait, `sin` and `cos` on GPU might need `Base.sin` and `Base.cos` or just `sin`/`cos`. In Julia GPU ecosystem, `sin` and `cos` usually work. I'll use `sin` and `cos`.\n\nOne thing: `out_sin[i] = sin(x[i])` might cause type instability if `sin` returns Float64? No, `sin` on Float32 returns Float32.\n\nLet's write it out carefully.\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        val = x[i]\n        out_sin[i] = sin(val)\n        out_cos[i] = cos(val)\n    end\n    return nothing\nend\n```\n\nCheck constraints:\n- \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" -> done.\n- \"Arguments are device arrays/scalars, NOT ordinary host Vector objects.\" -> done.\n- \"No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions.\" -> done.\n- \"Work is rounded up; guard inactive invocations.\" -> done.\n- \"End the function in return nothing.\" -> done.\n- \"Signature kernel!(out_sin,out_cos,x,n::Int32).\" -> done.\n- \"Three distinct Float32 device arrays.\" -> implied by usage.\n- \"For1<=i<=n, write sin(x[i]) into out_sin[i] and cos(x[i]) into out_cos[i].\" -> done.\n- \"x values lie in[-3,3].\" -> irrelevant.\n- \"n can be0; preserve padding in BOTH output arrays after n.\" -> guarded, so padding preserved.\n- \"Compute each valid element once, no atomics.\" -> done.\n\nIs there any issue with `sin` and `cos` on GPU? In CUDA.jl or GPUCompiler, `sin` and `cos` are supported. Sometimes `Base.sin` is safer, but `sin` is fine.\nI'll stick to `sin` and `cos`.\n\nOne detail: `KI.get_global_id().x` might be a `UInt32` or `Int32`. Comparison `i <= n` works.\nShould I convert `i` to `Int32`? Not strictly necessary, but safe: `i = KI.get_global_id().x` is fine.\n\nWait, the prompt says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\nI will write exactly that.\n\nCode:\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nCheck if `sin` and `cos` need `Base.` prefix for GPU compatibility? Usually not, but `Base.sin` and `Base.cos` are safer in some GPU contexts to avoid ambiguity. I'll use `Base.sin` and `Base.cos` just in case, or just `sin` and `cos`. I'll stick to `sin` and `cos`.\n\nWait, `out_sin` and `out_cos` are device arrays. In Julia GPU, they are typically `CuArray` or `GPUArray`. The code doesn't need to know the type.\n\nOne minor point: `KI.get_global_id().x` might return a `UInt32`. Comparing with `n::Int32` is fine.\n\nIs there any requirement to handle `n == 0` specially? The guard `if i <= n` handles it naturally. If `n == 0`, `i` (which is >= 1) will not satisfy `i <= 0`, so nothing is written. Padding is preserved.\n\nThe prompt says \"preserve padding in BOTH output arrays after n\". Since we only write when `i <= n`, indices > n are untouched, preserving padding.\n\nEverything looks solid.\n\nI will output only the code as requested.\nOne thing: `sin` and `cos` might be ambiguous if `KernelInterface` exports them? Unlikely. I'll use `Base.sin` and `Base.cos` to be strictly safe, or just `sin` and `cos`. I'll stick to `sin` and `cos`.\n\nFinal check of the prompt: \"Return only the requested executable kernel code.\"\n\"using KernelInterface as KI\" is optional import.\nI'll provide exactly the function.\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\n\nWait, should I add type annotations to arguments? The prompt says \"Signature kernel!(out_sin,out_cos,x,n::Int32).\" So I'll keep it exactly as requested.\nShould I use `Base.sin` and `Base.cos`? In GPU Julia, `sin` and `cos` work fine. I'll leave them.\nOne detail: `KI.get_global_id().x` might be `UInt32`. `i <= n` works.\nAll good.\nI will produce the code block.\nNo extra text.\nDone. \nLet's double check constraint: \"Work is rounded up; guard inactive invocations.\" -> The `if i <= n` does exactly that.\n\"End the function in return nothing.\" -> `return nothing` is at the end.\n\"Three distinct Float32 device arrays.\" -> implied.\n\"x values lie in[-3,3].\" -> irrelevant.\n\"n can be0; preserve padding in BOTH output arrays after n.\" -> handled.\n\"Compute each valid element once, no atomics.\" -> handled.\nAll constraints met.\nOutput matches request.\nProceed. \nOne minor consideration: `sin` and `cos` on GPU might require `Base.sin` and `Base.cos` in some strict environments, but `sin` and `cos` are standard. I'll stick with `sin` and `cos`.\nActually, in Julia GPU programming, it's common to just use `sin` and `cos`.\nI'll output exactly the code.\nDone. \nSelf-Correction/Verification during thought:\nCould `KI.get_global_id().x` return a type that causes issues with array indexing? Array indexing in Julia accepts `Integer` subtypes, so `UInt32` is fine.\nIs `return nothing` necessary? The prompt says \"End the function in return nothing.\" so I will explicitly put it.\nThe code is ready.\nOutput matches. \nProceeds. \n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```\nLooks correct. I will output this. \nOne thing: `sin` and `cos` might be ambiguous if `KernelInterface` exports them, but it doesn't. I'll use `Base.sin` and `Base.cos` just to be strictly safe against any potential namespace pollution, though it's likely fine. I'll stick to `sin` and `cos` as it's standard.\nActually, the prompt says \"using KernelInterface as KI\", so I'll include that import.\nAll good. \nOutput matches request. \nProceeds. \n[Final Check]\n- Signature: `kernel!(out_sin,out_cos,x,n::Int32)` -> matches\n- Uses `KI.get_global_id().x` -> matches\n- Guards inactive -> `if i <= n`\n- Preserves padding -> only writes if `i <= n`\n- Returns nothing -> `return nothing`\n- No host wrappers/loops -> matches\n- Float32 device arrays -> handled by usage\n- Only executable kernel code -> matches\nReady. \nOutput generation. \n(Self-Correction/Refinement during thought)\nWait, `sin` and `cos` in Julia GPU might sometimes need `Base.sin` and `Base.cos` to avoid dispatch issues in some backends, but it's generally fine. I'll keep `sin` and `cos`.\nThe prompt says \"Three distinct Float32 device arrays.\" I won't add type annotations unless necessary, but sometimes it's safer to add `::Vector{Float32}` or similar? The prompt says \"Signature kernel!(out_sin,out_cos,x,n::Int32).\" so I will strictly follow that signature.\nAll good.\nOutput matches. \nProceeds. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nusing KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n```",
+    "code": "using KernelInterface as KI\n\nfunction kernel!(out_sin, out_cos, x, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out_sin[i] = sin(x[i])\n        out_cos[i] = cos(x[i])\n    end\n    return nothing\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 198,
+    "generated_tokens": 2834,
+    "budget_tokens": 6144,
+    "context_tokens": 3032,
+    "truncated": false,
+    "rewinds": 0,
+    "forced_closes": 0,
+    "thinking_tokens": [
+        2756
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 38.92078614234924
+}

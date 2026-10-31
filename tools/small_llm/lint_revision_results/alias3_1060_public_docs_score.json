@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "returncode": 1,
+  "seconds": 2.4018528209999204,
+  "stdout_tail": "",
+  "stderr_tail": "ERROR: LoadError: ParseError:\n# Error @ /input/program.jl:391:5\n    # Let's use scatter with large markers and try to set properties\n    # We will use a large marker size to make them\n#   \u2514 \u2500\u2500 Expected `end`\nStacktrace:\n [1] top-level scope\n   @ /input/program.jl:391\n [2] include(mod::Module, _path::String)\n   @ Base ./Base.jl:306\n [3] exec_options(opts::Base.JLOptions)\n   @ Base ./client.jl:317\n [4] _start()\n   @ Base ./client.jl:550\nin expression starting at /input/program.jl:391\n\nTraceback (most recent call last):\n  File \"/input/driver.py\", line 24, in <module>\n    tests.test_cases(runner)\n  File \"<private-benchmark-tests>\", line 9, in test_cases\nAssertionError\n",
+  "program_sha256": "8110102ff48011d9db174105f816fe0f04297510d6a14010da313eee2aed75e6",
+  "test_suite_sha256": "484bf5a3a0964e3c1f24d4658e6a8b6c7e064e620971a5206bd18edccacb29be",
+  "scope": "Separate POSTHOC test-blind execution audit; no regeneration or replacement of registered baseline scores",
+  "scorer_sha256": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0",
+  "generation_sha256": "220a8a52a5f99c463fadca8789fb9ebf7becaaa1f39e26f530eb4e1c23fe72e0"
+}

@@ -1,0 +1,35 @@
+{
+    "task": "makie_band",
+    "scope": "constrained scene workflow; adapter supplies API syntax, not intrinsic coding gain",
+    "model": "qwen35-4b",
+    "thinking": false,
+    "inputs": [
+        "x",
+        "mu",
+        "sigma"
+    ],
+    "messages": [
+        {
+            "system": "Describe the requested plot using this declarative schema. Return a JSON object only, with these fields:\nsize: [width,height]; axes: array of {id,row,col,title,xlabel,ylabel};\nplots: ordered array of {kind,axis,x,y,color?,alpha?,label?} for kind lines or scatter,\nor {kind:\"band\",axis,x,lower,upper,color?,alpha?,label?}.\nData expressions are input names, finite numbers, {op:\"abs\",arg:expr}, or\n{op:\"+\"|\"-\"|\"*\"|\"/\",left:expr,right:expr}; operations are elementwise.\nlinks: array of {dimension:\"x\"|\"y\",axes:[axis ids]};\nlegends: array of {axis,position:\"lt\"|\"rt\"|\"lb\"|\"rb\"};\nreturns: ordered array of \"fig\" and axis ids.\nUse only supplied input names. Colors: blue,red,black,green,orange,gray,purple.\nNo extra fields. Optional text attributes may be omitted. No Julia code.\n"
+        },
+        {
+            "user": "Using Makie (not GLMakie), write makeplot(x,mu,sigma) returning (fig,ax). Figure size (640,400), axis xlabel Time, ylabel Value, title Estimate. Plot a semi-transparent blue band between mu .- sigma and mu .+ sigma, then a blue mean line labelled Mean. Add axislegend(ax,position=:lt). Do not display, save, or activate a backend. Code only including imports.\nInstead of Julia code, return scene JSON. Available input names: x, mu, sigma"
+        }
+    ],
+    "answer": "{\n  \"size\": [640, 400],\n  \"axes\": [\n    {\n      \"id\": 0,\n      \"row\": 0,\n      \"col\": 0,\n      \"title\": \"Estimate\",\n      \"xlabel\": \"Time\",\n      \"ylabel\": \"Value\"\n    }\n  ],\n  \"plots\": [\n    {\n      \"kind\": \"band\",\n      \"axis\": 0,\n      \"x\": \"x\",\n      \"lower\": \"{op:-,left:\\\"mu\\\",right:\\\"sigma\\\"}\",\n      \"upper\": \"{op:+,left:\\\"mu\\\",right:\\\"sigma\\\"}\",\n      \"color\": \"blue\",\n      \"alpha\": 0.3,\n      \"label\": \"Estimate\"\n    },\n    {\n      \"kind\": \"line\",\n      \"axis\": 0,\n      \"x\": \"x\",\n      \"y\": \"mu\",\n      \"color\": \"blue\",\n      \"label\": \"Mean\"\n    }\n  ],\n  \"links\": [],\n  \"legends\": [\n    {\n      \"axis\": 0,\n      \"position\": \"lt\"\n    }\n  ],\n  \"returns\": [\n    \"fig\",\n    0\n  ]\n}",
+    "code": "",
+    "input_tokens": 353,
+    "generated_tokens": 294,
+    "budget_tokens": 512,
+    "decode_steps_executed": 384,
+    "decode_submissions": 384,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 7.693399906158447,
+    "input_sha256": "ba146b1fe69d513440e2aee2114609c86fbb407b693d68e11bb20493453b8000",
+    "scene_json": "{\n  \"size\": [640, 400],\n  \"axes\": [\n    {\n      \"id\": 0,\n      \"row\": 0,\n      \"col\": 0,\n      \"title\": \"Estimate\",\n      \"xlabel\": \"Time\",\n      \"ylabel\": \"Value\"\n    }\n  ],\n  \"plots\": [\n    {\n      \"kind\": \"band\",\n      \"axis\": 0,\n      \"x\": \"x\",\n      \"lower\": \"{op:-,left:\\\"mu\\\",right:\\\"sigma\\\"}\",\n      \"upper\": \"{op:+,left:\\\"mu\\\",right:\\\"sigma\\\"}\",\n      \"color\": \"blue\",\n      \"alpha\": 0.3,\n      \"label\": \"Estimate\"\n    },\n    {\n      \"kind\": \"line\",\n      \"axis\": 0,\n      \"x\": \"x\",\n      \"y\": \"mu\",\n      \"color\": \"blue\",\n      \"label\": \"Mean\"\n    }\n  ],\n  \"links\": [],\n  \"legends\": [\n    {\n      \"axis\": 0,\n      \"position\": \"lt\"\n    }\n  ],\n  \"returns\": [\n    \"fig\",\n    0\n  ]\n}",
+    "validation_error": "ArgumentError: expected bounded string",
+    "contract_sha256": "d4a7929939849bc09deaf0cc5cccfd8de3959b02367e585795c8de97f0b3ce27",
+    "adapter_sha256": "46a9c7191f09a49fbc0d6cd530f9580417e9dcb7a31db4b813a63f8cc8268d9f"
+}

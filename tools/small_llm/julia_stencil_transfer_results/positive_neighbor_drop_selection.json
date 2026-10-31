@@ -1,0 +1,22 @@
+{
+    "id": "positive_neighbor_drop",
+    "conditions_sha256": "ca234046f43a37a6c914bf160ecdd8e730b521248f584b453e9bf2aab7e043e1",
+    "generation_sha256": "8331ec9628e8cdc9fadc919c3a4d6c8bffe8fb8c3f58e334a9641b39ba6dc3a2",
+    "direct": {
+        "accepted": true,
+        "reason": "admitted disjoint pointwise subset",
+        "program": "zero\nx_prev_periodic\nx0\nsub\nmax\nfinish\n"
+    },
+    "symbolic": {
+        "found": false,
+        "program": "",
+        "reason": "not_needed_or_infrastructure_failure",
+        "elapsed_seconds": 0,
+        "candidates": 0
+    },
+    "selected": {
+        "selected": "neural_baseline",
+        "program": "zero\nx_prev_periodic\nx0\nsub\nmax\nfinish\n",
+        "reason": "public_examples_match"
+    }
+}

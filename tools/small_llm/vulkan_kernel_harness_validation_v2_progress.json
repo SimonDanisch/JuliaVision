@@ -1,0 +1,46 @@
+[
+    {
+        "id": "ki_body_affine",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 23.890764951705933,
+        "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    5      5  13.9s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "7ded78d7d89f16ba7e6813e4b8f02dc0dc26c60d97de7eb42dd5d3564fdbe833"
+    },
+    {
+        "id": "ki_body_clamped_stencil",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 24.299437999725342,
+        "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    5      5  14.2s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "1522b2e9329d4ce2a737fc4ef2e1ea10df27f2692ffbbaa97db39370000289c3"
+    },
+    {
+        "id": "ki_body_column_major_scale",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 25.45703911781311,
+        "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    4      4  15.5s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "63dbefa3b56d5d72e8b6ee0d34d15cb81081a1f0c0061beb2d50f2a476046643"
+    },
+    {
+        "id": "ki_body_atomic_max",
+        "passed": true,
+        "compiled_modules": "existing",
+        "depot_order": "withsystem",
+        "exitcode": 0,
+        "elapsed_seconds": 24.555145025253296,
+        "diagnostic": "┌ Info: Lava: initialized Vulkan device with RT\n│   device = \"llvmpipe (LLVM 21.1.8, 256 bits)\"\n│   queue_family = 0x00000000\n│   handle_size = 0x00000020\n│   max_recursion = 0x0000001f\n│   validation = false\n│   gpu_assisted = false\n│   sync_val = false\n└   debug_utils = true\nTest Summary: | Pass  Total   Time\ncontract      |    9      9  14.6s\nCONTRACT_PASSED\n",
+        "log_truncated": false,
+        "code_sha256": "6c407a88894dfe320c9a7b7364451ef48871a25a223eb41943576285505c0a86"
+    }
+]

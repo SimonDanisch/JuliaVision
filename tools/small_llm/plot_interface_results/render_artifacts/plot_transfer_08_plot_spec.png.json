@@ -1,0 +1,39 @@
+{
+    "rendered": true,
+    "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_08_plot_spec.png",
+    "dimensions": {
+        "width": 800,
+        "height": 500
+    },
+    "elapsed_seconds": 39.98835897445679,
+    "sha256": "32d0210821831452cf9ca6905cc39c28f3f2be8e3a7fc3745c239bb324db69bc",
+    "layout": {
+        "canvas": [
+            800,
+            500
+        ],
+        "axes": [
+            {
+                "title": "Double log",
+                "decorated_bounds": [
+                    16,
+                    16,
+                    407.22354,
+                    484
+                ],
+                "within_canvas": true
+            },
+            {
+                "title": "",
+                "decorated_bounds": [
+                    425.22354,
+                    37.64,
+                    784.0,
+                    461.36
+                ],
+                "within_canvas": true
+            }
+        ]
+    },
+    "diagnostic": "LAYOUT_REPORT={\"canvas\":[800,500],\"axes\":[{\"title\":\"Double log\",\"decorated_bounds\":[16.0,16.0,407.22354,484.0],\"within_canvas\":true},{\"title\":\"\",\"decorated_bounds\":[425.22354,37.64,784.0,461.36],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+}

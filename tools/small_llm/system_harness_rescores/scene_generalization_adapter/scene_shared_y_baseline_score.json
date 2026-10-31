@@ -1,0 +1,17 @@
+{
+    "collection": "scene_generalization_adapter",
+    "task": "scene_shared_y",
+    "arm": "baseline",
+    "source_sha256": "55e6644be3c45578cb167909e1e92c07c357f6497098d70bd24ac0cb28f5efef",
+    "previous_passed": true,
+    "changed": false,
+    "id": "scene_shared_y",
+    "passed": true,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 0,
+    "elapsed_seconds": 2.5468990802764893,
+    "diagnostic": "Test Summary: | Pass  Total  Time\ncontract      |   16     16  0.0s\nCONTRACT_PASSED\n",
+    "log_truncated": false,
+    "code_sha256": "62eb8cd78895c32509790b0d3767779a42f9410e0a47667598688e04ea2371cf"
+}

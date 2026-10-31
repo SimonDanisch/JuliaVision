@@ -1,0 +1,15 @@
+{
+    "complete": true,
+    "device": "llvmpipe software Vulkan",
+    "residual_norm_checks": 40,
+    "full_model_checks": 171,
+    "max_logit_error": 7.972121e-7,
+    "scope": "FULL tiny4-layer MoE parity only, not35B native checkpoint/speed/quality",
+    "source_sha256": {
+        "qwen36_moe_model.jl": "42fbd73998927476857bbee12f1dd2129a36a52264a7ba9c39839f32fed04482",
+        "test_fused_residual_norm.jl": "bd356297754595c5b56364145bf818d2e97353e7dad7f4179f76d6e406c85d0c",
+        "test_qwen36_moe_model.jl": "63b30ae8033876073a85ca7b06f4f0673cccc9412c7c21feea24f03ebdbb58a8",
+        "qwen36_moe_fixture_loader.jl": "cc040cf32a654e6dfee2d6d4e4a9f54b7f397cb106b74b5db9a15749a7f58219"
+    },
+    "bonsai_kernel_sha256": "2b0097ae9c9efe0f465a4f1cf8ed0095cefd00241e38f070ce396c206a84d243"
+}

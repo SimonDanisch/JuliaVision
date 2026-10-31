@@ -1,0 +1,18 @@
+{
+    "task": "034_unique_elements",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "unique_elements([5, 3, 5, 2, 3, 3, 9, 0, 123])",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "6-element Vector{Int64}:\n   0\n   2\n   3\n   5\n   9\n 123",
+            "expected": "6-element Vector{Int64}:\n   0\n   2\n   3\n   5\n   9\n 123"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.526853084564209,
+    "code_sha256": "4314e15df9df2748d6fa9f8c84f175f103e9936e71b8913a8cafd9da623855bf",
+    "public_examples_sha256": "19b4b1bcf993dbcb2fcf8f5fc2b15cfe41741f90c0a86e07e9b9ceb6aa183c2e"
+}

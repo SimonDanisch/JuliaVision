@@ -1,0 +1,179 @@
+{
+    "candidate_sha256": "4ec33cea29bd65ff7e02387c7ab076a60125208d422967f62e3dd60f4d6dc661",
+    "cases_sha256": "132476991ae6eff4271b500df13272b045534440edd61dc3e280f7ab895b8daa",
+    "result": {
+        "admitted": true,
+        "passed": true,
+        "code_sha256": "65ad48201f1b744712b617a446d25eae838fbab64d48606abca9ad2d33ccb77b",
+        "rows": [
+            {
+                "n": 0,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 0,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 0,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 1,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 1,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 1,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 2,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 2,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 2,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 3,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 3,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 3,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 7,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 7,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 7,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 31,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 31,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 31,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 65,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 65,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            },
+            {
+                "n": 65,
+                "passed": true,
+                "cpu_match": true,
+                "gpu_match": true,
+                "padding": true,
+                "submissions": 1
+            }
+        ]
+    }
+}

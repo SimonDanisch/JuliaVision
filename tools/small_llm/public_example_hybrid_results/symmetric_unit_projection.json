@@ -1,0 +1,11 @@
+{
+    "task": "symmetric_unit_projection",
+    "conditions_sha256": "94971cf99e4b338e4ddea509a47756a7abeb6331b2f9c663a9640fc76c4c1e97",
+    "model_sha256": "44bc9405ea651a377a3eff7ed1f8dd3dd2d1ff9b2ec087f253cb36586a418aa9",
+    "symbolic_sha256": "26dc82347c69dc9acc9ccc8c48332f15d6b7bebc39417945480c93d51eefb579",
+    "selected": {
+        "selected": "symbolic_public_examples",
+        "program": "one\nx0\none\nneg\nmax\nmin\nfinish\n",
+        "reason": "neural_public_example_failure"
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "id": "transfer_sincos_pair_api_pack",
+    "conditions_sha256": "1691c3dde59845f7ae81d80b1be9f0ec7c5ffbeea729b42bcb2ceb7cdd0e25ff",
+    "original_sha256": "51f365b4482a5005bef6d60a444b8775784917261e97ab12b3d975a01628f674",
+    "seed": 20261024,
+    "budget_tokens": 2048,
+    "thinking_budget": 1024,
+    "started_unix_seconds": 1.792886488061911e9
+}

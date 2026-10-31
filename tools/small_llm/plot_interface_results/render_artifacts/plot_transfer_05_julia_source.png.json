@@ -1,0 +1,39 @@
+{
+    "rendered": true,
+    "artifact_path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/tools/small_llm/plot_interface_results/render_artifacts/plot_transfer_05_julia_source.png",
+    "dimensions": {
+        "width": 760,
+        "height": 500
+    },
+    "elapsed_seconds": 36.63332009315491,
+    "sha256": "1b7de9e1b16ae89274fa227809ecbcc59dc7b3fdc492ae51a2ec547043334eab",
+    "layout": {
+        "canvas": [
+            760,
+            500
+        ],
+        "axes": [
+            {
+                "title": "Positive signals",
+                "decorated_bounds": [
+                    16,
+                    16,
+                    374.08353,
+                    484
+                ],
+                "within_canvas": true
+            },
+            {
+                "title": "Positive signals",
+                "decorated_bounds": [
+                    392.08356,
+                    16.0,
+                    744.0,
+                    484.0
+                ],
+                "within_canvas": true
+            }
+        ]
+    },
+    "diagnostic": "LAYOUT_REPORT={\"canvas\":[760,500],\"axes\":[{\"title\":\"Positive signals\",\"decorated_bounds\":[16.0,16.0,374.08353,484.0],\"within_canvas\":true},{\"title\":\"Positive signals\",\"decorated_bounds\":[392.08356,16.0,744.0,484.0],\"within_canvas\":true}]}\nRENDER_COMPLETED\n"
+}

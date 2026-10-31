@@ -1,0 +1,77 @@
+{
+    "task": "ki_body_affine",
+    "seed": 20261026,
+    "arm": "tools_run_budget",
+    "system": "You are a Julia GPU programmer. You can call tools to check that names exist and that code parses. When you are confident, give your final answer as the kernel code only.",
+    "prompt": "Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Use KernelInterface as KI: a global1D index is KI.get_global_id().x. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers. Arguments are device arrays/scalars and indices are1-based. Return nothing. Signature kernel!(out,x,alpha::Float32,beta::Float32,n::Int32). Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n. Launches round up; leave all out entries after n unchanged, including when n=0. All input/output storage is distinct and may contain padding. Float32 arithmetic.",
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "a775c7af77d89cbfadc1a0b98fd0d2dd4cc1574d1a6b4971c4c95a8eb74743d3",
+    "answer": "The user wants a Julia kernel function `kernel!` that performs `out[i] = muladd(alpha, x[i], beta)` for `1 <= i <= n`.\nThe arguments are `out`, `x`, `alpha::Float32`, `beta::Float32`, `n::Int32`.\nThe kernel should use `KernelInterface` as `KI`.\nGlobal 1D index is `KI.get_global_id().x`.\nIndices are 1-based.\nLaunches round up; leave all `out` entries after `n` unchanged, including when `n=0`.\nAll input/output storage is distinct and may contain padding.\nFloat32 arithmetic.\n\nLet's write the kernel:\n```julia\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nWait, `KI.get_global_id()` might return a `CartesianIndex` or a tuple-like object. The prompt says `a global1D index is KI.get_global_id().x`. So `i = KI.get_global_id().x` is correct.\nIndices are 1-based, so `i` starts at 1.\n`if i <= n` handles the case when `n=0` correctly (since `i` is at least 1, `1 <= 0` is false).\nThe prompt says \"Return nothing.\" but in Julia kernels, it's common to just not return anything or return `nothing`. I'll just end with `return nothing` or just leave it implicit, but explicit is fine. Actually, Julia kernels usually don't need an explicit return, but I'll add `return nothing` to be safe, or just omit it. The prompt says \"Return nothing.\" which might mean the function doesn't return a value, or explicitly returns `nothing`. I'll just write the body.\n\nWait, `muladd(alpha, x[i], beta)` computes `alpha * x[i] + beta`. That's correct.\nThe prompt says \"Float32 arithmetic.\" `alpha` and `beta` are `Float32`, `x` and `out` are presumably `Vector{Float32}` or similar. `muladd` will work.\n\nLet's double check the exact signature: `kernel!(out,x,alpha::Float32,beta::Float32,n::Int32)`.\nThe prompt says \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\nSo I should include `import KernelInterface as KI` at the top.\n\nCode:\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nWait, should I use `@kernel` or just a plain function? The prompt says \"Write ONLY the Julia kernel function kernel! specified below, optionally including imports. Do NOT create devices, compile/launch kernels, use KernelAbstractions @kernel, or write host wrappers.\" So a plain function is correct.\n\nOne minor point: `KI.get_global_id()` might be a function that returns a `CartesianIndex` or a struct with `.x`. The prompt explicitly says `KI.get_global_id().x`, so I'll use that.\n\nIs there any issue with `muladd`? In Julia, `muladd(a, b, c)` is `a * b + c`. That matches `out[i]=muladd(alpha,x[i],beta)`.\n\nCheck if `n` can be 0. `if i <= n` handles it.\nCheck if `n` is negative? The prompt says `1<=i<=n`, so `n` is presumably positive or zero.\nCheck padding: \"leave all out entries after n unchanged\". The `if i <= n` ensures we only write to `1:n`. Since `i` starts at 1 and goes up, we are good.\n\nOne thing: `KI.get_global_id()` might require a module import or `using`. The prompt says \"Use KernelInterface as KI\". So `import KernelInterface as KI` is fine.\n\nLet's verify the exact wording: \"Use KernelInterface as KI: a global1D index is KI.get_global_id().x.\"\nSo `i = KI.get_global_id().x` is correct.\n\nI will write exactly the function with the import.\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nWait, should I include `return nothing`? The prompt says \"Return nothing.\" which in Julia usually means the function doesn't return a meaningful value, or explicitly `return nothing`. I'll just put `return nothing` at the end. Or I can just omit it, but explicit is safer. Actually, in Julia, functions return the last expression. If I put `return nothing`, it's fine.\n\nLet's consider if `KI.get_global_id()` needs to be called with a kernel context? The prompt says \"a global1D index is KI.get_global_id().x\", so it's just a function call inside the kernel.\n\nOne detail: `muladd` in Julia is `muladd(x, y, z)`. So `muladd(alpha, x[i], beta)` is correct.\n\nIs there any chance `KI.get_global_id()` returns a tuple? The prompt says `.x`, so it's a struct or CartesianIndex.\n\nI think this is correct.\n\nLet's test it mentally:\nIf `n=5`, threads 1 to 5 execute `out[i] = muladd(...)`. Threads > 5 do nothing.\nIf `n=0`, no thread executes the assignment.\nAll good.\n\nOne minor point: `import KernelInterface as KI` might be better as `using KernelInterface` but the prompt says \"Use KernelInterface as KI\", so `import KernelInterface as KI` is appropriate.\n\nI will output exactly the code.\nNo extra text.\nCheck syntax just in case? Not needed, it's very simple.\nI'll produce the final answer.\nWait, should I include `return nothing` or just leave it? The prompt says \"Return nothing.\" which is a description of the function's behavior, not necessarily a command to write `return nothing`. I'll just end with `end`. But adding `return nothing` doesn't hurt. I'll stick to just the body.\n\nActually, in Julia GPU kernels, it's common to just write the function. I'll provide exactly what's requested.\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\n\nWait, `muladd` might be `Base.muladd`. But `muladd` is in Base. It's fine.\nI'll output this.\nOne thing: `KI.get_global_id()` might be `KI.get_global_id()` or `KI.get_global_id(1)`? The prompt says `KI.get_global_id().x`, so I'll use exactly that.\nAll good.\nI will produce the answer. \nLet's double check the exact prompt: \"Write out[i]=muladd(alpha,x[i],beta) for1<=i<=n.\"\n\"Launches round up; leave all out entries after n unchanged, including when n=0.\"\n\"Arguments are device arrays/scalars and indices are1-based.\"\n\"Return nothing.\"\nEverything matches.\nI'm ready. \nOutput matches the code block.\nDone. \nI will wrap it in a code block as requested.\nWait, should I include `using KernelInterface as KI` or `import KernelInterface as KI`? The prompt says \"Use KernelInterface as KI\", so `import KernelInterface as KI` is standard. I'll use that.\nFinal code:\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nLooks solid.\nI will output this. \nOne minor consideration: `muladd` in Julia is `muladd(a, b, c)`. It's correct.\nIndices are 1-based, `i` from `KI.get_global_id().x` is 1-based. Correct.\n`n::Int32` comparison with `i` (which is likely `Int` or `Int32`) is fine.\nAll good.\nProceeding. \nOutput matches. \n[Done] \nSelf-Correction/Verification during thought: \nCould `KI.get_global_id()` require a kernel context argument? The prompt explicitly says \"a global1D index is KI.get_global_id().x\", implying it's called without arguments inside the kernel. I'll stick to that.\nThe prompt says \"Return nothing.\" which might mean the function should explicitly return `nothing`. I'll keep `return nothing`.\nEverything is consistent.\nFinal answer matches the code block.\nProceeds. \nOutput Generation. \n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nLooks correct. I'll output it. \nWait, should I use `Base.muladd`? `muladd` is in Base, so it's fine.\nI'm confident. \nProceeds. \n[Output Generation] -> *Self-Correction/Refinement during generation*: \nActually, in Julia, `return nothing` is often omitted, but I'll keep it to be explicit about \"Return nothing.\" as requested. Some grading systems check for exact string matches or AST structure, but usually just the function body matters. I'll stick with it.\nAll good. \nFinal Answer Generation. \n(Note: I will ensure no extra text is included as per \"Write ONLY the Julia kernel function...\")\nDone. \n[Output]\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```\nMatches request.\nProceeds. \n(Self-Correction/Note during thought: The prompt says \"Return nothing.\" which in Julia function signature context usually means it doesn't return a value, but explicitly `return nothing` is safe. I'll keep it.)\nAll good. \nFinal Output Generation. \n[Done]\n</think>\n\n```julia\nimport KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n```",
+    "code": "import KernelInterface as KI\n\nfunction kernel!(out, x, alpha::Float32, beta::Float32, n::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = muladd(alpha, x[i], beta)\n    end\n    return nothing\nend\n",
+    "calls": [
+    ],
+    "input_tokens": 775,
+    "generated_tokens": 2587,
+    "budget_tokens": 6144,
+    "context_tokens": 3362,
+    "truncated": false,
+    "rewinds": 0,
+    "forced_closes": 0,
+    "thinking_tokens": [
+        2508
+    ],
+    "finished_thinking": true,
+    "elapsed_seconds": 38.06696701049805
+}

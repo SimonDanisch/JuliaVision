@@ -1,0 +1,11 @@
+{
+    "id": "makie_update",
+    "passed": false,
+    "compiled_modules": "existing",
+    "depot_order": "withsystem",
+    "exitcode": 1,
+    "elapsed_seconds": 0.23446989059448242,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  UndefVarError: `Figure` not defined in `Main`\n  Suggestion: check for spelling errors or missing imports.\n  Stacktrace:\n   [1] top-level scope\n     @ /input/runner.jl:5\n   [2] macro expansion\n     @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n   [3] macro expansion\n     @ /input/runner.jl:5 [inlined]\n   [4] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [5] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [6] _start()\n     @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  0.1s\nRNG of the outermost testset: Random.Xoshiro(0xd9abed54e1ef3afa, 0x9b90d0703152b089, 0x1415bda77064867f, 0xed2613ce0014aa09, 0x8cd59d8ca86e934f)\n",
+    "log_truncated": false,
+    "code_sha256": "7474990a2120e91fb382afb8592dab28d2f34f98fc5683a7066420d7b7103f29"
+}

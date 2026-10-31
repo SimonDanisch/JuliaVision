@@ -1,0 +1,33 @@
+{
+  "checked_date": "2026-10-24",
+  "status": "research only; no new benchmark scores or model generations",
+  "sources": [
+    {
+      "url": "https://github.com/svilupp/Julia-LLM-Leaderboard",
+      "pinned_revision": "7b7a408c3afb163f8ad6ab69c6cd234a825af9c7",
+      "license_url": "https://raw.githubusercontent.com/svilupp/Julia-LLM-Leaderboard/7b7a408c3afb163f8ad6ab69c6cd234a825af9c7/LICENSE",
+      "license": "MIT; copyright (c) 2023 J S; retain attribution if vendoring",
+      "finding": "Julia-specific executable tasks with prompt, imports, reference_solution, examples and unit_tests in definition.toml files.",
+      "inspected_example": "code_generation/utility_functions/clean_column/definition.toml",
+      "our_assessment": "Potential independent public task source. Still contamination-prone, and its historical leaderboard is not a current frontier comparison. An adapted sandbox score would not automatically reproduce its original multi-criterion scoring.",
+      "integration_status": "not ingested; no claim that the recursive GitHub API response provided a complete task inventory"
+    },
+    {
+      "url": "https://arxiv.org/abs/2306.15121",
+      "title": "Evaluation of OpenAI Codex for HPC Parallel Programming Models Kernel Generation",
+      "finding": "Evaluates numerical kernels across Julia and other languages, including Julia GPU programming models.",
+      "our_assessment": "Supports testing numerical kernels separately from general code tasks. Old model results are not a modern frontier baseline. No task artifacts imported."
+    },
+    {
+      "url": "https://github.com/ScalingIntelligence/KernelBench/blob/main/EVAL.md",
+      "finding": "Separates correctness from timing and documents adversarial evaluation checks.",
+      "our_assessment": "Useful methodology, not a drop-in Julia/Mantle benchmark. Our four kernel tasks currently measure software-Vulkan functionality only, not speedup."
+    }
+  ],
+  "decisions": [
+    "Finish frozen four-kernel development baseline and matched public-error repair comparison before expanding task count.",
+    "Keep numerical correctness, API compliance, atomic-safety advisories, hardware speed and rendered aesthetics as separate outcomes.",
+    "Select and register any future public Julia subset before model generation; qualify its references in the exact sandbox first.",
+    "Never use private assertions or reference outputs to select revisions or populate retrieval memory."
+  ]
+}

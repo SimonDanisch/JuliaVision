@@ -1,0 +1,14 @@
+{
+    "task": "ki_body_atomic_max",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: ParseError:\n# Error @ public_kernel_probe.jl:2:6\nusing Atomix\nusing KernelInterface as KI\n#    └────────────────────┘ ── `using` with `as` renaming requires a `:` and context module\nin expression starting at public_kernel_probe.jl:2"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "48c281996b9e7cb046da8eb28ead76b62300a25ce30f12cf7fa2ac54878e0a78",
+    "fixture_sha256": "dabe40344838b9d3318114da114d3549fa0bfc3134cee1441b3145aaa2b58fa5",
+    "code_sha256": "c7ad6b664dcd10e58ce3bda448f035027e9aa1c4327b177a9f3eed27d026a6b2",
+    "elapsed_seconds": 9.395411014556885
+}

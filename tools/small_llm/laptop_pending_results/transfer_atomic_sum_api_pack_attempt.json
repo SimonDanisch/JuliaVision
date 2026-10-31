@@ -1,0 +1,9 @@
+{
+    "id": "transfer_atomic_sum_api_pack",
+    "conditions_sha256": "1691c3dde59845f7ae81d80b1be9f0ec7c5ffbeea729b42bcb2ceb7cdd0e25ff",
+    "original_sha256": "70711efcee5ad0b3fe0687faa5b859ff20c4f7e1f85dfc0d0c0625eb80874e21",
+    "seed": 20261024,
+    "budget_tokens": 2048,
+    "thinking_budget": 1024,
+    "started_unix_seconds": 1.792886906811085e9
+}

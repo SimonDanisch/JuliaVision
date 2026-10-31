@@ -1,0 +1,21 @@
+{
+    "task": "clamped_neighbor_contrast",
+    "conditions_sha256": "7108a0a776d594792781cb43cd30e02e2ac4b0ed1908a2113b12900470be177e",
+    "attempt_sha256": "e5e939f3d19fddf3b229330a2deeacc232261d5435d2dbe31bd72412d975f43c",
+    "total_call_seconds_including_jit": 0.0004248619079589844,
+    "result": {
+        "found": true,
+        "reason": "public_example_match",
+        "program": "x0\nx0\nx_next_clamped\nsub\nadd\nfinish\n",
+        "operations": 5,
+        "peak_stack": 3,
+        "candidates": 2991,
+        "unique_states": 1219,
+        "elapsed_seconds": 0.000415572,
+        "max_cost": 8,
+        "candidate_budget": 2000000,
+        "state_budget": 100000,
+        "seconds": 10,
+        "scope": "Public-example-only symbolic synthesis, NOT model intelligence or correctness beyond these examples. First match, no hidden-score selection; all numeric operations use shared CPU/GPU evaluator."
+    }
+}

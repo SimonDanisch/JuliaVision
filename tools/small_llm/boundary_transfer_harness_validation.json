@@ -1,0 +1,16 @@
+{
+    "complete": true,
+    "policy_checks": 14,
+    "mocked_reference_checks": 5,
+    "native_payload_checks": 9,
+    "reference_tasks_passed": 8,
+    "scope": "Infrastructure only, no neural correctness result",
+    "sources": {
+        "test_boundary_transfer_study.jl": "b5ed322717c0684d99717993a5434dd1243ad05e254ab82d8a0cf4379a572b01",
+        "boundary_transfer_study.jl": "2a7d27df1e398510f4a8b1f959ea34822b6e89bbf3485ab5d88b222d46921e84",
+        "boundary_transfer_deploy.jl": "2328a0a1dd66a7e068b184936a55c30239ed6e4963a03a42ee587314df5b59fc",
+        "score_boundary_transfer.jl": "fcf1ac4a5cfeff4470ef3b650354a159045b3fa2b0fbe24ec8e8fb875c6425c5",
+        "test_workflow_native_payload.jl": "cd8d32f95cd937c1e841e49996ea7f04cbcad2bf2f2960db4fd22fc997c4feb9",
+        "run_workflow_native_audit.jl": "66e5a7b47bf7f0a3b81c86f72c4aeb4a1b89acb6e7376b7e4fa2734de1ffc97d"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "complete": true,
+    "runner_checks": 12,
+    "scorer_tests": 2,
+    "cross_language_prompt_hashes": 16,
+    "scope": "Infrastructure only; external neural generation not started",
+    "sources": {
+        "test_alias_transfer3_runner.jl": "080f5f95887dbb252e2a67a4997c4a0bce710315c25b1a3200ed63e22888c61b",
+        "test_score_alias_transfer3.py": "6f353857caea4e9c772686344b0a0ae13c7a1f5e9612608cd11c0c23901c3b92",
+        "alias_transfer3_study.jl": "a5c49de90d1e344229cb3ed487869fcedc58286aa1ebab4b9d2ab7c86f114d97",
+        "run_alias_transfer3.jl": "db4d96628a0996aa30072ee3de465eb19160d100b75bee7ffb392420e9a9545b",
+        "score_alias_transfer3.py": "d374f67c9c36b6627215cb205bbc5dbaa431db646b33f12f03c409c94d7747f0"
+    }
+}

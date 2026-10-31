@@ -1,0 +1,32 @@
+{
+    "task": "missing_windows",
+    "category": "base",
+    "arm": "review",
+    "model": "qwen35-4b",
+    "thinking": false,
+    "cache": "Float32 split",
+    "quantization": "Q4_K/Q8 activations; Q6_K head",
+    "baseline_source": "missing_windows_baseline.json",
+    "messages": [
+        {
+            "system": "You are a Julia programmer. Return only executable Julia code. Follow the requested API and handle specified edge cases."
+        },
+        {
+            "user": "Write Julia function solve(x, width) returning the mean of non-missing values in every COMPLETE sliding window of width elements. x contains Float64 or missing. An all-missing window returns missing. width must be positive (throw ArgumentError otherwise); width greater than length(x) returns an empty vector. Do not modify x. No packages. Code only."
+        },
+        {
+            "assistant": "```julia\nfunction solve(x::Vector{Union{Float64, Missing}}, width::Int)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    if width > length(x)\n        return missing\n    end\n    \n    result = []\n    for i in 1:(length(x) - width + 1)\n        window = x[i:i+width-1]\n        if all(ismissing, window)\n            push!(result, missing)\n        else\n            mean_val = mean(filter(!ismissing, window))\n            push!(result, mean_val)\n        end\n    end\n    \n    return result\nend\n```"
+        },
+        {
+            "user": "Review your previous solution against the original requirements. Return a complete corrected solution, code only."
+        }
+    ],
+    "answer": "```julia\nfunction solve(x::Vector{Union{Float64, Missing}}, width::Int)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    n = length(x)\n    if width > n\n        return missing\n    end\n    \n    result = []\n    for i in 1:(n - width + 1)\n        window = x[i:i+width-1]\n        if all(ismissing, window)\n            push!(result, missing)\n        else\n            mean_val = mean(filter(!ismissing, window))\n            push!(result, mean_val)\n        end\n    end\n    \n    return result\nend\n```",
+    "code": "function solve(x::Vector{Union{Float64, Missing}}, width::Int)\n    if width <= 0\n        throw(ArgumentError(\"width must be positive\"))\n    end\n    n = length(x)\n    if width > n\n        return missing\n    end\n    \n    result = []\n    for i in 1:(n - width + 1)\n        window = x[i:i+width-1]\n        if all(ismissing, window)\n            push!(result, missing)\n        else\n            mean_val = mean(filter(!ismissing, window))\n            push!(result, mean_val)\n        end\n    end\n    \n    return result\nend\n",
+    "input_tokens": 288,
+    "generated_tokens": 152,
+    "budget_tokens": 512,
+    "truncated": false,
+    "elapsed_seconds": 9.547057151794434,
+    "input_sha256": "a963f6fbfa2feb933bfdfa2e5a0c69d08e358cf1d37e49db1389f84f94b65e04"
+}

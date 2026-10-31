@@ -1,0 +1,13 @@
+{
+    "task": "ki_body_clamped_stencil",
+    "arm": "runtime_feedback",
+    "conditions_sha256": "b3db2ad662cb8c8ea8216157df3173451e9e79e1c70481dc337aa1b8ad408d1e",
+    "selected_source_sha256": "268ed59aa171ad9e4e7fa2f57a7076d1c28278d045b498489e7a21c0eebede2b",
+    "original_code_sha256": "b379aa789cfc643a9c4ee6b0a9ee8bac604a4c969eafd3938f7bb0c03dc5cd2a",
+    "pointwise_accepted": false,
+    "pointwise_reason": "unknown/impure expression or loop-carried dependency",
+    "certificate": null,
+    "void_tail_accepted": true,
+    "void_tail_reason": "append void tail; preserve existing math/statements/explicit returns",
+    "code": "using KernelInterface\nfunction kernel!(out::AbstractVector{Float32}, x::AbstractVector{Float32}, n::Int32)\n    #= none:3 =#\n    #= none:4 =#\n    for i = 1:n\n        #= none:5 =#\n        idx = (KI.get_global_id()).x\n        #= none:6 =#\n        neighbor1 = x[max(i - 1, 1)]\n        #= none:7 =#\n        neighbor2 = x[i]\n        #= none:8 =#\n        neighbor3 = x[min(i + 1, n)]\n        #= none:9 =#\n        out[idx] = (neighbor1 + neighbor2 + neighbor3) / 3.0f0\n        #= none:10 =#\n    end\n    nothing\nend\n"
+}

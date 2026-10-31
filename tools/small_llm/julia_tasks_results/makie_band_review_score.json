@@ -1,0 +1,9 @@
+{
+    "id": "makie_band",
+    "passed": false,
+    "exitcode": 1,
+    "elapsed_seconds": 47.473785161972046,
+    "diagnostic": "ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.\nin expression starting at /input/runner.jl:4\ncontract: Error During Test at /input/runner.jl:4\n  Got exception outside of a @test\n  UndefVarError: `Line` not defined in `Main`\n  Suggestion: check for spelling errors or missing imports.\n  Hint: a global variable of this name also exists in Interpolations.\n  Hint: a global variable of this name also exists in GeometryBasics.\n  Stacktrace:\n   [1] top-level scope\n     @ /input/candidate.jl:8\n   [2] top-level scope\n     @ /input/runner.jl:5\n   [3] macro expansion\n     @ /home/sim/.julia/juliaup/julia-1.12.7+0.x64.linux.gnu/share/julia/stdlib/v1.12/Test/src/Test.jl:1777 [inlined]\n   [4] macro expansion\n     @ /input/runner.jl:5 [inlined]\n   [5] include(mod::Module, _path::String)\n     @ Base ./Base.jl:306\n   [6] exec_options(opts::Base.JLOptions)\n     @ Base ./client.jl:317\n   [7] _start()\n     @ Base ./client.jl:550\nTest Summary: | Error  Total  Time\ncontract      |     1      1  3.1s\nRNG of the outermost testset: Random.Xoshiro(0xd60443f55ce479d1, 0x9440d354d402eff1, 0x14ee0664dba3bce6, 0xf99291bb55009a3f, 0xce6eda0b762431db)\n",
+    "log_truncated": false,
+    "code_sha256": "4241727f2d048e60ba331aa73d4c80dccdf59df1801a0e82d5f33b453fffde26"
+}

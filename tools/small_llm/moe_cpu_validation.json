@@ -1,0 +1,46 @@
+{
+    "device": "CPU llvmpipe",
+    "results": [
+        {
+            "experts": 1,
+            "topk": 1,
+            "replay": 1
+        },
+        {
+            "experts": 1,
+            "topk": 1,
+            "replay": 2
+        },
+        {
+            "experts": 8,
+            "topk": 2,
+            "replay": 1
+        },
+        {
+            "experts": 8,
+            "topk": 2,
+            "replay": 2
+        },
+        {
+            "experts": 16,
+            "topk": 16,
+            "replay": 1
+        },
+        {
+            "experts": 16,
+            "topk": 16,
+            "replay": 2
+        },
+        {
+            "experts": 256,
+            "topk": 8,
+            "replay": 1
+        },
+        {
+            "experts": 256,
+            "topk": 8,
+            "replay": 2
+        }
+    ],
+    "fixture": "moe_transformers_reference.json"
+}

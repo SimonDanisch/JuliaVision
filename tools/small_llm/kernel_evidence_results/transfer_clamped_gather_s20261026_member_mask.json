@@ -1,0 +1,101 @@
+{
+    "task": "transfer_clamped_gather",
+    "seed": 20261026,
+    "arm": "member_mask",
+    "messages": [
+        {
+            "system": "You are a Julia GPU programmer. Return only the requested executable kernel code."
+        },
+        {
+            "user": "Write ONLY a Julia GPU function kernel! (optional imports), using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x. Arguments are device arrays/scalars, NOT ordinary host Vector objects. No host wrappers/devices, KernelAbstractions @kernel, CPU loops over the whole input, or host reductions. Work is rounded up; guard inactive invocations. End the function in return nothing. Signature kernel!(out,x,indices,n::Int32,m::Int32). out and x are distinct Float32 device arrays; indices is a separate Int32 device array. For each1<=i<=n, write x[clamp(indices[i],1,m)] to out[i]. m is positive and x has at least m entries; n may be0. Preserve out padding past n. Do not assume indices already lie in1:m."
+        }
+    ],
+    "backbone": {
+        "family": "Qwen3.6 MoE",
+        "quantization": "GGUF Q4_K_S (Q4_K/Q5_K/Q6_K) with Q8 activations",
+        "cache": "Float32 grouped",
+        "optimizations": [
+            "reuse_q8",
+            "narrow_experts",
+            "small_dense",
+            "fuse_shared",
+            "down_wg64",
+            "fuse_router_gate",
+            "fuse_boundary_norm",
+            "fuse_boundary_q8",
+            "parallel_q8",
+            "dense_unroll32",
+            "down_rows2",
+            "no_alias",
+            "paired_expert_rows",
+            "capability_swiglu_q8"
+        ]
+    },
+    "runtime_provenance": {
+        "DNNKernels": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/DNNKernels",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/q4k.jl": "aad7dc1d48c98da13f55598f8b06ac8e0f4f4a54e5023b012ecdc5311a8737cf",
+                "src/q6k.jl": "39a4590aa59c03df774c0d2710d8583aef59875b2af6a70ea0d28a01a000a27c"
+            }
+        },
+        "Mantle": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/Mantle",
+            "git_head": "be46b479694c1fd6fc8234160db9eeabad98110b",
+            "source_sha256": {
+                "src/graph/kalaunch.jl": "02755933bd1ab64aa2bd884f034141217be81e4b47dbdb130600da828d50feb0",
+                "src/vulkan/array/ka_backend.jl": "0807805c456a6d8424d56b1fb5961cfc99555d530aa0dbf74b574a8395f1c2d5",
+                "src/vulkan/graph.jl": "8353782da250c4fe974c803f494e5a9e1e718ec9f7bef299a2faea01393a54f6",
+                "src/vulkan/graphics/api.jl": "652be95beaaac48668d3a1671abb7bfca1b838bdae31e4f83d29438c77172ce6",
+                "src/vulkan/raytracing/shaders.jl": "10ca54cd564778f621dacdc48ddcf32db3352184fee7eec95ca9fd83252b159e",
+                "src/vulkan/runtime/launch.jl": "b9c7765f26adf16acc27df4c16321dfd825136bffabfea49cb00bfbca379b9d0"
+            }
+        },
+        "BonsaiRunner": {
+            "version": "0.1.0",
+            "path": "/home/sim/Programmieren/VulkanDev/dev/JuliaVision/BonsaiRunner",
+            "git_head": "823ba9da4150537ce4a4a8a045d75ce64ca42ab4",
+            "source_sha256": {
+                "src/kernels.jl": "85b8d47483758c59dd48bb75ea2aafd5b3050c68094241a77e2d5e300d1f4680"
+            }
+        }
+    },
+    "conditions_sha256": "178668e61615f0a26fc6cea59ef40d12dd1de3f110b252534ac5b4eaef4ef760",
+    "answer": "The user wants a Julia GPU kernel function that:\n- Uses KernelAbstractions (KA) and its 1-based global 1D index `KA.get_global_id().x` (Wait, the prompt says `KI.get_global_id().x`, but also says \"using KernelInterface as KI\". Actually, KernelAbstractions uses `KA.get_global_id()`. Wait, the prompt says \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\" I will follow the prompt exactly: `KI.get_global_id().x` or `KA.get_global_id().x`? It says \"using KernelInterface as KI\". I'll stick to `KI.get_global_id().x` as requested, or maybe `KA` is standard. I'll use `KI` as specified.)\n- Arguments: `out`, `x`, `indices`, `n::Int32`, `m::Int32`. All device arrays/scalars.\n- For each `1 <= i <= n`, write `x[clamp(indices[i], 1, m)]` to `out[i]`.\n- `m` is positive, `x` has at least `m` entries. `n` may be 0.\n- Preserve `out` padding past `n`.\n- Do not assume `indices` already lie in `1:m`.\n- Work is rounded up; guard inactive invocations.\n- End with `return nothing`.\n- Signature: `kernel!(out, x, indices, n::Int32, m::Int32)`\n\nWait, KernelAbstractions is usually imported as `KA`. The prompt says \"using KernelInterface as KI\". I'll use `KI` as requested. Actually, KernelAbstractions.jl is the standard. I'll just use `KI.get_global_id().x` as instructed.\nWait, `get_global_id()` in KernelAbstractions returns a tuple or a `GlobalID` object. In 1D, `get_global_id().x` works.\nLet's check the exact syntax for KernelAbstractions: `KA.get_global_id().x` is correct for 1D.\nThe prompt says \"using KernelInterface as KI\". I will just write `using KernelAbstractions as KI` or `using .: KI`? I'll just use `KI.get_global_id().x`.\n\nLet's construct the kernel:\n```julia\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        idx = indices[i]\n        out_idx = max(min(idx, m), 1)\n        out[i] = x[out_idx]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` is not a built-in function in GPU kernels usually, but `max(min(idx, m), 1)` works. Or `clamp(idx, 1, m)` if `Base.clamp` is available. I'll stick to `max(min(idx, m), 1)` to be safe, or just `clamp(idx, 1, m)` if it's standard. Actually, `clamp` is in Base. I'll use `clamp`.\n\nWait, the prompt says \"using KernelInterface as KI\". I'll just write `using KernelAbstractions as KI` or assume it's imported. The prompt says \"(optional imports)\". I'll add `using KernelAbstractions as KI`.\n\nLet's verify indices: Julia is 1-based. `indices[i]` is correct.\n`out_idx = clamp(indices[i], Int32(1), m)`\n`out[i] = x[out_idx]`\n\nWait, `n` and `m` are `Int32`. `clamp` might need type consistency. `clamp(indices[i], one(indices[i]), m)` or just `max(min(indices[i], m), 1)` works fine with Int32.\n\nLet's write it carefully:\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[max(min(indices[i], m), 1)]\n    end\n    return nothing\nend\n```\n\nWait, `KI.get_global_id()` might return a `GlobalID` object. In KernelAbstractions, `get_global_id()` is correct. Sometimes it's `KA.get_global_id().x`. The prompt explicitly says `KI.get_global_id().x`.\n\nIs there any issue with `max(min(...))`? It's fine.\nWhat about `clamp`? `clamp(indices[i], 1, m)` is cleaner. I'll use `clamp`.\n\nWait, the prompt says \"using KernelInterface as KI\". I'll just write `using KernelAbstractions as KI`. Actually, the package is `KernelAbstractions`. I'll follow the prompt's alias `KI`.\n\nLet's check if `get_global_id()` is 1-based. Yes, KernelAbstractions uses 1-based indexing for `get_global_id()`.\n\nOne detail: `out` and `x` are device arrays. `indices` is a device array.\nThe signature is `kernel!(out,x,indices,n::Int32,m::Int32)`.\nI will write exactly that.\n\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` might not be defined for `Int32` in some contexts, but `Base.clamp` works. To be absolutely safe on GPU, `max(min(indices[i], m), 1)` is foolproof. I'll stick with `clamp` as it's standard Julia. Actually, `clamp` is fine.\n\nLet's consider if `KI.get_global_id().x` is correct. In KernelAbstractions, `get_global_id()` returns a `GlobalID` which has `.x`, `.y`, `.z` fields. So `KI.get_global_id().x` is correct.\n\nOne minor point: `n` may be 0. The condition `i <= n` handles it correctly (if `n=0`, `i>=1` so condition is false, does nothing).\n\"Work is rounded up; guard inactive invocations.\" -> `if i <= n` handles this.\n\"Preserve out padding past n.\" -> We only write when `i <= n`, so padding is untouched.\n\"Do not assume indices already lie in 1:m.\" -> `clamp` handles this.\n\"End the function in return nothing.\" -> `return nothing` at the end.\n\nAll constraints met.\n\nWait, should I use `Int32(1)` for the clamp lower bound to avoid type inference issues? `clamp(indices[i], one(indices[i]), m)` is safer, or just `max(min(indices[i], m), 1)`. I'll use `clamp(indices[i], 1, m)`. Julia's `clamp` handles mixed types by promoting, but since `indices[i]` is `Int32` and `m` is `Int32`, `1` will be promoted or work fine. To be strictly safe on GPU, `clamp(indices[i], Int32(1), m)` or `max(min(indices[i], m), 1)` is better. I'll use `max(min(indices[i], m), 1)` to avoid any promotion issues on the GPU. Actually, `clamp` is fine.\n\nLet's stick to `clamp(indices[i], 1, m)`.\n\nWait, the prompt says \"using KernelInterface as KI\". I'll just write `using KernelAbstractions as KI`. Or maybe the user meant `KernelAbstractions` but wrote `KernelInterface` by mistake? Or maybe they mean `KernelAbstractions` but alias it as `KI`. I'll just use `using KernelAbstractions as KI`.\n\nActually, the prompt says \"using KernelInterface as KI\". I will literally write `using KernelAbstractions as KI` or just assume `KI` is available. I'll add `using KernelAbstractions as KI` as an optional import.\n\nOne thing: `KI.get_global_id().x` might be `KA.get_global_id().x`. I'll follow the prompt exactly: `KI.get_global_id().x`.\n\nCode:\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` might not be available in some GPU backends without `Base.` or it might be slow. `max(min(indices[i], m), 1)` is universally safe. I'll use `clamp` as it's idiomatic. Actually, `Base.clamp` is fine.\n\nLet's double check the prompt: \"using KernelInterface as KI and its 1-based global 1D index KI.get_global_id().x.\"\nI will write exactly that.\n\nOne detail: `out` and `x` are distinct `Float32` device arrays. `indices` is `Int32`.\nThe signature: `kernel!(out,x,indices,n::Int32,m::Int32)`\n\nIs there any chance `KI` refers to `KernelAbstractions`? Yes.\nI will provide just the function and the import.\n\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nWait, `clamp` in Julia takes `(x, lo, hi)`. So `clamp(indices[i], 1, m)` is correct.\nBut to avoid type promotion issues on GPU, `clamp(indices[i], one(indices[i]), m)` or `max(min(indices[i], m), 1)` is safer. I'll use `max(min(indices[i], m), 1)` to be strictly safe, or just `clamp(indices[i], Int32(1), m)`. Actually, `clamp` is fine.\n\nI'll stick with `clamp(indices[i], 1, m)`.\n\nOne more check: \"Work is rounded up; guard inactive invocations.\" -> `if i <= n` does exactly that.\n\"Preserve out padding past n.\" -> Only writes when `i <= n`.\n\"Do not assume indices already lie in 1:m.\" -> `clamp` handles it.\n\"End the function in return nothing.\" -> `return nothing` at the end.\n\nEverything looks solid.\n\nI will output exactly the requested code.\nNo extra text.\nJust the Julia code.\nI'll make sure the signature matches exactly.\n`function kernel!(out, x, indices, n::Int32, m::Int32)`\nMatches.\n\nOne minor point: `KI.get_global_id().x` might be `KA.get_global_id().x` in actual KernelAbstractions, but the prompt explicitly says `KI.get_global_id().x`. I will follow the prompt.\n\nFinal code:\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\n\nWait, should I use `Base.clamp`? `clamp` is in Base. It's fine.\nI'll output exactly this.\nAll constraints satisfied.\nProceeds. \nOne thing: `KernelAbstractions` is the actual package name. The prompt says \"using KernelInterface as KI\". I'll just write `using KernelAbstractions as KI` as an import, or maybe the user meant `KernelAbstractions` but typed `KernelInterface`. I'll stick to `using KernelAbstractions as KI`. Or maybe `using .: KI`? I'll just write `using KernelAbstractions as KI`. It's fine.\n\nActually, to be strictly compliant with \"using KernelInterface as KI\", I'll write `using KernelAbstractions as KI` or just assume `KI` is imported. The prompt says \"(optional imports)\". I'll include `using KernelAbstractions as KI`.\n\nWait, `KernelInterface` might be a typo for `KernelAbstractions`. I'll use `KernelAbstractions`.\n\nFinal check of the code:\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\nLooks good.\nI will produce this. \nOne detail: `clamp` might not be defined for `Int32` in some strict GPU contexts without `Base.` or it might promote to `Int64`. `max(min(indices[i], m), 1)` is type-stable and stays `Int32`. I'll use `max(min(indices[i], m), 1)` to be safe. Actually, `clamp` is fine in Julia. I'll keep `clamp`.\n\nI'll output exactly the code.\nDone. \nLet's generate. \nWait, `KI.get_global_id().x` might need `KA` but the prompt says `KI`. I'll follow prompt.\nAll good. \nOutput matches request. \nProceeds. \n[Output Generation]\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```\nDone. \nSelf-Correction/Verification during thought:\n- \"using KernelInterface as KI\" -> I will literally write `using KernelAbstractions as KI` because KernelInterface isn't a standard package, but I'll stick to the alias `KI` as requested.\n- `clamp` is fine.\n- `return nothing` is present.\n- Signature matches.\n- 1-based index used.\n- Guards inactive invocations.\n- Preserves padding.\n- Handles out-of-bounds indices.\n- No host wrappers.\nAll constraints met.\nOutput matches. \nProceeds. \n[Final Check]\nThe prompt says \"using KernelInterface as KI\". I will just write `using KernelAbstractions as KI` or maybe `using .: KI`? I'll just write `using KernelAbstractions as KI`. It's standard.\nActually, to be perfectly compliant with \"using KernelInterface as KI\", I'll write `using KernelAbstractions as KI`. It's fine.\nI'll output exactly the code block.\nDone. \n[Output Generation] -> *Proceeds*\n</think>\n\n```julia\nusing KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n```",
+    "code": "using KernelAbstractions as KI\n\nfunction kernel!(out, x, indices, n::Int32, m::Int32)\n    i = KI.get_global_id().x\n    if i <= n\n        out[i] = x[clamp(indices[i], 1, m)]\n    end\n    return nothing\nend\n",
+    "input_tokens": 209,
+    "generated_tokens": 3418,
+    "budget_tokens": 6144,
+    "decode_steps_executed": 3456,
+    "decode_submissions": 3456,
+    "eos_output_poll_chunk": 128,
+    "finished_thinking": true,
+    "truncated": false,
+    "elapsed_seconds": 46.35941195487976,
+    "input_sha256": "d53a23b11fdc7908dd801f2e36f231561b6faf046c4be08c760f55eee19f48f6",
+    "sampling": {
+        "kind": "exact top-k/nucleus",
+        "seed": 20261026,
+        "topk": 20,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "presence": 0,
+        "draws": 3457,
+        "policy": "GPU-resident RNG/history/selection inside the recorded decode graph; output polling only at batch boundaries"
+    },
+    "constraint": {
+        "member_steps": 3,
+        "removed_share": [
+            6.432772370335016e-11,
+            3.1825648887096047e-12,
+            5.5780245128271046e-15
+        ],
+        "removed_log_truncated": false,
+        "other_refusing_steps": 2,
+        "other_max_share": 1.1568498166792535e-13,
+        "answered": true
+    }
+}

@@ -1,0 +1,39 @@
+{
+    "task": "048_is_palindrome",
+    "scope": "public prompt doctests only; whitespace-normalized display comparison, NOT private correctness tests",
+    "analysis_completed": true,
+    "payload": [
+        {
+            "example": "is_palindrome(\"\")",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "is_palindrome(\"aba\")",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "is_palindrome(\"aaaaa\")",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "true",
+            "expected": "true"
+        },
+        {
+            "example": "is_palindrome(\"zbcd\")",
+            "completed": true,
+            "matches_public_example": true,
+            "actual": "false",
+            "expected": "false"
+        }
+    ],
+    "loading_or_harness_error": null,
+    "elapsed_seconds": 0.5321850776672363,
+    "code_sha256": "0134c188942e51af09c72e3048b75b42fa1d038704005998a51c015d32683168",
+    "public_examples_sha256": "92284ba820e4614dac08e723e34b1f536a5b5d318d6e7ade1c399365df227f99"
+}

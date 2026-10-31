@@ -1,0 +1,14 @@
+{
+    "task": "ki_body_affine",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": false,
+        "error": "LoadError: UndefVarError: `kernel!` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nin expression starting at public_kernel_probe.jl:2"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "032ec2e81f3d56938ceb231cdad93e4564ce1417f5d6fb7306fe3008900cdeb0",
+    "fixture_sha256": "99faee2ce8c4052e71171020e68ba252cfbb0d39e46d979ba6e1483b0a035f44",
+    "code_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "elapsed_seconds": 7.307612895965576
+}

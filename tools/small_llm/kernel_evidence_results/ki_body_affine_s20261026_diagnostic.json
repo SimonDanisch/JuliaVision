@@ -1,0 +1,14 @@
+{
+    "task": "ki_body_affine",
+    "scope": "public compiler/runtime smoke observations; no private assertions, reference outputs or correctness judgments",
+    "analysis_completed": true,
+    "payload": {
+        "completed": true,
+        "observed": "Float32[5.0, -5.0, 3.0, -9.0, -9.0]"
+    },
+    "loading_or_harness_error": null,
+    "public_prompt_sha256": "032ec2e81f3d56938ceb231cdad93e4564ce1417f5d6fb7306fe3008900cdeb0",
+    "fixture_sha256": "99faee2ce8c4052e71171020e68ba252cfbb0d39e46d979ba6e1483b0a035f44",
+    "code_sha256": "dfaa6c663a8ef35d2c555e5afcd103de0b0aaa1743c83c51db5826761d227a52",
+    "elapsed_seconds": 26.11878490447998
+}

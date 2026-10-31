@@ -1,0 +1,570 @@
+{
+    "complete": false,
+    "scope": "Implemented package-runner graph routes migrated; experimental Qwen frontend migration remains",
+    "checkpoint_sha256": "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
+    "graph_audit": "runner_graph_routes_bonsai.json",
+    "exported_graphs_checked": 48,
+    "bonsai": {
+        "radeon_decode_prefill_3_16": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 4,
+                "old_seconds": [
+                    2.586122216,
+                    0.050319003,
+                    0.031906961,
+                    0.03227807
+                ],
+                "new_seconds": [
+                    0.038645766,
+                    0.039759044,
+                    0.032300164,
+                    0.032229328
+                ],
+                "submissions": [
+                    [
+                        807,
+                        807
+                    ],
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 3,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    2.69112637
+                ],
+                "new_seconds": [
+                    3.48367557
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 16,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    2.701271545
+                ],
+                "new_seconds": [
+                    1.241788766
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ],
+        "radeon_prefill_64": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 2,
+                "old_seconds": [
+                    0.090484788,
+                    0.039316062
+                ],
+                "new_seconds": [
+                    0.038597544,
+                    0.038321282
+                ],
+                "submissions": [
+                    [
+                        807,
+                        807
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 64,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    4.216993946
+                ],
+                "new_seconds": [
+                    6.461382601
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ],
+        "radeon_prefill_128": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 2,
+                "old_seconds": [
+                    0.041652416,
+                    0.03927415
+                ],
+                "new_seconds": [
+                    0.037837954,
+                    0.040269922
+                ],
+                "submissions": [
+                    [
+                        807,
+                        807
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 128,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.737418335
+                ],
+                "new_seconds": [
+                    1.938678355
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ],
+        "metal": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 4,
+                "old_seconds": [
+                    0.992099542,
+                    0.056356375,
+                    0.056385333,
+                    0.056416167
+                ],
+                "new_seconds": [
+                    0.056783042,
+                    0.056424875,
+                    0.056468959,
+                    0.056445208
+                ],
+                "submissions": [
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 3,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.920913417
+                ],
+                "new_seconds": [
+                    2.007227208
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 16,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.753828375
+                ],
+                "new_seconds": [
+                    0.903960916
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 64,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    1.191948792
+                ],
+                "new_seconds": [
+                    1.48310625
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ],
+        "metal4": [
+            {
+                "ntokens": 0,
+                "decode_tokens": 2,
+                "old_seconds": [
+                    0.594688417,
+                    0.056440375
+                ],
+                "new_seconds": [
+                    0.05652575,
+                    0.056267
+                ],
+                "submissions": [
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        1,
+                        1
+                    ]
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 3,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.626063166
+                ],
+                "new_seconds": [
+                    0.679470625
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            },
+            {
+                "ntokens": 16,
+                "decode_tokens": 0,
+                "old_seconds": [
+                    0.40815725
+                ],
+                "new_seconds": [
+                    0.806999667
+                ],
+                "submissions": [
+                ],
+                "semantic_decode_ops": 806
+            }
+        ]
+    },
+    "checks": {
+        "radeon_runs": {
+            "r185": 245,
+            "r179": 369,
+            "r184": 243
+        },
+        "metal_runs": {
+            "r183": 489,
+            "r186": 366
+        },
+        "shared_frontend_each_device": 19,
+        "semantic_activation_each_device": 26,
+        "activation_regressions_each_device": 397,
+        "trellis_each_device": 79,
+        "source_route_ratchet": 3
+    },
+    "trellis": {
+        "radeon": [
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 12,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 10
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            }
+        ],
+        "metal": [
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 12,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 10
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            }
+        ],
+        "metal4": [
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 15,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.crop_rows",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 12
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            },
+            {
+                "ops": 12,
+                "kinds": [
+                    "trellis.cast_fp16",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.linear_fp32",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 10
+            },
+            {
+                "ops": 13,
+                "kinds": [
+                    "trellis.channel_to_spatial_norm",
+                    "trellis.layer_norm",
+                    "trellis.linear_epilogue",
+                    "trellis.norm_linear",
+                    "trellis.partial_matmul",
+                    "trellis.sparse_gather",
+                    "trellis.voxel_scatter",
+                    "trellis.zero"
+                ],
+                "weights": 8
+            }
+        ]
+    },
+    "timing_note": "Raw diagnostic timings include cold compilation/first replay and prefill recording; NOT a throughput benchmark or speedup claim. Warm decode preserves one submission/token.",
+    "source_sha256": {
+        "dev/JuliaVision/DNNKernels/src/semanticgraph.jl": "744dd661be3a80d9fc03589d4d03ba07aae5e9301ba0966a398854fe2b8ca7c3",
+        "dev/JuliaVision/DNNKernels/src/activationprep.jl": "f0bdf8f271d723e33c1c3ca879d61b6f3c8f13c146a2a8a67f6c75f8bd004332",
+        "dev/JuliaVision/BonsaiRunner/src/BonsaiRunner.jl": "0c6017dcae3699a912f9efa7b571162e83e2d9a1675064b9c352c5c96849b5cb",
+        "dev/JuliaVision/Trellis2Runner/src/decodergraph.jl": "13980b853379e5fe36f038f4c151a4877a25d3b98ef45f2769504205aa1dfb89",
+        "dev/JuliaVision/BonsaiRunner/src/graph.jl": "bd90a8fbe1b45dfb5fc25028ea40cdb326d1eba9d5ed08fc67b65a4502f51ae5",
+        "dev/JuliaVision/BonsaiRunner/test/test_semantic_graph.jl": "149fcb824d9d71bbf256b9fb21e6293b522533662f1a5d83d87be4773dafbe16",
+        "dev/JuliaVision/DNNKernels/src/emit.jl": "d5b082423add3d6638d84bcb3be0c43a44196a5369140a1a6326b4a641619f98"
+    },
+    "pending": [
+        "Experimental Qwen handwritten frontends beyond shared activation API"
+    ]
+}
