@@ -4078,12 +4078,12 @@ function emitsdpa!(emitctx::EmitCtx, op::Op; dst = dest(emitctx, 0),
     k = sdpaoperand(emitctx, op, 2)
     v = sdpaoperand(emitctx, op, 3)
     outperm = sdpaoutputpermute(emitctx, op, (E, Lq, H, B))
+    # `FlashCM2Plan` (NV coopmat2) has no declared form yet: its launch is not
+    # split from `sdpaflashcm2!`. Until it is, a device that would take it runs
+    # the ported kernels below instead of refusing the model — slower on NVIDIA,
+    # not wrong. `flash_launches` is the shape the port takes.
     cm2 = flashcm2_plan(caps, q, k, v, bias)
-    cm2 isa Decline || error(
-        "DNNKernels: `$(op.aten)` (op $(op.id)) wants $(cm2), whose launch is " *
-        "not split from `sdpaflashcm2!` yet, so it has no declared form. " *
-        "`FlashCMPlan` is the one that is ported — see `flash_launches` for the " *
-        "shape a port takes.")
+    cm2 isa Decline || @debug "sdpa: $(op.id) would take $(cm2); using the ported plans"
     # The same order the immediate path takes (`sdpaplan`). A following
     # `(0, 2, 1, 3)` permute is written by the kernel itself and registered as a
     # dense view, as the cooperative-matrix kernel below does.

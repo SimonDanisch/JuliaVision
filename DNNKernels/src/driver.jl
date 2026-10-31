@@ -363,7 +363,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # Resolve the convenience `backend` spelling exactly once, at this public
     # boundary. Everything below receives and retains the actual owner.
     dev = M.todevice(device === nothing ?
-                     (backend === nothing ? KernelAbstractions.CPU() : backend) : device)
+                     (backend === nothing ? M.defaultbackend() : backend) : device)
     backend = M.backend(dev)
     # Host-side graph preparation, in order. Folding runs *before* the casts are
     # hoisted so it sees the fp32 master weights through `weightsource` and

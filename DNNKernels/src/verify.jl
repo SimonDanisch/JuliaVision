@@ -142,7 +142,7 @@ the error on its inputs.
 Takes a loaded `Graph` as well as a path, so a *prefix* of a graph can be
 checked on its own. Whisper's encoder is 32 identical blocks; running two of
 them covers every op type it uses for a sixteenth of the arithmetic, which is
-the difference between a CPU-backend check that finishes and one that does not.
+the difference between a check that finishes quickly and one that does not.
 """
 function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
                      dims, backend=nothing, device=nothing,
@@ -150,7 +150,7 @@ function verifygraph(g::Graph, refs::AbstractDict, weights::AbstractDict;
     backend !== nothing && device !== nothing &&
         throw(ArgumentError("pass either `device` or `backend`, not both"))
     dev = M.todevice(device === nothing ?
-                     (backend === nothing ? KernelAbstractions.CPU() : backend) : device)
+                     (backend === nothing ? M.defaultbackend() : backend) : device)
     inputs = Dict{String,Any}()
     for (i, name) in enumerate(g.inputs)
         k = "$(g.name)/in$(i-1)"
