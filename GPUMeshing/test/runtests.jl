@@ -14,6 +14,8 @@ using GeometryBasics: GeometryBasics, Vec3f, Point3f, GLTriangleFace, coordinate
 const GM = GPUMeshing
 
 include("reference.jl")
+include("extensions.jl")
+include("topology.jl")
 
 """Directed edges `(a, b)` with how many faces have them."""
 function directededges(F)
@@ -41,7 +43,7 @@ function manifold(V, F)
 end
 
 """Area and signed volume; the volume is positive when the faces point outward."""
-function areavolume(V, F)
+function hostareavolume(V, F)
     area = vol = 0.0
     for j in axes(F, 2)
         p1, p2, p3 = V[:, F[1, j]], V[:, F[2, j]], V[:, F[3, j]]
@@ -138,7 +140,7 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
         ok, euler = manifold(V, F)
         @test ok
         @test euler == 2
-        area, vol = areavolume(V .* Float32(2 / (n - 1)) .- 1f0, F)
+        area, vol = hostareavolume(V .* Float32(2 / (n - 1)) .- 1f0, F)
         @test isapprox(area, 4π * R^2; rtol = 0.01)
         @test isapprox(vol, 4 / 3 * π * R^3; rtol = 0.01)
         @test vol > 0                      # toward decreasing values: outward here
@@ -247,6 +249,11 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
         @test GM.lastentry(pos) == sum(flags)
         idx, m = GM.select(dev, fb, n)
         @test download(idx)[1:m] == findall(==(1), flags)
+        # Only the first entries of a longer (reused) buffer count.
+        idx2, m2 = GM.select(dev, fb, 600)
+        @test m2 == sum(flags[1:600])
+        @test download(idx2)[1:m2] == findall(==(1), flags[1:600])
+        Mantle.free!(idx2)
         src = rand(rng, Int32(0):Int32(99), 3, n)
         dst, m = GM.compactcolumns(dev, Mantle.Buffer(dev, src), fb, n)
         @test download(dst)[:, 1:m] == src[:, flags .== 1]
@@ -305,9 +312,12 @@ matrices(m::GeometryBasics.Mesh) = (collect(reinterpret(reshape, Float32, Array(
         ok, euler = manifold(v, f)
         @test ok
         @test euler == 2
-        area, vol = areavolume(v, f)
+        area, vol = hostareavolume(v, f)
         @test isapprox(area, 4π * R^2; rtol = 0.01)
         @test isapprox(vol, 4 / 3 * π * R^3; rtol = 0.01)
         @test vol > 0                      # toward the positive side: outward
     end
+
+    extensiontests(dev)
+    topologytests(dev)
 end
