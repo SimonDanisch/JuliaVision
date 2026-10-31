@@ -148,9 +148,14 @@ function flashoperand(g::Graph, producer::AbstractDict, id::AbstractString, want
     direct = lastmatching(g, id, want)
     direct !== nothing && g.buffers[direct].dtype === Float16 && return (direct, 1.0)
     cur, scale = id, 1.0
+    # The last operand-shaped buffer the walk reached, with the scaling skipped to
+    # reach it: what an fp32 operand with no fp16 pre-image resolves to when no
+    # shape matches before its scale (see below).
+    beyond = nothing
     for _ in 1:8
         cand = lastmatching(g, cur, want)
         cand !== nothing && g.buffers[cand].dtype === Float16 && return (cand, scale)
+        cand === nothing || cur == id || (beyond = (cand, scale))
         op = get(producer, viewroot(g, cand === nothing ? cur : cand), nothing)
         op === nothing && break
         if allowscale && op.aten == "mul.Scalar" && length(op.ins) == 1 &&
@@ -163,7 +168,13 @@ function flashoperand(g::Graph, producer::AbstractDict, id::AbstractString, want
             break
         end
     end
-    direct === nothing ? nothing : (direct, 1.0)
+    # An fp32 operand. The one the `bmm` reads directly when its view chain has the
+    # operand shape; otherwise the pre-image the walk found behind the scaling, and
+    # the scaling with it. FLUX.2-klein's fp32 VAE attention is the second kind for
+    # k: `scale^0.5 * k` is taken on the transposed `(1, H, D, L)` tensor, so no
+    # `(1, H, L, D)` buffer comes before the `mul`, and declining it left the safe
+    # softmax's `any` over 250M scores in the decoder, 226 ms of 1.58 s.
+    direct === nothing ? beyond : (direct, 1.0)
 end
 
 """
@@ -234,7 +245,10 @@ function attentiongroup(g::Graph, producer::AbstractDict, b2::Op)
     # All three or none: a fused op with an fp16 q and an fp32 k has no plan at
     # all, and half a rewrite is worse than the graph it replaced.
     fp16 = all(x -> g.buffers[x[1]].dtype === Float16, (q, k, v))
-    scale = fp16 ? q[2] * k[2] * v[2] : nothing
+    # A scale an operand's walk skipped is no longer in the graph, so the fused op
+    # has to apply it, fp16 or not.
+    folded = any(x -> x[2] != 1, (q, k, v))
+    scale = fp16 || folded ? q[2] * k[2] * v[2] : nothing
     (q[1], k[1], v[1], scale, b1, sc, b2, skipped)
 end
 
