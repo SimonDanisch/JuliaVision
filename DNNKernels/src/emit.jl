@@ -998,11 +998,20 @@ a lazy per-piece path would have to recompute that from the piece's own index.
 """
 function splitview!(emitctx::EmitCtx, id::AbstractString, b::Buffer, parent)
     n = ndims(parent)
-    # `intlist` and not `ints`: a split size can be SYMBOLIC. MatAnyone's
-    # `readout_query` splits by a length the graph carries as a symbol, and
-    # `Int("n")` is a `MethodError` about `Int64` several frames from the split.
-    sizes = intlist(emitctx.dims, emitctx.res, b.attrs["arg1"])
     d = jdim(Int(get(b.attrs, "arg2", 0)), n)
+    # The piece sizes from the DECLARED piece shapes, which carry the symbols
+    # themselves (`[1, "t", 32]`), and from `arg1` only for a graph that has no
+    # `shapes`. `arg1` is the export's list of sizes, and a symbolic size there
+    # is a `"$sym_size_int_44"` reference to a host scalar; that scalar is a
+    # host buffer nothing lists as an input, so `consumedids` never declares it
+    # and the reference dangles. FLUX.2-klein's double-stream attention splits
+    # its joint sequence back into text and image by exactly such a pair.
+    # `intlist` and not `ints` on the fallback: a split size can be SYMBOLIC
+    # (MatAnyone's `readout_query`), and `Int("n")` is a `MethodError` about
+    # `Int64` several frames from the split.
+    sizes = haskey(b.attrs, "shapes") ?
+        Int[evalshape(shape, emitctx.dims)[d] for shape in b.attrs["shapes"]] :
+        intlist(emitctx.dims, emitctx.res, b.attrs["arg1"])
     ast = colstrides(ntuple(k -> size(parent, k), n))
     sum(sizes) == size(parent, d) || error(
         "DNNKernels: `split_with_sizes` ($(id)) splits axis $d of $(size(parent)) " *
@@ -1823,6 +1832,8 @@ end
 
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Tensor")}) = binary!(emitctx, op, *)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("mul.Scalar")}) = binary!(emitctx, op, *)
+# `x + 1` with the 1 in the schema: FLUX.2's `(1 + scale) * norm(x)` modulation.
+emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("add.Scalar")}) = binary!(emitctx, op, +)
 emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("div.Tensor")}) = binary!(emitctx, op, /)
 
 """
@@ -3096,6 +3107,124 @@ function emitop!(emitctx::EmitCtx, op::Op,
     # no-training form declares the two results empty, and the graph reads
     # neither.
     return (out, rmean, invstd)
+end
+
+# ── group norm ───────────────────────────────────────────────────────────────
+
+"""
+`aten::native_group_norm(input, weight, bias, N, C, HxW, group, eps)`, as two
+dispatches.
+
+A group is `C ÷ group` channels of one sample over the whole plane. In the
+reversed layout `(W, H, C, N)` those elements are CONTIGUOUS -- `W * H * C ÷ group`
+of them, `group * N` such runs -- which is exactly the form `native_layer_norm`'s
+kernel takes: a normalisation group of `n` leading dense elements, `groups` of
+them, and a mean and a reciprocal standard deviation per run, in the order torch
+returns them (`(N, group)`, reversed). So the statistics and the normalisation
+are the layer-norm kernel with no affine, and the per-CHANNEL affine torch
+applies afterwards is one elementwise pass with `γ` and `β` broadcast along the
+channel axis. `HxW` is not read from the attrs: it is symbolic (`h*w`) for a
+decoder whose plane is a graph symbol, and the operand's size already says it.
+
+FLUX.2-klein's VAE is where this arrives: 32 groups over 128 to 512 channels,
+in Float32 (`force_upcast`), on planes up to the full picture.
+"""
+function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("native_group_norm.default")})
+    x = operand(emitctx, op, 1)
+    γ = length(op.ins) >= 2 ? operand(emitctx, op.ins[2]) : nothing
+    β = length(op.ins) >= 3 ? operand(emitctx, op.ins[3]) : nothing
+    N, C, G = Int(op.attrs["arg3"]), Int(op.attrs["arg4"]), Int(op.attrs["arg6"])
+    eps = Float32(op.attrs["arg7"])
+    od = size(x)
+    # torch's channel dim is 1, which in the reversed shape is `ndims - 1`.
+    c = length(od) - 1
+    od[c] == C || error(
+        "DNNKernels: `native_group_norm` (op $(op.id)) declares $C channels but " *
+        "its operand is $od.")
+    C % G == 0 || error(
+        "DNNKernels: `native_group_norm` (op $(op.id)): $C channels do not split " *
+        "into $G groups.")
+    groups = G * N
+    n = length(x) ÷ groups
+    out = dest(emitctx, 0)
+    μ = destor(emitctx, 1, Float32, (groups,))
+    r = destor(emitctx, 2, Float32, (groups,))
+    # Past 32k values a group, one workgroup each cannot fill the device (32 groups
+    # of a VAE plane are 32 workgroups): split the statistics, see `groupnormsplit!`.
+    n > 32768 && return groupnormsplit!(emitctx, op, out, μ, r, x, γ, β, N, C, G, eps)
+    rowsg = layernormwg(n)
+    sg = M.caps(emitctx.dev).subgroup
+    usesg = sg > 0 && rowsg <= sg && sg % rowsg == 0
+    # `x` stands in for the absent γ and β: the kernel indexes its placeholders
+    # whether or not the `Val`s let it read them (see `native_layer_norm`).
+    if usesg
+        rowspergroup = sg ÷ rowsg
+        M.dispatch!(emitctx.g, layernorm_shfl_kernel!,
+                    (out, μ, r, x, x, x, Int32(n), Int32(groups), eps, Val(sg), Val(rowsg),
+                     Val(false), Val(false)),
+                    cld(groups, rowspergroup) * sg; group = sg, name = "$(op.id).norm")
+    else
+        M.dispatch!(emitctx.g, layernorm_kernel!,
+                    (out, μ, r, x, x, x, Int32(n), eps, Val(rowsg), Val(false), Val(false)),
+                    groups * rowsg; group = rowsg, name = "$(op.id).norm")
+    end
+    if γ !== nothing || β !== nothing
+        chan = ntuple(k -> k == c ? C : 1, length(od))
+        dense = bcstrides(od, od)
+        along = bcstrides(od, chan)
+        if γ !== nothing && β !== nothing
+            ewdispatch!(emitctx, out, od, (out, γ, β), (dense, along, along),
+                        (t, g, b) -> t * g + b; name = op.id)
+        elseif γ !== nothing
+            ewdispatch!(emitctx, out, od, (out, γ), (dense, along), (t, g) -> t * g; name = op.id)
+        else
+            ewdispatch!(emitctx, out, od, (out, β), (dense, along), (t, b) -> t + b; name = op.id)
+        end
+    end
+    return (out, μ, r)
+end
+
+"""
+    groupnormsplit!(emitctx, op, out, μ, r, x, γ, β, N, C, G, eps)
+
+`native_group_norm` over long groups, as three dispatches: each group's chunks'
+statistics (`groupnorm_partial_kernel!`, 8192 values a workgroup), their merge
+(`groupnorm_finalize_kernel!`), and one elementwise pass that normalises and
+applies the per-channel affine. The tensor is read as `(S, C ÷ G, G, N)` — a
+group's channels are adjacent in the reversed layout — so `μ` and `r` broadcast
+along the first two axes and `γ`, `β` along the plane and the batch.
+"""
+function groupnormsplit!(emitctx::EmitCtx, op::Op, out, μ, r, x, γ, β, N::Int, C::Int, G::Int, eps::Float32)
+    groups = G * N
+    n = length(x) ÷ groups
+    wg = 256
+    chunk = 8192
+    nchunks = cld(n, chunk)
+    part = scratch(emitctx, Float32, 3 * nchunks * groups)
+    M.dispatch!(emitctx.g, groupnorm_partial_kernel!,
+                (part, x, Int32(n), Int32(chunk), Int32(nchunks), Val(wg)),
+                nchunks * groups * wg; group = wg, name = "$(op.id).stats")
+    M.dispatch!(emitctx.g, groupnorm_finalize_kernel!,
+                (μ, r, part, Int32(nchunks), Int32(groups), eps),
+                cld(groups, 64) * 64; group = 64, name = "$(op.id).merge")
+    od = (n ÷ (C ÷ G), C ÷ G, G, N)
+    dense = bcstrides(od, od)
+    stat = bcstrides(od, (1, 1, G, N))
+    chan = bcstrides(od, (1, C ÷ G, G, 1))
+    if γ !== nothing && β !== nothing
+        ewdispatch!(emitctx, out, od, (x, μ, r, γ, β), (dense, stat, stat, chan, chan),
+                    (t, m, s, g, b) -> (Float32(t) - m) * s * Float32(g) + Float32(b); name = op.id)
+    elseif γ !== nothing
+        ewdispatch!(emitctx, out, od, (x, μ, r, γ), (dense, stat, stat, chan),
+                    (t, m, s, g) -> (Float32(t) - m) * s * Float32(g); name = op.id)
+    elseif β !== nothing
+        ewdispatch!(emitctx, out, od, (x, μ, r, β), (dense, stat, stat, chan),
+                    (t, m, s, b) -> (Float32(t) - m) * s + Float32(b); name = op.id)
+    else
+        ewdispatch!(emitctx, out, od, (x, μ, r), (dense, stat, stat),
+                    (t, m, s) -> (Float32(t) - m) * s; name = op.id)
+    end
+    return (out, μ, r)
 end
 
 """

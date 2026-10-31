@@ -682,3 +682,103 @@ function rmsnorm!(ctx, out, rstd, a, γ, C::Integer, eps::Real)
         ndrange = groups * LN_WG, workgroupsize = LN_WG)
     out
 end
+
+# ── a normalisation group too long for one workgroup ─────────────────────────
+
+"""
+    groupnorm_partial_kernel!(part, a, n, chunk, nchunks, Val(WG))
+
+The statistics of one `chunk` of one normalisation group: workgroup `j + nchunks * g`
+reads elements `j * chunk` up to `(j + 1) * chunk` of group `g` (each group `n`
+long and contiguous) and writes `(count, mean, M2)` to `part[3w + 1 : 3w + 3]`.
+The mean is taken first and `M2` about it, both over the chunk, so nothing here
+subtracts two large sums.
+
+What it is for: `native_group_norm` over a VAE plane is 32 groups of up to four
+million values, and one workgroup per group (`layernorm_kernel!`) put 32
+workgroups on a 40-CU device — 50 to 110 ms a norm on FLUX.2-klein's decoder.
+"""
+function groupnorm_partial_kernel!(part, a, n::Int32, chunk::Int32, nchunks::Int32,
+                                   ::Val{WG}) where {WG}
+    red = KI.localmemory(Float32, Val((WG,)), Val(1))
+    w = Int32(KI.get_group_id().x - 1)
+    t = Int32(KI.get_local_id().x - 1)
+    j = w % nchunks
+    g = w ÷ nchunks
+    lo = j * chunk
+    hi = min(lo + chunk, n)
+    base = Int(g) * Int(n)
+    cnt = Float32(hi - lo)
+
+    s = 0.0f0
+    i = lo + t
+    @inbounds while i < hi
+        s += Float32(a[base + i + 1])
+        i += Int32(WG)
+    end
+    @inbounds red[t + 1] = s
+    KI.barrier()
+    stride = WG ÷ 2
+    while stride > 0
+        @inbounds if t < stride
+            red[t + 1] += red[t + 1 + stride]
+        end
+        KI.barrier()
+        stride ÷= 2
+    end
+    @inbounds μ = red[1] / cnt
+    KI.barrier()
+
+    s2 = 0.0f0
+    i = lo + t
+    @inbounds while i < hi
+        d = Float32(a[base + i + 1]) - μ
+        s2 += d * d
+        i += Int32(WG)
+    end
+    @inbounds red[t + 1] = s2
+    KI.barrier()
+    stride = WG ÷ 2
+    while stride > 0
+        @inbounds if t < stride
+            red[t + 1] += red[t + 1 + stride]
+        end
+        KI.barrier()
+        stride ÷= 2
+    end
+    @inbounds if t == 0
+        k = 3 * Int(w)
+        part[k + 1] = cnt
+        part[k + 2] = μ
+        part[k + 3] = red[1]
+    end
+    return nothing
+end
+
+"""
+    groupnorm_finalize_kernel!(mean, rstd, part, nchunks, ngroups, eps)
+
+One thread a group: the chunks' `(count, mean, M2)` merged in order by Chan's
+pairwise update, then the group's mean and `1 / sqrt(var + eps)`.
+"""
+function groupnorm_finalize_kernel!(mean, rstd, part, nchunks::Int32, ngroups::Int32, eps::Float32)
+    g = Int32(KI.get_global_id().x - 1)
+    @inbounds if g < ngroups
+        na = 0.0f0
+        ma = 0.0f0
+        m2 = 0.0f0
+        for j in Int32(0):(nchunks - Int32(1))
+            k = 3 * (Int(j) + Int(nchunks) * Int(g))
+            nb = part[k + 1]
+            mb = part[k + 2]
+            nn = na + nb
+            δ = mb - ma
+            ma += δ * (nb / nn)
+            m2 += part[k + 3] + δ * δ * (na * nb / nn)
+            na = nn
+        end
+        mean[g + 1] = ma
+        rstd[g + 1] = 1.0f0 / sqrt(m2 / na + eps)
+    end
+    return nothing
+end

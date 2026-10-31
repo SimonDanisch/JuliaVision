@@ -64,6 +64,14 @@ const FLASHROWS_NW = 4
 
 @inline flashrows_chunk(base::Ptr{Float16}, off::Int) =
     reinterpret(Ptr{FLASHROWS_H4}, base + 2 * off)
+# AMDGPU's `pointer` of a device array is an `LLVMPtr`, not a `Ptr`: without this
+# method every path through the kernel threw on ROCm, and Mantle refused to plan it.
+@inline flashrows_chunk(base::Core.LLVMPtr{Float16,A}, off::Int) where {A} =
+    reinterpret(Core.LLVMPtr{FLASHROWS_H4,A}, base + 2 * off)
+
+"""Chunk `i` behind `p`, at the alignment `A` the staging guarantees (16 bytes, then 8)."""
+@inline flashrows_load(p::Ptr, i::Int, ::Val{A}) where {A} = Core.Intrinsics.pointerref(p, i, A)
+@inline flashrows_load(p::Core.LLVMPtr, i::Int, ::Val{A}) where {A} = unsafe_load(p, i, Val(A))
 
 """
     attn_flash_rows!(out, q, k, v, scale, qbase, qsL, qsH, qsB, kbase, …, Val(E), Val(NW), Val(OUTPERM), Lq, Lk)
@@ -135,8 +143,8 @@ function attn_flash_rows!(out, q, k, v, scale::Float32,
 
         Base.Cartesian.@nexprs 4 rr -> if rr <= CPT
             pk_rr = flashrows_chunk(pointer(k), kh0 + Int(kcl(Int32(0), rr - 1) * ksL + e8))
-            kr_rr_1 = Core.Intrinsics.pointerref(pk_rr, 1, 16)
-            kr_rr_2 = Core.Intrinsics.pointerref(pk_rr, 2, 8)
+            kr_rr_1 = flashrows_load(pk_rr, 1, Val(16))
+            kr_rr_2 = flashrows_load(pk_rr, 2, Val(8))
         end
         for kb in Int32(0):(nkb - Int32(1))
             k0 = kb * Int32(FLASHROWS_BC)
@@ -148,8 +156,8 @@ function attn_flash_rows!(out, q, k, v, scale::Float32,
                 kv[sk_rr + 1] = kr_rr_2
                 pv_rr = flashrows_chunk(pointer(v),
                     vh0 + Int(k0) * Int(vsL) + Int(kcl(k0, rr - 1) * vsL + e8))
-                vr_rr_1 = Core.Intrinsics.pointerref(pv_rr, 1, 16)
-                vr_rr_2 = Core.Intrinsics.pointerref(pv_rr, 2, 8)
+                vr_rr_1 = flashrows_load(pv_rr, 1, Val(16))
+                vr_rr_2 = flashrows_load(pv_rr, 2, Val(8))
             end
             KI.barrier()
 
@@ -197,8 +205,8 @@ function attn_flash_rows!(out, q, k, v, scale::Float32,
                 Base.Cartesian.@nexprs 4 rr -> if rr <= CPT
                     pk_rr = flashrows_chunk(pointer(k),
                         kh0 + Int(k1) * Int(ksL) + Int(kcl(k1, rr - 1) * ksL + e8))
-                    kr_rr_1 = Core.Intrinsics.pointerref(pk_rr, 1, 16)
-                    kr_rr_2 = Core.Intrinsics.pointerref(pk_rr, 2, 8)
+                    kr_rr_1 = flashrows_load(pk_rr, 1, Val(16))
+                    kr_rr_2 = flashrows_load(pk_rr, 2, Val(8))
                 end
             end
             # O *= alpha row by row: the factors as a matrix whose columns all

@@ -39,7 +39,7 @@ const SS_SQ, SS_SK = 0.25, 0.5
 """The exported chain as a graph, with `tweak` applied to buffers and ops."""
 function safesoftmaxgraph(; mask::Bool = false, fill::Real = 0,
                           outputs::Vector{String} = ["out"],
-                          extraops::Vector = [])
+                          extraops::Vector = [], fp32inputs::Bool = false)
     H, Lq, Lk, D = SS_H, SS_LQ, SS_LK, SS_D
     buf(id, shape; kind = :transient, dtype = Float16, of = "", viewop = "") =
         DKA.Buffer(id, kind, Any[shape...], dtype, "", (0, 0), of,
@@ -75,6 +75,14 @@ function safesoftmaxgraph(; mask::Bool = false, fill::Real = 0,
         buf("wh3", (H, Lq, Lk); kind = :view, dtype = Float32, of = "wh"),
         buf("out", (H, Lq, D); dtype = Float32),
     ]
+    if fp32inputs
+        # An fp32 export with no fp16 anywhere: q, k and v are the fp32 tensors
+        # themselves, as FLUX.2-klein's VAE attention is.
+        filter!(b -> !(b.id in ("q16", "k16", "v16", "q32", "k32", "v32")), bs)
+        append!(bs, [buf("q32", (1, H, Lq, D); kind = :external, dtype = Float32),
+                     buf("k32", (1, H, Lk, D); kind = :external, dtype = Float32),
+                     buf("v32", (1, H, Lk, D); kind = :external, dtype = Float32)])
+    end
     buffers = Dict(b.id => b for b in bs)
     A(kv...) = Dict{String,Any}(kv...)
     softmaxin = mask ? "masked" : "scores4"
@@ -98,7 +106,9 @@ function safesoftmaxgraph(; mask::Bool = false, fill::Real = 0,
         DKA.Op("out", "bmm.default", ["wh3", "v3"], "out", A()),
     ])
     append!(ops, extraops)
-    inputs = mask ? ["q16", "k16", "v16", "mask"] : ["q16", "k16", "v16"]
+    fp32inputs && filter!(o -> o.aten != "_to_copy.default", ops)
+    qkv = fp32inputs ? ["q32", "k32", "v32"] : ["q16", "k16", "v16"]
+    inputs = mask ? [qkv; "mask"] : qkv
     DKA.Graph("safesoftmax", String[], inputs, outputs, buffers,
               collect(keys(buffers)), ops)
 end
@@ -115,6 +125,18 @@ end
     # The guard, the softmax and the first product are gone with it.
     @test !any(o -> o.aten in ("_softmax.default", "where.self", "any.dim",
                                "eq.Scalar", "full_like.default"), fused.ops)
+
+    # All fp32, as FLUX.2-klein's VAE exports it. q's operand is its scaled
+    # tensor, whose `mul` stays in the graph; k is scaled on the TRANSPOSED view,
+    # so no operand-shaped buffer comes before its `mul`, and the walk takes the
+    # pre-image behind it and folds that scale into the op. Declining it, as the
+    # pass did, left the guard's `any` over every score in the decoder.
+    f32, n32 = DKA.fuseattention(safesoftmaxgraph(fp32inputs = true))
+    @test n32 == 1
+    op32 = only(o for o in f32.ops if o.aten == "fused.sdpa")
+    @test op32.ins == ["qs", "k32", "v32"]
+    @test op32.attrs["scale"] ≈ SS_SK
+    @test any(o -> o.id == "qs" && o.aten == "mul.Scalar", f32.ops)
 
     # An additive mask makes the guard load-bearing: a fully masked row really
     # is all `-inf` there, and `softmax` of it is `NaN` the guard replaces.
