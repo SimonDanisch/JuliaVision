@@ -17,6 +17,7 @@
 # writes them together for that reason.
 [matanyone]
 git-tree-sha1 = "9369a61552c2e3141ac5f515e2f5475df2df4abc"
+lazy = true
 
     [[matanyone.download]]
     sha256 = "1b1dfd64eeffdea0c44f22ee873e1e755bfce632cbe434dbe93bdc7a060c9f9a"
@@ -24,6 +25,7 @@ git-tree-sha1 = "9369a61552c2e3141ac5f515e2f5475df2df4abc"
 
 [sam2-large]
 git-tree-sha1 = "495f67add8178497d11163d71e9d5929138b470b"
+lazy = true
 
     [[sam2-large.download]]
     sha256 = "1bcd6b66cd1800317563379886633e5a68a50c7e7886a223acc757a252b8d243"
@@ -31,6 +33,7 @@ git-tree-sha1 = "495f67add8178497d11163d71e9d5929138b470b"
 
 [kokoro]
 git-tree-sha1 = "e72003e9926bfa5f1b1061c7f32803918d8090a8"
+lazy = true
 
     [[kokoro.download]]
     sha256 = "fe2333483e6405b74aabaa8ae8d2767b8b630acfb6dbd9e57be9ba8e0ff3848e"
