@@ -1,33 +1,25 @@
 module OIDNRunnerVideoEditorExt
 using OIDNRunner, VideoEditor
-using ColorTypes: RGB
-const DEFAULT = Ref{Any}(nothing)
+const KA = OIDNRunner.KA
+
+# One denoiser per device the frames come from: the networks run where the
+# frame's planes are, so nothing goes to the host and back.
+const DENOISERS = Dict{Any, OIDNDenoiser}()
+
+function denoiserfor(backend)
+    return get!(() -> OIDNDenoiser(; backend), DENOISERS, backend)
+end
+
 function __init__()
-    return VideoEditor.registerhdrdenoiser!(:oidn) do frame, image, effect
-        d = DEFAULT[]
-        if d === nothing
-            d = OIDNDenoiser();DEFAULT[] = d
-        end
-        result = OIDNRunner.denoise(
-            d, image; albedo = frame.albedo, normal = frame.normal,
-            clean_aux = !effect.prefilter
-        )
-        [
-            RGB{Float32}(result[x, y, 1], result[x, y, 2], result[x, y, 3])
-                for x in axes(result, 1), y in axes(result, 2)
-        ]
+    VideoEditor.registerhdrdenoiser!(:oidn) do out, frame, image, effect
+        d = denoiserfor(KA.get_backend(image))
+        return OIDNRunner.denoise!(d, out, image, frame.albedo, frame.normal; clean_aux = !effect.prefilter)
     end
 end
+
 function OIDNRunner.install!(d::OIDNDenoiser)
-    VideoEditor.registerhdrdenoiser!(:oidn) do frame, image, effect
-        result = OIDNRunner.denoise(
-            d, image; albedo = frame.albedo, normal = frame.normal,
-            clean_aux = !effect.prefilter
-        )
-        [
-            RGB{Float32}(result[x, y, 1], result[x, y, 2], result[x, y, 3])
-                for x in axes(result, 1), y in axes(result, 2)
-        ]
+    VideoEditor.registerhdrdenoiser!(:oidn) do out, frame, image, effect
+        return OIDNRunner.denoise!(d, out, image, frame.albedo, frame.normal; clean_aux = !effect.prefilter)
     end
     return d
 end

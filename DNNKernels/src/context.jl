@@ -107,13 +107,7 @@ that is the device's.
 """
 launchgroup(dev::M.DeviceCaps) = min(256, dev.workgrouplimit)
 
-"""
-The `VkContext` a backend runs on. Kept for the paths that need the context
-itself rather than what it can do; prefer [`caps`](@ref) for the latter.
-"""
-vkcontext(::Any) = nothing
 @static if !Sys.isapple()
-    vkcontext(b::Mantle.LavaBackend) = Mantle.vk_context(b)
     # Through `storage`, because an operand is now often a `Mantle.Buffer` —
     # the pool region that owns the bytes — and every caller of this is asking
     # about the BYTES: whether they are this backend's, dense, and therefore

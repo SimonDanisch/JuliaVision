@@ -125,7 +125,8 @@ under the device's `hwmon` is what this needs, and a card whose driver does not
 publish it cannot be gated on however it is labelled.
 """
 function telemetry()
-    for dev in sort(Base.Filesystem.readdir("/sys/class/drm"; join = true))
+    drm = isdir("/sys/class/drm") ? Base.Filesystem.readdir("/sys/class/drm"; join = true) : String[]
+    for dev in sort(drm)
         d = joinpath(dev, "device")
         isfile(joinpath(d, "gpu_busy_percent")) || continue
         hw = joinpath(d, "hwmon")
@@ -144,7 +145,10 @@ function telemetry()
     return NvidiaSmi()
 end
 
-const TELEMETRY = telemetry()
+# Resolved at the first reading rather than at load: code that only includes
+# this file (a module bundling a benchmark with its model) still loads on a
+# machine without a readable clock, and the refusal comes when it would measure.
+const TELEMETRY = OncePerProcess{Union{NvidiaSmi,AmdSysfs}}(telemetry)
 
 """
     gpustate() -> NamedTuple
@@ -167,7 +171,7 @@ question means anything.
 
 Use [`gpustate(f)`](@ref) for a reading that means something under load.
 """
-gpustate() = sample(TELEMETRY)
+gpustate() = sample(TELEMETRY())
 
 """
     gpustate(f; window = 0.2) -> NamedTuple
@@ -218,7 +222,7 @@ context. They matter here because they are also *scheduling* work: a browser
 repainting during a sample is contention this harness cannot subtract, only
 notice.
 """
-otherprocs() = otherprocs(TELEMETRY)
+otherprocs() = otherprocs(TELEMETRY())
 
 function otherprocs(::NvidiaSmi)
     out = read(`nvidia-smi --query-compute-apps=pid,process_name,used_memory

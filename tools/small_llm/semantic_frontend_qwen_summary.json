@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-26",
+  "scope": "Experimental Qwen frontends on the DNNKernels semantic graph; generic fusion additions; bit-identity against the previous runners. Short-context decode only.",
+  "frontend": {
+    "standard_ops": "standardop!: IR kinds imported graphs use (mm.default, fused.swiglu, add.Tensor, ...), graph-owned SemanticValue results, whole-tensor reshapes, registered weight objects (KQuantMatrix)",
+    "opaque_kernels": "semantickernel! with per-kernel kernelresults methods; unknown kernels refuse",
+    "storage_hazards": "semanticfusion validates that no pass moved a read past a write of the same caller tensor or stopped writing a bound version; offending ops are pinned and the passes rerun",
+    "pattern_stage": "patternfusion (fuseswiglu, fuseswiglumm, fusegroupedrms) shared by Model and semantic graphs",
+    "q8_sharing": "enabled with bound results; writes to bound storage drop representations prepared before the write",
+    "foldresidual": "r + mm/swiglumm folds into the product's store; in place for one packed column, scratch otherwise"
+  },
+  "bug_fixed": "genericfusion(dict) returned Dict{String,Any}; every Model build with fusion threw a MethodError since the pipeline was extracted",
+  "parity": {
+    "qwen35_2b_radeon": {"conditions": ["sequential", "grouped", "half_kv", "hook", "prefill_chunk8"], "tokens_and_logits_bitidentical": true, "decode_passes_before": 440, "decode_passes_after": 416, "fusion_report": {"swiglu_products": 24, "residuals": 24, "pinned": 0}},
+    "qwen35_prefill_chunk20_32_kl_vs_fp32": {"prompt20": {"old": 0.06490, "new": 0.06361}, "prompt76_chunk20": {"old": 0.01910, "new": 0.01858}, "prompt76_chunk32": {"old": 0.01910, "new": 0.01925}, "note": "chunks above 16 columns now take the shared K-quant GEMM (fp16 activations) instead of Q8 GEMV passes"},
+    "qwen36_radeon": {"default": {"bitidentical": true, "passes": [847, 847]}, "plain": {"bitidentical": true, "passes": [1278, 1097]}},
+    "qwen36_apple_m5": {"default": {"bitidentical": true, "passes": [927, 927]}, "plain": {"bitidentical": true, "passes": [1278, 1132]}, "submissions_per_token": 1},
+    "qwen35_4b_cache_requalified": {"exact_logits": true, "exact_greedy": true, "tokens_match_previous_receipt": true}
+  },
+  "throughput": {
+    "qwen36_radeon_tok_s": {"default": 73.6, "plain_generic": 60.9, "plain_unfused": 57.7, "note": "6 interleaved rounds, clocks lower than earlier runs"},
+    "qwen36_apple_m5_tok_s": {"default": 37.86, "plain_generic": 30.54, "plain_unfused": 29.79},
+    "qwen35_2b_radeon": "old 80.8 vs new 80.6 tok/s, measured while another chat's job held the GPU at 99%; parity only, absolute numbers invalid"
+  },
+  "checks": {
+    "dnnkernels_semantic_radeon": 325, "dnnkernels_semantic_metal": 325, "dnnkernels_semantic_metal4": 325,
+    "semantic_standard_and_residual": {"radeon": 97, "metal": 97, "metal4": 97},
+    "generic_fusion_model": {"radeon": 5, "metal": 5, "metal4": 5},
+    "small_llm_checks_and_2b_prefill_radeon": 474,
+    "qwen36_frontend_radeon": 525,
+    "bonsai_semantic_radeon": 501, "oidn_semantic_radeon": 64, "trellis_semantic_radeon": 79,
+    "horizon_tiny_radeon": {"fold_on": 61, "fold_off": 61}
+  },
+  "dnnkernels_full_suite_radeon": {
+    "passed": 30558, "failed": 37, "errored": 7,
+    "fixed_after": ["activation lowering bound outputs (contract change)", "masked prefill tests (eager API removed)", "1x1 conv GEMM name match", "CPU-backend tests after Mantle Device change", "pipelined int8 tile test pinned to explicit capabilities"],
+    "left": ["macro/allocation ratchets: GPUFiltering, PPOCRRunner, OIDNRunner (in HEAD)", "release_weights premise (Mantle now frees dropped arrays)", "clamp timing ratio under GPU contention"]
+  }
+}

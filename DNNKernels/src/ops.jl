@@ -657,14 +657,19 @@ premap(op::Op) = get(op.attrs, "premap", nothing)
 # aten::max.dim returns (values, indices). Base's argmax hands back
 # CartesianIndex objects, which is host-shaped; scanning the axis explicitly
 # keeps both results on the execution backend.
-@inline function maxdim_body(I, a, ::Val{D}, ::Val{WANTIDX}) where {D,WANTIDX}
+@inline maxdim_body(I, a, d::Val, w::Val) = extremedim_body(I, a, d, w, >)
+@inline mindim_body(I, a, d::Val, w::Val) = extremedim_body(I, a, d, w, <)
+
+# The extreme of `a` along `D` by `better` (`>` for the maximum), first one on a
+# tie as torch's, or WHERE it is with `WANTIDX`.
+@inline function extremedim_body(I, a, ::Val{D}, ::Val{WANTIDX}, better) where {D,WANTIDX}
     @inbounds begin
         J = ntuple(k -> k == D ? 1 : I[k], Val(length(I)))
         best = a[CartesianIndex(J)]
         bi = 1
         for i in 2:size(a, D)
             v = a[CartesianIndex(ntuple(k -> k == D ? i : I[k], Val(length(I))))]
-            if v > best
+            if better(v, best)
                 best = v
                 bi = i
             end
@@ -808,6 +813,133 @@ function scatter_kernel!(dst, idx, src, ::Val{D}, ::Val{N}) where {D,N}
         I = CartesianIndices(size(idx))[lin]
         j = scatterindex(idx[I]) + 1               # torch indices are 0-based
         dst[CartesianIndex(ntuple(k -> k == D ? j : I[k], Val(N)))] = src[I]
+    end
+    return nothing
+end
+
+"""
+`orderkey(x)` — the bits of `Float32(x)` as an unsigned integer that orders as
+the float does: negative values flipped, positive ones with the sign bit set.
+"""
+@inline function orderkey(x)
+    b = reinterpret(UInt32, Float32(x))
+    return b ⊻ ((b >> 31) == UInt32(0) ? 0x80000000 : 0xffffffff)
+end
+
+"""Threads per slice of [`topk_large_kernel!`](@ref): one per radix bucket."""
+const TOPK_LARGE_WG = 256
+"""The most elements [`topk_large_kernel!`](@ref) keeps in workgroup memory."""
+const TOPK_LARGE_K = 4096
+
+"""
+The `K` largest of each slice of `a`, sorted, for an axis too long for
+`topk_body`'s O(k*n) per element: one workgroup per slice.
+
+1. Radix selection finds the k-th largest key ([`orderkey`](@ref)): four
+   passes of one byte from the top, each thread counting one of the 256
+   buckets, so no atomics; thread 1 picks the bucket.
+2. Compaction: each thread takes a contiguous chunk, the chunks' counts are
+   scanned, so the elements above the threshold and as many equal to it as
+   are still wanted land in index order.
+3. Ranking: each of the `K` candidates counts the ones before it, which is
+   K^2 compares rather than a sort.
+
+`inds` gets torch's 0-based indices; `vals` the values when `WANTVALS`.
+"""
+function topk_large_kernel!(vals, inds, a, ::Val{WG}, ::Val{K}, pre, n, ::Val{WANTVALS}) where {WG, K, WANTVALS}
+    lt, = Tuple(KI.get_local_id())
+    grp, = Tuple(KI.get_group_id())
+    hist = KI.localmemory(UInt32, Val((WG,)), Val(1))
+    state = KI.localmemory(UInt32, Val((3,)), Val(2))      # prefix, mask, still wanted
+    above = KI.localmemory(Int32, Val((WG,)), Val(3))
+    equal = KI.localmemory(Int32, Val((WG,)), Val(4))
+    cand = KI.localmemory(Int32, Val((K,)), Val(5))
+    @inbounds if lt == 1
+        state[1] = UInt32(0); state[2] = UInt32(0); state[3] = UInt32(K)
+    end
+    KI.barrier()
+    for pass in 0:3
+        shift = 24 - 8pass
+        @inbounds begin
+            base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+            prefix, mask = state[1], state[2]
+            count = UInt32(0)
+            for i in 1:n
+                key = orderkey(a[base + pre * (i - 1) + 1])
+                count += UInt32(key & mask == prefix && (key >> shift) & 0xff == UInt32(lt - 1))
+            end
+            hist[lt] = count
+        end
+        KI.barrier()
+        @inbounds if lt == 1
+            want = state[3]; seen = UInt32(0); bucket = WG
+            while bucket > 1 && seen + hist[bucket] < want
+                seen += hist[bucket]; bucket -= 1
+            end
+            state[1] = state[1] | (UInt32(bucket - 1) << shift)
+            state[2] = state[2] | (UInt32(0xff) << shift)
+            state[3] = want - seen
+        end
+        KI.barrier()
+    end
+    @inbounds begin
+        base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+        threshold = state[1]
+        chunk = cld(n, WG)
+        gt = Int32(0); eq = Int32(0)
+        for i in ((lt - 1) * chunk + 1):min(lt * chunk, n)
+            key = orderkey(a[base + pre * (i - 1) + 1])
+            gt += Int32(key > threshold); eq += Int32(key == threshold)
+        end
+        above[lt] = gt; equal[lt] = eq
+    end
+    KI.barrier()
+    @inbounds if lt == 1
+        # Exclusive scans: where each thread's chunk writes its winners.
+        sa = Int32(0); se = Int32(0)
+        for t in 1:WG
+            ga, ge = above[t], equal[t]
+            above[t] = sa; equal[t] = se
+            sa += ga; se += ge
+        end
+    end
+    KI.barrier()
+    @inbounds begin
+        base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+        threshold = state[1]
+        ties = Int32(state[3])
+        chunk = cld(n, WG)
+        ga = above[lt]; ge = equal[lt]
+        for i in ((lt - 1) * chunk + 1):min(lt * chunk, n)
+            key = orderkey(a[base + pre * (i - 1) + 1])
+            if key > threshold
+                ga += Int32(1)
+                cand[ga] = Int32(i)
+            elseif key == threshold
+                ge += Int32(1)
+                ge <= ties && (cand[Int32(K) - ties + ge] = Int32(i))
+            end
+        end
+    end
+    KI.barrier()
+    @inbounds begin
+        base = ((grp - 1) % pre) + pre * n * ((grp - 1) ÷ pre)
+        outbase = ((grp - 1) % pre) + pre * K * ((grp - 1) ÷ pre)
+        c = lt
+        while c <= K
+            i = cand[c]
+            v = orderkey(a[base + pre * (i - 1) + 1])
+            rank = 1
+            for c2 in 1:K
+                j = cand[c2]
+                w = orderkey(a[base + pre * (j - 1) + 1])
+                rank += Int(w > v || (w == v && j < i))
+            end
+            o = outbase + pre * (rank - 1) + 1
+            inds[o] = i - 1
+            WANTVALS && (vals[o] = a[base + pre * (i - 1) + 1])
+            c += WG
+        end
     end
     return nothing
 end
@@ -1012,7 +1144,8 @@ it is one of the ops `torch.use_deterministic_algorithms` refuses — and
 function scatteradd_kernel!(dst, src, idx, n::Int32)
     j = KI.get_global_id().x
     @inbounds if j <= n
-        Atomix.@atomic dst[Int(idx[j]) + 1] += src[j]
+        # No publication of other memory: the following dispatch consumes dst.
+        Atomix.@atomic :monotonic dst[Int(idx[j]) + 1] += src[j]
     end
     return nothing
 end

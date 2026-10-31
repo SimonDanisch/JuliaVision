@@ -1,3 +1,7 @@
 [oidn]
 git-tree-sha1 = "ff168890dd61f61d49a8a7aefd4930c71d8cd589"
 lazy = true
+
+    [[oidn.download]]
+    url = "https://github.com/SimonDanisch/JuliaVision/releases/download/assets-v1/oidn-models-ff168890dd61.tar.gz"
+    sha256 = "68ae0113ccc1491b2f6be2864c9a881d0c7fefbeea9eee77a7838d2a91d4f21a"

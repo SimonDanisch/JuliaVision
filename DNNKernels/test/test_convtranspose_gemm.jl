@@ -218,7 +218,7 @@ end
         # simdgroup one, both kernels whose name says gemm; a backend that answers
         # `librarygemm` declares a call instead, which is the same route through
         # something with no kernel to name.
-        @test any(k -> occursin("gemm", k), kernels) ||
+        @test any(k -> occursin("gemm", lowercase(k)), kernels) ||
               any(c -> occursin("Gemm", c), calls)
         @test maximum(abs, Float32.(got) .- ref) / maximum(abs, ref) < 5e-3
         act === :relu && @test minimum(Float32.(got)) >= 0f0
@@ -244,10 +244,10 @@ end
     end
 
     @testset "the reduction-axis pad is refused when the waste is large" begin
-        if !isdefined(MC, :LavaBackend)
+        if !isdefined(MC, :LavaDevice)
             # This policy belongs to the Vulkan cooperative-matrix lowering.
             # Metal's 1x1 path above uses its native simdgroup GEMM directly.
-            @test_skip isdefined(MC, :LavaBackend)
+            @test_skip isdefined(MC, :LavaDevice)
         else
         # `CRS = Cin*KH*KW` is the weight's own extent. A concatenated scalar
         # channel gives MatAnyone `Cin = 17`, which would round to 32 and pay 88%

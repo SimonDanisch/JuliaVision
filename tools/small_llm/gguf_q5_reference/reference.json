@@ -1,0 +1,6 @@
+{
+  "generator_sha256": "e0551ebd0dfe16410a04df382d06f77026e793b99ea457874ce270ba24af92da",
+  "decoder": "llama.cpp gguf.quants.dequantize Q5_K",
+  "decoder_sha256": "2c927a1b3d9f0920dcf4007fb686e1b0999333e9f65ce43dcc689900c0beae8b",
+  "tensor_sha256": "88cdc25d5ef1e3bb7b2c6567e9971e7ad959e42b440fed10a4da4d38c77df014"
+}

@@ -1,0 +1,749 @@
+{
+    "complete": true,
+    "scope": "Implemented runners and experimental Qwen frontends declare DNNKernels graphs",
+    "runners": [
+        {
+            "name": "BasicVSRRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "BonsaiRunner",
+            "status": "Decode and prefill use the shared semantic DNN graph frontend; packed numerical lowerings retained",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "DeepFilterRunner",
+            "status": "not ported; no inference path",
+            "has_model_or_semantic_graph": false,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "DemucsRunner",
+            "status": "not ported; no inference path",
+            "has_model_or_semantic_graph": false,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "DepthAnythingRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "FluxKleinRunner",
+            "status": "not ported; no inference path",
+            "has_model_or_semantic_graph": false,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "HorizonRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "Hunyuan3DRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "KokoroRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "MatAnyoneRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "NeuralLUTRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "OIDNRunner",
+            "status": "Both standard and packed-HWC neural paths now use semantic DNN graphs; specialized packed-layout lowerings retained",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "PPDocLayoutRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "PPOCRRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "ProPainterRunner",
+            "status": "not ported; no inference path",
+            "has_model_or_semantic_graph": false,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "QwenImageEditRunner",
+            "status": "not ported; no inference path",
+            "has_model_or_semantic_graph": false,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "QwenImageRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "RIFERunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "SAM2Runner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "Trellis2Runner",
+            "status": "Flow/transformer and sparse decoder use DNN graphs; typed sparse-gather/product/normalization lowerings retained",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": true
+        },
+        {
+            "name": "UVDocRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "WhisperRunner",
+            "status": "Neural network uses DNNKernels Model/Graph",
+            "has_model_or_semantic_graph": true,
+            "has_direct_dispatch": false
+        },
+        {
+            "name": "ZImageRunner",
+            "status": "not ported; no inference path",
+            "has_model_or_semantic_graph": false,
+            "has_direct_dispatch": false
+        }
+    ],
+    "experimental_frontends": [
+        {
+            "file": "qwen35.jl",
+            "builder": "session",
+            "semantic_graph": true,
+            "plain_mantle_graph": false,
+            "standard_ops": 11
+        },
+        {
+            "file": "prefill_qwen35.jl",
+            "builder": "record_prefill",
+            "semantic_graph": true,
+            "plain_mantle_graph": false,
+            "standard_ops": 11
+        },
+        {
+            "file": "qwen36_moe_model.jl",
+            "builder": "session",
+            "semantic_graph": true,
+            "plain_mantle_graph": false,
+            "standard_ops": 4
+        }
+    ],
+    "exported_graphs": [
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_decode.json",
+            "ops_before": 3157,
+            "ops_after": 2450,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_decode_bucket.json",
+            "ops_before": 3158,
+            "ops_after": 2451,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill.json",
+            "ops_before": 3285,
+            "ops_after": 2578,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill_bucket_128.json",
+            "ops_before": 3287,
+            "ops_after": 2580,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill_bucket_16.json",
+            "ops_before": 3287,
+            "ops_after": 2580,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill_bucket_256.json",
+            "ops_before": 3287,
+            "ops_after": 2580,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill_bucket_32.json",
+            "ops_before": 3287,
+            "ops_after": 2580,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill_bucket_512.json",
+            "ops_before": 3287,
+            "ops_after": 2580,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_prefill_bucket_64.json",
+            "ops_before": 3287,
+            "ops_after": 2580,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b/horizon32b_verify_bucket_8.json",
+            "ops_before": 3286,
+            "ops_after": 2579,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b_m1024/horizon32b_decode.json",
+            "ops_before": 3157,
+            "ops_after": 2450,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b_m1024/horizon32b_prefill.json",
+            "ops_before": 3285,
+            "ops_after": 2578,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b_m256/horizon32b_decode.json",
+            "ops_before": 3157,
+            "ops_after": 2450,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b_m256/horizon32b_prefill.json",
+            "ops_before": 3285,
+            "ops_after": 2578,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b_m64/horizon32b_decode.json",
+            "ops_before": 3157,
+            "ops_after": 2450,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizon32b_m64/horizon32b_prefill.json",
+            "ops_before": 3285,
+            "ops_after": 2578,
+            "report": {
+                "elementwise": 579,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 128
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizontiny/horizon32b_decode.json",
+            "ops_before": 99,
+            "ops_after": 74,
+            "report": {
+                "elementwise": 21,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 4
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizontiny/horizon32b_decode_bucket.json",
+            "ops_before": 99,
+            "ops_after": 74,
+            "report": {
+                "elementwise": 21,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 4
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizontiny/horizon32b_prefill.json",
+            "ops_before": 103,
+            "ops_after": 78,
+            "report": {
+                "elementwise": 21,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 4
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizontiny/horizon32b_prefill_bucket_2.json",
+            "ops_before": 104,
+            "ops_after": 79,
+            "report": {
+                "elementwise": 21,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 4
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizontiny/horizon32b_prefill_bucket_4.json",
+            "ops_before": 104,
+            "ops_after": 79,
+            "report": {
+                "elementwise": 21,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 4
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/horizontiny/horizon32b_prefill_bucket_6.json",
+            "ops_before": 104,
+            "ops_after": 79,
+            "report": {
+                "elementwise": 21,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 4
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_prefix_image.json",
+            "ops_before": 2447,
+            "ops_after": 1904,
+            "report": {
+                "elementwise": 543,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_prefix_text.json",
+            "ops_before": 2831,
+            "ops_after": 2285,
+            "report": {
+                "elementwise": 546,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_prefix_text0.json",
+            "ops_before": 2707,
+            "ops_after": 2161,
+            "report": {
+                "elementwise": 546,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_step.json",
+            "ops_before": 2493,
+            "ops_after": 1944,
+            "report": {
+                "elementwise": 549,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_text_encoder.json",
+            "ops_before": 2815,
+            "ops_after": 2239,
+            "report": {
+                "elementwise": 504,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 72
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_transformer.json",
+            "ops_before": 3473,
+            "ops_after": 2664,
+            "report": {
+                "elementwise": 809,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_vae_encoder.json",
+            "ops_before": 339,
+            "ops_after": 234,
+            "report": {
+                "elementwise": 105,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_vision.json",
+            "ops_before": 1084,
+            "ops_after": 974,
+            "report": {
+                "elementwise": 110,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21/qwenimage21_vl_encoder.json",
+            "ops_before": 3041,
+            "ops_after": 2462,
+            "report": {
+                "elementwise": 510,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 69
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_prefix_image.json",
+            "ops_before": 136,
+            "ops_after": 104,
+            "report": {
+                "elementwise": 32,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_prefix_text.json",
+            "ops_before": 160,
+            "ops_after": 125,
+            "report": {
+                "elementwise": 35,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_prefix_text0.json",
+            "ops_before": 156,
+            "ops_after": 121,
+            "report": {
+                "elementwise": 35,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_step.json",
+            "ops_before": 182,
+            "ops_after": 144,
+            "report": {
+                "elementwise": 38,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_vae_encoder.json",
+            "ops_before": 129,
+            "ops_after": 89,
+            "report": {
+                "elementwise": 40,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_vision.json",
+            "ops_before": 144,
+            "ops_after": 130,
+            "report": {
+                "elementwise": 14,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-condition-smoke/qwenimage21_vl_encoder.json",
+            "ops_before": 350,
+            "ops_after": 283,
+            "report": {
+                "elementwise": 62,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 5
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-refs/smoke_qwenimage21_prefix_image.json",
+            "ops_before": 136,
+            "ops_after": 104,
+            "report": {
+                "elementwise": 32,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-refs/smoke_qwenimage21_prefix_text.json",
+            "ops_before": 160,
+            "ops_after": 125,
+            "report": {
+                "elementwise": 35,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-refs/smoke_qwenimage21_prefix_text0.json",
+            "ops_before": 156,
+            "ops_after": 121,
+            "report": {
+                "elementwise": 35,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-refs/smoke_qwenimage21_step.json",
+            "ops_before": 182,
+            "ops_after": 144,
+            "report": {
+                "elementwise": 38,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-vae/qwenimage21_vae_decoder.json",
+            "ops_before": 478,
+            "ops_after": 334,
+            "report": {
+                "elementwise": 144,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/qwenimage21-vae-fp16-old/qwenimage21_vae_decoder.json",
+            "ops_before": 632,
+            "ops_after": 488,
+            "report": {
+                "elementwise": 144,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/sam2-large/sam2_decoder.json",
+            "ops_before": 311,
+            "ops_after": 287,
+            "report": {
+                "elementwise": 13,
+                "masked_attention": 0,
+                "epilogues": 11,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/sam2-large/sam2_encoder.json",
+            "ops_before": 1353,
+            "ops_after": 1273,
+            "report": {
+                "elementwise": 80,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/sam2-large-f16/sam2_decoder.json",
+            "ops_before": 311,
+            "ops_after": 287,
+            "report": {
+                "elementwise": 13,
+                "masked_attention": 0,
+                "epilogues": 11,
+                "premaps": 0,
+                "residuals": 0
+            }
+        },
+        {
+            "path": "/home/sim/Programmieren/VulkanDev/gen/graphs/sam2-large-f16/sam2_encoder.json",
+            "ops_before": 1353,
+            "ops_after": 1273,
+            "report": {
+                "elementwise": 80,
+                "masked_attention": 0,
+                "epilogues": 0,
+                "premaps": 0,
+                "residuals": 0
+            }
+        }
+    ],
+    "graph_checks": 48,
+    "pending": [
+    ],
+    "note": "Direct dispatch matches also include legitimate image preprocessing, sampling, meshing and custom DNN op lowerings"
+}

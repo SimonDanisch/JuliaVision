@@ -526,6 +526,82 @@ function foldpremap(g::Graph)
            [o for o in ops if !(o.id in drop)], g.fusion), n)
 end
 
+"""
+    FOLDRESIDUAL[] = true
+
+Turn [`foldresidual`](@ref) off, to A/B the residual add against its product.
+"""
+const FOLDRESIDUAL = Ref(true)
+
+# The buffer a chain of reshapes reads: the layout is unchanged, only the shape.
+function shapesource(g::Graph, id::AbstractString)
+    for _ in 1:32
+        b = get(g.buffers, id, nothing)
+        (b !== nothing && b.kind === :view && b.viewop in SHAPEONLY_VIEWS) || return id
+        id = b.of
+    end
+    id
+end
+# Extents without unit axes: the same elements in the same order under reshapes.
+squeezedshape(b::Buffer) = filter(d -> d != 1, b.shape)
+
+"""
+    foldresidual(graph) -> (graph, n)
+
+Fold `r + mm(a, b)` into the product: the product's store adds the residual and
+writes where the add wrote, so the product's own result is never stored and the
+add's pass disappears. This is the residual stream after an attention output or
+MLP down projection, in every transformer layer.
+
+`mm.default` and `fused.swiglumm` only; an `addmm` already spends its bias slot.
+The product must feed only the add, through reshapes alone, and the product,
+residual and sum must be the same elements in the same dtype: no broadcast and
+no cast. The fused op runs at the add's position. Its lowering decides, from the
+operands, whether the residual can be applied inside the product's store.
+"""
+function foldresidual(g::Graph)
+    FOLDRESIDUAL[] || return (g, 0)
+    producer = Dict(o.out => o for o in g.ops)
+    readers = Dict{String,Int}()
+    note(id) = (r = shapesource(g, id); readers[r] = get(readers, r, 0) + 1)
+    for o in g.ops, i in o.ins
+        note(i)
+    end
+    for (_, b) in g.buffers
+        b.kind === :view && !isempty(b.of) && !(b.viewop in SHAPEONLY_VIEWS) && note(b.of)
+    end
+    foreach(note, g.outputs)
+    ops = copy(g.ops)
+    drop = Set{String}()
+    n = 0
+    for (index, op) in enumerate(g.ops)
+        op.aten == "add.Tensor" && alpha(op) == 1 && !haskey(op.attrs, "act") &&
+            length(op.ins) == 2 && !haskey(op.attrs, "arg0") && !haskey(op.attrs, "arg1") || continue
+        for k in 1:2
+            src = shapesource(g, op.ins[k])
+            p = get(producer, src, nothing)
+            (p === nothing || !(p.aten in ("mm.default", "fused.swiglumm"))) && continue
+            (haskey(p.attrs, "residual") || p.id in drop) && continue
+            get(readers, src, 0) == 1 || continue
+            r = op.ins[3 - k]
+            shapesource(g, r) == src && continue
+            ob, pb, rb = g.buffers[op.out], g.buffers[p.out], g.buffers[r]
+            ob.dtype === pb.dtype === rb.dtype || continue
+            squeezedshape(ob) == squeezedshape(pb) == squeezedshape(rb) || continue
+            attrs = Dict{String,Any}(p.attrs); attrs["residual"] = true
+            ops[index] = Op(op.id, p.aten, [p.ins; r], op.out, attrs)
+            push!(drop, p.id)
+            n += 1
+            break
+        end
+    end
+    n == 0 && return (g, 0)
+    dropped = Set(o.out for o in g.ops if o.id in drop)
+    (Graph(g.name, g.symbols, g.inputs, g.outputs, Dict{String,Buffer}(g.buffers),
+           [id for id in g.order if !(id in dropped)],
+           [o for o in ops if !(o.id in drop)], g.fusion), n)
+end
+
 function foldpremap(graphs::AbstractDict)
     out = Dict{String,Graph}(); n = 0
     for (name, g) in graphs

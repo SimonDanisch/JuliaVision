@@ -3,6 +3,7 @@ import Mantle
 include("test_state_boundaries.jl")
 include("test_attention.jl")
 include("test_decode_boundary.jl")
+include("test_semantic_graph.jl")
 
 @testset "checkpoint artifact bindings" begin
     toml = joinpath(pkgdir(BonsaiRunner), "Artifacts.toml")
@@ -59,6 +60,8 @@ end
         @info "Bonsai checkpoint parts not in the artifact store; skipping"
     else
         model = Bonsai2()
+        test_bonsai_semantic_graph(BonsaiRunner,model)
+        test_bonsai_semantic_failure_cleanup(BonsaiRunner,model)
         dev = Mantle.todevice(model.backend)
         onloan() = sum(b -> length(b.live),
                        Iterators.flatten(values(Mantle.pool(dev).blocks)); init = 0)

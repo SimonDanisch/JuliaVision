@@ -329,13 +329,14 @@ end
         for (Cin, Cout, H, W) in ((288, 288, 1024, 1024), (144, 144, 1024, 1024),
                                   (576, 576, 512, 512), (1152, 1152, 256, 256),
                                   (1152, 1152, 128, 128))
-            x = KernelAbstractions.allocate(back, Float16, W, H, Cin, 1)
-            w = KernelAbstractions.allocate(back, Float16, 3, 3, Cin, Cout)
-            o = KernelAbstractions.allocate(back, Float16, W, H, Cout, 1)
-            cap = DNNKernels.im2colbudget(x)
-            pm = DNNKernels.conv_coopmat_plan(dev, Float16, Float16, size(o), size(w);
+            outsize,wsize = (W,H,Cout,1),(3,3,Cin,Cout)
+            cap = 256 << 20
+            pm = DNNKernels.conv_coopmat_plan(dev, Float16, Float16, outsize, wsize;
                                               im2colcap = cap, gather = false)
-            pg = DNNKernels.conv_coopmat_plan(dev, o, x, w)
+            # Pin the gather path: occupancy selection is tested separately and
+            # can decline these extents on devices with more compute units.
+            pg = DNNKernels.conv_coopmat_plan(dev, Float16, Float16, outsize, wsize;
+                                              im2colcap = cap, gather = true)
             @test pm isa DNNKernels.ConvCoopMatPlan && pm.gathertiling === nothing
             @test pg isa DNNKernels.ConvCoopMatPlan && pg.gathertiling !== nothing
             for (p, block, rowbytes) in
@@ -358,7 +359,6 @@ end
                 @test 4 * last >= 3 * p.rows
                 @test last > p.rows - nchunk * block
             end
-            x = w = o = nothing; GC.gc()
         end
     else
         @test_skip false

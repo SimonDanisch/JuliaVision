@@ -12,20 +12,22 @@ struct DeviceImages
     galbedo::Any     # prefiltered guides, planar (w, h, 3)
     gnormal::Any
     output::Any      # result, planar (w, h, 3)
+    buffers::Vector{Mantle.Buffer}
 end
 function DeviceImages(backend, w, h)
-    a() = KA.allocate(backend, Float32, 3 * w * h)
-    return DeviceImages(w, h, a(), a(), a(), a(), a(), a())
+    buffers = Mantle.Buffer[]
+    a() = devicearray!(buffers, backend, Float32, (3 * w * h,))
+    return DeviceImages(w, h, a(), a(), a(), a(), a(), a(), buffers)
 end
-free!(x::DeviceImages) = foreach(KA.unsafe_free!, (x.color, x.albedo, x.normal, x.galbedo, x.gnormal, x.output))
+free!(x::DeviceImages) = (foreach(Mantle.free!, x.buffers); empty!(x.buffers); nothing)
 function free!(t::TileBuffers)
-    foreach(KA.unsafe_free!, (t.input, t.output))
-    foreach(KA.unsafe_free!, t.a); foreach(KA.unsafe_free!, t.b)
-    foreach(KA.unsafe_free!, t.pool[2:end])
+    foreach(Mantle.free!,values(t.plans));empty!(t.plans)
+    foreach(Mantle.free!, t.buffers); empty!(t.buffers)
     return nothing
 end
-free!(n::UNet) = foreach(L -> (KA.unsafe_free!(L.Wt); KA.unsafe_free!(L.bias)), values(n.layers))
+free!(n::UNet) = (foreach(Mantle.free!, n.buffers); empty!(n.buffers); nothing)
 free!(::Array) = nothing
+free!(b::Mantle.Buffer) = Mantle.free!(b)   # a device buffer the workspace holds
 
 function deviceimages!(d, w, h)
     img = get(d.workspace, :gpuimages, nothing)
@@ -94,11 +96,13 @@ function runtiles!(d, kind, net, t, tiles, src, ss, g1, s1, g2, s2, scale, dst, 
     return dst
 end
 
-function auxguides!(d, img, sa, sn, t, tiles)
+auxguides!(d, img, sa, sn, t, tiles) = auxguides!(d, img, img.albedo, sa, img.normal, sn, t, tiles)
+"""The prefiltered guides of `albedo` and `normal` (strides `sa`, `sn`) into `img.galbedo`, `img.gnormal`."""
+function auxguides!(d, img, albedo, sa, normal, sn, t, tiles)
     pl = planarstrides(img.w, img.h)
-    runtiles!(d, :albedo, unet!(d, :albedo), t, tiles, img.albedo, sa, img.albedo, sa, img.albedo, sa,
+    runtiles!(d, :albedo, unet!(d, :albedo), t, tiles, albedo, sa, albedo, sa, albedo, sa,
               1.0f0, img.galbedo, pl, 1.0f0)
-    runtiles!(d, :normal, unet!(d, :normal), t, tiles, img.normal, sn, img.normal, sn, img.normal, sn,
+    runtiles!(d, :normal, unet!(d, :normal), t, tiles, normal, sn, normal, sn, normal, sn,
               1.0f0, img.gnormal, pl, 1.0f0)
     return pl
 end
@@ -133,4 +137,79 @@ function gpuprefilter(d, albedo, normal)
     tw, th, tiles = tileplan(d, w, h)
     auxguides!(d, img, sa, sn, tilebuffers!(d, tw, th), tiles)
     return (albedo = download(img.galbedo, w, h), normal = download(img.gnormal, w, h))
+end
+
+"""
+    denoise!(d, out, color, albedo, normal; clean_aux = false, scale = nothing) -> out
+
+`color` denoised with its guides into `out`: w×h device matrices of three
+Float32 channels (`RGB{Float32}`, `Vec3f`) on `d`'s device, read and written
+where they are. Nothing crosses to the host but the input scale, which is
+computed on the device too (`deviceinputscale`).
+"""
+function denoise!(d::OIDNDenoiser, out, color, albedo, normal; clean_aux::Bool = false, scale = nothing)
+    d.precision === Float16 || error("the device pipeline runs the Float16 networks; this denoiser is $(d.precision)")
+    KA.get_backend(color) == d.backend ||
+        error("the images are on $(KA.get_backend(color)), the denoiser on $(d.backend)")
+    return lock(d.lock) do
+        w, h = size(color)
+        size(albedo) == size(normal) == size(out) == (w, h) || error("radiance, guides and output must match")
+        s = scale === nothing ? deviceinputscale(d, color) : Float32(scale)
+        isfinite(s) && s > 0 || error("input scale must be positive and finite")
+        flat(a) = reinterpret(Float32, vec(a))
+        il = interleaved(w)
+        img = deviceimages!(d, w, h)
+        tw, th, tiles = tileplan(d, w, h)
+        t = tilebuffers!(d, tw, th)
+        if clean_aux
+            g1, s1, g2, s2 = flat(albedo), il, flat(normal), il
+        else
+            pl = auxguides!(d, img, flat(albedo), il, flat(normal), il, t, tiles)
+            g1, s1, g2, s2 = img.galbedo, pl, img.gnormal, pl
+        end
+        runtiles!(d, :hdr, unet!(d, :hdr), t, tiles, flat(color), il, g1, s1, g2, s2, s,
+                  flat(out), il, 1.0f0 / s)
+        return out
+    end
+end
+
+"""
+    deviceinputscale(d, color) -> Float32
+
+OIDN's autoexposure (`inputscale`) of a device image: the mean log luminance
+over a grid of about 16×16-pixel bins, each bin averaged by one thread.
+"""
+function deviceinputscale(d, color)
+    w, h = size(color)
+    nw, nh = cld(w, 16), cld(h, 16)
+    dev = Mantle.todevice(d.backend)
+    b = get!(() -> Mantle.Buffer(dev, Float32, (nw * nh,)), d.workspace, :binluminance)
+    if length(b) != nw * nh
+        Mantle.free!(b)
+        b = d.workspace[:binluminance] = Mantle.Buffer(dev, Float32, (nw * nh,))
+    end
+    lum = Mantle.storage(b)
+    Mantle.kilaunch!(d.backend, binluminance_kernel!, lum, color, Int32(nw), Int32(nh);
+                     ndrange = cld(nw * nh, 256) * 256, workgroupsize = 256)
+    total = mapreduce(l -> l > 1.0f-8 ? log2(l) : 0.0f0, +, lum)
+    count = mapreduce(l -> l > 1.0f-8 ? 1.0f0 : 0.0f0, +, lum)
+    return count > 0 ? 0.18f0 / exp2(total / count) : 1.0f0
+end
+
+function binluminance_kernel!(lum, color, nw::Int32, nh::Int32)
+    i = Int32(KI.get_global_id().x)
+    i <= nw * nh || return nothing
+    w, h = Int32(size(color, 1)), Int32(size(color, 2))
+    bx, by = (i - Int32(1)) % nw, (i - Int32(1)) ÷ nw
+    x0, x1 = bx * w ÷ nw + Int32(1), (bx + Int32(1)) * w ÷ nw
+    y0, y1 = by * h ÷ nh + Int32(1), (by + Int32(1)) * h ÷ nh
+    acc = 0.0f0
+    for y in y0:y1, x in x0:x1
+        @inbounds c = color[x, y]
+        acc += 0.212671f0 * ksanitize(c.r, 0.0f0, floatmax(Float32)) +
+               0.71516f0 * ksanitize(c.g, 0.0f0, floatmax(Float32)) +
+               0.072169f0 * ksanitize(c.b, 0.0f0, floatmax(Float32))
+    end
+    @inbounds lum[i] = acc / Float32((x1 - x0 + Int32(1)) * (y1 - y0 + Int32(1)))
+    return nothing
 end

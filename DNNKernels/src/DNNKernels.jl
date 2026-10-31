@@ -71,6 +71,9 @@ include("q8gemm.jl")
 include("w8a8.jl")
 include("q4k.jl")
 include("q6k.jl")
+include("activationprep.jl")
+export ActivationPrep, PreparedQ8, declare_q8!, declare_mapped_q8!, invalidate_q8!
+export activation_report
 include("quantcache.jl")
 include("kernels/extern/matmul.jl")
 include("kernels/extern/attention.jl")
@@ -102,11 +105,17 @@ include("fusegroupedrms.jl")
 include("fuseqkv.jl")
 include("fuserope.jl")
 include("fuseswiglu.jl")
+include("genericfusion.jl")
+export genericfusion, patternfusion
 include("kernels/elementwise.jl")
 include("kernels/shapeops.jl")
 include("kernels/batchnorm.jl")
 include("kernels/conv_igemm.jl")
 include("emit.jl")
+include("semanticgraph.jl")
+include("semanticptq.jl")
+export SemanticGraph, SemanticValue, semanticop!, semanticweights!, semanticgraph, emitsemantic!
+export standardop!, semantickernel!, kernelresults, semanticfusion
 include("halfconvs.jl")    # after emit.jl: it declares emitop! methods
 include("driver.jl")
 include("flowmatch.jl")
