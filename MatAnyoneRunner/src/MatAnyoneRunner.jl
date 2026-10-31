@@ -25,7 +25,20 @@ using Lava, DNNKernels, KernelAbstractions
 using ColorTypes: red, green, blue
 using Lava: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: Model, initstate, step!, toback, loadgraph, readsafetensors
+# `Model`, `call`, `toback` and `scratchfor` are the kernel library's graph
+# layer. `initstate`, `step!` and `matte` are THIS package's — see `driver.jl`,
+# moved here with the memory bank it reads.
+using DNNKernels: Model, loadgraph, readsafetensors
+# Everything the moved driver and memory bank reach for inside DNNKernels.
+# Enumerated by asking Julia which identifiers in those two files resolve in
+# `DNNKernels` AND are owned by it — not one `UndefVarError` at a time. Two of
+# them (`flip!`, `accum`) surfaced only inside the precompile workload's
+# try/catch, so the package loaded clean and would have failed on first use.
+using DNNKernels: Ctx, accum, alpha, call, execute!, flip!, launch!, livekeys,
+                  materialize, scratchfor, startcall!, toback, value
+
+include("memory.jl")
+include("driver.jl")
 
 export matanyonemodel, runmatanyone, matanyonepropagator
 export matanyonegraph, matanyoneweights, matanyonerefs, matanyonemanifest

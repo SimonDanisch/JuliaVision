@@ -30,11 +30,14 @@ using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
 using DNNKernels: readsafetensors, toback
 const KA = KernelAbstractions
 
-# See the module docstring: this exists so a rare hang names its kernel.
-Lava.DISPATCH_LOG_FILE[] = joinpath(tempdir(), "sam2runner_dispatch.log")
-Lava.DISPATCH_LOGGING_ENABLED[] = true
-
 backend = LavaBackend()
+# See the module docstring: this exists so a rare hang names its kernel. These
+# are `ctx.diag` fields now, not module-level `Ref`s, so they are set AFTER the
+# backend exists — there is no context to carry them before that.
+let d = Lava.vk_context().diag
+    d.dispatch_log_file = joinpath(tempdir(), "sam2runner_dispatch.log")
+    d.dispatch_logging = true
+end
 model = SAM2Runner.sam2model(; backend)
 refs = SAM2Runner.sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])

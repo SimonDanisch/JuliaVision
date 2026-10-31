@@ -18,7 +18,10 @@ import AcceleratedKernels as AK
 import Atomix
 import GPUArrays
 
-export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model, matte, step!
+# `matte` and `step!` left with MatAnyone's driver — they were this kernel
+# library exporting one model's verbs as its public API. `Model` stays: it is
+# the graph-calling layer every model uses.
+export loadgraph, execute!, launch!, readsafetensors, verifygraph, Model
 export KERNELS_VERSION
 
 """
@@ -61,7 +64,6 @@ include("kernels/layernorm.jl")
 include("kernels/resample.jl")
 include("execute.jl")
 include("ops.jl")
-include("memory.jl")
 include("plan.jl")
 include("hoistcasts.jl")
 include("foldbn.jl")
@@ -69,7 +71,10 @@ include("foldrelu.jl")
 include("foldoutcasts.jl")
 include("dce.jl")
 include("fuse.jl")
-include("driver.jl")
+# The generic half of what used to be `driver.jl`: `Model`, `call`, `toback`,
+# `scratchfor`, `livekeys`. MatAnyone's `State`/`step!`/`matte` and the memory
+# bank they read went to MatAnyoneRunner.
+include("model.jl")
 include("wan.jl")
 # `sam2.jl` moved to SAM2Runner. It arrived here in `7273481` "Import LavaDNN as
 # DNNKernels" — the rename described half the package and moved nothing — and it
