@@ -111,6 +111,22 @@ test logs. Those local logs are supporting evidence, not installation inputs.
 Large logit dumps and exploratory output remain excluded from git. No further
 files were deleted during this closeout.
 
+### Archived experimental outputs
+
+[Download the October 2026 result archive](https://github.com/SimonDanisch/JuliaVision/releases/tag/small-llm-research-2026-10-31).
+It contains 2,522 previously untracked experimental outputs (20,560,673 bytes
+before compression), plus a manifest recording every path, size, SHA-256 and
+code revision `d37f0000ab9496cfa6a4d3cd95fbaa140df025ae`. Failed and partial
+experiments are retained as evidence, not promoted to validated results.
+
+The archive is `small-llm-research-results-2026-10-31.tar.gz`, SHA-256
+`816d1d1b8e5bcb7c6fdd16af8d10adb5ff2cc13bbe5aaaf1fa24dee52867e71a`.
+The release also carries the manifest and checksum as separate downloads.
+Extract at the repository root to restore the original `tools/small_llm/`
+paths. Tracked sources and fixtures are not duplicated in the archive. Six
+files with PRIVATE in their names remain local and are excluded from public
+distribution. Local originals are retained pending separate cleanup approval.
+
 ## Horizon assets and storage outcome
 
 HorizonRunner loads its canonical FP16 weights directly from 46 lazy weight
