@@ -3,7 +3,7 @@ using DNNKernels, Mantle, KernelAbstractions, Random, Statistics, Test
 function bench_q8_gateup(; shapes=((1024,2048),(26624,5120)), repeats=12, inner=20,
                           graph=false)
     dev = Mantle.Device()
-    backend = Mantle.backend(dev)
+    backend = dev
     rng = MersenneTwister(88)
     rows = []
     for (h,k) in shapes

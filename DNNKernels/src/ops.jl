@@ -1105,13 +1105,6 @@ run can substitute [`ZeroNoise`](@ref) and compare the deterministic path agains
 a reference that has had the same thing done to it.
 """
 function hostnoise(ctx::Ctx, op::Op, f, dims)
-    if Mantle.recordingpass() !== nothing
-        ctx.noise isa ZeroNoise || throw(ArgumentError(
-            "recording a host noise draw would freeze randomness; use record=false or ZeroNoise()"))
-        out = alloc(ctx, op.out, dims...)
-        fill!(out, zero(eltype(out)))
-        return out
-    end
     T = dtypeof(ctx, op.out)
     out = alloc(ctx, op.out, dims...)
     copyto!(out, draw(ctx.noise, f, T, dims))

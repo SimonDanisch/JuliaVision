@@ -20,7 +20,7 @@ function oidn_graph_testweights(OR,cin)
 end
 
 function oidn_semantic_graph_checks(OR,device)
-    M=OR.Mantle;be=M.backend(device);reference_device=M.todevice(be)
+    M=OR.Mantle;be=device;reference_device=M.todevice(be)
     rng=MersenneTwister(873);rows=Any[]
     @testset "OIDN semantic DNN graph" begin
         for cin in (3,9), (w,h) in ((32,32),(48,32))

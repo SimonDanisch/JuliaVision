@@ -59,7 +59,7 @@ end
 
 function WanPipeline(enc, encw, dit, ditw, vae, vaew, backend)
     dev = Mantle.todevice(backend)
-    backend = Mantle.backend(dev)
+    backend = dev
     enc, encw = prepare(enc, encw)
     dit, ditw = prepare(dit, ditw)
     vae, vaew = prepare(vae, vaew)

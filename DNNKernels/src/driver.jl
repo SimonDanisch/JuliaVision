@@ -56,7 +56,7 @@ end
 function Model(graphs, weights, target, memevery, memframes, topk, scratch;
                record::Bool = true)
     dev = M.todevice(target)
-    Model(graphs, weights, dev, M.backend(dev), memevery, memframes, topk, scratch,
+    Model(graphs, weights, dev, dev, memevery, memframes, topk, scratch,
           Diagnostics())
 end
 
@@ -389,7 +389,7 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     # Resolve the convenience `backend` spelling exactly once, at this public
     # boundary. Everything below receives and retains the actual owner.
     dev = M.todevice(device === nothing ? (backend === nothing ? M.Device() : backend) : device)
-    backend = M.backend(dev)
+    backend = dev
     # Host-side graph preparation, in order. Folding runs *before* the casts are
     # hoisted so it sees the fp32 master weights through `weightsource` and
     # rounds to the declared dtype exactly once; hoisting then turns every

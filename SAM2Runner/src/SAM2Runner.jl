@@ -466,7 +466,7 @@ end
             # have not registered their probes yet. `Device()` is Mantle's
             # platform-selected device and therefore works both there and at
             # runtime without naming Vulkan or Metal.
-            backend = Mantle.backend(Mantle.Device())
+            backend = Mantle.Device()
             res = 1024
 
             # The frame type the editor actually hands a segmenter, and the

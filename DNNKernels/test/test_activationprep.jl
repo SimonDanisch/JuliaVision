@@ -97,7 +97,7 @@ function graph(k,n,T;expression=true,observe=false,rows=40)
 end
 
 function benchmark(dev;repeats=8,replays=128)
-    rng=MersenneTwister(729);be=M.backend(dev)
+    rng=MersenneTwister(729);be=dev
     weights=Dict{String,Any}();plans=Any[];samples=Any[]
     old=(DK.SHARE_ACTIVATIONS[],DK.FUSE_ACTIVATION_Q8[])
     g=graph(4096,1,Float32;rows=1024)
@@ -138,7 +138,7 @@ function benchmark(dev;repeats=8,replays=128)
 end
 
 function integration(dev)
-    rng=MersenneTwister(727);be=M.backend(dev)
+    rng=MersenneTwister(727);be=dev
     @testset "automatic activation lowering" begin
         old=(DK.SHARE_ACTIVATIONS[],DK.FUSE_ACTIVATION_Q8[])
         try
@@ -214,7 +214,7 @@ function integration(dev)
 end
 
 function swiglumm(dev)
-    rng=MersenneTwister(728);be=M.backend(dev)
+    rng=MersenneTwister(728);be=dev
     @testset "SwiGLU product activation lowering" begin
         old=(DK.SHARE_ACTIVATIONS[],DK.FUSE_ACTIVATION_Q8[])
         try

@@ -347,7 +347,7 @@ function Ctx(values, graph, dims, dev::M.Device;
              lazy = nothing, rec = nothing, diag::Diagnostics = Diagnostics(),
              clampattn::Bool = false, flashcm2::Bool = true,
              noise::NoiseSource = RandomNoise())
-    backend = M.backend(dev)
+    backend = dev
     Ctx(values, graph, dims, backend, caps(dev), M.runscalls(dev),
         clampattn, flashcm2, noise,
         slab, plan, outid, ws, lazy, rec, diag)

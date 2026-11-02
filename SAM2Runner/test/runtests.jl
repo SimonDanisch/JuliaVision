@@ -42,7 +42,7 @@ backend = Mantle.Device()
 # See the module docstring: this exists so a rare hang names its kernel. These
 # are `ctx.diag` fields now, not module-level `Ref`s, so they are set AFTER the
 # backend exists — there is no context to carry them before that.
-let d = Mantle.vk_context().diag
+let d = Mantle.Device().diag
     d.dispatch_log_file = joinpath(tempdir(), "sam2runner_dispatch.log")
     d.dispatch_logging = true
 end

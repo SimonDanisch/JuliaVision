@@ -6,7 +6,7 @@ using DNNKernels, Mantle, KernelAbstractions, Random, Statistics, Test
 function bench_q8_small(; shapes=((53248,5120),(10240,5120),(5120,8192),(5120,26624)),
                          widths=(2,4,8), repeats=6, inner=10, epi=identity)
     dev = Mantle.Device()
-    backend = Mantle.backend(dev)
+    backend = dev
     rng = MersenneTwister(84)
     results = []
     for (m,k) in shapes

@@ -69,8 +69,8 @@ wall = @elapsed Mantle.no_pipeline_compilation() do
     KA.synchronize(backend)
 end
 c1 = Base.cumulative_compile_time_ns()
-refused = Mantle.vk_context().diag.pipeline_compiles_refused
-misses = copy(Mantle.vk_context().diag.pipeline_compile_misses)
+refused = Mantle.Device().diag.pipeline_compiles_refused
+misses = copy(Mantle.Device().diag.pipeline_compile_misses)
 
 @kernel function _novel!(o, ::Val{K}) where {K}
     i = @index(Global)
@@ -87,7 +87,7 @@ Mantle.no_pipeline_compilation() do
     catch
     end
 end
-control = Mantle.vk_context().diag.pipeline_compiles_refused
+control = Mantle.Device().diag.pipeline_compiles_refused
 
 h = Array(out)
 println("RESULT ", (; refused, misses, control, compile = (c1[1] - c0[1]) / 1e9, wall,

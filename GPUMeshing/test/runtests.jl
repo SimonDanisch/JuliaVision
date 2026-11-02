@@ -30,7 +30,7 @@ end
 """Whether `x` stayed on `dev`: an array of `T` of that device's backend, whichever
 backend it is (a `LavaArray` on Vulkan, an `MtlArray` on Metal)."""
 ondevice(x, ::Type{T}, dev) where {T} =
-    eltype(x) === T && Mantle.KA.get_backend(x) isa typeof(Mantle.backend(dev))
+    eltype(x) === T && Mantle.KA.get_backend(x) isa typeof(dev)
 
 """Closed and consistently wound: every directed edge as often as its reverse."""
 balanced(F) = (d = directededges(F); all(k -> d[k] == get(d, (k[2], k[1]), 0), keys(d)))

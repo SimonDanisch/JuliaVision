@@ -24,7 +24,7 @@ using Test, DNNKernels, Mantle, KernelAbstractions
     # folding and capability queries must receive this exact object instead of
     # looking a process-global device up again.
     @test m.device === dev
-    @test m.backend === Mantle.backend(dev)
+    @test m.backend === dev
     @test DK.Ctx(m.device).dev == Mantle.caps(dev)
     @test_throws ArgumentError DK.Model(Dict("empty" => g), Dict{String,Any}();
                                         backend = m.backend, device = dev)

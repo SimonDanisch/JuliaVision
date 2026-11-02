@@ -10,7 +10,7 @@ function run(dev)
     for row in 0:rows-1
         bytes[28row+27:28row+28]=scale
     end
-    A=DK.ptq1matrix(M.backend(dev),bytes,rows,k)
+    A=DK.ptq1matrix(dev,bytes,rows,k)
     owned=Any[A.data];plans=Any[]
     alloc(T,dims)=begin b=M.Buffer(dev,T,dims);push!(owned,b);b;end
     @testset "Runner-independent semantic PTQ1" begin

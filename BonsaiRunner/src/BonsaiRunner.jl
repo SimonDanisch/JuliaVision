@@ -141,7 +141,7 @@ function Bonsai2(path::AbstractString; device=Mantle.Device(), context=nothing,
     context > 0 || throw(ArgumentError("context must be positive"))
     context <= nativecontext || throw(ArgumentError("context exceeds checkpoint limit"))
 
-    backend = Mantle.backend(device)
+    backend = device
     caps = Mantle.caps(Mantle.todevice(backend))
     weights = Dict{String,Any}()
     model = Bonsai2(backend, caps, file, weights, Dict{Int,Any}(),

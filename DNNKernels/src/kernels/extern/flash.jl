@@ -1656,10 +1656,10 @@ callback reads `cs` directly through a `Workgroup` pointer passed as an extra
 operand, so the rescale still touches shared memory for the factor alone and
 still needs no barrier.
 
-NVIDIA-only. Gated on `vk_context().coopmat2.per_element_operations`; with it
+NVIDIA-only. Gated on `Device().coopmat2.per_element_operations`; with it
 false the `getcomp`/`setcomp` path is what runs, and `held` stays off there.
 """
-flashcm_perelem_available() = Mantle.vk_context().coopmat2.per_element_operations
+flashcm_perelem_available() = Mantle.Device().coopmat2.per_element_operations
 
 
 """

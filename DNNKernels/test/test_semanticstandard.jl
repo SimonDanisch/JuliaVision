@@ -17,7 +17,7 @@ end
 bits(x)=collect(reinterpret(UInt32,vec(Array(M.storage(x)))))
 names(plan)=[pp.pass.name for pp in plan.passes]
 function q4(dev,rng,m,k)
-    be=M.backend(dev)
+    be=dev
     w=DK.toback(be,Float16.(0.02f0.*randn(rng,Float32,m,k)))
     try
         DK.quantizeq4k(be,w)

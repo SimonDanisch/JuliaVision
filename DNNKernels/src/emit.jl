@@ -75,7 +75,7 @@ const FUSE_ACTIVATION_Q8 = Ref(true)
 # literal values that become kernel constants; buffers keep their declared
 # dtype and still fail clearly if a graph genuinely asks for a Float64 tensor.
 kernelnumber(ctx::EmitCtx, x::Float64) =
-    KI.supports_float64(M.backend(ctx.dev)) ? x : Float32(x)
+    KI.supports_float64(ctx.dev) ? x : Float32(x)
 kernelnumber(::EmitCtx, x) = x
 
 kernelcallable(ctx::EmitCtx, f::Base.Fix1) =
@@ -644,7 +644,7 @@ buffer whose only reader is a VIEW still needs its resource, and `declare!` walk
 """
 function residentweights(dev, aten::Graph, weights::AbstractDict)
     out = Dict{String,Any}()
-    be = M.backend(dev)
+    be = dev
     for (_, b) in aten.buffers
         (b.kind === :weight && !isempty(b.key)) || continue
         haskey(out, b.key) && continue

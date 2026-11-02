@@ -52,7 +52,7 @@ function unetgraph(net::UNet,t::TileBuffers,backend)
 end
 
 function DNNKernels.emitop!(ctx::DNNKernels.EmitCtx,op::DNNKernels.Op,::Val{Symbol("oidn.hwc_convolution")})
-    dk=DNNKernels;a=op.attrs;be=Mantle.backend(ctx.dev)
+    dk=DNNKernels;a=op.attrs;be=ctx.dev
     Y=dk.dest(ctx);X0=dk.operand(ctx,op.ins[1])
     X1=a["c1"]==0 ? X0 : dk.operand(ctx,op.ins[2])
     Wt=dk.operand(ctx,op.ins[end-1]);bias=dk.operand(ctx,op.ins[end])
@@ -67,8 +67,8 @@ function DNNKernels.emitop!(ctx::DNNKernels.EmitCtx,op::DNNKernels.Op,::Val{Symb
     Y
 end
 function DNNKernels.emitop!(ctx::DNNKernels.EmitCtx,op::DNNKernels.Op,::Val{Symbol("oidn.hwc_maxpool")})
-    dk=DNNKernels;a=op.attrs;V=halves(poolvec(Mantle.backend(ctx.dev)))
-    Y=dk.dest(ctx);X=dk.operand(ctx,op.ins[1]);P=poolvec(Mantle.backend(ctx.dev))
+    dk=DNNKernels;a=op.attrs;V=halves(poolvec(ctx.dev))
+    Y=dk.dest(ctx);X=dk.operand(ctx,op.ins[1]);P=poolvec(ctx.dev)
     n=(a["channels"]÷V)*(a["width"]÷2)*(a["height"]÷2)
     Mantle.dispatch!(ctx.g,maxpool_kernel!,
         (reinterpret(P,Y),reinterpret(P,X),Val(V),Val(a["width"]),Val(a["height"]),Val(a["channels"])),
