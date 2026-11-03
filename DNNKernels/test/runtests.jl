@@ -86,6 +86,7 @@ include(joinpath(@__DIR__, "test_plan.jl"))
 include(joinpath(@__DIR__, "test_upload_frees_host.jl"))
 # Also host-only: a graph rewrite, checked against the real exported graph.
 include(joinpath(@__DIR__, "test_foldoutcasts.jl"))
+include(joinpath(@__DIR__, "test_narrowconstants.jl"))
 include(joinpath(@__DIR__, "test_fusegroupedrms.jl"))
 include(joinpath(@__DIR__, "test_activationprep.jl"))
 ActivationPreparationTests.run(Mantle.Device())

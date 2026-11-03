@@ -408,6 +408,8 @@ function Model(graphs::Dict{String,Graph}, weights::AbstractDict;
     consume && empty!(weights)
     graphs, host, nfold = foldbatchnorm(graphs, src); host = handoff!(src, host)
 
+    graphs, nconst = narrowconstants(graphs)
+    nconst > 0 && @info "narrowconstants: $nconst Float64 tensor(s) of a constant table -> Float32"
     graphs, nact = foldrelu(graphs)
     # Before anything that reads a convolution's operands, and before the
     # weight passes, because it only rewrites one attribute and one input and
