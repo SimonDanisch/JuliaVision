@@ -152,7 +152,7 @@ function facecount!(cnt, F, nf)
     f = KI.get_global_id().x
     f <= nf || return nothing
     for k in 1:3
-        @inbounds Atomix.@atomic cnt[F[k, f] + 1] += Int32(1)
+        @inbounds Atomix.@atomic :monotonic cnt[F[k, f] + 1] += Int32(1)
     end
     return nothing
 end
@@ -162,7 +162,7 @@ function fillfaces!(v2f, off, cnt, F, nf)
     f <= nf || return nothing
     for k in 1:3
         @inbounds v = F[k, f]
-        slot = @inbounds Atomix.@atomic cnt[v] += Int32(1)
+        slot = @inbounds Atomix.@atomic :monotonic cnt[v] += Int32(1)
         @inbounds v2f[off[v] + slot] = f % Int32
     end
     return nothing
@@ -319,7 +319,7 @@ function propagate!(best, edges, v2f, off, cost, ne)
     for w in 1:2
         @inbounds v = edges[w, e]
         @inbounds for i in (off[v] + 1):off[v + 1]
-            Atomix.@atomic min(best[v2f[i]], key)
+            Atomix.@atomic :monotonic min(best[v2f[i]], key)
         end
     end
     return nothing
