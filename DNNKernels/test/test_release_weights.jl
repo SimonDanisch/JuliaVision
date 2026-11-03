@@ -40,6 +40,17 @@ ledger() = sum(b -> length(b.live),
                Iterators.flatten(values(Mantle.pool(DEV).blocks)); init = 0)
 
 """
+Whether a device array is a pool loan, which is all `ledger` counts. Where it is not, as on
+Metal, the array owns its memory, and being freed shows on the array itself.
+"""
+const LOANED = let before = ledger()
+    a = KernelAbstractions.allocate(BACKEND, Float32, 16)
+    loaned = ledger() > before
+    KernelAbstractions.unsafe_free!(a)
+    loaned
+end
+
+"""
 Every region already dropped back in the pool, so a count taken now changes only
 with what the testset does. A region dropped after the last submission comes back
 only once the open batch is submitted (`reclaim!` does not wait for unsubmitted
@@ -64,19 +75,23 @@ end
     # The premise the rest of this file rests on. The GC is held off while the
     # array is dropped, which is the state a dropped weight dict stays in until
     # a collection happens to run.
-    settle!()
-    before = ledger()
-    GC.enable(false)
-    try
-        dropone()
+    if LOANED
         settle!()
-        @test ledger() > before      # no reference to it, and still on loan
-    finally
-        GC.enable(true)
+        before = ledger()
+        GC.enable(false)
+        try
+            dropone()
+            settle!()
+            @test ledger() > before      # no reference to it, and still on loan
+        finally
+            GC.enable(true)
+        end
+        GC.gc(true)
+        settle!()
+        @test ledger() <= before         # finalized, retired, reclaimed
+    else
+        @test_skip LOANED
     end
-    GC.gc(true)
-    settle!()
-    @test ledger() <= before         # finalized, retired, reclaimed
 end
 
 @testset "releaseweights! frees arrays and the wrappers around them" begin
@@ -93,14 +108,19 @@ end
     wrapped = DNNKernels.ConvRotQInt8Matrix(q, sc, 256, 64)
     weights = Dict{String,Any}("plain" => plain, "wrapped" => wrapped)
 
-    @test ledger() >= before + 3
+    LOANED && @test ledger() >= before + 3
     releaseweights!(weights)
     @test isempty(weights)
 
     settle!()
     # All three regions back, which is the whole point. `<=` rather than `==`
     # because this testset does not own everything the pool is holding.
-    @test ledger() <= before
+    if LOANED
+        @test ledger() <= before
+    else
+        @test_throws Exception Array(plain)
+        @test_throws Exception Array(q)
+    end
 end
 
 @testset "a quantised weight is freed by the verb its regions take" begin

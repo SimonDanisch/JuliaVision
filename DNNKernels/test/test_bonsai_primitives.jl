@@ -197,7 +197,7 @@ end
     # Asked as a CAPABILITY. Naming the backend made this an UndefVarError on a
     # build that compiled in a different one, which took the whole file down
     # with it rather than skipping one arm.
-    if Mantle.caps(Mantle.Device()).coopmat
+    if DNNKernels.coopmatkernels(Mantle.caps(Mantle.Device()))
         # The wide-prefill path decodes PTQ1 directly into cooperative-matrix
         # shared tiles.  Exercise one complete 128x128 output block, including
         # every byte/trit layout in two consecutive 128-value weight blocks.

@@ -245,10 +245,10 @@ end
     end
 
     @testset "the reduction-axis pad is refused when the waste is large" begin
-        if !isdefined(MC, :LavaDevice)
-            # This policy belongs to the Vulkan cooperative-matrix lowering.
-            # Metal's 1x1 path above uses its native simdgroup GEMM directly.
-            @test_skip isdefined(MC, :LavaDevice)
+        if !DK.coopmatkernels(DK.caps(back))
+            # This policy belongs to the staged cooperative-matrix lowering. A device
+            # without it, as Metal's 1x1 path above, uses its native GEMM directly.
+            @test_skip DK.coopmatkernels(DK.caps(back))
         else
         # `CRS = Cin*KH*KW` is the weight's own extent. A concatenated scalar
         # channel gives MatAnyone `Cin = 17`, which would round to 32 and pay 88%

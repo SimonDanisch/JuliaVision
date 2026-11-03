@@ -127,7 +127,7 @@ end
             @test size(got) == (E, lq, H)
             @test all(isfinite, got)
             @test maximum(abs, got .- want) < 0.005
-            @test dk.maskedprefill_applicable(caps, qh, kh, vh, maskh) == (lq >= 2048)
+            @test dk.maskedprefill_applicable(caps, qh, kh, vh, maskh) == (dk.coopmatkernels(caps) && lq >= 2048)
         end
     else
         @test_skip false

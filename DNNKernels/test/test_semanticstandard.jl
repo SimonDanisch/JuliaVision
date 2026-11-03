@@ -237,7 +237,11 @@ function dense_residuals(dev,rng,owned,plans)
                 DK.FOLDRESIDUAL[]=old
             end
         end
-        @test results[1]==results[2]
+        # To the rounding of the operands: a product that accumulates wider than fp16 rounds
+        # once with the residual inside its store and twice with the add after it, and a sum
+        # that cancels keeps that error at a magnitude it no longer has itself.
+        @test maximum(abs.(Float32.(results[1]).-Float32.(results[2])))<=
+              Float32(eps(maximum(abs,xh)))
         # Each column gets its OWN residual.
         @test isapprox(Float32.(results[1]),Float32.(wh)*Float32.(ah).+Float32.(xh);rtol=1f-2,atol=1f-2)
     end

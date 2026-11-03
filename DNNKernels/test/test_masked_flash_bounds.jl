@@ -3,7 +3,7 @@ using Test, DNNKernels, Mantle, Random, LinearAlgebra
 @testset "masked attention with partial key tiles" begin
     dev = Mantle.Device()
     caps = Mantle.caps(dev)
-    if caps.coopmat && caps.coopmatsubgroup == 32
+    if DNNKernels.coopmatkernels(caps) && caps.coopmatsubgroup == 32
         rng = MersenneTwister(83)
         for lq in (8, 16, 24, 64), lk in (16, 33)
             e, h = 128, 2

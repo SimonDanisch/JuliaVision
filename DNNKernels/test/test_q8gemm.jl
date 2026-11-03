@@ -80,11 +80,13 @@ end
 @testset "pipelined int8 GEMM for wide products" begin
     backend = Mantle.defaultbackend()
     dev = DNNKernels.caps(backend)
-    # Which products take it: wide ones, measured at Qwen-Image 2.1's four.
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == (2, 4, 2, 2, 32)
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 12288, 4096, 4224) == (2, 4, 2, 2, 32)
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4224) == (2, 4, 2, 2, 32)
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 12288, 4224) == (4, 2, 2, 2, 32)
+    # Which products take it: wide ones, measured at Qwen-Image 2.1's four. Only where the
+    # staged cooperative-matrix kernels exist; elsewhere no product does.
+    staged(cfg) = DNNKernels.coopmatkernels(dev) ? cfg : nothing
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == staged((2, 4, 2, 2, 32))
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 12288, 4096, 4224) == staged((2, 4, 2, 2, 32))
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4224) == staged((2, 4, 2, 2, 32))
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 12288, 4224) == staged((4, 2, 2, 2, 32))
     # Narrow ones keep the tiles measured for them.
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 53248, 5120, 512) === nothing
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4118) === nothing
