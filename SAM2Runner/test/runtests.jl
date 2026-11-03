@@ -6,7 +6,7 @@ is per-process and every earlier call in this one has already paid it.
 So the measurement runs in a **fresh subprocess** and reports back. What it
 asserts:
 
-  * `Lava.compile_stats().misses == 0` — the run compiles no kernel. A miss is
+  * `Mantle.kernelcompiles(backend).misses == 0` — the run compiles no kernel. A miss is
     a kernel the workload does not cover, and it is the thing that silently
     reintroduces a multi-second stall.
   * Julia's own compile time over the first `runsam2` is a small fraction of it.
@@ -53,7 +53,7 @@ model = SAM2Runner.sam2model(; backend)
 refs = SAM2Runner.sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])
 
-Lava.reset_compile_stats!()
+Mantle.resetkernelcompiles!(backend)
 c0 = Base.cumulative_compile_time_ns()
 t = @elapsed begin
     mask, score = SAM2Runner.runsam2(model, image)
@@ -61,7 +61,7 @@ t = @elapsed begin
 end
 c1 = Base.cumulative_compile_time_ns()
 
-s = Lava.compile_stats()
+s = Mantle.kernelcompiles(backend)
 println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
                      hits = s.hits, misses = s.misses, finite = all(isfinite, m)))
 """

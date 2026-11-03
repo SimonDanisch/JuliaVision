@@ -17,14 +17,14 @@ W, H = 128, 96
 image = toback(backend, fill(0.5f0, W, H, 3, 1))
 host = zeros(Float32, W, H); host[(W÷4):(3W÷4), (H÷4):(3H÷4)] .= 255.0f0
 mask = toback(backend, host)
-Lava.reset_compile_stats!()
+Mantle.resetkernelcompiles!(backend)
 c0 = Base.cumulative_compile_time_ns()
 t = @elapsed begin
     a = MatAnyoneRunner.runmatanyone(model, image, mask)
     ah = Array(a); KA.synchronize(backend)
 end
 c1 = Base.cumulative_compile_time_ns()
-s = Lava.compile_stats()
+s = Mantle.kernelcompiles(backend)
 println("RESULT ", (; wall = t, compile = (c1[1] - c0[1]) / 1e9,
                      hits = s.hits, misses = s.misses,
                      finite = all(isfinite, ah), inrange = all(x -> 0 <= x <= 1, ah)))
