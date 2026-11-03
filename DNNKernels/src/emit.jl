@@ -5542,9 +5542,12 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
             convfollowup!(emitctx, op, lift1d(out), bias, convact, native1d)
             return out
         end
-        return mapbody!(emitctx, op, conv1d, out, x, w, bias,
-                        Val(stride[1]), Val(pad[1]), Val(dil[1]),
-                        Val(groups))
+        # `conv1d` adds the bias in its body. A folded activation is a pass after it,
+        # as in the grouped 2-D case below: `foldrelu` deleted the op that did it.
+        mapbody!(emitctx, op, conv1d, out, x, w, bias,
+                 Val(stride[1]), Val(pad[1]), Val(dil[1]),
+                 Val(groups))
+        return convfollowup!(emitctx, op, out, bias, convact, (bias = true, epilogue = false))
     end
     length(stride) == 3 &&
         return mapbody!(emitctx, op, conv3d, out, actfn(act), x, w, bias,
