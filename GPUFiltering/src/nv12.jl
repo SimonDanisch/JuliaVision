@@ -25,7 +25,9 @@
     return (r / 255.0f0, g / 255.0f0, b / 255.0f0)
 end
 
-function nv12torgb_kernel!(out, y, uv, bt601::Bool)
+# `bt601` is a `Bool`, or a device reference holding one, as an integer, for a recorded
+# plan: its arguments are packed once, and which matrix applies belongs to the stream.
+function nv12torgb_kernel!(out, y, uv, bt601)
     I, inside = workitem(size(out))
     inside || return nothing
     x, row = Tuple(I)                        # 1-based; x ∈ 1:W, row ∈ 1:H
@@ -36,7 +38,7 @@ function nv12torgb_kernel!(out, y, uv, bt601::Bool)
         Uv = Float32(uv[2cx + 1, crow])      # interleaved U
         Vv = Float32(uv[2cx + 2, crow])      # interleaved V
     end
-    r, g, b = yuv_to_rgb(Yv, Uv, Vv, bt601)
+    r, g, b = yuv_to_rgb(Yv, Uv, Vv, bt601[] != 0)
     # A decoded video frame has no transparency: it is all there.
     @inbounds out[I] = topixel(eltype(out), r, g, b, 1.0f0)
     return nothing
