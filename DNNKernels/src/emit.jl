@@ -4651,7 +4651,7 @@ function threepass!(emitctx::EmitCtx, op::Op, out, q, k, v, bias, scale)
                         (scores, qt, k, bias, T(scale)), nd;
                         group = launchgroup(nd), name = "$(op.id).scores")
         else
-            mapbody!(emitctx, op, attn_scores, scores, qt, k, bias, scale;
+            mapbody!(emitctx, op, attn_scores, scores, qt, k, bias, T(scale);
                      name = "$(op.id).scores")
         end
     end
