@@ -83,7 +83,7 @@ end
 
 @testset "transposed convolution via GEMM" begin
     dev = MC.Device()
-    back = MC.backend(dev)
+    back = dev
 
     @testset "agrees with the gather" begin
         # The decoder's two shapes, plus small ones whose channel counts are not
@@ -196,7 +196,7 @@ end
 
 @testset "a 1x1 convolution is declared as a GEMM" begin
     dev = MC.Device()
-    back = MC.backend(dev)
+    back = dev
     # `N = 2` is here for the per-plane loop: `(W, H, Cout, N)` puts the batch
     # outermost, so one reshape over all of it would interleave the planes.
     #
@@ -228,7 +228,7 @@ end
 end
 
 @testset "the convolution routing predicates" begin
-    back = MC.backend(MC.Device())
+    back = MC.Device()
 
     @testset "only the 1x1 case is taken" begin
         w11 = KA.allocate(back, Float16, 1, 1, 8, 8)
