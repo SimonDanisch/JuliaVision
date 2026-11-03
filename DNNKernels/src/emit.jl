@@ -1217,7 +1217,7 @@ function viewstrides(emitctx::EmitCtx, b, ps::Dims, pst::Dims, od::Dims)
             "which `bcstrides` cannot describe. Materialise the parent first.")
         return (bcstrides(od, ps), 0)
     elseif op == "slice.Tensor"
-        jd = jdim(Int(b.attrs["arg1"]), n)
+        jd = jdim(Int(something(get(b.attrs, "arg1", nothing), 0)), n)
         # Optional torch arguments are represented as JSON `null`, not merely
         # omitted.  `get` therefore can return `nothing`; apply the schema
         # defaults in both cases, as the interpreted view path does.
