@@ -19,8 +19,8 @@ function gridsample_kernel!(out, img, grid)
     gw, gh = size(grid, 1), size(grid, 2)
     # The grid upsampled to the output bilinearly, with its corners on the
     # output's corners.
-    gx = min(1.0f0 + (x - 1) * Float32((gw - 1) / max(w - 1, 1)), Float32(gw))
-    gy = min(1.0f0 + (y - 1) * Float32((gh - 1) / max(h - 1, 1)), Float32(gh))
+    gx = min(1.0f0 + (x - 1) * (Float32(gw - 1) / Float32(max(w - 1, 1))), Float32(gw))
+    gy = min(1.0f0 + (y - 1) * (Float32(gh - 1) / Float32(max(h - 1, 1))), Float32(gh))
     a = unsafe_trunc(Int, floor(gx)); b = unsafe_trunc(Int, floor(gy))
     c = min(a + 1, gw); d = min(b + 1, gh)
     fx = gx - a; fy = gy - b

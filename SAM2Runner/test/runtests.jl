@@ -32,6 +32,9 @@ import Lava
 import Mantle
 import KernelAbstractions
 
+"A device whose backend has no recording to offer: what the gate has to refuse."
+struct NeverRecords <: Mantle.Device end
+
 const SUBPROCESS = """
 using SAM2Runner, Lava, DNNKernels, KernelAbstractions, Printf
 import Mantle
@@ -42,9 +45,9 @@ backend = Mantle.Device()
 # See the module docstring: this exists so a rare hang names its kernel. These
 # are `ctx.diag` fields now, not module-level `Ref`s, so they are set AFTER the
 # backend exists — there is no context to carry them before that.
-let d = Mantle.Device().diag
-    d.dispatch_log_file = joinpath(tempdir(), "sam2runner_dispatch.log")
-    d.dispatch_logging = true
+if hasproperty(backend, :diag)      # Vulkan's dispatch log; Metal has none
+    backend.diag.dispatch_log_file = joinpath(tempdir(), "sam2runner_dispatch.log")
+    backend.diag.dispatch_logging = true
 end
 model = SAM2Runner.sam2model(; backend)
 refs = SAM2Runner.sam2refs()
@@ -281,7 +284,7 @@ end
     # refuse, and it is refused for the right reason. The positive path through
     # `handover` itself is what `test_replay_decode.jl` exercises below.
     @test Mantle.recordsplans(Mantle.Device(Mantle.Device()))
-    @test !Mantle.recordsplans(Mantle.Device(KernelAbstractions.CPU()))
+    @test !Mantle.recordsplans(NeverRecords())
 end
 
 # The decoder's baked-plan path. It lived in `DNNKernels/test` while `sam2.jl`
