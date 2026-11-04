@@ -266,10 +266,19 @@ end
         # which PyTorch performs; with them kept the node is nearer its reference
         # by almost half. The rest of this file, the masks against their
         # references included, passes on both sides of the change.
+        #
+        # ── RE-BANDED 2026-11-04, 0.3–0.9 -> 0.3–1.2, for RADV reading past it. Bisected on a
+        # Radeon 8060S with the same Mantle: 0.91608 with Lava at `d6874d5`, 1.05865 at
+        # `376ef12` and at the branch head after it. `376ef12` marks every float result
+        # `NoContraction` unless LLVM's `contract` flag allows fusing it, so Mesa stopped
+        # fusing what Julia never allowed, and this node amplifies any such change. NVIDIA
+        # reads 0.5427 on the same code, and the masks pass against their references. The
+        # step before it, 0.5510 on 09-29 to 0.91608 by 10-16, is not located: no combination
+        # older than 10-16 runs against today's packages.
         f = first(diffse)
         @test !oke
         @test f.id == "add_129"
-        @test 0.3 < f.maxabs < 0.9
+        @test 0.3 < f.maxabs < 1.2
     end
 end
 
