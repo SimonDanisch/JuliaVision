@@ -138,6 +138,9 @@ end
     #     `Vulkan.Instance`, whose destructor closure captures the `Instance`
     #     back. That cycle is a `StackOverflowError`, not a leak.
     W = DNNKernels.toback(BACKEND, randn(Float32, 256, 256))
+    # Collected first: arrays earlier testsets dropped are still loans until a GC
+    # finalizes them, and one inside `quantizeint8` lowered the count below.
+    GC.gc(true)
     settle!()
     before = ledger()               # `W` is already on it; only `A` is new below
 
