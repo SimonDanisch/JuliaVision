@@ -18,6 +18,7 @@ image = toback(backend, fill(0.5f0, W, H, 3, 1))
 host = zeros(Float32, W, H); host[(W÷4):(3W÷4), (H÷4):(3H÷4)] .= 255.0f0
 mask = toback(backend, host)
 Mantle.resetkernelcompiles!(backend)
+Base.cumulative_compile_timing(true)   # off by default, and then the count stays 0
 c0 = Base.cumulative_compile_time_ns()
 t = @elapsed begin
     a = MatAnyoneRunner.runmatanyone(model, image, mask)

@@ -57,6 +57,7 @@ img = KA.allocate(backend, RGB{Float32}, 256, 256)
 fill!(img, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
 KA.synchronize(backend)
 
+Base.cumulative_compile_timing(true)   # off by default, and then the count stays 0
 c0 = Base.cumulative_compile_time_ns()
 depth = nothing
 wall = @elapsed Mantle.no_pipeline_compilation() do

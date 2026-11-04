@@ -60,6 +60,7 @@ fill!(a, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
 fill!(b, RGB{Float32}(0.4f0, 0.5f0, 0.6f0))
 KA.synchronize(backend)
 
+Base.cumulative_compile_timing(true)   # off by default, and then the count stays 0
 c0 = Base.cumulative_compile_time_ns()
 wall = @elapsed Mantle.no_pipeline_compilation() do
     interpolate!(out, model, a, b)

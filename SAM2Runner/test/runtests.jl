@@ -54,6 +54,7 @@ refs = SAM2Runner.sam2refs()
 image = toback(backend, refs["sam2_encoder/in0"])
 
 Mantle.resetkernelcompiles!(backend)
+Base.cumulative_compile_timing(true)   # off by default, and then the count stays 0
 c0 = Base.cumulative_compile_time_ns()
 t = @elapsed begin
     mask, score = SAM2Runner.runsam2(model, image)
