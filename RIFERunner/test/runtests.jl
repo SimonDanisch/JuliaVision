@@ -51,6 +51,13 @@ using RIFERunner, KernelAbstractions, Lava, ColorTypes
 import Mantle
 const KA = KernelAbstractions
 
+# What "compiled nothing" means here: a driver that can be forbidden to compile (Vulkan's
+# pipeline cache), or the kernel compile count of a device that has no such switch.
+forbidden(f, ::Mantle.Device) = f()
+forbidden(f, dev::Mantle.LavaDevice) = Mantle.no_pipeline_compilation(f; ctx = dev)
+refusals(dev::Mantle.Device) = Mantle.kernelcompiles(dev).misses
+refusals(dev::Mantle.LavaDevice) = dev.diag.pipeline_compiles_refused
+
 backend = Mantle.Device()
 model = rife(; backend)
 w, h = framesize(model)
@@ -60,14 +67,15 @@ fill!(a, RGB{Float32}(0.3f0, 0.5f0, 0.7f0))
 fill!(b, RGB{Float32}(0.4f0, 0.5f0, 0.6f0))
 KA.synchronize(backend)
 
+Mantle.resetkernelcompiles!(backend)
 Base.cumulative_compile_timing(true)   # off by default, and then the count stays 0
 c0 = Base.cumulative_compile_time_ns()
-wall = @elapsed Mantle.no_pipeline_compilation() do
+wall = @elapsed forbidden(backend) do
     interpolate!(out, model, a, b)
     KA.synchronize(backend)
 end
 c1 = Base.cumulative_compile_time_ns()
-refused = Mantle.Device().diag.pipeline_compiles_refused
+refused = refusals(backend)
 
 @kernel function _novel!(o, ::Val{K}) where {K}
     i = @index(Global)
@@ -75,16 +83,13 @@ refused = Mantle.Device().diag.pipeline_compiles_refused
 end
 probe = KA.allocate(backend, Float32, 1024)
 fill!(probe, 1.0f0); KA.synchronize(backend)
-Mantle.no_pipeline_compilation() do
-    try
-        # `time_ns()` rather than `Random`: novel per RUN either way, and the
-        # test environment has no Random.
-        _novel!(backend)(probe, Val(Int(time_ns() % 1_000_000)); ndrange = 1024)
-        KA.synchronize(backend)
-    catch
-    end
+forbidden(backend) do
+    # `time_ns()` rather than `Random`: novel per RUN either way, and the
+    # test environment has no Random.
+    _novel!(backend)(probe, Val(Int(time_ns() % 1_000_000)); ndrange = 1024)
+    KA.synchronize(backend)
 end
-control = Mantle.Device().diag.pipeline_compiles_refused
+control = refusals(backend)
 
 println("RESULT ", (; refused, control, compile = (c1[1] - c0[1]) / 1e9, wall,
                       finite = all(c -> isfinite(red(c)) && isfinite(green(c)), Array(out))))
@@ -110,11 +115,9 @@ println("RESULT ", (; refused, control, compile = (c1[1] - c0[1]) / 1e9, wall,
         out = stdout_ * (isfile(errfile) ? read(errfile, String) : "")
         lines = split(out, '\n')
         i = findfirst(l -> startswith(l, "RESULT "), lines)
-        # "LavaDevice" catches a failure inside Mantle's device constructor, which
-        # is where a machine with no usable Vulkan driver falls over. It was
-        # "VkContext" until the context and device types merged; a stale needle here
-        # turns "no device" into a reported test failure.
-        nodevice = occursin("LavaDevice", out) || occursin("no Vulkan", out) ||
+        # Only a machine with no driver. A needle that matches any stack trace naming the
+        # device type turned every crash of this subprocess into a skipped test.
+        nodevice = occursin("no GPU backend", out) || occursin("no Vulkan", out) ||
                    occursin("VK_ERROR_INCOMPATIBLE_DRIVER", out)
         if i === nothing && nodevice
             @info "no working device; skipping the latency test"
