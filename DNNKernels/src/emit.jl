@@ -5321,6 +5321,47 @@ planeof(emitctx::EmitCtx, x, i::Integer) =
 # ── convolution ──────────────────────────────────────────────────────────────
 
 """
+A cache-sized im2col can also pay for itself in Float32: a long reduction and
+many output channels amortize its write, and the regular matrix reaches the
+staged scalar GEMM without repeated convolution address arithmetic. The 5-tap
+512→1024, 1120-pixel case measured 1.98→1.53 ms on Ada and 1.03→.69 ms on RDNA3.
+Keep the workspace within 16 MiB and retain the implicit path for narrow layers.
+"""
+function scalarconvworth(out, x, w)
+    eltype(out) === Float32 && eltype(x) === Float32 && eltype(w) === Float32 || return false
+    kw, kh, ci, co = size(w)
+    kw * kh > 1 || return false
+    crs = kw * kh * ci
+    npq = size(out, 1) * size(out, 2) * size(out, 4)
+    co >= 4 * M.SGEMM_BN && npq >= 4 * M.SGEMM_BM && crs >= 16 * M.SGEMM_BK || return false
+    mp = cld(npq, M.SGEMM_BM) * M.SGEMM_BM
+    return M.checkedbytes(Float32, (mp, crs)) <= (16 << 20)
+end
+
+function emitconvscalar!(emitctx::EmitCtx, op::Op, x, w, bias, out, stride, pad, dil, act::Symbol)
+    kw, kh, ci, co = size(w)
+    ow, oh, _, batch = size(out)
+    npq, crs = ow * oh * batch, kw * kh * ci
+    mp = cld(npq, M.SGEMM_BM) * M.SGEMM_BM
+    col = scratch(emitctx, Float32, mp, crs)
+    c = scratch(emitctx, Float32, mp, co)
+    M.dispatch!(emitctx.g, im2col_kernel!,
+        (col, x, Val(mp), Val(2), Val(kw), Val(kh),
+         Val(stride[1]), Val(stride[2]), Val(pad[1]), Val(pad[2]),
+         Val(dil[1]), Val(dil[2]), Val(ow), Val(oh),
+         size(x, 1), size(x, 2), npq, mp * crs, ci, 0), cld(mp * crs, 2);
+        name = "$(op.id).im2col")
+    M.scalar_gemm_dispatch!(emitctx.g, c, col, M.viewof(w, (crs, co)), mp, co, crs, 1f0, 0f0;
+                            name = "$(op.id).gemm")
+    # The product's rows include all batches; restore (W,H,C,N) and fold bias
+    # and activation in this same store, as the tensor-core path does.
+    M.dispatch!(emitctx.g, conv_epilogue_kernel!,
+        (out, c, bias, Val(mp), Val(act), Val(1), Val(batch), ow * oh, co, npq, 0, mp * co),
+        (cld(npq, 256) * 256, co); group = (256, 1), name = "$(op.id).epilogue")
+    return out
+end
+
+"""
     emitconvcoopmat!(ctx, op, plan, x, w, bias, out, stride, pad, dil, act) -> out
 
 The convolution as im2col plus one cooperative-matrix GEMM: three passes.
@@ -5660,6 +5701,9 @@ function emitop!(emitctx::EmitCtx, op::Op, ::Val{Symbol("convolution.default")})
     cm = conv_coopmat_plan(caps, eltype(x), eltype(w), size(out), size(w))
     cm isa ConvCoopMatPlan &&
         return emitconvcoopmat!(emitctx, op, cm, x, w, bias, out, stride, pad, dil, act)
+
+    scalarconvworth(out, x, w) && act in (:none, :relu) &&
+        return emitconvscalar!(emitctx, op, x, w, bias, out, stride, pad, dil, act)
 
     BS_K, BS_NPQ, BS_CRS, WG, TS_K, TS_NPQ = convtiles(Cout, NPQ; cores)
     nbk = cld(Cout, BS_K)
