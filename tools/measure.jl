@@ -201,13 +201,43 @@ workload reaches, and a mean over a window that begins before the card has rampe
 answers a different one. `plateau` then medians these across windows, so a single
 spike cannot carry a run.
 """
-function clockunder(f, seconds::Real)
-    best = gpustate()
+clockunder(f, seconds::Real) = clockunder(f, seconds, TELEMETRY())
+
+function clockunder(f, seconds::Real, source::AmdSysfs)
+    best = sample(source)
     t0 = time()
     while time() - t0 < seconds
         f()
-        st = gpustate()
+        st = sample(source)
         st.sm > best.sm && (best = st)
+    end
+    return best
+end
+
+function clockunder(f, seconds::Real, source::NvidiaSmi)
+    # A fresh graph can spend hundreds of milliseconds planning on the host
+    # before submitting GPU work. One probe at the start would see only that
+    # idle interval. Keep sampling throughout the calls, including their GPU
+    # execution, and retain the highest clock as the AMD implementation does.
+    best = sample(source)
+    start = time()
+    process = open(ignorestatus(`nvidia-smi --query-gpu=$SMIQUERY --format=csv,noheader,nounits --loop-ms=50`), "r")
+    reader = @async read(process, String)
+    output = ""
+    try
+        while true
+            f()
+            time() - start >= seconds && break
+        end
+    finally
+        process_running(process) && kill(process)
+        output = fetch(reader)
+        close(process)
+    end
+    for line in split(strip(output), '\n')
+        isempty(strip(line)) && continue
+        state = smiparse(line)
+        state.sm > best.sm && (best = state)
     end
     return best
 end
