@@ -267,6 +267,10 @@ function evalexpr(ex, dims)
         (f === :floor || f === :floordiv) && return length(as) == 1 ? as[1] : as[1] ÷ as[2]
         f === :ceiling && return length(as) == 1 ? as[1] : cld(as[1], as[2])
         f === :Pow && return as[1]^as[2]
+        # sympy's relations, as a host buffer's value: an export assertion's
+        # operand, e.g. `Eq((t - 3)//2 + 1, (t - 1)//2)` from a strided conv.
+        f === :Eq && return Int(as[1] == as[2])
+        f === :Ne && return Int(as[1] != as[2])
         # sympy's explicit casts and its FLOAT division, which arrive once a
         # spatial axis is symbolic. `interpolate` records its scale as
         # `FloatTrueDiv(ToFloat(2*h), 2.0*ToFloat(2*h))` — algebraically one
@@ -274,8 +278,11 @@ function evalexpr(ex, dims)
         # before the symbol is bound. `/` above is integer division because
         # every SHAPE that uses it is exact; this one is not a shape.
         f === :ToFloat && return Float64(as[1])
-        f === :FloatTrueDiv && return as[1] / as[2]
+        (f === :FloatTrueDiv || f === :IntTrueDiv) && return as[1] / as[2]
         (f === :TruncToInt || f === :ToInt) && return trunc(Int, as[1])
+        # `arange(t)` sizes itself as `CeilToInt(IntTrueDiv(t - 1, 1) + 1.0)`.
+        f === :CeilToInt && return ceil(Int, as[1])
+        f === :FloorToInt && return floor(Int, as[1])
         error("unsupported shape expression: $ex")
     end
     error("unsupported shape expression: $ex")
