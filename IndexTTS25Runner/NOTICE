@@ -1,0 +1,23 @@
+IndexTTS25Runner is a Julia port of IndexTeam/Bilibili IndexTTS-2.5.
+Upstream: https://github.com/index-tts/index-tts (d9e41aa).
+Base checkpoint: IndexTeam/IndexTTS-2.5 (c39ce5b).
+Optional German checkpoint: sharrnah/index-tts-2.5-german (a5ac4e1).
+
+The accompanying bilibili Model Use License Agreement applies to the model and
+derivatives. Original copyright notices are retained in the accompanying files.
+
+Modifications: inference graphs were exported into JuliaVision's operator format;
+selected convolutions and attention computations were algebraically rewritten;
+unused causal-mask buffers were removed; weights may be partitioned into shards.
+The Julia implementation includes native spectral/text front ends and generation.
+
+Any modifications made to the original model in this Derivative Work are not
+endorsed, warranted, or guaranteed by the original right-holder of the original
+model, and the original right-holder disclaims all liability related to this
+Derivative Work.
+
+Text normalization tables derive from WeTextProcessing, Copyright (c) 2022
+Zhendong Peng and Copyright (c) 2024 Xingchen Song, under Apache License 2.0.
+The runtime includes an independent tropical transducer interpreter using
+OpenFst's documented shortest-path queue selection. Its token-field ordering
+follows WeTextProcessing's TokenParser.

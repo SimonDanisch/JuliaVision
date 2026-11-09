@@ -1,0 +1,26 @@
+name = "IndexTTS25Runner"
+uuid = "c472841f-eca9-4674-a587-db77f3cf9dc9"
+version = "0.1.0"
+
+[deps]
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+DNNKernels = "b7e4a0c2-3f51-4d8e-9a1b-6c2d5e8f7a30"
+FFMPEG_jll = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+KernelInterface = "4ee993da-d684-4d17-a7dd-4e58e78d92bf"
+Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SoXResampler_jll = "fbe68eb6-6641-54c6-99e3-f7c7c4d73a57"
+
+# Lava is not in the General registry; see Hunyuan3DRunner's Project.toml.
+[sources]
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/nvidia"}
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
