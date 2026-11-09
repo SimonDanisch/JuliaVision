@@ -28,6 +28,30 @@ function resolvealias(g::Graph, id::AbstractString)
 end
 
 """
+    shapeonlychain(g, id) -> Vector{String} or nothing
+
+The buffers from `id` up to the one holding the data, if every link between is a
+view that keeps every element in order (`SHAPEONLY_VIEWS`, or `detach`), and
+`nothing` otherwise. The last entry is the root.
+
+A `gelu` folds into an `addmm` only when it activates the WHOLE result. Through a
+`split`, `slice` or `select` it activates a part: GEGLU's
+`x, gate = proj(x).chunk(2); gelu(gate) * x` (IndexTTS-2.5's emotion perceiver)
+applies it to one half, and following every view to the `addmm` folded it into
+both halves.
+"""
+function shapeonlychain(g::Graph, id::AbstractString)
+    chain = String[String(id)]
+    for _ in 1:64
+        b = get(g.buffers, chain[end], nothing)
+        (b === nothing || isempty(b.of)) && return chain
+        b.kind === :view && b.viewop in (SHAPEONLY_VIEWS..., "detach.default") || return nothing
+        push!(chain, b.of)
+    end
+    return nothing
+end
+
+"""
     foldrelu(graph) -> (graph, nfolded)
 
 Mark each foldable convolution with `attrs["act"] = "relu"` and drop the relu.
@@ -95,12 +119,15 @@ function foldrelu(g::Graph)
         # the whole chain is what makes the fold reachable at all; it is also why
         # the alias below targets the *view*, which has the gelu's own shape,
         # rather than the `addmm` buffer, which does not.
-        src = act == "gelu" ? rootbuffer(g, relu.ins[1]) : resolvealias(g, relu.ins[1])
+        chain = act == "gelu" ? shapeonlychain(g, relu.ins[1]) : [resolvealias(g, relu.ins[1])]
+        chain === nothing && continue
+        src = chain[end]
         conv = get(producer, src, nothing)
         conv === nothing && continue
-        # The reshape has to be the producer's only reader too, or folding the
-        # activation in would hand the activated values to whoever else reads it.
-        act != "gelu" || get(uses, resolvealias(g, relu.ins[1]), 0) == 1 || continue
+        # Every reshape on the way has to be its parent's only reader too, or
+        # folding the activation in would hand the activated values to whoever
+        # else reads it.
+        act != "gelu" || all(id -> get(uses, resolvealias(g, id), 0) == 1, chain[1:end-1]) || continue
         # A residual block ends `add(conv, skip) -> relu`, so the relus on the
         # largest feature maps follow an *add*, not a convolution — folding only
         # into convolutions left those 36 behind, and they were the expensive
