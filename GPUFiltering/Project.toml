@@ -18,6 +18,11 @@ VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
 # None of these is in the General registry at the revision Mantle needs, and Pkg
 # reads `[sources]` only for direct dependencies: KernelInterface, Lava, Vulkan
 # and VulkanCore are listed in `[deps]` so that a standalone test resolves them.
+
+[compat]
+Vulkan = "0.7"
+VulkanCore = "2"
+
 [sources]
 KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}

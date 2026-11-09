@@ -50,6 +50,11 @@ WhisperRunner = "6f1a5d52-5102-48dc-988e-ecb6f8c89f5e"
 # being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
 # fetches it from the URL below instead of failing with "package not found".
 # The packages here are dev'd by path, which `[sources]` also expresses.
+
+[compat]
+Vulkan = "0.7"
+VulkanCore = "2"
+
 [sources]
 BasicVSRRunner = {path = "BasicVSRRunner"}
 BonsaiRunner = {path = "BonsaiRunner"}
