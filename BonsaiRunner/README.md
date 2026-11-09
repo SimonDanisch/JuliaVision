@@ -79,3 +79,52 @@ and token, costing 33,280 bytes per context token across all 16 attention
 layers: about 130 MiB for the initial page and 7.75 GiB at 250,000 tokens. The
 recurrent state is about 144 MiB per session. Use `session(model; kv_page=...)`
 to change the allocation granularity or `context=...` to impose a smaller cap.
+
+## Local API and OpenCode
+
+From the workspace environment containing BonsaiRunner and JSON3:
+
+```sh
+python3 dev/JuliaVision/tools/bonsai_server.py --project /path/to/VulkanDev
+```
+
+The server reuses the artifact checkpoint, loads it once, warms the GPU paths,
+then reports readiness at `http://127.0.0.1:8092/health`. It exposes
+`GET /v1/models` and streaming/non-streaming `POST /v1/chat/completions` with
+model ID `bonsai-27b`. Requests run one at a time with two resident conversation slots. Exact token
+prefixes reuse their KV and recurrent state; edited, shortened or unrelated
+histories reset recurrence while retaining compiled plans. Usage reports
+`prompt_tokens_details.cached_tokens`, and non-streaming replies include separate
+prefill/decode timings. `cache_prompt: false` forces a fresh-state comparison.
+Requests have
+thinking disabled, a 16,384-token combined context limit and up to 4,096 output
+tokens. This is greedy text generation: temperature is not sampled, and tools,
+images and other multimodal input are not supported. The stdlib Python HTTP
+frontend drives a resident Julia worker; no additional Python packages are needed.
+Keep the listener local; it is not an authenticated public service.
+
+Add a separate provider to OpenCode's existing configuration:
+
+```json
+{
+  "provider": {
+    "bonsai-local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "BonsaiRunner (local)",
+      "options": {"baseURL": "http://127.0.0.1:8092/v1", "apiKey": "local"},
+      "models": {
+        "bonsai-27b": {
+          "name": "Bonsai 27B (local, text editing)",
+          "tool_call": false,
+          "reasoning": false,
+          "limit": {"context": 16384, "output": 4096}
+        }
+      }
+    }
+  }
+}
+```
+
+Select `bonsai-local/bonsai-27b` in OpenCode. Use a text-only agent with tools
+disabled for editing; this endpoint does not provide coding-agent tool execution.
+A caller such as BonitoAgents continues to use OpenCode's provider configuration.
