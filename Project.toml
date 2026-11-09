@@ -78,5 +78,3 @@ KernelAbstractions = {url = "https://github.com/SimonDanisch/KernelAbstractions.
 GPUArrays = {url = "https://github.com/SimonDanisch/GPUArrays.jl", rev = "61e30cea215e93202261d3f0b38df991f36c9081"}
 Raycore = {url = "https://github.com/JuliaGeometry/Raycore.jl", rev = "51fc53c325f0015adea2166a947ca3f69851a65d"}
 Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
-Vulkan = {url = "https://github.com/JuliaGPU/Vulkan.jl", rev = "sd/vk1.4"}
-VulkanCore = {url = "https://github.com/JuliaGPU/VulkanCore.jl", rev = "sd/vk1.4"}

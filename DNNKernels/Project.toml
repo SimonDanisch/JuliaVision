@@ -22,6 +22,8 @@ KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 
 [compat]
 julia = "1.12"
+Vulkan = "0.7"
+VulkanCore = "2"
 # Lava is not in the General registry, so a fresh clone cannot resolve without
 # being told where it lives. `[sources]` (Julia 1.11+) is how: `Pkg.instantiate`
 # fetches it from the URL below instead of failing with "package not found".
@@ -29,8 +31,6 @@ julia = "1.12"
 KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}
 Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
-Vulkan = {url = "https://github.com/JuliaGPU/Vulkan.jl", rev = "sd/vk1.4"}
-VulkanCore = {url = "https://github.com/JuliaGPU/VulkanCore.jl", rev = "sd/vk1.4"}
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

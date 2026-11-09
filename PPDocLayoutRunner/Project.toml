@@ -18,6 +18,8 @@ VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
 
 [compat]
 julia = "1.12"
+Vulkan = "0.7"
+VulkanCore = "2"
 
 # None of these is in the General registry at the revision the runner needs, and
 # Pkg reads `[sources]` only for direct dependencies: KernelInterface, Lava,
@@ -29,8 +31,6 @@ GPUFiltering = {url = "https://github.com/SimonDanisch/JuliaVision.git", rev = "
 KernelInterface = {url = "https://github.com/SimonDanisch/KernelAbstractions.jl", rev = "sd/lava-refactor", subdir = "lib/KernelInterface"}
 Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/lava-refactor"}
 Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
-Vulkan = {url = "https://github.com/JuliaGPU/Vulkan.jl", rev = "sd/vk1.4"}
-VulkanCore = {url = "https://github.com/JuliaGPU/VulkanCore.jl", rev = "sd/vk1.4"}
 
 [extras]
 PNGFiles = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
