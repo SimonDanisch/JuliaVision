@@ -33,7 +33,7 @@ using LinearAlgebra: normalize!
 import JSON3
 using LazyArtifacts
 
-export qwen3embedding, embed, embed_query, Qwen3Embedding
+export qwen3embedding, embed, embed_query, embed_long, Qwen3Embedding
 
 const GRAPH = "qwen3embedding"
 
@@ -107,13 +107,46 @@ end
 The unit-length embedding of a document.
 """
 function embed(m::Qwen3Embedding, text::AbstractString)
-    ids = tokens(m, text)
+    return embed_ids(m, tokens(m, text))
+end
+
+function embed_ids(m::Qwen3Embedding, ids::AbstractVector{<:Integer})
     t = bucket(length(ids), m.maxtokens)
     padded = vcat(ids, fill(ENDOFTEXT, t - length(ids)))
     x = m.table[:, padded .+ 1]
     hidden = first(DNNKernels.call(m.model, GRAPH, toback(m.backend, reshape(x, size(x, 1), t, 1)); dims = (; t)))
-    row = Array(hidden)[:, length(ids), 1]
+    # Features for one token are contiguous. Download just that token, rather
+    # than every hidden state (up to 512 times as much data).
+    width = size(hidden, 1)
+    row = Vector{eltype(hidden)}(undef, width)
+    copyto!(row, 1, hidden, (length(ids) - 1) * width + 1, width)
     return normalize!(Float32.(row))
+end
+
+"""
+    embed_long(m, text; overlap = 64) -> Vector{Float32}
+
+Embed every token of a long document using overlapping model-sized windows.
+Pool normalized window vectors, weighted by newly covered tokens, then normalize.
+Short documents use exactly the ordinary embedding path. This is chunk pooling,
+not a longer-context forward pass.
+"""
+function embed_long(m::Qwen3Embedding, text::AbstractString; overlap::Integer = 64)
+    capacity = m.maxtokens - 1
+    0 <= overlap < capacity || throw(ArgumentError("overlap must be between zero and $(capacity - 1)"))
+    ids = encode(m.tokenizer, text)
+    length(ids) <= capacity && return embed_ids(m, vcat(ids, ENDOFTEXT))
+    pooled = zeros(Float32, size(m.table, 1))
+    start, covered = 1, 0
+    while start <= length(ids)
+        stop = min(start + capacity - 1, length(ids))
+        vector = embed_ids(m, vcat(ids[start:stop], ENDOFTEXT))
+        pooled .+= (stop - covered) .* vector
+        covered = stop
+        stop == length(ids) && break
+        start += capacity - overlap
+    end
+    return normalize!(pooled)
 end
 
 """
