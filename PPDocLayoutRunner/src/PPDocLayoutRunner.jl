@@ -119,8 +119,7 @@ Load PP-DocLayoutV3 and plan it. Reuse it across pages.
 """
 function doclayout(; backend = Mantle.defaultbackend())
     ready() || throw(ArgumentError(
-        "PP-DocLayoutV3 export not found. Generate it with `uv run tools/export_ppdoclayout.py` and bind it " *
-        "with `tools/make_artifacts.jl ppdoclayoutv3`."))
+        "PP-DocLayoutV3: the `ppdoclayoutv3` artifact is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     dir = modeldir()
     model = DNNKernels.Model(Dict("ppdoclayoutv3" => DNNKernels.loadgraph(joinpath(dir, "ppdoclayoutv3.json"))),
         DNNKernels.readsafetensors(joinpath(dir, "weights.safetensors")); backend)

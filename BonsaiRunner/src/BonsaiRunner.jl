@@ -119,6 +119,12 @@ _upload16(backend, host::AbstractArray) =
 """
     Bonsai2(path; device=Mantle.Device(), context=nothing, loadweights=true)
 
+**DO NOT DO THIS:** do not call this with a `path`; call `Bonsai2(; device,
+context)`, which reads the checkpoint from its artifacts. The artifact is the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the method exists for export
+tooling and tests.
+
 Open a PTQ1 Bonsai GGUF on `device`. `context=nothing` selects the checkpoint's
 native context length (262144 for Ternary Bonsai 2); KV storage is allocated
 lazily by [`session`](@ref), so selecting it does not reserve the full cache.

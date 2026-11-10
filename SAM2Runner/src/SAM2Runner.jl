@@ -121,7 +121,7 @@ end
 # runner that drifts from it is one whose callers build paths by hand.
 
 """
-    sam2graph(name; dir = assetdir()) -> Graph
+    sam2graph(name) -> Graph
 
 An exported ATen graph by name — `"sam2_encoder"` or `"sam2_decoder"`. Throws
 with the path it looked in rather than returning `nothing` for the caller to trip
@@ -131,8 +131,7 @@ function sam2graph(name::AbstractString)
     dir = assetdir()
     p = joinpath(dir, "$name.json")
     isfile(p) || throw(ArgumentError(
-        "SAM 2 graph `$name` not found at $p. Re-export and re-bind with " *
-        "`julia --project=. tools/make_artifacts.jl sam2-large`."))
+        "SAM 2: graph `$name` ($p) is missing from the `sam2-large` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 
@@ -317,8 +316,7 @@ function defaultmodel(; backend = nothing, device = nothing)
     m === nothing || return m::SAM2
     dir = assetdir()
     isfile(joinpath(dir, "weights.safetensors")) || throw(ArgumentError(
-        "SAM 2.1 weights not found at $dir. Set JULIA_SAM2_ASSETS, or generate " *
-        "them with `uv run tools/export_sam2.py && uv run tools/convert_weights.py`."))
+        "SAM 2.1: weights.safetensors ($dir) is missing from the `sam2-large` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     m = sam2model(; backend, device)
     DEFAULT_MODEL[] = m
     return m

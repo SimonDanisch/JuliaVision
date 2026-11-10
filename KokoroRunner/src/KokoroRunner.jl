@@ -98,7 +98,7 @@ refsdir() = @artifact_str("kokoro-refs")
 include("g2p.jl")
 
 """
-    Kokoro(; backend = Mantle.defaultbackend(), dir = assetdir()) -> Kokoro
+    Kokoro(; backend = Mantle.defaultbackend()) -> Kokoro
 
 Load the model. Holds device weights and a scratch slab, so build it once and
 keep it — the constructor is the expensive call, [`speak`](@ref) is not.
@@ -119,9 +119,7 @@ end
 function Kokoro(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
-        "Kokoro assets incomplete in $dir. Generate them with " *
-        "`uv run tools/export_kokoro.py` and `uv run tools/export_kokoro_assets.py`, " *
-        "then bind with `julia --project=. tools/make_artifacts.jl`."))
+        "Kokoro: the `kokoro` artifact at $dir is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     # The VOCODER's 794 ops as ONE submission outrun the driver's timeout once
     # an utterance is long enough: at 323 frames RADV cancels the command stream
     # ("The CS has been cancelled because the context is lost. This context is

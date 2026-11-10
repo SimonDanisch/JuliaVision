@@ -378,6 +378,17 @@ struct QwenConditionEncoder{B,M,C}
     compact::C
 end
 
+"""
+    qwenimageconditionencoder(; backend, dir = assetdir(), compact = compact_encoder(),
+                               processor_dir = processordir()) -> QwenConditionEncoder
+
+The reference-image conditioner: Qwen3-VL's vision tower and language model.
+
+**DO NOT DO THIS:** do not pass `dir` or `processor_dir`. The default is the model's
+artifact, the only supported source. A local export or a downloaded checkpoint is
+how mismatched weights and stray multi-gigabyte copies happened; the argument exists
+for export tooling and tests.
+"""
 function qwenimageconditionencoder(; backend=Mantle.defaultbackend(), dir::AbstractString=assetdir(),
                                    compact::AbstractDict=compact_encoder(),
                                    processor_dir::AbstractString=processordir())
@@ -472,6 +483,16 @@ struct QwenVAEEncoder{B,M}
     model::M
 end
 
+"""
+    qwenimagevaeencoder(; backend, dir = assetdir(), weights_dir = vaedir()) -> QwenVAEEncoder
+
+The VAE encoder that turns reference images into latents.
+
+**DO NOT DO THIS:** do not pass `dir` or `weights_dir`. The default is the model's
+artifact, the only supported source. A local export or a downloaded checkpoint is
+how mismatched weights and stray multi-gigabyte copies happened; the argument exists
+for export tooling and tests.
+"""
 function qwenimagevaeencoder(; backend=Mantle.defaultbackend(), dir::AbstractString=assetdir(),
                              weights_dir::AbstractString=vaedir())
     graph = loadgraph(joinpath(dir, "$(VAEENCODERGRAPH).json"))
@@ -634,6 +655,16 @@ struct QwenConditionedTransformer{B,M}
     model::M
 end
 
+"""
+    qwenimageconditionedtransformer(; backend, dir = assetdir(), compact = compact_denoiser())
+
+The denoiser with the reference-image prefix graphs.
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
+"""
 function qwenimageconditionedtransformer(; backend=Mantle.defaultbackend(), dir::AbstractString=assetdir(),
                                          compact::AbstractDict=compact_denoiser())
     graphs = Dict(n => loadgraph(joinpath(dir, "$n.json")) for n in (PREFIXGRAPHS..., STEPGRAPH))

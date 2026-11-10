@@ -73,9 +73,7 @@ function neurallutgraph()
     dir = assetdir()
     p = joinpath(dir, "neurallut.json")
     isfile(p) || throw(ArgumentError(
-        "Image-Adaptive 3D LUT graph not found at $p. Generate it with " *
-        "`uv run tools/export_neurallut.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl neurallut`."))
+        "Image-Adaptive 3D LUT: $p is missing from the `neurallut` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 
@@ -141,7 +139,7 @@ struct NeuralLUT{B,D,G,P,T,O}
 end
 
 """
-    neurallut(; backend = Mantle.defaultbackend(), dir = assetdir()) -> NeuralLUT
+    neurallut(; backend = Mantle.defaultbackend()) -> NeuralLUT
 
 Load the model. Separate from [`predictlut`](@ref) so the workload can build it
 in `@setup_workload`, where the loading is not what is being cached.
@@ -149,7 +147,7 @@ in `@setup_workload`, where the loading is not what is being cached.
 function neurallut(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
-        "no export at $dir — generate it with `uv run tools/export_neurallut.py`"))
+        "Image-Adaptive 3D LUT: the `neurallut` artifact at $dir is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     # `Model`, not `loadgraph`: it runs the host-side preparation passes, and the
     # planned slab is what keeps every intermediate from being a fresh
     # allocation. Together they are worth 14.08 ms -> ~1.8 ms on this classifier,

@@ -63,9 +63,7 @@ function basicvsrppgraph()
     dir = assetdir()
     p = joinpath(dir, "basicvsrpp.json")
     isfile(p) || throw(ArgumentError(
-        "BasicVSR++ graph not found at $p. Generate it with " *
-        "`uv run tools/export_basicvsrpp.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl`."))
+        "BasicVSR++: $p is missing from the `basicvsrpp` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 
@@ -124,7 +122,7 @@ the time anyone loads it.
 function basicvsrppmodel(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
-        "no export at $dir — generate it with `uv run tools/export_basicvsrpp.py`"))
+        "BasicVSR++: the `basicvsrpp` artifact at $dir is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     BasicVSRPP(backend, Model(Dict("basicvsrpp" => basicvsrppgraph()),
                               basicvsrppweights(); backend))
 end

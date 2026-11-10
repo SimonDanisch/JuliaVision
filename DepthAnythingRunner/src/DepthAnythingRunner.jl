@@ -84,9 +84,7 @@ function depthanythinggraph()
     dir = assetdir()
     p = joinpath(dir, "depthanything.json")
     isfile(p) || throw(ArgumentError(
-        "Depth Anything V2 Small graph not found at $p. Generate it with " *
-        "`uv run tools/export_depthanything.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl depthanything`."))
+        "Depth Anything V2 Small: $p is missing from the `depthanything` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 
@@ -159,7 +157,7 @@ struct DepthAnything{B,M,I}
 end
 
 """
-    depthanything(; backend = Mantle.defaultbackend(), dir = assetdir()) -> DepthAnything
+    depthanything(; backend = Mantle.defaultbackend()) -> DepthAnything
 
 Load the model. Separate from [`depthmap!`](@ref) so the workload can build it in
 `@setup_workload`, where the loading is not what is being cached.
@@ -167,7 +165,7 @@ Load the model. Separate from [`depthmap!`](@ref) so the workload can build it i
 function depthanything(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
-        "no export at $dir — generate it with `uv run tools/export_depthanything.py`"))
+        "Depth Anything V2 Small: the `depthanything` artifact at $dir is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     model = Model(Dict("depthanything" => depthanythinggraph()),
                   depthanythingweights(); backend)
     graph = model.graphs["depthanything"]

@@ -226,8 +226,7 @@ The exported ATen graph. Throws with the path it looked in rather than returning
 function hunyuan3dgraph(; dir::AbstractString = ditdir())
     p = joinpath(dir, "hunyuan3d_dit.json")
     isfile(p) || throw(ArgumentError(
-        "Hunyuan3D-2.1 shape graph not found at $p. Generate it with " *
-        "`uv run tools/export_hunyuan3d.py`."))
+        "Hunyuan3D-2.1: $p is missing from the `hunyuan3d` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 

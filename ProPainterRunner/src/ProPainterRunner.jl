@@ -68,9 +68,7 @@ function propaintergraph()
     dir = assetdir()
     p = joinpath(dir, "propainter.json")
     isfile(p) || throw(ArgumentError(
-        "ProPainter graph not found at $p. Generate it with " *
-        "`uv run tools/export_propainter.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl`."))
+        "ProPainter: $p is missing; the model has no published artifact yet (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 

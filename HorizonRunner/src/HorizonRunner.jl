@@ -50,6 +50,16 @@ per-asset limit. No generated-directory fallback is consulted.
 assetdir() = artifact"horizon32b"
 tinydir() = artifact"horizon32b-tiny"
 
+"""
+    horizon32bgraphs(; dir = assetdir(), bucketdir = dir) -> Dict{String,Graph}
+
+The decode and prefill graphs, plus every bucket graph in `bucketdir`.
+
+**DO NOT DO THIS:** do not pass `dir` or `bucketdir`. The default is the model's
+artifact, the only supported source. A local export or a downloaded checkpoint is
+how mismatched weights and stray multi-gigabyte copies happened; the argument exists
+for export tooling and tests.
+"""
 function horizon32bgraphs(; dir::AbstractString = assetdir(), bucketdir::AbstractString = dir)
     gs = Dict(n => loadgraph(joinpath(dir, "$n.json")) for n in GRAPHS)
     if isdir(bucketdir)
@@ -69,6 +79,16 @@ function horizon32bgraphs(; dir::AbstractString = assetdir(), bucketdir::Abstrac
     gs
 end
 
+"""
+    horizon32bweights(; dir = assetdir()) -> Dict
+
+The fp16 weights, mapped from their shard artifacts through the graph artifact's index.
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
+"""
 function horizon32bweights(; dir::AbstractString = assetdir())
     index = joinpath(dir, "weights.index.json")
     # An explicitly supplied developer export retains the original file layout.
@@ -123,6 +143,11 @@ end
 
 """
     horizon32b(; backend, dir) -> Horizon32B
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 Load the base graphs, weights, and any bucket graphs in `bucketdir` (default `dir`).
 Bucket graphs share the weights and full-capacity KV cache with the base graphs.

@@ -43,13 +43,15 @@ replace this definition with `@artifact_str("zimage")`. Assets come from the
 artifact and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
 assetdir() = error(
-    "ZImageRunner: Z-Image-Turbo (6B) is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_zimage.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl zimage`, then set " *
-    "`assetdir() = @artifact_str(\"zimage\")`.")
+    "ZImageRunner: Z-Image-Turbo (6B) is not ported yet, so no artifact is bound (porting steps: the `assetdir` docstring).")
 
 """
     zimagegraph(; dir = assetdir()) -> Graph
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
@@ -57,13 +59,17 @@ The exported ATen graph. Throws with the path it looked in rather than returning
 function zimagegraph(; dir::AbstractString = assetdir())
     p = joinpath(dir, "zimage.json")
     isfile(p) || throw(ArgumentError(
-        "Z-Image-Turbo (6B) graph not found at $p. Generate it with " *
-        "`uv run tools/export_zimage.py`, or set JULIA_ZIMAGE_ASSETS."))
+        "Z-Image-Turbo (6B): $p is missing; the model is not ported yet."))
     return loadgraph(p)
 end
 
 """
     zimageweights(; dir = assetdir()) -> Dict
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
@@ -74,7 +80,7 @@ function zimageweights(; dir::AbstractString = assetdir())
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.

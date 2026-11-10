@@ -114,12 +114,16 @@ assetdir() = error(
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched weights
+and stray multi-gigabyte copies happened; the argument exists for export tooling and
+tests.
 """
 function {lower}graph(; dir::AbstractString = assetdir())
     p = joinpath(dir, "{name}.json")
     isfile(p) || throw(ArgumentError(
-        "{title} graph not found at $p. Generate it with " *
-        "`uv run tools/export_{name}.py`, or set {envvar}."))
+        "{title}: $p is missing; the model is not ported yet."))
     return loadgraph(p)
 end
 
@@ -127,6 +131,11 @@ end
     {lower}weights(; dir = assetdir()) -> Dict
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched weights
+and stray multi-gigabyte copies happened; the argument exists for export tooling and
+tests.
 """
 function {lower}weights(; dir::AbstractString = assetdir())
     p = joinpath(dir, "weights.safetensors")
@@ -135,7 +144,7 @@ function {lower}weights(; dir::AbstractString = assetdir())
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.
@@ -251,7 +260,6 @@ def main(force):
             summary=m.summary, upstream=m.upstream, license=m.license,
             name=m.name, lower=m.name, inputs=m.inputs, oplist=oplist,
             graphdir=m.graphdir or m.name,
-            envvar=f"JULIA_{m.name.upper()}_ASSETS",
         )
         write(pkg / "Project.toml", PROJECT.format(**fields), force)
         write(pkg / "src" / f"{m.package}.jl", MODULE.format(**fields), force)

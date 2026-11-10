@@ -128,7 +128,7 @@ struct Whisper{B,ME,MD,C,I2,I1,F}
 end
 
 """
-    whisper(; backend = Mantle.defaultbackend(), dir = assetdir(), decdir = decoderdir())
+    whisper(; backend = Mantle.defaultbackend())
         -> Whisper
 
 Load both halves. The decoder artifact is separate from the encoder's — it is a

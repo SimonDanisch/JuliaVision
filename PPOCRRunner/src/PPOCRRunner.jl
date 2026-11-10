@@ -308,8 +308,7 @@ recogniser width, and record the box search against the detector's output.
 """
 function ppocr(; backend = Mantle.defaultbackend())
     ready() || throw(ArgumentError(
-        "PP-OCRv6 exports not found. Generate them with `uv run tools/export_ppocrv6.py` and bind them " *
-        "with `tools/make_artifacts.jl ppocrv6_det ppocrv6_rec ppocr_docori`."))
+        "PP-OCRv6: the `ppocrv6_det`, `ppocrv6_rec` or `ppocr_docori` artifact is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     det = Model(Dict("ppocrv6_det" => loadgraph(joinpath(detdir(), "ppocrv6_det.json"))),
                 readsafetensors(joinpath(detdir(), "weights.safetensors")); backend)
     rec = Model(Dict("ppocrv6_rec" => loadgraph(joinpath(recdir(), "ppocrv6_rec.json"))),

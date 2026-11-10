@@ -69,9 +69,7 @@ function demucsgraph()
     dir = assetdir()
     p = joinpath(dir, "demucs.json")
     isfile(p) || throw(ArgumentError(
-        "Demucs v4 (htdemucs) graph not found at $p. Generate it with " *
-        "`uv run tools/export_demucs.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl`."))
+        "Demucs v4 (htdemucs): $p is missing; the model has no published artifact yet (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 

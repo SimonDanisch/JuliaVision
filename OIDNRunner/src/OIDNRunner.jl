@@ -45,6 +45,16 @@ function preferredbackend()
     end
     return Mantle.defaultbackend()
 end
+"""
+    OIDNDenoiser(; backend = preferredbackend(), tilesize = 2048, precision = :auto, fuseconv = true)
+
+The denoiser, with the albedo, normal and HDR networks from the `oidn` artifact.
+
+**DO NOT DO THIS:** do not pass a directory as the first argument. The default is
+the model's artifact, the only supported source. A local export or a downloaded
+checkpoint is how mismatched weights and stray multi-gigabyte copies happened; the
+argument exists for export tooling and tests.
+"""
 function OIDNDenoiser(directory::AbstractString = modeldir(); backend = preferredbackend(), tilesize = 2048, precision = :auto, fuseconv = true)
     tilesize >= 256 && tilesize % 16 == 0 || throw(ArgumentError("tile size must be a multiple of 16, at least 256"))
     for name in values(MODEL_NAMES), ext in (".json", ".safetensors")

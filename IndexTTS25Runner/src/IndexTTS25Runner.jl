@@ -59,6 +59,12 @@ end
 """
     loadindextts(graphs, tokenizer; device, german, precision) -> IndexTTS25
 
+**DO NOT DO THIS:** do not call this with export directories; call
+[`indextts25`](@ref), which reads the artifact. The artifact is the only supported
+source. A local export or a downloaded checkpoint is how mismatched weights and
+stray multi-gigabyte copies happened; the method exists for export tooling and
+tests.
+
 Build the model from an export directory (`graphs/<part>/...`, `aux/matrices`)
 and a `.tiktoken` vocabulary. `precision` is `:fast` (fp16 DiT, codec and GPT
 weights) or `:exact` (fp32 everywhere; see [`PRECISIONS`](@ref)).
@@ -84,6 +90,11 @@ end
 
 """
     indextts25(; device, german=false, precision=:fast, dir=assetdir())
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 Load the packaged runner. Weight components are downloaded on demand; the base
 and German models share the clip encoders, codec, flow model and vocoder.

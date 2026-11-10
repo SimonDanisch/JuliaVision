@@ -110,9 +110,9 @@ struct Hunyuan3D{B,M<:Model}
 end
 
 """
-    hunyuan3d(; backend = Mantle.defaultbackend(), root = assetdir()) -> Hunyuan3D
+    hunyuan3d(; backend = Mantle.defaultbackend()) -> Hunyuan3D
 
-Load all four graphs. `root` holds the four directories [`PARTS`](@ref) names.
+Load all four graphs, from the artifacts [`PARTS`](@ref) names.
 
 Separate from [`generate`](@ref) so a workload can build it in `@setup_workload`,
 where the loading is not what is being cached.
@@ -127,9 +127,7 @@ function hunyuan3d(; backend = Mantle.defaultbackend())
     # recording by the device's submission budget, so nothing here asks for it.
     load(dir, name, weights = nothing) = begin
         isfile(joinpath(dir, "$name.json")) || throw(ArgumentError(
-            "Hunyuan3D-2.1: no $name.json in $dir. Re-export with " *
-            "`uv run tools/export_hunyuan3d.py` and re-bind with " *
-            "`julia --project=. tools/make_artifacts.jl`."))
+            "Hunyuan3D-2.1: $name.json is missing from the artifact at $dir, a packaging error (see JuliaVision's tools/README.md)."))
         w = weights === nothing ?
             readsafetensors(joinpath(dir, "weights.safetensors")) : weights
         Model(Dict(name => loadgraph(joinpath(dir, "$name.json"))), w; backend)

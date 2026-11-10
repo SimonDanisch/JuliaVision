@@ -64,9 +64,7 @@ function deepfilternetgraph()
     dir = assetdir()
     p = joinpath(dir, "deepfilternet.json")
     isfile(p) || throw(ArgumentError(
-        "DeepFilterNet3 graph not found at $p. Generate it with " *
-        "`uv run tools/export_deepfilternet.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl`."))
+        "DeepFilterNet3: $p is missing; the model has no published artifact yet (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 

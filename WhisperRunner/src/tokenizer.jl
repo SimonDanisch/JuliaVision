@@ -105,8 +105,7 @@ function tokenizer()
     dir = decoderdir()
     path = joinpath(dir, "tokenizer.json")
     isfile(path) || throw(ArgumentError(
-        "no tokenizer.json at $path — it ships in the whisper-decoder artifact; " *
-        "re-bind with `julia --project=. tools/make_artifacts.jl whisper-decoder`"))
+        "Whisper: tokenizer.json ($path) is missing from the `whisper-decoder` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     t = JSON3.read(read(path, String))
     model = t["model"]
 

@@ -75,6 +75,11 @@ end
 """
     qwen3embedding(; backend = Mantle.defaultbackend(), dir = assetdir()) -> Qwen3Embedding
 
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
+
 Load the exported model.
 """
 function qwen3embedding(; backend = Mantle.defaultbackend(), dir::AbstractString = assetdir())

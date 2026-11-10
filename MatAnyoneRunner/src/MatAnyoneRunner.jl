@@ -101,16 +101,11 @@ function refsdir()
     toml = joinpath(dirname(@__DIR__), "Artifacts.toml")
     h = artifact_hash("matanyone-refs", toml)
     h === nothing && error("""
-        the `matanyone-refs` artifact is not bound in $toml.
-        The layer-by-layer PyTorch parity test needs refs-<precision>.safetensors,
-        refs_manifest-<precision>.json and graphs/aten-<precision>/, none of which
-        ship in the `matanyone` model artifact. Re-export and bind them:
-            uv run tools/dump_refs.py --precision autocast --max-size 128
-            uv run tools/dump_refs.py --precision fp32     --max-size 128
-            julia --project=. tools/make_artifacts.jl matanyone-refs""")
+        the `matanyone-refs` artifact is not bound in $toml. The layer-by-layer
+        PyTorch parity test needs it, a packaging error (see JuliaVision's tools/README.md).""")
     artifact_exists(h) || error("""
         `matanyone-refs` is bound but not installed, and its download failed.
-        Check the URL in $toml resolves, or re-bind from a local export.""")
+        Check that the URL in $toml resolves.""")
     return artifact_path(h)
 end
 
@@ -130,8 +125,8 @@ which is what kept a broken download invisible the last time this existed.
 function weightpath()
     p = joinpath(artifactdir(), "weights.safetensors")
     isfile(p) || error("""
-        no weights.safetensors in the `matanyone` artifact ($(artifactdir())).
-        Re-export and re-bind: `julia --project=. tools/make_artifacts.jl matanyone`.""")
+        no weights.safetensors in the `matanyone` artifact ($(artifactdir())),
+        a packaging error (see JuliaVision's tools/README.md).""")
     return p
 end
 
@@ -187,7 +182,7 @@ function refsdir_or_nothing()
 end
 
 """
-    matanyonerefs(precision; dir = refsdir()) -> Dict
+    matanyonerefs(precision) -> Dict
 
 The PyTorch reference activations for one precision.
 """
@@ -199,7 +194,7 @@ function matanyonerefs(precision::AbstractString)
 end
 
 """
-    matanyonemanifest(precision; dir = refsdir()) -> Any
+    matanyonemanifest(precision) -> Any
 
 The manifest beside the references — resolution and per-tensor metadata.
 """
@@ -211,7 +206,7 @@ function matanyonemanifest(precision::AbstractString)
 end
 
 """
-    matanyonegraph(name, precision; dir = refsdir()) -> Graph
+    matanyonegraph(name, precision) -> Graph
 
 One exported ATen graph at one precision. These travel with the references
 rather than with the model, because the autocast/fp32 split exists to *localise a
@@ -435,8 +430,7 @@ function matanyonepropagator(;
         # it; it is also what makes a single-frame call (the live preview while
         # marking) return a matte rather than the seed.
         warmup::Int = 10)
-    ready() || error("no exported graphs in the `matanyone` artifact — " *
-                     "re-bind it with `julia --project=. tools/make_artifacts.jl matanyone`")
+    ready() || error("MatAnyone: the `matanyone` artifact has no exported graphs, a packaging error (see JuliaVision's tools/README.md).")
     # Built on FIRST USE, not here — same reason as the backend above, and the
     # model holds device arrays that belong to whichever context built it.
     built = Ref{Any}(nothing)

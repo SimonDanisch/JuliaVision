@@ -71,9 +71,7 @@ function rifegraph()
     dir = assetdir()
     p = joinpath(dir, "rife.json")
     isfile(p) || throw(ArgumentError(
-        "RIFE 4.x (Practical-RIFE) graph not found at $p. Generate it with " *
-        "`uv run tools/export_rife.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl rife`."))
+        "RIFE 4.x (Practical-RIFE): $p is missing from the `rife` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 
@@ -243,7 +241,7 @@ because the graph's shape is baked.
 framesize(model::RIFE) = model.padded
 
 """
-    rife(; backend = Mantle.defaultbackend(), dir = assetdir()) -> RIFE
+    rife(; backend = Mantle.defaultbackend()) -> RIFE
 
 Load the model. Separate from [`interpolate!`](@ref) so the workload can build it
 in `@setup_workload`, where the loading is not what is being cached.
@@ -251,7 +249,7 @@ in `@setup_workload`, where the loading is not what is being cached.
 function rife(; backend = Mantle.defaultbackend())
     dir = assetdir()
     ready() || throw(ArgumentError(
-        "no export at $dir — generate it with `uv run tools/export_rife.py`"))
+        "RIFE 4.x (Practical-RIFE): the `rife` artifact at $dir is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     model = Model(Dict("rife" => rifegraph()), rifeweights(); backend)
     graph = model.graphs["rife"]
     # The export baked one resolution; read it back rather than assume 1080p, so
@@ -343,8 +341,7 @@ function interpolate!(out::AbstractMatrix{<:AbstractRGB}, model::RIFE,
     w, h = size(a)
     pw, ph = model.padded
     (w <= pw && h <= ph) || throw(ArgumentError(
-        "frame $(size(a)) is larger than the export's $(model.padded); re-export with " *
-        "`uv run tools/export_rife.py --height $h --width $w`"))
+        "frame $(size(a)) is larger than the graph's $(model.padded); larger frames need an artifact exported for them (see JuliaVision's tools/README.md)."))
     0 <= t <= 1 || throw(ArgumentError("t must be in [0, 1], got $t"))
 
     fill!(model.timestep, Float32(t))

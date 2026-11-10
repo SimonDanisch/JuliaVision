@@ -179,7 +179,16 @@ function ready(component::Union{Nothing,Symbol}=nothing)
     end
 end
 
-"""Load one of `:transformer`, `:text_encoder`, or `:vae_decoder`."""
+"""
+    qwenimagegraph(component; dir) -> Graph
+
+Load one of `:transformer`, `:text_encoder`, or `:vae_decoder`.
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
+"""
 function qwenimagegraph(component::Symbol; dir::AbstractString=componentdir(component))
     graph, _ = _component(component)
     path = joinpath(dir, graph)
@@ -194,8 +203,12 @@ Only `:vae_decoder` ships these. The denoiser and text encoder run from
 Comfy-Org's quantized checkpoints — see [`compact_denoiser`](@ref) — because the
 released half-precision pair is some 60 GB and neither fits this device even
 alone. `tools/export_qwenimage21.py` without `--graph-only` still writes
-`transformer.safetensors` and `text_encoder.safetensors`, so this reaches them
-when handed an explicit `dir`.
+`transformer.safetensors` and `text_encoder.safetensors`, which `dir` can point at.
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 """
 function qwenimageweights(component::Symbol; dir::AbstractString=componentdir(component))
     _, weights = _component(component)
@@ -358,6 +371,11 @@ end
                          latent=latentshape(dir), backend=Mantle.defaultbackend(),
                          compact=compact_denoiser())
 
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
+
 Load and prepare the exported denoiser for a prompt of `context_tokens` tokens
 at a latent grid of `latent = (height, width)`.
 
@@ -401,8 +419,7 @@ function qwenimagetransformer(; context_tokens::Integer,
                               compact::Union{Nothing,AbstractDict}=compact_denoiser())
     graph_path = joinpath(dir, first(COMPONENT_FILES[:transformer]))
     isfile(graph_path) || throw(ArgumentError(
-        "no Qwen-Image 2.1 transformer graph at $dir — run " *
-        "`tools/export_qwenimage21.py --graph-only` first"))
+        "Qwen-Image 2.1: the transformer graph is missing from the artifact at $dir, a packaging error (see JuliaVision's tools/README.md)."))
     ctx = Int(context_tokens)
     2 <= ctx <= QWEN_IMAGE_21.max_prompt_tokens || throw(ArgumentError(
         "context_tokens must be in 2..$(QWEN_IMAGE_21.max_prompt_tokens), got $ctx"))
@@ -412,9 +429,7 @@ function qwenimagetransformer(; context_tokens::Integer,
     img = lh * lw
     lo, hi = imagetokenbounds(dir)
     lo <= img <= hi || throw(ArgumentError(
-        "a latent grid of $(lh)x$(lw) is $img image tokens and the graph was " *
-        "exported for $lo..$hi; re-export with wider `Dim(\"i\", ...)` bounds " *
-        "in `tools/export_qwenimage21.py` if this resolution is wanted"))
+        "a latent grid of $(lh)x$(lw) is $img image tokens and the graph was exported for $lo..$hi; this resolution needs an artifact exported with wider `i` bounds (see JuliaVision's tools/README.md)."))
     # `nothing` takes the half-precision route instead, which needs a `dir` that
     # has `transformer.safetensors` in it. Nothing ships one: it is 41 GB, and
     # the whole reason the compact checkpoint is the default is that it fits.
@@ -431,6 +446,11 @@ end
 
 """
     prompttokens(prompt; dir, processor_dir) -> (used, capacity)
+
+**DO NOT DO THIS:** do not pass `dir` or `processor_dir`. The default is the model's
+artifact, the only supported source. A local export or a downloaded checkpoint is
+how mismatched weights and stray multi-gigabyte copies happened; the argument exists
+for export tooling and tests.
 
 How many tokens `prompt` becomes, and how many the exported encoder holds.
 
@@ -541,6 +561,11 @@ end
 
 """
     qwenimagevae(; backend=Mantle.defaultbackend(), dir=vaedir(), halfconvs=true)
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 Load and prepare the VAE decoder. Latent mean/std normalization is part of the
 exported graph, so its input is directly the normalized diffusion state.
@@ -818,6 +843,11 @@ end
 
 """
     qwen_resolution(width, height; dir=assetdir()) -> (width, height)
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 A requested picture size as the reference pipeline takes it: each side floored
 to a multiple of 32 (`vae_scale_factor * 2`, `QwenImage21Pipeline.__call__`),

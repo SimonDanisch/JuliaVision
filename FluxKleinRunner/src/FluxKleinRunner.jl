@@ -62,6 +62,10 @@ prompttemplate(prompt::AbstractString) =
 """
     Assets(variant; graphs, snapshot)
 
+**DO NOT DO THIS** beyond porting: FluxKlein has no artifact yet, and a model read
+from the Hugging Face cache or `gen/` is how mismatched weights and stray multi-
+gigabyte copies happened. This goes once its artifact is published.
+
 Where one variant's graphs (`fluxklein_*.json`) and its Hugging Face snapshot
 (tokenizer, configs, bf16 weights) live. `assets("4B")` finds the snapshot in
 the Hugging Face cache (`HF_HOME`) and the graphs under `gen/fluxklein4b`.

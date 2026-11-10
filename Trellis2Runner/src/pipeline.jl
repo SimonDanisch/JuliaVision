@@ -72,7 +72,7 @@ end
 function graphfile(dir::AbstractString, name::AbstractString)
     p = joinpath(dir, "$name.json")
     isfile(p) || throw(ArgumentError(
-        "TRELLIS.2: no $name.json in $dir. Export it with tools/export_trellis2.py and bind it with tools/make_artifacts.jl."))
+        "TRELLIS.2: $name.json is missing from $dir; its artifacts are not published yet (see JuliaVision's tools/README.md)."))
     return p
 end
 

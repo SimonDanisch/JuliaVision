@@ -1,13 +1,11 @@
 using BonsaiRunner, KernelAbstractions, LinearAlgebra, Mantle
 
-path = get(ENV, "BONSAI_GGUF", "")
-path = isempty(path) ? checkpointpath() : path
 selector = get(ENV, "BONSAI_DEVICE", "")
 dev = isempty(selector) ? Mantle.Device() : Mantle.Device(selector)
 chunk = parse(Int, get(ENV, "BONSAI_PREFILL_CHUNK", "512"))
 ntokens = parse(Int, get(ENV, "BONSAI_PREFILL_TOKENS", "512"))
 
-model = Bonsai2(path; device=dev, progress=true)
+model = Bonsai2(; device=dev, progress=true)
 seedids = encode(model.tokenizer, repeat("Vulkan barriers order memory accesses. ",
                                         cld(ntokens, 4) + 1))
 ids = seedids[1:ntokens]

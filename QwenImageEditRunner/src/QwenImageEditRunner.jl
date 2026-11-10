@@ -48,13 +48,15 @@ replace this definition with `@artifact_str("qwenimageedit")`. Assets come from 
 artifact and from nowhere else — see `DNNKernels/src/assets.jl`.
 """
 assetdir() = error(
-    "QwenImageEditRunner: Qwen-Image-Edit-2511 is not ported yet, so no artifact is bound. " *
-    "Export it with `uv run tools/export_qwenimageedit.py`, bind it with " *
-    "`julia --project=. tools/make_artifacts.jl qwenimageedit`, then set " *
-    "`assetdir() = @artifact_str(\"qwenimageedit\")`.")
+    "QwenImageEditRunner: Qwen-Image-Edit-2511 is not ported yet, so no artifact is bound (porting steps: the `assetdir` docstring).")
 
 """
     qwenimageeditgraph(; dir = assetdir()) -> Graph
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 The exported ATen graph. Throws with the path it looked in rather than returning
 `nothing` for the caller to trip over later.
@@ -62,13 +64,17 @@ The exported ATen graph. Throws with the path it looked in rather than returning
 function qwenimageeditgraph(; dir::AbstractString = assetdir())
     p = joinpath(dir, "qwenimageedit.json")
     isfile(p) || throw(ArgumentError(
-        "Qwen-Image-Edit-2511 graph not found at $p. Generate it with " *
-        "`uv run tools/export_qwenimageedit.py`, or set JULIA_QWENIMAGEEDIT_ASSETS."))
+        "Qwen-Image-Edit-2511: $p is missing; the model is not ported yet."))
     return loadgraph(p)
 end
 
 """
     qwenimageeditweights(; dir = assetdir()) -> Dict
+
+**DO NOT DO THIS:** do not pass `dir`. The default is the model's artifact, the only
+supported source. A local export or a downloaded checkpoint is how mismatched
+weights and stray multi-gigabyte copies happened; the argument exists for export
+tooling and tests.
 
 The exported state dict, keyed the way the graph's `:weight` buffers name it.
 """
@@ -79,7 +85,7 @@ function qwenimageeditweights(; dir::AbstractString = assetdir())
 end
 
 """
-    ready(; dir = assetdir()) -> Bool
+    ready() -> Bool
 
 Whether an export is installed. The workload and the tests both branch on this,
 because neither may fail on a machine that has not run the exporter.

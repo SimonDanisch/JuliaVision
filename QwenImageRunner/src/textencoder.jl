@@ -186,6 +186,11 @@ end
 """
     qwenimagetextencoder(; backend, dir=assetdir(), compact, processor_dir)
 
+**DO NOT DO THIS:** do not pass `dir` or `processor_dir`. The default is the model's
+artifact, the only supported source. A local export or a downloaded checkpoint is
+how mismatched weights and stray multi-gigabyte copies happened; the argument exists
+for export tooling and tests.
+
 Load and prepare the exported Qwen3-VL conditioner.
 
 The encoder decodes to ~6.9 GB of INT8 on the device and the denoiser is

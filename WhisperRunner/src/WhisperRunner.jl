@@ -155,9 +155,7 @@ The exported ATen graph. Throws with the path it looked in rather than returning
 function whispergraph(precision::Symbol = :fp16)
     p = joinpath(assetdir(precision), "whisper.json")
     isfile(p) || throw(ArgumentError(
-        "Whisper large-v3-turbo graph not found at $p. Generate it with " *
-        "`uv run tools/export_whisper.py` and bind it with " *
-        "`julia --project=. tools/make_artifacts.jl`."))
+        "Whisper large-v3-turbo: $p is missing from the `whisper` artifact, a packaging error (see JuliaVision's tools/README.md)."))
     return loadgraph(p)
 end
 
@@ -184,9 +182,7 @@ alignment) should not download the autoregressive half to get them. They are als
 different exports with different lifetimes: re-exporting one does not invalidate
 the other.
 
-Throws until the artifact is bound. Produce it with
-`uv run tools/export_whisper_decoder.py`, then
-`julia --project=. tools/make_artifacts.jl whisper-decoder`.
+It downloads on first use, like the encoder's.
 """
 decoderdir() = @artifact_str("whisper-decoder")
 
@@ -234,7 +230,7 @@ struct WhisperEncoder{B,M}
 end
 
 """
-    whispermodel(; backend = Mantle.defaultbackend(), dir = assetdir()) -> WhisperEncoder
+    whispermodel(; backend = Mantle.defaultbackend()) -> WhisperEncoder
 
 Load the encoder. Downloads the artifact on first use.
 
@@ -244,8 +240,7 @@ buffers, and a module global holding one is baked into the package image with a
 """
 function whispermodel(; backend = Mantle.defaultbackend(), precision::Symbol = :fp16)
     ready() || throw(ArgumentError(
-        "no export in the whisper artifact — generate it with " *
-        "`uv run tools/export_whisper.py`"))
+        "Whisper large-v3-turbo: the `whisper` artifact is incomplete, a packaging error (see JuliaVision's tools/README.md)."))
     WhisperEncoder(backend, Model(Dict("whisper" => whispergraph(precision)),
                                   whisperweights(precision); backend))
 end
