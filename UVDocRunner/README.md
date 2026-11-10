@@ -25,22 +25,14 @@ its device: Mantle submits from there.
 UVDoc estimates geometry; it does not guarantee that an already flat page
 remains unchanged.
 
-## Export and validation
+## Assets and validation
 
-Code and weights: Apache-2.0. Model:
-[PaddlePaddle/UVDoc_safetensors](https://huggingface.co/PaddlePaddle/UVDoc_safetensors),
+One artifact, `uvdoc`, downloaded on first use. Code and weights: Apache-2.0.
+Model: [PaddlePaddle/UVDoc_safetensors](https://huggingface.co/PaddlePaddle/UVDoc_safetensors),
 the Transformers port of [UVDoc](https://github.com/tanguymagne/UVDoc).
-7.9M parameters, fp32. The export reverses the first convolution's channels
-so the Julia API accepts RGB; it checks against the unmodified BGR model.
+7.9M parameters, fp32. The first convolution's channels are reversed so the
+Julia API takes RGB; the export is checked against the unmodified BGR model.
 
-```sh
-uv run tools/export_uvdoc.py --reference-image curled-page.jpg
-```
-
-Then run `include("tools/make_artifacts.jl"); makeartifacts(["uvdoc"])` in
-Julia. This binds a local artifact and prints the separate upload command.
-`gen/graphs/uvdoc/provenance.json` records the resolved upstream revision.
-The exporter writes PyTorch inputs, predicted grid and full-resolution output
-to `reference.safetensors`. Tests compare the device's preprocessing, the
-network and the warp with them separately, plus identity, reflection and
-border grids written where the network writes its own.
+Tests compare the device's preprocessing, the network and the warp with
+PyTorch's inputs, predicted grid and full-resolution output separately, plus
+identity, reflection and border grids written where the network writes its own.

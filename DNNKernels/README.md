@@ -10,12 +10,13 @@ Vulkan through Lava, on Metal, and on ROCm where Mantle has those backends.
 ## Running an exported model
 
 ```julia
-using DNNKernels
+using DNNKernels, DepthAnythingRunner
 using DNNKernels: toback
 import Mantle
 
-graph   = loadgraph("depthanything.json")          # what tools/export_*.py write
-weights = readsafetensors("weights.safetensors")
+dir     = DepthAnythingRunner.assetdir()            # the runner's artifact
+graph   = loadgraph(joinpath(dir, "depthanything.json"))
+weights = readsafetensors(joinpath(dir, "weights.safetensors"))
 backend = Mantle.defaultbackend()
 m = Model(Dict("depthanything" => graph), weights; backend)
 

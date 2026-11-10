@@ -286,6 +286,4 @@ downloads them.
 | KokoroRunner | `kokoro`, `kokoro-refs` | 356 MB, 4.2 MB |
 | BonsaiRunner | `bonsai2-ptq1-p1` … `-p4` | 5.9 GB |
 
-Changing a model's assets means re-binding its artifact: re-export, then
-`tools/make_artifacts.jl <name>` hashes the tree and rewrites `Artifacts.toml`,
-and `tools/publish_artifacts.jl` uploads it.
+Making and publishing artifacts is a maintainer task: [tools/README.md](tools/README.md).

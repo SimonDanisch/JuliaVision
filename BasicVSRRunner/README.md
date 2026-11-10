@@ -16,8 +16,8 @@ hr = upscale(m, lq)                    # (256, 256, 3, 5, 1) on the device
 KA.synchronize(m.backend)
 ```
 
-The export is static: five 64x64 frames. Another clip length or frame size is a
-re-export (`tools/export_basicvsrpp.py --frames T --size S`), not an argument.
+The graph is static: five 64x64 frames. Another clip length or frame size needs
+a new artifact, not an argument.
 The output is not clamped; the model overshoots edges slightly.
 
 **The degradation matters.** REDS4's low-resolution frames are MATLAB

@@ -74,15 +74,7 @@ A caller with its page on the device already writes it into
 `orientation`, `detect` or `recognize`; images on the host are uploaded by the
 same calls. Use a model on the thread that made its device.
 
-## Making the assets
+## Assets
 
-```
-uv run --project <env with torch + transformers> tools/export_ppocrv6.py --device cpu \
-    --reference-image <a page>
-julia --project=<env> tools/make_artifacts.jl ppocrv6_det ppocrv6_rec ppocr_docori
-```
-
-CPU export is fine: the recogniser's two attention blocks decompose into `bmm`
-and `_softmax`, over a few hundred tokens. `--verify` writes small graphs with
-every node's PyTorch result for `DNNKernels.verifygraph`. Give it real text:
-a blank line verified clean while `max.dim` was still wrong.
+Three artifacts, `ppocrv6_det`, `ppocrv6_rec` and `ppocr_docori`, downloaded on
+first use.

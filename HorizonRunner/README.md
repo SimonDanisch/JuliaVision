@@ -6,7 +6,7 @@ weights (18.9 GiB on the device instead of 65) and a 4096-slot KV cache.
 Apache-2.0.
 
 Graphs, tokenizer and fp16 weights are lazy Julia artifacts, downloaded on first
-use and shared across environments. No `gen/` directory is needed. The weights
+use and shared across environments. The weights
 occupy 64.78 GiB on disk because they store almost every parameter at 16 bits;
 the 34.43 GiB Q8 GGUF used for llama.cpp benchmarks stored them at 8 bits.
 HorizonRunner quantizes to Q4_K_M by default (18.9 GiB on the device). Keeping
@@ -97,21 +97,11 @@ quantized again and appended; delete the directory to reclaim the old bytes.
 earlier in itself, and checks them in one pass of `horizon32b_verify_bucket_8`,
 whose eight positions cost 123 ms against 102 ms for one. The tokens are the
 same as without; what it saves depends on how much the text repeats itself
-(here 20 of 204 guesses were kept). The verify bucket is exported with
-`tools/export_horizon32b.py --graphs-only --verify 8`.
+(here 20 of 204 guesses were kept).
 
-## Publishing a new export
-
-Run `tools/publish_horizon_artifacts.jl` with the graph export directory, the
-upstream tokenizer directory, the tiny fixture directory and a temporary work
-directory. It creates the artifact trees directly in the depot, checks each
-tensor's SHA-256 against the export, uploads immutable archives to `assets-v1`,
-and checks GitHub's archive digests before replacing `Artifacts.toml`. It uses
-the existing `gh` login; `HORIZON_GZIP` can point to `pigz` for faster compression.
+## Assets
 
 The graph artifact carries the tokenizer and a weight index; the weights are
 mapped directly from their artifact shards without assembling another full
 checkpoint on disk. Importing the package and calling `ready()` download
 nothing. The small random-model tests use their own `horizon32b-tiny` artifact.
-After verifying the published model, the generated weight export and temporary
-packaging files can be removed. Commit the loader and `Artifacts.toml` together.

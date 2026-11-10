@@ -36,10 +36,6 @@ one workgroup per slice), and `pow.Scalar`, `min.dim` and `any.dims`.
 
 ## Assets
 
-Code and weights: Apache-2.0, `PaddlePaddle/PP-DocLayoutV3_safetensors`
-through Hugging Face Transformers.
-
-```sh
-uv run tools/export_ppdoclayout.py --reference-image page.png
-julia --project=<env> tools/make_artifacts.jl ppdoclayoutv3
-```
+One artifact, `ppdoclayoutv3`, downloaded on first use. Code and weights:
+Apache-2.0, `PaddlePaddle/PP-DocLayoutV3_safetensors` through Hugging Face
+Transformers.

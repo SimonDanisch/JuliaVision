@@ -47,13 +47,12 @@ amd = Bonsai2(device=Mantle.Device("radeon"), context=4096)
 cpu = Bonsai2(device=Mantle.Device("lavapipe"), context=256)
 ```
 
-The no-path constructor resolves the official PTQ1 GGUF from four lazy Julia
+`Bonsai2()` resolves the official PTQ1 GGUF from four lazy Julia
 artifacts attached to JuliaVision's `assets-v1` release. Four parts are required
 because the 5.95 GB checkpoint exceeds GitHub's 2 GiB per-asset limit. On first
 use BonsaiRunner downloads and verifies each part, assembles the original GGUF
 in its Scratch.jl cache, and verifies the upstream SHA-256. Allow about 12 GB of
-local storage for the artifact parts plus the assembled mmap-ready file. An
-explicit `Bonsai2(path; ...)` still selects a local checkpoint.
+local storage for the artifact parts plus the assembled mmap-ready file.
 
 The runtime has batch-one greedy decode, the 48 Gated DeltaNet states, the
 checkpoint's byte-level Qwen tokenizer, and the complete 64-layer forward pass.

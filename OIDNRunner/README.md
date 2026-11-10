@@ -49,32 +49,16 @@ DNNKernels graph as the exact-reference mode.
 The ROCm backend is preferred when AMDGPU is loaded (`preferredbackend()`), the
 platform default (Vulkan) otherwise. The same kernels serve both.
 
-## Build the assets
+## Assets
 
-From the workspace root, with the reference clone at \`dev/oidn\`:
-
-    uv run --no-project --python 3.12 --index https://download.pytorch.org/whl/cpu \
-      --with torch==2.9.1+cpu --with safetensors --with numpy \
-      python dev/JuliaVision/tools/export_oidn.py --checkout dev/oidn \
-      --output dev/JuliaVision/gen/graphs/oidn
-    julia --project=. dev/JuliaVision/tools/make_oidn_artifacts.jl
-
-The exporter verifies the Git LFS weight SHA256 values. Provenance pins code
-commit \`6602ee2ca38a1a2a02135beed8f6e68eed630180\` and weight commit
-\`28883d1769d5930e13cf7f1676dd852bd81ed9e7\`.
-The packer installs an immutable local artifact and creates
-\`oidn-models.tar.gz\`. The current artifact is hosted in the repository's
-existing \`assets-v1\` release; Julia downloads it on first use and verifies
-the archive SHA256 and artifact tree hash. Workers need no manual model copy.
-Repacking unchanged content preserves its published download declaration.
-For new content, upload the archive first, then supply its actual immutable
-URL as the packer's second argument to bind that archive's SHA256. The packer
-does not create releases or upload assets itself.
+One artifact, `oidn` (45 MB): the albedo, normal and HDR networks with the
+official weights, their provenance, `LICENSE` and `NOTICE`. It downloads on
+first use.
 
 ## Use
 
     using OIDNRunner, Mantle
-    d = OIDNDenoiser() # installed artifact, or pass an explicit export directory
+    d = OIDNDenoiser()
     # Exact-reference mode: OIDNDenoiser(; precision=Float32, tilesize=768).
     # Default 2048-pixel tiles avoid redundant overlap at 1080p. Lower tilesize
     # trades extra processing for lower GPU memory use.
@@ -85,31 +69,20 @@ does not create releases or upload assets itself.
     filtered = denoise(d, color; albedo=clean.albedo, normal=clean.normal, clean_aux=true)
     OIDNRunner.release!(d)
 
-Loading VideoEditor activates the optional extension. \`OIDNDenoiseEffect\`
-then lazily uses the installed model artifact. \`install!(d)\` selects a
+Loading VideoEditor activates the optional extension. `OIDNDenoiseEffect`
+then lazily uses the model artifact. `install!(d)` selects a
 specific denoiser instance. Strength and guide-prefiltering are editable,
 non-destructive effects; the stored source radiance/guides never get filtered
 in place. Invalid legacy guides are refused rather than silently used.
-VideoEditor's \`refreshguides!(clip, sourceframe)\` upgrades guides with primary
+VideoEditor's `refreshguides!(clip, sourceframe)` upgrades guides with primary
 rays only, retaining the original radiance and coverage.
 
 ## Verification
 
 The independent references in `test/references/` are checked in with their
-upstream revisions and SHA-256 hashes in `provenance.json`. Tests load them
-without a local model-export directory. To regenerate the network references,
-pass `--references dev/JuliaVision/OIDNRunner/test/references` to
-`tools/export_oidn.py`. Generate pipeline references with
-`tools/reference_oidn.py` and the released upstream v2.5.1 library (a test-only
-dependency):
-
-    ... reference_oidn.py --library /path/libOpenImageDenoise.so \
-      --models /path/to/pinned/oidn/weights \
-      --output dev/JuliaVision/OIDNRunner/test/references/pipeline-reference.safetensors
-    ... reference_oidn.py ... --width 815 --height 47 \
-      --output dev/JuliaVision/OIDNRunner/test/references/tiled-reference.safetensors
-
-Run \`OIDNRunner/test/runtests.jl\` in the workspace environment.
+upstream revisions and SHA-256 hashes in `provenance.json`; the network
+references come from PyTorch, the pipeline references from the released OIDN
+v2.5.1 library. Run `OIDNRunner/test/runtests.jl` in the workspace environment.
 In explicit Float32 mode on Bosgame's Radeon 8060S, all three networks match PyTorch within **1.4e-6**
 maximum absolute error. The complete prefiltered HDR pipeline matches released
 OIDN with **1.5e-6 relative RMS**, or **1.9e-6** on the overlapping-tile test.

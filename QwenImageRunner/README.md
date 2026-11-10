@@ -323,8 +323,7 @@ pipeline. Both examples below start from this README's own fox and harbor.
 </tr>
 </table>
 
-Each image reaches the model twice, and each path is its own export
-(`tools/export_qwenimage21_condition.py`):
+Each image reaches the model twice, and each path is its own graph:
 
 - **Into the prompt**, through Qwen3-VL's **vision tower** (Float32, with the
   attention's operands at Float16: its residual stream reaches 1.5e4). The
@@ -387,19 +386,12 @@ its own size.
   language model with M-RoPE and DeepStack inputs, the VAE encoder, the joint
   layout and rotary tables, and the segmented, cached denoiser.
 
-## Neither the prompt length nor the resolution is bound at export
-
-```sh
-uv run tools/export_qwenimage21.py --component text_encoder
-uv run tools/export_qwenimage21.py --component transformer --graph-only
-uv run tools/export_qwenimage21.py --component vae
-```
+## Neither the prompt length nor the resolution is fixed
 
 Every graph carries its lengths as symbols: the text encoder's prompt axis `t`,
 the denoiser's prompt axis `t` and image axis `i`, the decoder's latent grid `h`
-and `w`. `--prompt-tokens`, `--height` and `--width` only size the example each
-graph is traced at. The bounds each symbol was checked for are in the two
-`*_export.json` files, and the runner reads them rather than assuming.
+and `w`. The bounds each symbol was checked for are in the two `*_export.json`
+files, and the runner reads them rather than assuming.
 
 The denoiser graph carries a `t` symbol for the prompt axis, and
 `qwenimagetransformer(; context_tokens)` binds it when the plan is recorded —
@@ -407,14 +399,12 @@ once per generation, which is when the prompt is already known. That is what
 the reference does: `QwenImagePipeline` pads nothing for a single prompt and
 `encode_prompt` drops the mask outright when it is all ones, so
 `QwenImage21Transformer2DModel.forward` runs at whatever length it is given.
-`--context-tokens` now only sizes the tracing example.
 
 **The rotary tables are graph inputs, not constants.** They are not independent
 of the prompt length: `QwenImage21Rope` advances a shared position one step per
 text token and then freezes the image block's frame axis at the position the
-text reached, so the image's rotary depends on how long the text was. Earlier
-exports lifted them as constants, which silently bound the whole graph to one
-prompt. `rotarytables` is the port of that loop and runs on the host per
+text reached, so the image's rotary depends on how long the text was; as
+constants they would bind the whole graph to one prompt. `rotarytables` is the port of that loop and runs on the host per
 generation, as the reference's `self.pos_embed(...)` does per forward. It
 matches PyTorch to 5.96e-8 — half a Float32 ULP — over every element at both
 lengths that were checked.
@@ -452,22 +442,14 @@ split byte-for-byte by `tools/shard_safetensors.jl` and merged back on load.
 The split was checked by comparing every tensor of the merge against the
 original: 649 and 1762 tensors, zero mismatches.
 
-Re-pack and re-bind them with:
-
-```sh
-julia --project=. tools/make_artifacts.jl qwenimage21 qwenimage21-vae qwenimage21-refs \
-    qwenimage21-dit-w{1,2,3,4,5,6} qwenimage21-enc-w{1,2,3,4,5}
-```
-
 ## Licence
 
 The weights are **not** ours to relicense. Qwen-Image 2.1 is released under the
 Qwen Research License Agreement, which permits redistribution (section 3) on
 three conditions: every recipient gets a copy of the Agreement, modified files
 say they were modified, and the attribution notice from 3(c) travels with them.
-Every artifact above therefore carries `LICENSE` and `NOTICE`, copied by
-`make_artifacts.jl` from `tools/licenses/qwenimage21/`; the `NOTICE` also lists
-what was changed and how.
+Every artifact above therefore carries `LICENSE` and `NOTICE`; the `NOTICE`
+also lists what was changed and how.
 
 Two terms bind anyone who downloads them. Section 2(b) grants a
 **non-commercial** licence only, for research and academic use; commercial use
