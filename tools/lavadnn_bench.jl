@@ -1,3 +1,4 @@
+import MatAnyoneRunner
 # Bench harness for the DNNKernels inference loop. Reload after a restart with
 #   include("tools/lavadnn_bench.jl")
 using DNNKernels, KernelAbstractions, Lava, Statistics, LinearAlgebra, Logging
@@ -33,10 +34,10 @@ end
 
 """Model + a state warmed through the mask-ingest and first-frame paths."""
 function warmmodel(m, image, mask)
-    s = DNNKernels.initstate(m, size(image, 1), size(image, 2))
-    DNNKernels.step!(m, s, image; mask)
+    s = MatAnyoneRunner.initstate(m, size(image, 1), size(image, 2))
+    MatAnyoneRunner.step!(m, s, image; mask)
     for _ in 1:3
-        DNNKernels.step!(m, s, image; firstframe=true)
+        MatAnyoneRunner.step!(m, s, image; firstframe=true)
     end
     KA.synchronize(m.backend)
     (m, s)
@@ -44,11 +45,11 @@ end
 
 """Median ms per `step!`, synchronising each step."""
 function benchsteps(m, s, image; n=25)
-    DNNKernels.step!(m, s, image); KA.synchronize(m.backend)
+    MatAnyoneRunner.step!(m, s, image); KA.synchronize(m.backend)
     ts = Float64[]
     for _ in 1:n
         t = time_ns()
-        DNNKernels.step!(m, s, image)
+        MatAnyoneRunner.step!(m, s, image)
         KA.synchronize(m.backend)
         push!(ts, (time_ns() - t) / 1e6)
     end
@@ -57,11 +58,11 @@ end
 
 """Host-side (record) time vs wall, to see whether the step is CPU- or GPU-bound."""
 function splitcost(m, s, image; n=20)
-    DNNKernels.step!(m, s, image); KA.synchronize(m.backend)
+    MatAnyoneRunner.step!(m, s, image); KA.synchronize(m.backend)
     host = Float64[]; wall = Float64[]
     for _ in 1:n
         t = time_ns()
-        DNNKernels.step!(m, s, image)
+        MatAnyoneRunner.step!(m, s, image)
         push!(host, (time_ns() - t) / 1e6)
         KA.synchronize(m.backend)
         push!(wall, (time_ns() - t) / 1e6)

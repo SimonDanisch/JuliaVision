@@ -55,3 +55,5 @@ end
 # Moved from DNNKernels/test — it needs this model's weights and references, and
 # a kernel library's suite should not require a model package to run.
 include("test_parity.jl")
+
+include("test_memory_release.jl")

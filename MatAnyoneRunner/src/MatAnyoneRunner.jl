@@ -20,7 +20,13 @@ import Mantle
 using ColorTypes: red, green, blue
 using Mantle: @setup_workload, @compile_workload
 using LazyArtifacts
-using DNNKernels: Model, initstate, step!, toback, loadgraph, readsafetensors
+# The graph model stays generic; clip state and its memory bank belong here.
+using DNNKernels: Model, loadgraph, readsafetensors, accum, call, launch!, materialize, toback
+const M = Mantle
+const KI = DNNKernels.KI
+
+include("memory.jl")
+include("driver.jl")
 
 export matanyonemodel, runmatanyone, matanyonepropagator
 export matanyonegraph, matanyoneweights, matanyonerefs, matanyonemanifest
@@ -368,7 +374,7 @@ function propagatematte(model, backend, frames, seeds, warmup::Int; progress = n
             # `prob` with the supplied selection outright, so taking it would
             # hand the user's rough box back as the matte — on exactly the
             # frame they are looking at after marking. Re-run the frame to get
-            # a segmented one, which is what `DNNKernels.matte` does for its own
+            # a segmented one, which is what `matte` does for its own
             # first frame and the reason its result looks nothing like this
             # one did.
             a = nothing
@@ -425,7 +431,7 @@ function matanyonepropagator(;
         # the thread that will use it.
         backend = nothing,
         # Re-runs of a seeded frame, settling the memory bank before its own matte
-        # is read. `inference_matanyone2.py` uses 10 and `DNNKernels.matte` matches
+        # is read. `inference_matanyone2.py` uses 10 and `matte` matches
         # it; it is also what makes a single-frame call (the live preview while
         # marking) return a matte rather than the seed.
         warmup::Int = 10)

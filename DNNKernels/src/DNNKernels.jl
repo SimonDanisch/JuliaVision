@@ -45,7 +45,7 @@ import AcceleratedKernels as AK
 import Atomix
 import GPUArrays
 
-export loadgraph, launch!, readsafetensors, verifygraph, Model, matte, step!
+export loadgraph, launch!, readsafetensors, verifygraph, Model
 export ConvRotQInt8Matrix, ConvRotQInt8HostMatrix, convrotqint8
 export W4A8ConvRotHostMatrix, w4a8convrot
 export readgguf, GGUFFile, GGUFTensor, gguftensor, ggufbytes
@@ -86,7 +86,6 @@ include("kernels/extern/spectral.jl")   # STFT + mel, on Lava's FFT
 include("kernels/layernorm.jl")
 include("kernels/resample.jl")
 include("ops.jl")
-include("memory.jl")
 include("plan.jl")
 include("hoistcasts.jl")
 include("foldbn.jl")
@@ -118,7 +117,7 @@ include("semanticptq.jl")
 export SemanticGraph, SemanticValue, semanticop!, semanticweights!, semanticgraph, emitsemantic!
 export standardop!, semantickernel!, kernelresults, semanticfusion
 include("halfconvs.jl")    # after emit.jl: it declares emitop! methods
-include("driver.jl")
+include("model.jl")
 include("flowmatch.jl")
 include("wan.jl")
 # `sam2.jl` moved to SAM2Runner. It arrived here in `7273481` "Import LavaDNN as

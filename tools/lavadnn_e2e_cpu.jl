@@ -1,3 +1,4 @@
+import MatAnyoneRunner
 """
 End-to-end driver check on the CPU backend, against PyTorch's own alpha.
 
@@ -28,12 +29,12 @@ function main(precision = "fp32")
                              "segment", "readout_query")),
               readsafetensors(joinpath(GEN, "weights.safetensors")))
     end
-    s = DNNKernels.initstate(m, size(img, 1), size(img, 2))
-    DNNKernels.step!(m, s, img; mask = collect(mask))
+    s = MatAnyoneRunner.initstate(m, size(img, 1), size(img, 2))
+    MatAnyoneRunner.step!(m, s, img; mask = collect(mask))
     for _ in 1:3
-        DNNKernels.step!(m, s, img; firstframe = true)
+        MatAnyoneRunner.step!(m, s, img; firstframe = true)
     end
-    a = DNNKernels.step!(m, s, img)
+    a = MatAnyoneRunner.step!(m, s, img)
 
     err = abs.(a .- ref)
     mean = sum(err) / length(err)

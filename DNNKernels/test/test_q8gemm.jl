@@ -79,20 +79,30 @@ end
 
 @testset "pipelined int8 GEMM for wide products" begin
     backend = Mantle.defaultbackend()
-    dev = DNNKernels.caps(backend)
-    # Which products take it: wide ones, measured at Qwen-Image 2.1's four. Only where the
-    # staged cooperative-matrix kernels exist; elsewhere no product does.
-    staged(cfg) = DNNKernels.coopmatkernels(dev) ? cfg : nothing
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == staged((2, 4, 2, 2, 32))
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 12288, 4096, 4224) == staged((2, 4, 2, 2, 32))
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4224) == staged((2, 4, 2, 2, 32))
-    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 12288, 4224) == staged((4, 2, 2, 2, 32))
+    host = DNNKernels.caps(backend)
+    # On this device: only where the staged cooperative-matrix kernels exist; elsewhere no
+    # product takes it.
+    staged(cfg) = DNNKernels.coopmatkernels(host) ? cfg : nothing
+    @test DNNKernels.q8gemm_pipelined_tile(host, Float16, 24576, 4096, 4224) == staged((2, 4, 2, 2, 32))
+    @test DNNKernels.q8gemm_pipelined_tile(host, Float16, 12288, 4096, 4224) == staged((2, 4, 2, 2, 32))
+    @test DNNKernels.q8gemm_pipelined_tile(host, Float16, 4096, 4096, 4224) == staged((2, 4, 2, 2, 32))
+    @test DNNKernels.q8gemm_pipelined_tile(host, Float16, 4096, 12288, 4224) == staged((4, 2, 2, 2, 32))
+    # The selection rule, under the capabilities it requires: 32-lane 16x16
+    # cooperative matrices. Derived from this device, so the budgets are real.
+    dev = DNNKernels.M.DeviceCaps(host; coopmat = true, coopmatsubgroup = 32, tile = 16,
+                                  workgrouplimit = max(host.workgrouplimit, 256),
+                                  sharedbudget = max(host.sharedbudget, 32768))
+    # Which products take it: wide ones, measured at Qwen-Image 2.1's four.
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 24576, 4096, 4224) == (2, 4, 2, 2, 32)
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 12288, 4096, 4224) == (2, 4, 2, 2, 32)
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4224) == (2, 4, 2, 2, 32)
+    @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 12288, 4224) == (4, 2, 2, 2, 32)
     # Narrow ones keep the tiles measured for them.
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 53248, 5120, 512) === nothing
     @test DNNKernels.q8gemm_pipelined_tile(dev, Float16, 4096, 4096, 4118) === nothing
     @test DNNKernels.q8gemm_pipelined_tile(dev, Int8, 4096, 4096, 4224) === nothing
 
-    if dev.coopmat && dev.coopmatsubgroup == 32 && dev.tile == 16
+    if host.coopmat && host.coopmatsubgroup == 32 && host.tile == 16
         rng = MersenneTwister(19)
         # Both tiles, and a k deep enough to run the prefetch through many blocks.
         for (m, k, n) in ((256, 512, 1024), (256, 1024, 1024))
@@ -104,7 +114,7 @@ end
             bh = Float16.(randn(rng, Float32, k, n))
             biash = randn(rng, Float32, m)
             exact = scale .* (qf * Float32.(bh)) .+ biash
-            cfg = DNNKernels.q8gemm_pipelined_tile(dev, Float16, m, k, n)
+            cfg = DNNKernels.q8gemm_pipelined_tile(host, Float16, m, k, n)
             @test cfg !== nothing
             b = DNNKernels.toback(backend, bh)
             bias = DNNKernels.toback(backend, biash)
